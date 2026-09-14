@@ -73,6 +73,25 @@ class RunnerSpecTests(unittest.TestCase):
             self.assertEqual(data["model"]["model"], "deepseek-v4-flash")
             self.assertEqual(spec["model"]["api_key_env"], "OPENAI_API_KEY")
             self.assertNotIn("sk-", path.read_text())
+            self.assertIsNone(data["previous_requirements"])
+
+    def test_should_snapshot_the_template_requirement_table_before_it_is_overwritten(self):
+        import tempfile
+        from pathlib import Path
+        from rust_engine import snapshot_previous_requirements
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            self.assertIsNone(snapshot_previous_requirements(out))  # no template table
+            table = out / ".arc" / "traceability" / "requirements.json"
+            table.parent.mkdir(parents=True)
+            table.write_text(json.dumps({"REQ-1": {"id": "REQ-1", "description": "old"}, "ROOT": {"id": "ROOT"}}))
+            copy = snapshot_previous_requirements(out)
+            self.assertEqual(copy, out / ".arc" / "previous-requirements.json")
+            self.assertEqual(json.loads(copy.read_text())["REQ-1"]["description"], "old")
+            path = out / ".arc" / "runner-spec.json"
+            write_runner_spec(path, req_dir=out / "req", output_dir=out, web_port=3000, tests_dir=None,
+                              previous_requirements=copy)
+            self.assertEqual(json.loads(path.read_text())["previous_requirements"], str(copy))
 
 
 if __name__ == "__main__":

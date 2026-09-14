@@ -34,6 +34,10 @@ pub struct RunnerSpec {
     /// The adapter bundle (a `local-grader/` Playwright may live there).
     #[serde(default)]
     pub bundle_dir: Option<PathBuf>,
+    /// Evolution: the previous run's requirement table, copied by the glue before
+    /// the platform runtime stores the new tree over `.arc/traceability/requirements.json`.
+    #[serde(default)]
+    pub previous_requirements: Option<PathBuf>,
     pub model: ModelRoute,
 }
 
@@ -195,6 +199,28 @@ mod tests {
         assert_eq!(spec.model.api_key_env, "OPENAI_API_KEY");
         assert_eq!(spec.model.provider, "openai");
         assert!(spec.tests_dir.is_none());
+        assert!(spec.previous_requirements.is_none());
+    }
+
+    #[test]
+    fn should_read_the_previous_requirement_snapshot_path_when_the_glue_provides_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runner-spec.json");
+        std::fs::write(
+            &path,
+            json!({"requirement_path": "/tmp/task", "output_dir": "/tmp/out", "web_port": 3000,
+                "previous_requirements": "/tmp/out/.arc/previous-requirements.json",
+                "model": {"model": "deepseek-v4-flash", "base_url": "https://api.arc-bench.com/v1"}})
+            .to_string(),
+        )
+        .unwrap();
+        let spec = RunnerSpec::read(&path).unwrap();
+        assert_eq!(
+            spec.previous_requirements.as_deref(),
+            Some(std::path::Path::new(
+                "/tmp/out/.arc/previous-requirements.json"
+            ))
+        );
     }
 
     #[test]

@@ -112,7 +112,25 @@ def log_factory():
     return log
 
 
-def write_runner_spec(path: Path, *, req_dir: Path, output_dir: Path, web_port: int, tests_dir: Path | None) -> dict:
+def snapshot_previous_requirements(output_dir: Path) -> Path | None:
+    """Copy the previous run's `.arc/traceability/requirements.json` (committed with an
+    Evolution template) to `.arc/previous-requirements.json` before the runtime stores
+    the new tree over it. Returns the copy's path, or None when there is no table."""
+    source = output_dir / ".arc" / "traceability" / "requirements.json"
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or not data:
+        return None
+    target = output_dir / ".arc" / "previous-requirements.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def write_runner_spec(path: Path, *, req_dir: Path, output_dir: Path, web_port: int, tests_dir: Path | None,
+                      previous_requirements: Path | None = None) -> dict:
     base_url = os.environ.get("OPENAI_BASE_URL", "")
     provider = os.environ.get("OCTOS_PROVIDER") or ("anthropic" if "anthropic" in base_url else "openai")
     spec = {
@@ -122,6 +140,7 @@ def write_runner_spec(path: Path, *, req_dir: Path, output_dir: Path, web_port: 
         "web_port": int(web_port),
         "tests_dir": str(tests_dir) if tests_dir else None,
         "bundle_dir": str(BUNDLE_DIR),
+        "previous_requirements": str(previous_requirements) if previous_requirements else None,
         "model": {
             "provider": provider,
             "model": os.environ.get("OCTOS_MODEL") or os.environ.get("MODEL", ""),
@@ -190,12 +209,18 @@ def main(args) -> int:
     runtime.events.mark_run_started("octos bundle started (rust engine)")
     translator = Translator(runtime, log)
     try:
+        # Evolution: the template's committed requirement table is what the kernel
+        # compares fingerprints against; store_requirement_tree() below overwrites
+        # it with the new tree, so keep a copy first (main.py reads it in the same
+        # order, before storing).
+        previous_path = snapshot_previous_requirements(output_dir)
         tree = legacy.load_requirement_tree(req_dir)
         runtime.traceability.store_requirement_tree(tree)
         tests_dir = legacy.locate_acceptance_tests(tree, BUNDLE_DIR)
         runtime.git.ensure_repo()
         spec_path = output_dir / ".arc" / "runner-spec.json"
-        write_runner_spec(spec_path, req_dir=req_dir, output_dir=output_dir, web_port=args.web_port, tests_dir=tests_dir)
+        write_runner_spec(spec_path, req_dir=req_dir, output_dir=output_dir, web_port=args.web_port, tests_dir=tests_dir,
+                          previous_requirements=previous_path)
         policy_path = Path(os.environ.get("OCTOS_ARC_POLICY") or (BUNDLE_DIR / "arc-policy.toml"))
         octos_bin = legacy.find_octos()
         log(f"[octos] binary {octos_bin}")

@@ -349,6 +349,17 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 - M1（PR #76）：对照表中标 M1 的行全部落地。
 - M2（本分支）：标 M2 的行全部落地——driver.rs（D1–D5）、guard.rs（G1–G3、A21）、flow.rs 的 tool 模式回合（P2–P4、L7–L11、C14 的切换落地）、内核侧等价物（M5：内核 `OCTOS_DISABLE_STREAMING`、M6：`OCTOS_STDIO_SOLO_TOOLS`、P6 的 tool 模式：`OCTOS_STDIO_REASONING_EFFORT`、B2：profile `gateway.max_iterations`）、hook 改为 `octos arc deny-protected`。M3/M4/M5 的行未动。
 
+#### main 在分支点之后新增的 Python 策略（工作流 A，#79 / #82 / #83；以 main 最新为准，待收编）
+
+| # | Python 策略（arc/CHANGELOG.md 轮次） | 为什么存在 | Rust | 里程碑 |
+|---|---|---|---|---|
+| N1 | 轮 29：`dedupe_nav_links` 从服务端渲染进占位的锚点推导要删的 href（原来固定 /login|/register|/logout） | 通用性复查 | `codegen::dedupe_nav_links` 仍是固定表 | M3 |
+| N2 | 轮 30：探测后没有任何节点的 spec 通过现有应用 → frontend/backend 移到 `.arc/template-discarded/`，按新题从头建 | 云端 c30b29eab45b / 10b04d36f704：平台模板是占位脚手架，被当成可演进的应用 | 未做 | M3 |
+| N3 | 轮 30：codegen 推理档位与 size rule 按 spec 字符数（`OCTOS_ARC_CODEGEN_REASONING_CHARS`=5000）而不是节点数 | 2 节点 Counter 树付了 4.4k 推理 token 还拿到导航/cookie 机制 | `plan.rs` 仍按节点数 | M3 |
+| N4 | 轮 31：`OCTOS_ARC_DRYRUN=1` 用 `DryRunDriver` 替换内核驱动 | 给本工作流做结构对等 | `octos arc run --dry-run`（M1 已有，语义相同） | — |
+| N5 | 轮 32：tiny-spec 档（spec < `OCTOS_ARC_TINY_SPEC_CHARS`=1500）：提示只含 spec 语句 + 一句输出要求，系统提示 "Reply with HTML only."，回复裸 HTML 写成 index.html，harness 写固定静态 server（`TINY_SERVER_JS`），失败回退 compact codegen；`OCTOS_ARC_TINY=0` 关闭 | Smoke 榜前三 ≈250 token/题，我们 ≈845 | 未做 | M3 |
+| N6 | 交接清单：>2 节点树修复轮 3（wf-adapter-30）、`workers_for_final` 450 MiB/worker、`reap_workspace_processes`、`enforce_turn_budget` | wf-adapter-30 | 需逐项核对分支点后的 acceptance.py/guard.py 差异 | M4 |
+
 #### 策略文件 `arc/arc-policy.toml`（← 约 60 个环境变量）
 
 全部 `OCTOS_*` / `OCTOS_ARC_*` 开关映射为有默认值、有注释的字段，环境变量仍可覆盖（命令行 > 环境变量 > 策略文件 > 内置默认）。字段清单与对应环境变量见 `arc/arc-policy.toml` 的注释；`policy::tests` 逐字段断言默认值与 Python 一致、环境变量覆盖生效。留在 Python 胶水的变量：`ARCBENCH_*`（平台输入）、`OCTOS_BIN`、`OCTOS_CACHE_DIR`、`OCTOS_RELEASE_URL`、`OCTOS_ARC_ENGINE`。
@@ -433,3 +444,23 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 
 - **M2 结论**：修后 Rust 4/4 次 10/10（修前 3/4），Python 4/4 次 10/10。同价表估价均值 Rust 修后 $0.034（0.017–0.050）对 Python $0.035（0.017–0.052）；平台拟合估价均值 ¥0.95 对 ¥0.96。请求数：Rust 修后 2/2/13/2 对 Python 2/2/3/2——rs-tb-7 的 13 次是 REQ-1 首轮 5/6、codegen 修复一轮后同一失败再现，按 Python 同样的规则切到 tool 模式修复（一轮 10 次 LLM 调用、13 次工具调用、118,718 prompt 里 101,120 是缓存命中、82 s）后 6/6；这一轮在同价表下 $0.011，在平台拟合价（无缓存折扣）下 ¥0.58，是该题 tool 模式修复的固有成本，Python 路径遇到同样的首轮结果会走同一条路（py-tb-3 的 4/6 一轮 codegen 修复就过了，所以没触发）。REQ-1 首轮 6/6 的比例：修后 3/4，与 Python 的 3/4 相同。「请求数与费用不高于 Python」：费用成立（均值持平、区间重合），请求数在 4 次里 3 次持平、1 次因 tool 模式修复更高。
 - 云端未评测（M5 前不请求云端运行）。
+
+**本机运行与云端窗口的重叠（如实记录）**：本工作流的克隆基于 main@ea503546，本地 `docs/results.md` 还没有「窗口」段；2026-09-14 09:01 UTC 起 C 的 Web 全量串行（bookstack 17fad96c6235 起）占用 key 的公告（c64addcf）在合并 main 时才看到。09:01 UTC 之后本机用该 key 的运行：rs-counter-tool/tool2（09:27、09:36）、py/rs-tb-1…8（09:40–10:54）、py/rs-evo-1/2（10:55–10:56），合计 prompt 559,017 + completion 382,296 token，按平台拟合价约 ¥13.2（同价表 $0.57），会计入正在跑的云端账单，归档时需按此扣除；逐条时间与 token 见 PR。此后本工作流不再用 key，只用 `--dry-run` 做结构验证，直到统筹宣布窗口结束。
+
+### M3：Evolution 探测（PR 待编号；代码随 M2 分支，实测数据如下）
+
+**改动位置**：`arc/rust_engine.py`（`snapshot_previous_requirements`：在平台运行时用新树覆盖 `.arc/traceability/requirements.json` 之前把模板自带的表复制到 `.arc/previous-requirements.json`，路径写进 runner-spec 的 `previous_requirements`）、`crates/octos-arc/src/run.rs`（字段）、`flow.rs`（`previous_requirement_records` 优先读快照）。探测本身（fingerprint → 对未变节点跑 spec 当回归 → 只对未通过节点调模型）在 M1 就已按 Python 搬入。
+
+**M3 对等验证（本机，2026-09-14，模板 = `py-counter-4` 的交付目录，`run-task-local.py --template`，公开测试 2 条）**
+
+| 运行 | 路径 | 请求 | prompt | completion | 耗时 s | 公开测试 | 路径是否正确 |
+|---|---|---:|---:|---:|---:|---|---|
+| py-evo-1 | Python | 1 | 1,054 | 181 | 18 | 2/2 | unchanged [REQ-1]，to implement [REQ-2] |
+| py-evo-2 | Python | 1 | 1,054 | 181 | 18 | 2/2 | 同上 |
+| rs-evo-1 | Rust（修前） | 1 | 1,088 | 178 | 29 | 2/2 | **错**：unchanged {REQ-1, REQ-2}，REQ-2 被当成「未变节点的回归」修了一轮 |
+| rs-evo-2 | Rust（修前） | 1 | 1,088 | 178 | 29 | 2/2 | 同上 |
+| rs-evo-dry | Rust（修后，`--dry-run`） | 0 | 0 | 0 | — | 1/2（REQ-2 无模型） | **对**：unchanged {REQ-1}，to implement [REQ-2]；REQ-1 回归 1/1 |
+
+- 修前结果表面上与 Python 一致（2/2、1 次请求、prompt 相差 34 token），但走错了路：胶水在起内核之前调用 `store_requirement_tree(tree)`，把新树写进了追溯表，内核随后读到的「上一轮的表」就是本轮的树，于是每个节点都「未变」；REQ-2 的 spec 跑出 0/1 被当成回归，走的是回归修复提示而不是实现提示。Python 的 `main.py` 是先读旧表再存新树。修法是先快照旧表；`--dry-run` 已验证路径正确。修后的真实运行（目标 2/2、1 次请求）等 key 窗口结束后补跑。
+- 通用性自查：本节没有新增规则；快照只是顺序修正。
+- 待收编的 Python 新策略见上文「main 在分支点之后新增的 Python 策略」表（N1–N3、N5 归 M3 的后续 PR）。

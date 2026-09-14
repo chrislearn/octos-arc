@@ -169,7 +169,10 @@ impl Flow {
         let output_dir = spec.output_dir.clone();
         let evolution = has_app(&output_dir);
         let unchanged = if evolution {
-            tree::unchanged_node_ids(&ordered, &previous_requirement_records(&output_dir))
+            tree::unchanged_node_ids(
+                &ordered,
+                &previous_requirement_records(&output_dir, spec.previous_requirements.as_deref()),
+            )
         } else {
             BTreeSet::new()
         };
@@ -2481,9 +2484,17 @@ pub fn has_app(output_dir: &Path) -> bool {
         && output_dir.join("backend/package.json").is_file()
 }
 
-/// The previous run's requirement table (committed with the template).
-fn previous_requirement_records(output_dir: &Path) -> BTreeMap<String, Value> {
-    let path = output_dir.join(".arc/traceability/requirements.json");
+/// The previous run's requirement table (committed with the template). The glue
+/// copies it aside before the platform runtime stores the new tree over the
+/// traceability file, so the copy wins when it exists.
+fn previous_requirement_records(
+    output_dir: &Path,
+    snapshot: Option<&Path>,
+) -> BTreeMap<String, Value> {
+    let path = snapshot
+        .filter(|p| p.is_file())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| output_dir.join(".arc/traceability/requirements.json"));
     let Ok(text) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
     };
@@ -2491,4 +2502,31 @@ fn previous_requirement_records(output_dir: &Path) -> BTreeMap<String, Value> {
         return BTreeMap::new();
     };
     map.into_iter().filter(|(_, v)| v.is_object()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn should_prefer_the_previous_requirement_snapshot_over_the_traceability_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let trace = dir.path().join(".arc/traceability");
+        std::fs::create_dir_all(&trace).unwrap();
+        std::fs::write(
+            trace.join("requirements.json"),
+            r#"{"REQ-1": {"id": "REQ-1", "description": "new"}, "REQ-2": {"id": "REQ-2"}}"#,
+        )
+        .unwrap();
+        let snapshot = dir.path().join(".arc/previous-requirements.json");
+        std::fs::write(
+            &snapshot,
+            r#"{"REQ-1": {"id": "REQ-1", "description": "old"}}"#,
+        )
+        .unwrap();
+        let records = super::previous_requirement_records(dir.path(), Some(&snapshot));
+        assert_eq!(records.len(), 1);
+        assert_eq!(records["REQ-1"]["description"], "old");
+        let missing = dir.path().join(".arc/nope.json");
+        let fallback = super::previous_requirement_records(dir.path(), Some(&missing));
+        assert_eq!(fallback.len(), 2);
+    }
 }
