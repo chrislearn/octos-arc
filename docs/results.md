@@ -333,3 +333,13 @@
 - 包内 public-tests 已逐文件与平台 `/requirements/<id>/tests` 比对：六题全部一致（keep 33、bookstack 35、stackoverflow 67、prestashop 87、ctrip 126、12306 118 个文件，含 helpers/support）。12306 的 138 条测试分布在 118 个文件，117 个 ATOMIC 节点。
 - 顺序建议：bookstack（34 节点，最便宜）→ stackoverflow → prestashop → ctrip → 12306；每题串行、key 空闲；每题跑完先看评测阶段是否仍被 SIGKILL 再跑下一题。
 - 时长上限：当前 main 默认总预算 = 1500 s × 节点数（12306 约 49 h），实际按 ~9 min/节点估算；若需要封顶可用 OCTOS_TIME_BUDGET，但平台运行无法传环境变量，需改 main.py 默认值。
+
+## 窗口（ARCBENCH key 占用状态 · 所有工作流跑本机/云端前先看这里）
+
+最后更新：2026-09-14 07:58 UTC（工作流 C 维护；有云端运行时 key 必须空闲，本机运行会污染平台计费）
+
+| 状态 | 内容 | 预计结束 |
+|---|---|---|
+| **占用中** | 云端 arc-bench-web--keep 运行 2224a9013528（main@032a57ac，统筹执行，2026-09-14 05:54 UTC 起，状态 RUNNING） | 按本机同题 5 h 估算约 2026-09-14 11:00 UTC；以统筹发「窗口结束」为准 |
+| 排队 | keep 结束后紧接 octos 官方账号五道小题串行（smoke counter/dice、evolution counter/dice、ticket-booking，统筹执行，约 15 min） | 紧随其后 |
+| 之后 | 空闲；D 的本机验证与 A 的本机运行可用 key。C 发起云端运行前会先更新本段 | — |
