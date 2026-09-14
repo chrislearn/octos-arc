@@ -160,11 +160,11 @@ def summary_table(boards: dict[str, list[dict]], runs: list[dict], me: str | Non
         board = boards.get(t) or []
         real = [e for e in board if not is_pregen(e)]
         pre = len(board) - len(real)
-        ours_all = [(i + 1, e) for i, e in enumerate(board) if me and e.get("username") == me]
+        ours_all = [(i + 1, e) for i, e in enumerate(board) if me and e.get("username") in me]
         if not ours_all:
             rows.append([t, f"未上榜（榜共 {len(board)} 条，其中预生成 {pre}）", "—", "—", "—", "—", "—"])
             continue
-        rank, e = ours_all[0]
+        rank, e = ours_all[0]  # best-ranked of our accounts
         real_rank = next((i + 1 for i, x in enumerate(real) if x is e), None)
         run_ids = ", ".join(
             r["id"] for r in runs
@@ -204,7 +204,7 @@ def board_table(track: str, board: list[dict], me: str | None, top: int) -> str:
         pre = is_pregen(e)
         if not pre:
             real_rank += 1
-        if i >= top and not (me and e.get("username") == me):
+        if i >= top and not (me and e.get("username") in me):
             continue
         name = e.get("username") or ""
         if me and name == me:
@@ -220,7 +220,7 @@ def board_table(track: str, board: list[dict], me: str | None, top: int) -> str:
 
 def render(boards, runs, me, top) -> str:
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    parts = [f"# ARC-Bench 成绩看板\n\n生成时间：{now}；账号：{me or '未登录'}；"
+    parts = [f"# ARC-Bench 成绩看板\n\n生成时间：{now}；账号：{', '.join(me) if me else '未登录'}；"
              f"预生成判定：费用 < ¥{PREGEN_COST_CNY} 且耗时 < {PREGEN_SECONDS}s。\n",
              "## 各赛道我们的位置\n", summary_table(boards, runs, me), ""]
     if runs:
@@ -237,26 +237,36 @@ def render(boards, runs, me, top) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--cookie-jar", default=os.environ.get("ARC_COOKIE_JAR", os.path.expanduser("~/.arc-cookies")))
+    ap.add_argument("--cookie-jar", action="append", default=None,
+                    help="Netscape cookie jar; repeat for several accounts (all counted as \"us\"). Default $ARC_COOKIE_JAR or ~/.arc-cookies")
     ap.add_argument("--email"); ap.add_argument("--password")
-    ap.add_argument("--username", help="leaderboard display name (default: from /auth/me)")
+    ap.add_argument("--username", help="comma-separated leaderboard display names counted as ours (default: from /auth/me of every jar)")
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--out", help="write markdown here (e.g. docs/results.md)")
     ap.add_argument("--json", help="dump raw leaderboards + runs to this JSON file")
     args = ap.parse_args()
 
-    client = Client(load_jar(args.cookie_jar))
-    user = client.logged_in()
-    if not user and args.email and args.password:
-        try:
-            client.post_json("/auth/login", {"email": args.email, "password": args.password})
-            user = client.logged_in()
-        except urllib.error.HTTPError as exc:
-            print(f"[warn] login failed: HTTP {exc.code}", file=sys.stderr)
-    me = args.username or (user or {}).get("display_name")
+    jars = args.cookie_jar or [os.environ.get("ARC_COOKIE_JAR", os.path.expanduser("~/.arc-cookies"))]
+    clients, users = [], []
+    for jar in jars:
+        c = Client(load_jar(jar))
+        u = c.logged_in()
+        if not u and args.email and args.password:
+            try:
+                c.post_json("/auth/login", {"email": args.email, "password": args.password})
+                u = c.logged_in()
+            except urllib.error.HTTPError as exc:
+                print(f"[warn] login failed: HTTP {exc.code}", file=sys.stderr)
+        clients.append(c); users.append(u)
+    client = clients[0]; user = users[0]
+    names = [n.strip() for n in args.username.split(",")] if args.username else [u.get("display_name") for u in users if u]
+    me = names or None
 
     boards = fetch_leaderboards(client)
-    runs = fetch_runs(client) if user else []
+    runs = []
+    for c, u in zip(clients, users):
+        if u:
+            runs += fetch_runs(c)
     text = render(boards, runs, me, args.top)
     print(text)
     if args.out:
