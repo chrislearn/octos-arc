@@ -359,6 +359,69 @@ def inline_sources(output_dir: Path, max_chars: int = 40000, exts: tuple = (".js
     return ("Current source files (quoted; edit them directly, no need to read):\n" + "".join(parts)) if parts else ""
 
 
+SOURCE_EXTS = (".html", ".js", ".mjs", ".cjs")  # stylesheets never decide a spec; not quoted
+
+
+def app_source_files(output_dir: Path, exts: tuple = SOURCE_EXTS) -> list[Path]:
+    files: list[Path] = []
+    for part in ("frontend", "backend"):
+        base = output_dir / part
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            rel = path.relative_to(output_dir)
+            if any(seg in ("node_modules", "dist", ".git", "data") for seg in rel.parts):
+                continue
+            if path.is_file() and path.suffix in exts:
+                files.append(path)
+    return files
+
+
+def spec_terms(spec_text: str) -> set[str]:
+    """Identifiers, paths and quoted strings a spec mentions (≥ 3 chars), lower-cased."""
+    terms = set(re.findall(r"[A-Za-z_][A-Za-z0-9_-]{2,}", spec_text))
+    terms |= set(re.findall(r"['\"`](/[^'\"`\s]{1,60})['\"`]", spec_text))
+    terms |= set(re.findall(r"['\"`]([^'\"`\n]{3,40})['\"`]", spec_text))
+    stop = {"await", "page", "expect", "const", "test", "async", "import", "from", "playwright", "toBeVisible",
+            "toHaveText", "getByRole", "getByTestId", "getByLabel", "getByText", "click", "fill", "goto", "name",
+            "button", "link", "true", "false", "null", "let", "var", "return", "function"}
+    return {t.lower() for t in terms if t not in stop}
+
+
+def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
+    """Quote the existing sources a node most likely touches: every backend entry
+    file first (the router every node extends), then pages ranked by how many
+    of the spec's terms (locators, texts, routes) they contain, until the budget
+    is spent; the rest are listed by name so the model knows they exist."""
+    files = app_source_files(output_dir)
+    if not files:
+        return ""
+    terms = spec_terms(spec_text)
+    scored = []
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        low = text.lower()
+        hits = sum(1 for t in terms if t in low)
+        rel = path.relative_to(output_dir)
+        is_backend = rel.parts[0] == "backend"
+        scored.append((0 if is_backend else 1, -hits, len(text), rel, text))
+    scored.sort(key=lambda x: (x[0], x[1], x[2]))
+    parts, omitted, total = [], [], 0
+    for _, neg_hits, size, rel, text in scored:
+        if total + size > max_chars and parts:
+            omitted.append(f"{rel} ({size} chars, {-neg_hits} spec terms)")
+            continue
+        total += size
+        parts.append(f"--- {rel} ---\n{text.rstrip()}\n")
+    out = "Current source files (quoted; return every file you change, complete):\n" + "".join(parts)
+    if omitted:
+        out += "Other files, unchanged unless the requirement needs them: " + "; ".join(omitted) + "\n"
+    return out
+
+
 def source_listing(output_dir: Path, limit: int = 60) -> str:
     """Short, stable listing of the app sources for evolution prompts."""
     lines = []
@@ -626,7 +689,7 @@ class DryRunDriver:
         time.sleep(0.05)
         if "<<<FILE" in prompt:
             return True, DRYRUN_FILES
-        if "index.html only" in prompt:
+        if "page markup only" in prompt:
             return True, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><main>dry run</main></body></html>"
         return True, "dry run: no model call; nothing written."
 
@@ -826,7 +889,7 @@ TINY_SYSTEM = "Reply with HTML only."
 TINY_PROMPT = """\
 Playwright test the page at / must pass:
 {spec}
-Reply with the complete index.html only: minimal markup, one inline <script>, no CSS, no comments, no blank lines.
+Reply with the page markup only: minimal elements + one inline <script>; no doctype, head, CSS, comments or blank lines.
 """
 
 TINY_PROMPT_EVOLUTION = """\
@@ -834,7 +897,7 @@ Current index.html:
 {page}
 Additional Playwright test it must also pass (keep existing behaviour):
 {spec}
-Reply with the complete updated index.html only: minimal markup, one inline <script>, no CSS, no comments, no blank lines.
+Reply with the complete updated page markup only: minimal elements + one inline <script>; no doctype, head, CSS, comments or blank lines.
 """
 
 TINY_SERVER_JS = """\
@@ -853,6 +916,11 @@ http.createServer(handler).listen(process.env.PORT || {port});
 if (process.env.ARC_EXTRA_PORTS !== '0') for (const p of {extra_ports}) if (String(p) !== String(process.env.PORT || {port})) http.createServer(handler).listen(p);
 process.on('uncaughtException', () => {{}}); process.on('unhandledRejection', () => {{}});
 """
+
+
+def looks_like_markup(text: str) -> bool:
+    """A bare page or page fragment (the tiny tier asks for markup without doctype/head)."""
+    return bool(re.search(r"<(html|body|main|div|section|form|button|script|span|p|h[1-6]|input|label|ul|table)\b", text, re.IGNORECASE))
 
 
 def strip_code_fences(text: str) -> str:
@@ -1263,10 +1331,37 @@ class Flow:
         return VERIFY_MINIMAL if minimal else VERIFY_FULL.format(smoke=self.smoke_port)
 
     def codegen_mode(self) -> bool:
-        """One-request generation for one-node tasks (OCTOS_ARC_CODEGEN=0 disables)."""
+        """One-request generation per node (OCTOS_ARC_CODEGEN=0 disables; OCTOS_ARC_CODEGEN_MAX_NODES caps the
+        tree size, default unlimited). Per node, `codegen_context_fits` decides whether the spec plus the
+        relevant sources fit the prompt budget; otherwise that node uses tool mode."""
         return (os.environ.get("OCTOS_ARC_CODEGEN", "1") != "0" and getattr(self, "llm_proxy", None) is not None
                 and not getattr(self, "codegen_blocked", False)
-                and getattr(self, "n_nodes", 99) <= int(os.environ.get("OCTOS_ARC_CODEGEN_MAX_NODES", "2")))
+                and getattr(self, "n_nodes", 99) <= int(os.environ.get("OCTOS_ARC_CODEGEN_MAX_NODES", "999")))
+
+    def all_specs_tiny(self, node_ids: list[str]) -> bool:
+        """True when every node that has specs falls in the tiny tier (and at least one does)."""
+        sizes = [len(self.spec_bodies(n)) for n in node_ids if self.spec_map.get(n)]
+        return bool(sizes) and all(self.tiny_mode(n) for n in sizes)
+
+    def maybe_probe(self, node_ids: list[str]) -> None:
+        """Endpoint probe policy: none in dry runs; none when the whole task is tiny-tier
+        (the first real request is the probe — a failure there is diagnosed by the normal
+        turn error path); otherwise the token-free GET /models probe with a minimal fallback."""
+        if os.environ.get("OCTOS_ARC_DRYRUN") == "1":
+            log("[probe] skipped (OCTOS_ARC_DRYRUN=1)")
+        elif self.all_specs_tiny(node_ids):
+            log("[probe] skipped (tiny-tier task: the first real request doubles as the probe)")
+        else:
+            probe_endpoint()
+
+    def codegen_context_chars(self) -> int:
+        return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
+
+    def codegen_context_fits(self, spec_text: str) -> bool:
+        """Spec + (trimmed) sources must fit the codegen prompt budget; the source
+        quote is bounded to the budget minus the spec, so this only fails when
+        the spec alone (with helpers) is too large for one request."""
+        return len(spec_text) < self.codegen_context_chars() * 0.6
 
     def tiny_mode(self, spec_chars: int) -> bool:
         threshold = int(os.environ.get("OCTOS_ARC_TINY_SPEC_CHARS", "1500"))
@@ -1331,7 +1426,7 @@ class Flow:
         files = parse_file_blocks(text) if ok else {}
         if ok and not files and raw_target:
             html = strip_code_fences(text)
-            if re.search(r"<html|<!doctype", html, re.IGNORECASE):
+            if looks_like_markup(html):
                 files = {raw_target: html}
         if files:
             written = write_files(self.output_dir, files)
@@ -1769,7 +1864,7 @@ class Flow:
             self.current_spec_chars = len(self.spec_bodies(node_id))
         if tiny_ok:
             ok, text = True, "tiny tier: specs pass"
-        elif self.codegen_mode():
+        elif self.codegen_mode() and self.codegen_context_fits(self.spec_bodies(node_id)):
             spec_text = self.spec_bodies(node_id)
             self.current_spec_chars = len(spec_text)
             # Small specs (by size, an input-derived measure) get the compact rule; the multi-page
@@ -1778,14 +1873,17 @@ class Flow:
             compact = CODEGEN_PROMPT.format(node_id=node_id, description=str(node.get("description") or "").strip(),
                                             spec=spec_text, port=self.web_port, ports=self.codegen_ports_clause(),
                                             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
-            if self.has_app():  # evolution: keep the existing app, return every changed file complete
+            if self.has_app():  # existing app (evolution or later nodes): quote the relevant sources
                 compact = (compact.replace("Files:", "Existing app below; keep everything that works and output "
                                            "every changed file complete. Files:", 1)
-                           + inline_sources(self.output_dir, 30000, exts=(".html", ".js")))
+                           + relevant_sources(self.output_dir, spec_text,
+                                              max(8000, self.codegen_context_chars() - len(spec_text))))
             codegen_prompt = compact
             write_codegen_manifests(self.output_dir)
             ok, text = self.codegen_turn(compact, implement_timeout, f"{node_id} implement", spec_chars=self.current_spec_chars)
         else:
+            if self.codegen_mode():
+                log(f"[flow] {node_id}: spec too large for one request ({len(self.spec_bodies(node_id))} chars); tool mode")
             ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
             # Cloud 76fb32a69d81: output cut by max_tokens, nothing written. Retry
@@ -1832,7 +1930,8 @@ class Flow:
         def rebuild_prompt(failures: str) -> str:
             if self.codegen_mode() and codegen_prompt:
                 return (codegen_prompt + "\nYour previous files (quoted below) failed every test. Failures:\n" + failures
-                        + "\n" + inline_sources(self.output_dir, 30000, exts=(".html", ".js"))
+                        + "\n" + relevant_sources(self.output_dir, self.spec_bodies(node_id),
+                                                   max(8000, self.codegen_context_chars() - len(codegen_prompt)))
                         + "Fix the root causes and return every file you change, complete.\n")
             return (prompt + "\nYOUR PREVIOUS ATTEMPT FAILED EVERY ACCEPTANCE TEST — the failures (Feature / where / "
                     "observation / steps):\n" + failures + "\n" + self.sources_text()
@@ -1961,13 +2060,15 @@ class Flow:
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "2"))
         workers = workers_for_final(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
         previous_failing: set[str] | None = None
+        best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
+        last_passed = -1
         for attempt in range(rounds + 1):
             summary = self.run_specs(all_specs, workers=workers, grader_like=True)
             if summary.error and summary.killed:
                 # Cloud 29c840566f36: the runner was OOM-killed under a 512 MiB
                 # cgroup; two repair rounds were wasted on a non-failure.
                 log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
-                return
+                break
             if summary.error:
                 # The app does not even start the way the grader starts it: every node fails.
                 log(f"[acceptance] full suite (grader-like start) failed: {summary.error[:300]}")
@@ -1983,11 +2084,12 @@ class Flow:
                 failures = failure_summaries(RunSummary(results=[r for rs in grouped.values() for r in rs]))
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
-            for node_id, specs in self.spec_map.items():
-                if node_id and specs and summary.results:
-                    self.record_tests(node_id, specs, RunSummary(results=[r for r in summary.results
-                                      if Path(r.file or "").name in {Path(p).name for p in specs}]))
-                    self.test_verdict[node_id] = node_id not in grouped
+            self.record_full_suite(summary, grouped)
+            last_passed = summary.passed
+            if best is None or summary.passed > best["passed"]:
+                if attempt > 0:
+                    self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
+                best = {"passed": summary.passed, "sha": self.head(), "summary": summary, "grouped": grouped}
             if not grouped:
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (parallel)")
                 return
@@ -2010,6 +2112,20 @@ class Flow:
             self.turn(prompt, min(self.node_timeout, max(120, self.remaining() - 200)),
                       f"full-suite repair {attempt + 1}/{rounds}")
             self.commit(f"fix: full-suite repair {attempt + 1}")
+        # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
+        if best is not None and best["sha"] and last_passed < best["passed"] and self.head() != best["sha"]:
+            log(f"[acceptance] full suite: last round {last_passed} < best {best['passed']}; restoring the best state")
+            self.restore_app(best["sha"])
+            self.record_full_suite(best["summary"], best["grouped"])
+            self.commit(f"chore: keep best full-suite state {best['passed']}/{best['summary'].total}")
+
+    def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
+        """Per-node verdicts and traceability from one full-suite round."""
+        for node_id, specs in self.spec_map.items():
+            if node_id and specs and summary.results:
+                self.record_tests(node_id, specs, RunSummary(results=[r for r in summary.results
+                                  if Path(r.file or "").name in {Path(p).name for p in specs}]))
+                self.test_verdict[node_id] = node_id not in grouped
 
     # -- skeleton ---------------------------------------------------------
     def skeleton(self, tree: dict) -> None:
@@ -2103,6 +2219,7 @@ class Flow:
             else:
                 log("[tests] no acceptance specs found; building from requirement text only")
 
+            self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
             self.setup_playwright()
             if self.evolution and self.runner is not None:
@@ -2143,8 +2260,10 @@ class Flow:
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
             try:
-                if not self.evolution and (len(ordered) >= self.skeleton_min_nodes
-                                           or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
+                if not self.evolution and self.codegen_mode() and os.environ.get("OCTOS_SKELETON_ALWAYS") != "1":
+                    log(f"[flow] {len(ordered)}-node tree: codegen mode, harness manifests replace the skeleton turn")
+                elif not self.evolution and (len(ordered) >= self.skeleton_min_nodes
+                                             or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
                     self.skeleton(tree)
                     self.driver.end_scope("node")
                 elif not self.evolution:
@@ -2342,11 +2461,6 @@ def main() -> int:
     print(f"[env] ARCBENCH_TEMPLATE_DIR={os.environ.get('ARCBENCH_TEMPLATE_DIR', '<unset>')}", flush=True)
     print(f"[env] ARCBENCH_TASK_DIR={os.environ.get('ARCBENCH_TASK_DIR', '<unset>')}", flush=True)
     print(f"[env] argv requirement_path={args.requirement_path}", flush=True)
-    if os.environ.get("OCTOS_ARC_DRYRUN") == "1":
-        log("[probe] skipped (OCTOS_ARC_DRYRUN=1)")
-    else:
-        probe_endpoint()
-
     req_src = Path(args.requirement_path).resolve()
     if args.output_dir:
         output_dir = Path(args.output_dir).resolve()
