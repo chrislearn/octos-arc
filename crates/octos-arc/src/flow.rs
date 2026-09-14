@@ -26,10 +26,30 @@ use crate::driver::{self, Driver, KernelConfig, TurnSettings};
 use crate::events::Events;
 use crate::git::Git;
 use crate::guard::{ProtectedTrees, TurnMonitor};
-use crate::llm::{Completer, CompletionRequest, ModelRoute, SharedLedger};
+use crate::llm::{Completer, CompletionRequest, ModelRoute, ReasoningMode, SharedLedger};
 use crate::plan::RunPlan;
 use crate::policy::Policy;
 use crate::prompts::Prompts;
+
+/// How a codegen turn is shaped (`main.codegen_turn` keyword arguments).
+struct CodegenOptions<'a> {
+    /// Prompt name of the system message; None = `codegen-system`.
+    system: Option<&'a str>,
+    /// Append the file-block format instructions.
+    format: bool,
+    /// Where a bare HTML reply is written (tiny tier).
+    raw_target: Option<&'a str>,
+}
+
+impl Default for CodegenOptions<'_> {
+    fn default() -> Self {
+        Self {
+            system: None,
+            format: true,
+            raw_target: None,
+        }
+    }
+}
 use crate::run::RunnerSpec;
 use crate::tree;
 
@@ -123,6 +143,10 @@ pub struct Flow {
     codegen_blocked: bool,
     unchanged: BTreeSet<String>,
     probe_summaries: BTreeMap<String, RunSummary>,
+    /// Nodes actually probed against an existing app (Evolution).
+    probe_count: usize,
+    /// Size of the spec text the current node must satisfy (codegen effort by spec size).
+    current_spec_chars: usize,
 }
 
 /// How a node is rebuilt when round 0 passes nothing.
@@ -247,6 +271,8 @@ impl Flow {
             codegen_blocked: false,
             unchanged,
             probe_summaries: BTreeMap::new(),
+            probe_count: 0,
+            current_spec_chars: 0,
         })
     }
 
@@ -1108,15 +1134,124 @@ impl Flow {
         (ok, text)
     }
 
+    /// Reasoning effort for a codegen turn, derived from the size of the spec it
+    /// must satisfy (`main.codegen_reasoning`): small specs are generated
+    /// correctly without reasoning; large ones keep the base mode. Only when the
+    /// policy mode is auto.
+    fn codegen_reasoning(&self, spec_chars: usize) -> Option<ReasoningMode> {
+        if self.policy.reasoning.mode != "auto" {
+            return None;
+        }
+        (spec_chars > 0 && spec_chars < self.policy.reasoning.codegen_reasoning_chars)
+            .then_some(ReasoningMode::Disabled)
+    }
+
+    /// `main.tiny_mode`: the tiny tier applies to specs below the size threshold.
+    fn tiny_mode(&self, spec_chars: usize) -> bool {
+        self.policy.mode.tiny && spec_chars > 0 && spec_chars < self.policy.mode.tiny_spec_chars
+    }
+
+    /// Tiny-spec tier (`main.tiny_turn`): the harness writes the manifests and a
+    /// fixed static server, the model returns one index.html for the spec's
+    /// statements. True only when the node's specs pass right away; otherwise
+    /// the caller falls back to the compact tier.
+    fn tiny_turn(&mut self, node_id: &str, specs: &[String], timeout: Duration) -> bool {
+        match codegen::write_manifests(&self.output_dir) {
+            Ok(written) if !written.is_empty() => {
+                self.log(format!("[codegen] wrote manifests {written:?}"))
+            }
+            Ok(_) => {}
+            Err(error) => self.log(format!("[codegen] could not write manifests: {error}")),
+        }
+        let server = self.output_dir.join("backend/server.js");
+        if !server.exists() {
+            match codegen::tiny_server_js(&self.prompts, self.web_port, &self.extra_ports) {
+                Ok(js) => {
+                    let _ = std::fs::create_dir_all(server.parent().unwrap());
+                    if let Err(error) = std::fs::write(&server, js) {
+                        self.log(format!(
+                            "[codegen] could not write the tiny server: {error}"
+                        ));
+                    }
+                }
+                Err(error) => self.log(format!("[codegen] tiny server template: {error}")),
+            }
+        }
+        let spec = codegen::compact_spec_lines(&self.spec_bodies(node_id));
+        let page = self.output_dir.join("frontend/src/index.html");
+        let prompt = if page.is_file() {
+            let current = std::fs::read_to_string(&page).unwrap_or_default();
+            self.prompts.render(
+                "tiny-prompt-evolution",
+                &[("page", current.trim()), ("spec", &spec)],
+            )
+        } else {
+            self.prompts.render("tiny-prompt", &[("spec", &spec)])
+        };
+        let prompt = match prompt {
+            Ok(text) => text,
+            Err(error) => {
+                self.log(format!("[flow] {node_id}: tiny prompt: {error}"));
+                return false;
+            }
+        };
+        self.current_spec_chars = spec.chars().count();
+        let (ok, _) = self.codegen_turn_with(
+            &prompt,
+            timeout,
+            &format!("{node_id} implement (tiny)"),
+            CodegenOptions {
+                system: Some("tiny-system"),
+                format: false,
+                raw_target: Some("frontend/src/index.html"),
+            },
+        );
+        if !ok || !page.is_file() || self.runner.is_none() || specs.is_empty() {
+            self.log(format!(
+                "[flow] {node_id}: tiny tier produced no page; compact tier next"
+            ));
+            return false;
+        }
+        let summary = self.run_specs(specs, None, false);
+        if summary.error.is_some() {
+            self.log(format!("[flow] {node_id}: tiny tier could not run specs"));
+            return false;
+        }
+        let passed = summary.total > 0 && summary.passed == summary.total;
+        self.log(format!(
+            "[flow] {node_id}: tiny tier {} its specs ({}/{})",
+            if passed { "passed" } else { "failed" },
+            summary.passed,
+            summary.total
+        ));
+        passed
+    }
+
     /// Run a tool-less turn; parse and write the file blocks from the reply.
     /// Returns (ok, text) like the Python `codegen_turn`.
     fn codegen_turn(&mut self, prompt: &str, timeout: Duration, label: &str) -> (bool, String) {
-        let user = codegen::with_format(&self.prompts, prompt);
-        let mode = self.plan.reasoning_for(label);
+        self.codegen_turn_with(prompt, timeout, label, CodegenOptions::default())
+    }
+
+    fn codegen_turn_with(
+        &mut self,
+        prompt: &str,
+        timeout: Duration,
+        label: &str,
+        options: CodegenOptions<'_>,
+    ) -> (bool, String) {
+        let user = if options.format {
+            codegen::with_format(&self.prompts, prompt)
+        } else {
+            prompt.trim().to_string()
+        };
+        let mode = self
+            .codegen_reasoning(self.current_spec_chars)
+            .unwrap_or_else(|| self.plan.reasoning_for(label));
         let started = Instant::now();
         let request = CompletionRequest {
             label,
-            system: self.prompts.get("codegen-system"),
+            system: self.prompts.get(options.system.unwrap_or("codegen-system")),
             user: &user,
             mode,
             timeout: timeout.max(Duration::from_secs(60)),
@@ -1131,7 +1266,17 @@ impl Flow {
                         "completion_tokens": completion.usage.output_tokens, "reasoning_tokens": completion.usage.reasoning_tokens,
                         "cache_hit_tokens": completion.usage.cache_read_tokens, "truncated": completion.truncated}),
                 );
-                let files = codegen::parse_file_blocks(&completion.text);
+                let mut files = codegen::parse_file_blocks(&completion.text);
+                if files.is_empty()
+                    && let Some(target) = options.raw_target
+                {
+                    // Tiny tier: the reply is a bare HTML document (code fences tolerated).
+                    let html = codegen::strip_code_fences(&completion.text);
+                    let lower = html.to_lowercase();
+                    if lower.contains("<html") || lower.contains("<!doctype") {
+                        files.insert(target.to_string(), html);
+                    }
+                }
                 if files.is_empty() {
                     // Keep the reply for diagnosis: a codegen answer without file
                     // blocks is otherwise invisible (the platform keeps the
@@ -1233,6 +1378,33 @@ impl Flow {
             }
         }
         self.log(format!("[flow] {node_id}: {count} source file(s) snapshotted to .arc/codegen/{node_id}-r{attempt}"));
+    }
+
+    /// `main.discard_template`: move frontend/ and backend/ of a non-working
+    /// existing app to `.arc/template-discarded/` so the fresh build starts from
+    /// our own layout.
+    fn discard_template(&mut self) {
+        let dest = self.output_dir.join(".arc/template-discarded");
+        let _ = std::fs::remove_dir_all(&dest);
+        if let Err(error) = std::fs::create_dir_all(&dest) {
+            self.log(format!(
+                "[flow] could not set the existing app aside: {error}"
+            ));
+            return;
+        }
+        let mut moved = Vec::new();
+        for name in ["frontend", "backend"] {
+            let src = self.output_dir.join(name);
+            if src.exists() {
+                match std::fs::rename(&src, dest.join(name)) {
+                    Ok(()) => moved.push(name),
+                    Err(error) => self.log(format!("[flow] could not set {name}/ aside: {error}")),
+                }
+            }
+        }
+        self.log(format!(
+            "[flow] existing app passes no spec; moved {moved:?} to .arc/template-discarded and building fresh"
+        ));
     }
 
     fn restore_app(&mut self, sha: &str) {
@@ -1584,14 +1756,27 @@ impl Flow {
                     .as_secs_f64(),
             );
         let implement_timeout = Duration::from_secs_f64(implement_timeout.max(1.0));
-        let (mut ok, mut text) = if self.codegen_mode() {
+        let spec_text = self.spec_bodies(&node_id);
+        let spec_chars = spec_text.chars().count();
+        let mut tiny_ok = false;
+        if self.codegen_mode() && self.tiny_mode(spec_chars) {
+            tiny_ok = self.tiny_turn(&node_id, &specs, implement_timeout);
+            self.current_spec_chars = spec_chars;
+        }
+        let (mut ok, mut text) = if tiny_ok {
+            (true, "tiny tier: specs pass".to_string())
+        } else if self.codegen_mode() {
             let description = node
                 .get("description")
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .trim()
                 .to_string();
-            let spec_text = self.spec_bodies(&node_id);
+            self.current_spec_chars = spec_chars;
+            // Small specs (by size, an input-derived measure) get the compact rule; the
+            // multi-page mechanisms only apply when the spec is large enough to need
+            // sessions/navigation.
+            let small = self.codegen_reasoning(spec_chars) == Some(ReasoningMode::Disabled);
             let existing = self.has_app();
             let inputs = CodegenInputs {
                 node_id: &node_id,
@@ -1600,6 +1785,7 @@ impl Flow {
                 web_port: self.web_port,
                 extra_ports: &self.extra_ports,
                 n_nodes: self.plan.n_nodes,
+                small_rule: small,
                 existing_app: existing.then_some(self.output_dir.as_path()),
                 existing_app_chars: self.policy.prompts.codegen_source_chars,
             };
@@ -1754,7 +1940,15 @@ impl Flow {
                 continue;
             }
             let summary = self.run_specs(&specs, None, false);
-            if summary.error.is_some() || summary.total == 0 {
+            self.probe_count += 1;
+            if let Some(error) = &summary.error {
+                self.log(format!(
+                    "[acceptance] probe {node_id}: existing app does not build/start/serve ({})",
+                    head(error, 160)
+                ));
+                continue;
+            }
+            if summary.total == 0 {
                 continue;
             }
             self.log(format!(
@@ -2366,9 +2560,32 @@ impl Flow {
                 .cloned()
                 .collect();
             let policy = self.policy.clone();
-            self.plan
-                .set_nodes_to_implement(&policy, to_implement.len())?;
-            self.log(format!("[flow] evolution mode after probing the existing app: unchanged {:?}, to implement {to_implement:?}", self.unchanged));
+            if self.probe_count > 0 && self.unchanged.is_empty() {
+                // Nothing of the existing app satisfies any spec (a scaffold/placeholder
+                // template, or an app the new specs no longer accept): it is not a usable
+                // base. Set it aside and build the task fresh (cloud c30b29eab45b/10b04d36f704:
+                // implement-then-rewrite on a placeholder cost 40-80x the fresh build).
+                self.discard_template();
+                self.plan = RunPlan::new(
+                    &policy,
+                    &self.tree,
+                    self.plan.n_nodes,
+                    to_implement.len(),
+                    false,
+                )?;
+            } else {
+                self.plan
+                    .set_nodes_to_implement(&policy, to_implement.len())?;
+            }
+            self.log(format!(
+                "[flow] {} after probing the existing app: unchanged {:?}, to implement {to_implement:?}",
+                if self.plan.evolution { "evolution mode" } else { "fresh build" },
+                self.unchanged
+            ));
+            if self.plan.wants_skeleton {
+                self.skeleton()?;
+                self.end_scope("node");
+            }
         }
         let patience = Duration::from_secs(self.policy.reasoning.probe_patience_seconds);
         for line in self.llm.probe(patience) {
@@ -2485,16 +2702,17 @@ pub fn has_app(output_dir: &Path) -> bool {
 }
 
 /// The previous run's requirement table (committed with the template). The glue
-/// copies it aside before the platform runtime stores the new tree over the
-/// traceability file, so the copy wins when it exists.
+/// copies it aside (possibly empty) before the platform runtime stores the new
+/// tree over the traceability file; when a snapshot path is given it is the only
+/// source, because by then the traceability file already holds the new tree.
 fn previous_requirement_records(
     output_dir: &Path,
     snapshot: Option<&Path>,
 ) -> BTreeMap<String, Value> {
-    let path = snapshot
-        .filter(|p| p.is_file())
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| output_dir.join(".arc/traceability/requirements.json"));
+    let path = match snapshot {
+        Some(copy) => copy.to_path_buf(),
+        None => output_dir.join(".arc/traceability/requirements.json"),
+    };
     let Ok(text) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
     };
@@ -2525,8 +2743,14 @@ mod tests {
         let records = super::previous_requirement_records(dir.path(), Some(&snapshot));
         assert_eq!(records.len(), 1);
         assert_eq!(records["REQ-1"]["description"], "old");
+        // A snapshot path that cannot be read means "no previous table" — never the
+        // traceability file, which already holds the new tree by then.
         let missing = dir.path().join(".arc/nope.json");
-        let fallback = super::previous_requirement_records(dir.path(), Some(&missing));
-        assert_eq!(fallback.len(), 2);
+        assert!(super::previous_requirement_records(dir.path(), Some(&missing)).is_empty());
+        // Without a snapshot (kernel run directly), the traceability file is the source.
+        assert_eq!(
+            super::previous_requirement_records(dir.path(), None).len(),
+            2
+        );
     }
 }

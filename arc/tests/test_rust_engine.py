@@ -81,7 +81,8 @@ class RunnerSpecTests(unittest.TestCase):
         from rust_engine import snapshot_previous_requirements
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            self.assertIsNone(snapshot_previous_requirements(out))  # no template table
+            empty = snapshot_previous_requirements(out)  # no template table: an empty snapshot, never None
+            self.assertEqual(json.loads(empty.read_text()), {})
             table = out / ".arc" / "traceability" / "requirements.json"
             table.parent.mkdir(parents=True)
             table.write_text(json.dumps({"REQ-1": {"id": "REQ-1", "description": "old"}, "ROOT": {"id": "ROOT"}}))

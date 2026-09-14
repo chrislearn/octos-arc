@@ -18,6 +18,11 @@ skeleton_always = false     # OCTOS_SKELETON_ALWAYS
 design_turn = true          # OCTOS_DESIGN_TURN
 design_mode = "inline"      # OCTOS_DESIGN_MODE — inline | separate (own read-only design turn)
 design_min_nodes = 3        # OCTOS_DESIGN_MIN_NODES — design only for trees at least this big
+# Tiny-spec tier (round 32): a node whose spec text is shorter than tiny_spec_chars gets a prompt made of
+# the spec's own statements, replies with one bare HTML page, and the harness writes the manifests plus a
+# fixed static server; a first-pass failure falls back to the compact codegen tier.
+tiny = true                 # OCTOS_ARC_TINY — 0 disables the tier
+tiny_spec_chars = 1500      # OCTOS_ARC_TINY_SPEC_CHARS
 
 [budget]
 time_budget_seconds = 0          # OCTOS_TIME_BUDGET — 0 = automatic: max(floor, seconds_per_node × nodes)
@@ -47,6 +52,9 @@ codegen = 3      # OCTOS_ARC_CODEGEN_REQUESTS — attempts (incl. transient retr
 
 [reasoning]
 mode = "auto"              # OCTOS_ARC_REASONING — auto (none for ≤1 node to implement, else low) | low | medium | high | none | passthrough
+# Codegen effort by spec size (round 30): specs shorter than this many characters run with thinking off and
+# the compact size rule; larger specs keep the base mode and the multi-page mechanisms. Only when mode = "auto".
+codegen_reasoning_chars = 5000  # OCTOS_ARC_CODEGEN_REASONING_CHARS
 implement_override = ""    # OCTOS_ARC_IMPLEMENT_REASONING — first implement turn of small tasks; empty = mode
 max_tokens_min = 32768     # OCTOS_ARC_MAX_TOKENS — minimum max_tokens on chat requests
 destream = true            # OCTOS_ARC_DESTREAM — one JSON response upstream instead of SSE

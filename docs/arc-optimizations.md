@@ -353,11 +353,11 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 
 | # | Python 策略（arc/CHANGELOG.md 轮次） | 为什么存在 | Rust | 里程碑 |
 |---|---|---|---|---|
-| N1 | 轮 29：`dedupe_nav_links` 从服务端渲染进占位的锚点推导要删的 href（原来固定 /login|/register|/logout） | 通用性复查 | `codegen::dedupe_nav_links` 仍是固定表 | M3 |
-| N2 | 轮 30：探测后没有任何节点的 spec 通过现有应用 → frontend/backend 移到 `.arc/template-discarded/`，按新题从头建 | 云端 c30b29eab45b / 10b04d36f704：平台模板是占位脚手架，被当成可演进的应用 | 未做 | M3 |
-| N3 | 轮 30：codegen 推理档位与 size rule 按 spec 字符数（`OCTOS_ARC_CODEGEN_REASONING_CHARS`=5000）而不是节点数 | 2 节点 Counter 树付了 4.4k 推理 token 还拿到导航/cookie 机制 | `plan.rs` 仍按节点数 | M3 |
+| N1 | 轮 29：`dedupe_nav_links` 从服务端渲染进占位的锚点推导要删的 href（原来固定 /login|/register|/logout） | 通用性复查 | `codegen::dedupe_nav_links`（`HREF` 推导，单测同 Python 夹具） | M3 ✔ |
+| N2 | 轮 30：探测后没有任何节点的 spec 通过现有应用 → frontend/backend 移到 `.arc/template-discarded/`，按新题从头建 | 云端 c30b29eab45b / 10b04d36f704：平台模板是占位脚手架，被当成可演进的应用 | `flow::discard_template`；`probe_count`；RunPlan 以 evolution=false 重建（≥3 节点补骨架轮） | M3 ✔ |
+| N3 | 轮 30：codegen 推理档位与 size rule 按 spec 字符数（`OCTOS_ARC_CODEGEN_REASONING_CHARS`=5000）而不是节点数 | 2 节点 Counter 树付了 4.4k 推理 token 还拿到导航/cookie 机制 | `reasoning.codegen_reasoning_chars`；`Flow::codegen_reasoning`、`current_spec_chars`；`CodegenInputs.small_rule` | M3 ✔ |
 | N4 | 轮 31：`OCTOS_ARC_DRYRUN=1` 用 `DryRunDriver` 替换内核驱动 | 给本工作流做结构对等 | `octos arc run --dry-run`（M1 已有，语义相同） | — |
-| N5 | 轮 32：tiny-spec 档（spec < `OCTOS_ARC_TINY_SPEC_CHARS`=1500）：提示只含 spec 语句 + 一句输出要求，系统提示 "Reply with HTML only."，回复裸 HTML 写成 index.html，harness 写固定静态 server（`TINY_SERVER_JS`），失败回退 compact codegen；`OCTOS_ARC_TINY=0` 关闭 | Smoke 榜前三 ≈250 token/题，我们 ≈845 | 未做 | M3 |
+| N5 | 轮 32：tiny-spec 档（spec < `OCTOS_ARC_TINY_SPEC_CHARS`=1500）：提示只含 spec 语句 + 一句输出要求，系统提示 "Reply with HTML only."，回复裸 HTML 写成 index.html，harness 写固定静态 server（`TINY_SERVER_JS`），失败回退 compact codegen；`OCTOS_ARC_TINY=0` 关闭 | Smoke 榜前三 ≈250 token/题，我们 ≈845 | `mode.tiny` / `mode.tiny_spec_chars`；`codegen::{strip_code_fences, compact_spec_lines, tiny_server_js}`；`Flow::{tiny_mode, tiny_turn}`、`codegen_turn_with`（system / 无格式段 / 裸 HTML 落盘）；提示词 `tiny-*.md` 从 `main.py` 常量导出 | M3 ✔ |
 | N6 | 交接清单：>2 节点树修复轮 3（wf-adapter-30）、`workers_for_final` 450 MiB/worker、`reap_workspace_processes`、`enforce_turn_budget` | wf-adapter-30 | 需逐项核对分支点后的 acceptance.py/guard.py 差异 | M4 |
 
 #### 策略文件 `arc/arc-policy.toml`（← 约 60 个环境变量）
@@ -463,4 +463,15 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 
 - 修前结果表面上与 Python 一致（2/2、1 次请求、prompt 相差 34 token），但走错了路：胶水在起内核之前调用 `store_requirement_tree(tree)`，把新树写进了追溯表，内核随后读到的「上一轮的表」就是本轮的树，于是每个节点都「未变」；REQ-2 的 spec 跑出 0/1 被当成回归，走的是回归修复提示而不是实现提示。Python 的 `main.py` 是先读旧表再存新树。修法是先快照旧表；`--dry-run` 已验证路径正确。修后的真实运行（目标 2/2、1 次请求）等 key 窗口结束后补跑。
 - 通用性自查：本节没有新增规则；快照只是顺序修正。
-- 待收编的 Python 新策略见上文「main 在分支点之后新增的 Python 策略」表（N1–N3、N5 归 M3 的后续 PR）。
+- 待收编的 Python 新策略见上文「main 在分支点之后新增的 Python 策略」表：N1–N3、N5 已在 M3 分支落地（下），N6 归 M4。
+
+**M3 分支（`wf-kernel-harness-m3`，叠在 #84 上）追加**：
+
+- 顺序修正收紧：胶水总是写 `.arc/previous-requirements.json`（模板没有表就写 `{}`），内核有快照路径时只读快照。此前模板没有表时会回退去读运行时刚覆盖的表，脚手架模板场景下所有节点都被判「未变」（dry-run 首次复现：unchanged {REQ-1, REQ-2}，没有探测、没有弃用）。
+- N2 弃用模板、N3 档位按 spec 大小、N5 tiny 档、N1 NAV 去重推导，以及三份契约提示词与 `main.py` 常量逐字节对齐（round 29 通用性复查后的文本）。`--dry-run` 的回复改成与 Python `DryRunDriver` 一致（codegen 提示返回占位文件块、tiny 提示返回裸页面），结构对等运行能走完 tiny → 回退 → 修复。
+- dry-run 证据（无模型、不用 key）：
+  - `rs-counter-dry`：REQ-1 implement (tiny) 写出 index.html → tiny 档 0/1 → compact codegen → 重写 → 修复循环 → 全套两轮，退出 0。
+  - `rs-evo-dry2`（真实模板 py-counter-4）：unchanged {REQ-1}，probe REQ-2 0/1，regression REQ-1 1/1，REQ-2 走 tiny(evolution，引用当前页面) → 回退 compact。
+  - `rs-evo-scaffold-dry`（占位脚手架模板：欢迎页 + 静态 server）：unchanged {}，probe REQ-1 0/1、REQ-2 0/1 → 「existing app passes no spec; moved [frontend, backend] to .arc/template-discarded and building fresh」→ fresh build（2 节点树骨架折进首节点）→ REQ-1 tiny → 回退。
+- 通用性自查：弃用模板只看探测结果；档位与 tiny 的阈值来自 spec 字符数；tiny 静态 server 无任务逻辑、端口来自 spec；NAV 去重的 href 从服务端源码推导；无任务名 / REQ 编号分支。
+- 真实模型对等（Evolution 2/2、1 次请求；Smoke 两题 tiny 档 token）等 key 窗口结束后与 Python 同题同配置各跑 2 次再补。
