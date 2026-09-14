@@ -594,3 +594,38 @@ Offline token estimate (chars ÷ 3.8, the ratio measured on round-22 prompts):
 
 Dry-run (no model): counter and evolution traverse tiny → spec check → compact fallback → repair loop, exit 0.
 Live: 未评测 (key occupied by the Web queue; 5-minute window requested from C). Unit tests 93 OK.
+
+## Round 33 — token-free startup probe; tighter tiny output
+
+Cloud (main@6974ffcd, key idle): tiny tier all first pass — counter e123086d9c9d 1/1 ¥0.00275 (prompt 164 +
+completion 214, reasoning 0), dice ee470858da53 ¥0.00235 (115 + 174), octos counter b438df2a5fcb ¥0.00277,
+dice b88799874e8a ¥0.00238, octos Evolution counter bcf72deae878 2/2 ¥0.00281, dice 207f40662651 2/2 ¥0.00269.
+Fitting the two Smoke points gives ≈¥2/M input, ≈¥7.5/M output and a fixed ≈¥0.0008 per run — the startup
+probe: "Reply with exactly: OK" with max_tokens=4 still let the model produce reasoning_content (DeepSeek
+caps only the answer), i.e. about a third of a tiny-tier task.
+
+- Probe is now GET /models (unbilled; any non-5xx answer proves the endpoint is up). Only if that never
+  answers, one chat request with `thinking: disabled` and `max_tokens: 1`. Same 10-minute outage wait.
+- Tiny prompt's output sentence asks for minimal markup, one inline script, no CSS/comments/blank lines
+  (prompt +≈12 tokens; expected completion 214 → ≈150 for counter, 174 → ≈120 for dice).
+
+Expected per task at the fitted prices: counter ≈ ¥0.0003 + ¥0.0011 ≈ ¥0.0015, dice ≈ ¥0.0012. Generality:
+probe and output rule are endpoint/format facts, no task content. Cloud: 未评测 (next Web gap). Unit tests 95 OK.
+## wf-adapter-30 (unmerged) — cost guard recalibrated on keep 2224a9013528
+
+Calibration: keep PASSED 32/32, 9,038 s, ¥16.58, no OOM at 2 per-node workers, graded at 4 workers in
+2 GiB / 1 CPU; ≈282 s and ¥0.52 per node; measured `[usage]`: 1,152 requests, 28.05M prompt (91% cache hits) + 0.76M completion
+= 28.8M total = platform token_count; ≈0.9M tokens and 36 requests per node; grading 4 workers, 32 tests in
+24.6 s, peak memory 0.96 GiB, oom 0. Derived defaults therefore sit ≈2.8× (tokens) and ≈3× (turns) above a
+healthy run.
+
+Guard defaults (derived once the tree is known; explicit env overrides; 0 = off):
+- `OCTOS_ARC_MAX_TOTAL_TOKENS` = max(6M, 2.5M × nodes) ≈ 3× a healthy run (keep: 80M vs 26M used).
+- `OCTOS_ARC_MAX_TURNS` = max(24, 4 × nodes) ≈ 3.5× (keep: 128 vs ~35).
+- `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` (opt-in, default off): absolute ceiling for a per-run spend rule; ¥50 ≈ 75M
+  tokens. Note a healthy 125-node tree (ctrip) would cost ≈¥65 by the calibration, so this ceiling can cut a
+  normal run short — set it only when the spend rule outranks completion.
+- Tripped guard = no more repair turns; remaining nodes still get one implement turn; final suite runs once.
+Kept as generic: repair rounds 3 for >2-node trees (keep barely repaired), final-suite workers 450 MiB each
+(→4 in 2 GiB, matching the grader), per-node reap of leftover node processes. Dropped: raising
+`OCTOS_MIN_REPAIR_SECONDS` (1 CPU did not slow node cycles: 282 s/node observed, budget 1500 s).

@@ -79,8 +79,7 @@ from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, container_memory_limit, ensure_playwright,
     failure_summaries, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
-    restore_worktree, snapshot_worktree, tree_digest,
-)
+    restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
 from llm_proxy import LlmProxy  # noqa: E402
@@ -827,7 +826,7 @@ TINY_SYSTEM = "Reply with HTML only."
 TINY_PROMPT = """\
 Playwright test the page at / must pass:
 {spec}
-Reply with the complete index.html only (inline script, no CSS, no comments).
+Reply with the complete index.html only: minimal markup, one inline <script>, no CSS, no comments, no blank lines.
 """
 
 TINY_PROMPT_EVOLUTION = """\
@@ -835,7 +834,7 @@ Current index.html:
 {page}
 Additional Playwright test it must also pass (keep existing behaviour):
 {spec}
-Reply with the complete updated index.html only (inline script, no CSS, no comments).
+Reply with the complete updated index.html only: minimal markup, one inline <script>, no CSS, no comments, no blank lines.
 """
 
 TINY_SERVER_JS = """\
@@ -1109,6 +1108,18 @@ class Flow:
         self.min_repair_seconds = int(os.environ.get("OCTOS_MIN_REPAIR_SECONDS", "300"))
         self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
         self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
+        self.repair_rounds_explicit = bool(os.environ.get("OCTOS_REPAIR_ROUNDS"))
+        # Run-wide cost guard. Defaults scale with the tree and sit ~3x above a normal run
+        # (calibration: cloud keep 2224a9013528, 32 nodes, PASSED 32/32, 9,038 s, ¥16.58 ≈ 26M
+        # platform tokens ≈ 0.8M tokens and ~1.1 turns per node), so they never truncate a
+        # healthy run; they only stop repair loops that have gone pathological. Explicit env
+        # values override (0 = off). OCTOS_ARC_MAX_TOTAL_TOKENS_ABS is the optional absolute
+        # ceiling for a per-run spend rule (e.g. ¥50 ≈ 75M tokens at the observed ¥0.63/M).
+        self.max_total_tokens = int(os.environ.get("OCTOS_ARC_MAX_TOTAL_TOKENS", "-1"))
+        self.max_turns = int(os.environ.get("OCTOS_ARC_MAX_TURNS", "-1"))
+        self.max_total_tokens_abs = int(os.environ.get("OCTOS_ARC_MAX_TOTAL_TOKENS_ABS", "0"))
+        self.turn_count = 0
+        self._wound_down_logged = False
         self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
         self.design_min_nodes = int(os.environ.get("OCTOS_DESIGN_MIN_NODES", "3"))
         self.skeleton_min_nodes = int(os.environ.get("OCTOS_SKELETON_MIN_NODES", "3"))
@@ -1138,6 +1149,20 @@ class Flow:
         self.folder_children: dict[str, list[str]] = {}
 
     # -- helpers ----------------------------------------------------------
+    def wound_down(self) -> bool:
+        """True once the run has spent its token or turn allowance: no more repair
+        turns, remaining nodes get one implement turn each, one final suite, done."""
+        proxy = getattr(self, "llm_proxy", None)
+        tokens = proxy.total_tokens if proxy is not None else 0
+        over = (self.max_total_tokens > 0 and tokens >= self.max_total_tokens) or \
+               (self.max_turns > 0 and self.turn_count >= self.max_turns) or \
+               (self.max_total_tokens_abs > 0 and tokens >= self.max_total_tokens_abs)
+        if over and not self._wound_down_logged:
+            self._wound_down_logged = True
+            log(f"[guard] cost guard tripped: {tokens} billable tokens, {self.turn_count} turns "
+                f"(limits {self.max_total_tokens} / {self.max_turns} / abs {self.max_total_tokens_abs}); no further repair turns")
+        return bool(over)
+
     def remaining(self) -> float:
         return self.budget - (time.time() - self.t_start)
 
@@ -1186,6 +1211,7 @@ class Flow:
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"))
             proxy.begin_turn(request_budget)
         t0 = time.time()
+        self.turn_count += 1
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
@@ -1610,7 +1636,7 @@ class Flow:
                         f"Your last two repairs made the tests worse; the harness restored frontend/ and backend/ "
                         f"to the best state ({best_passed}/{summary.total}). Start from that code.")
                     regressions = 0
-            if attempt == self.repair_rounds:
+            if attempt == self.repair_rounds or self.wound_down():
                 break
             left = deadline - time.time()
             if left < self.min_repair_seconds or self.time_up():
@@ -1696,6 +1722,8 @@ class Flow:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
+        if index > 1:
+            reap_workspace_processes(self.output_dir, log)
         nodes_left = total - index + 1
         node_budget = min(self.node_budget_cap, max(240, self.remaining() / nodes_left))
         deadline = time.time() + node_budget
@@ -1931,7 +1959,7 @@ class Flow:
         if len(all_specs) < 2 and not unverified:
             return  # single spec already judged by the node run
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "2"))
-        workers = workers_for_memory(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+        workers = workers_for_final(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
         previous_failing: set[str] | None = None
         for attempt in range(rounds + 1):
             summary = self.run_specs(all_specs, workers=workers, grader_like=True)
@@ -1968,7 +1996,7 @@ class Flow:
                 log("[acceptance] full suite: same failures as the previous round; stopping repairs")
                 break
             previous_failing = failing_titles
-            if attempt == rounds or self.remaining() < 240:
+            if attempt == rounds or self.remaining() < 240 or self.wound_down():
                 break
             failing = sorted(k for k in grouped if k) or ["all nodes"]
             prompt = REPAIR_PROMPT.format(
@@ -2057,6 +2085,14 @@ class Flow:
                     f"to implement {[i for i in node_ids if i not in unchanged]}")
             self.nodes_to_implement = len([n for n in node_ids if n not in unchanged])
             self.n_nodes = len(ordered)
+            if not self.repair_rounds_explicit and self.n_nodes > 2:
+                self.repair_rounds = 3  # big trees: identical-failure/no-improvement stops make 5 rounds rare anyway
+            if self.max_total_tokens < 0:
+                self.max_total_tokens = max(6_000_000, 2_500_000 * self.n_nodes)   # ~3x the calibrated 0.8M/node
+            if self.max_turns < 0:
+                self.max_turns = max(24, 4 * self.n_nodes)                          # ~3.5x the calibrated 1.1/node
+            log(f"[guard] cost guard: {self.max_total_tokens} tokens / {self.max_turns} turns"
+                + (f" / absolute {self.max_total_tokens_abs}" if self.max_total_tokens_abs else ""))
 
             self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
             if self.tests_dir:
@@ -2226,31 +2262,63 @@ class Flow:
 
 # ---------------------------------------------------------------- main
 
+def minimal_probe_body(model: str) -> bytes:
+    """Fallback chat probe that cannot bill reasoning: thinking disabled, one output token."""
+    return json.dumps({"model": model, "messages": [{"role": "user", "content": "OK"}], "max_tokens": 1,
+                       "thinking": {"type": "disabled"}}).encode()
+
+
+def endpoint_is_up(status: int) -> bool:
+    """Any non-5xx HTTP answer proves the endpoint is reachable (401/404 included)."""
+    return status < 500
+
+
 def probe_endpoint() -> None:
-    """Raw chat.completions probe; waits out proxy outages (up to 10 min)."""
+    """Wait out endpoint/proxy outages (up to 10 min) without spending tokens:
+    GET /models first (unbilled; any non-5xx answer = up). Only if that never
+    answers, one chat request with thinking disabled and max_tokens=1.
+    The old probe ("Reply with exactly: OK", max_tokens=4) let the model reason
+    before its 4-token answer — about ¥0.0008 per run, a third of a Smoke task."""
     key = os.environ.get("OPENAI_API_KEY", "")
     base = os.environ.get("OPENAI_BASE_URL")
     if not (key and base):
         return
     import urllib.request as _ur
-    body = json.dumps({"model": os.environ.get("MODEL", "deepseek-chat"),
-                       "messages": [{"role": "user", "content": "Reply with exactly: OK"}], "max_tokens": 4}).encode()
+    import urllib.error as _ue
+    headers = {"Content-Type": "application/json", "Authorization": "Bearer " + key}
     deadline = time.time() + 600
     attempt = 0
     while True:
         attempt += 1
-        req = _ur.Request(base.rstrip("/") + "/chat/completions", data=body, method="POST",
-                          headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
         try:
-            with _ur.urlopen(req, timeout=60) as resp:
-                log(f"[probe] raw chat/completions -> HTTP {resp.status}: {resp.read()[:120]!r}")
+            with _ur.urlopen(_ur.Request(base.rstrip("/") + "/models", headers=headers), timeout=30) as resp:
+                log(f"[probe] GET /models -> HTTP {resp.status} (endpoint up, no tokens spent)")
                 return
+        except _ue.HTTPError as exc:
+            if endpoint_is_up(exc.code):
+                log(f"[probe] GET /models -> HTTP {exc.code} (endpoint up, no tokens spent)")
+                return
+            log(f"[probe] attempt {attempt}: GET /models -> HTTP {exc.code}")
         except Exception as exc:  # noqa: BLE001
-            log(f"[probe] attempt {attempt} -> {exc}")
-            if time.time() >= deadline:
-                log("[probe] endpoint still failing after 10min; proceeding anyway")
-                return
-            time.sleep(30)
+            log(f"[probe] attempt {attempt}: GET /models -> {exc}")
+            # Some gateways expose only chat/completions: one minimal, reasoning-free request.
+            try:
+                req = _ur.Request(base.rstrip("/") + "/chat/completions", headers=headers, method="POST",
+                                  data=minimal_probe_body(os.environ.get("MODEL", "deepseek-chat")))
+                with _ur.urlopen(req, timeout=60) as resp:
+                    log(f"[probe] minimal chat probe -> HTTP {resp.status}")
+                    return
+            except _ue.HTTPError as exc2:
+                if endpoint_is_up(exc2.code):
+                    log(f"[probe] minimal chat probe -> HTTP {exc2.code} (endpoint up)")
+                    return
+                log(f"[probe] attempt {attempt}: chat -> HTTP {exc2.code}")
+            except Exception as exc2:  # noqa: BLE001
+                log(f"[probe] attempt {attempt}: chat -> {exc2}")
+        if time.time() >= deadline:
+            log("[probe] endpoint still failing after 10min; proceeding anyway")
+            return
+        time.sleep(30)
 
 
 def main() -> int:
