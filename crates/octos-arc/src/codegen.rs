@@ -440,9 +440,14 @@ pub fn implement_prompt(prompts: &Prompts, inputs: &CodegenInputs<'_>) -> Result
     Ok(prompt)
 }
 
-/// User message for a codegen turn: prompt + format instructions.
+/// User message for a codegen turn: prompt + format instructions. The
+/// kernel session trims turn input, so the wire text is trimmed here too
+/// (byte-identical requests keep the provider's prefix cache and token
+/// counts identical to the Python path).
 pub fn with_format(prompts: &Prompts, prompt: &str) -> String {
     format!("{prompt}\n{}", prompts.get("codegen-format"))
+        .trim()
+        .to_string()
 }
 
 /// Rewrite prompt when round 0 passed nothing (`Flow.node_cycle.rebuild_prompt`).
@@ -637,6 +642,7 @@ mod tests {
         assert!(prompt.contains("index.html <= 20 lines"));
         assert!(prompt.contains("\nFiles: frontend/src/index.html"));
         let user = with_format(&prompts, &prompt);
-        assert!(user.ends_with("<<<END FILE>>>\n"));
+        assert!(user.ends_with("<<<END FILE>>>"));
+        assert!(!user.ends_with('\n'));
     }
 }

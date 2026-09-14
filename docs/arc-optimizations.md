@@ -359,3 +359,29 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 **M1 覆盖范围**：对照表中标 M1 的条目全部落地；tool 模式（stdio 驱动、骨架/设计/终检轮、全套修复轮、演练修复轮、守护）在 M2。codegen 修复两轮后或同一失败连续两次时，Python 会切到 tool 模式，M1 在该点保留最优状态并在日志写明；Smoke 两题不触发该路径。`loop.rs` 在 Rust 里叫 `flow.rs`（`loop` 是关键字）。
 
 **通用性自查（0.1 节）**：本 PR 没有含任务名或 REQ 编号的条件分支。相对 Python 逐字搬运的提示词，改写成通用形式的有：UI 契约里「(username, city, date)」「one "Register" link, one "Login" link」「the count is initially 0」「password-strength meters, counters, previews」分别改为「a user name, a chosen option, a date」「specs locate links by href」「a value shown on load」「any live indicator derived from what the user is typing」；性能契约里 scryptSync 的具体参数改为「每请求 CPU 预算 30 ms，选满足预算的哈希参数」；codegen 多节点规则里的 TB 链接文本改为「按 spec 复制导航文本与 href」；契约关键词表去掉「nationalit / 车次 / train」（只对订票类题目有意义），保留 seed/published/fixture/option/select/dropdown/选项/下拉/预置。所有阈值（K=5、codegen 修复 2、慢测试 3 s、10 s 单测超时、700 MiB/worker、32768 max_tokens、1500 s/节点）都来自策略文件且与 Python 默认一致，从容器事实（cgroup）、spec 文本（默认端口）或验收输出（失败摘要）推导。
+
+**M1 对等验证（本机，2026-09-14，同一二进制 `target/release/octos` = main@ea503546 + 本分支，同一模型 `deepseek-v4-flash` 经 `api.arc-bench.com`，`run-task-local.py` 默认配置，`grade-local.py` 公开测试打分；每行一次运行，`billed` 取 `.arc/llm-usage.jsonl`，即平台计费同口径的供应商 usage）**
+
+| 运行 | 路径 | 请求数 | prompt tokens | completion tokens | 耗时 s | 公开测试 | 节点状态 |
+|---|---|---:|---:|---:|---:|---|---|
+| py-counter-1 | Python | 1 | 509 | 327 | 11 | 1/1 | REQ-1、ROOT PASSED |
+| py-counter-2 | Python | 1 | 509 | 349 | 9 | 1/1 | 同上 |
+| py-counter-3 | Python | 1 | 509 | 309 | 9 | 1/1 | 同上 |
+| py-counter-4 | Python | 1 | 509 | 357 | 9 | 1/1 | 同上 |
+| py-counter-dump | Python | 2（首轮 0/1，一次重写） | 1,541 | 409 | 19 | 1/1 | 同上 |
+| rs-counter-1 | Rust | 1 | 510 | 374 | 12 | 1/1 | 同上 |
+| rs-counter-2 | Rust | 2（首轮 0/1：按钮无脚本，一次重写） | 1,555 | 415 | 21 | 1/1 | 同上 |
+| rs-counter-3 | Rust | 1 | 510 | 342 | 11 | 1/1 | 同上 |
+| rs-counter-4 | Rust | 1 | 510 | 361 | 12 | 1/1 | 同上 |
+| rs-counter-dump | Rust | 1 | 510 | 374 | 13 | 1/1 | 同上 |
+| py-dice-1 | Python | 1 | 436 | 307 | 8 | 1/1 | 同上 |
+| py-dice-2 | Python | 1 | 436 | 304 | 9 | 1/1 | 同上 |
+| rs-dice-1 | Rust | 1 | 437 | 327 | 11 | 1/1 | 同上 |
+| rs-dice-2 | Rust | 1 | 437 | 315 | 11 | 1/1 | 同上 |
+
+- 通过率：14/14 次运行公开测试 1/1，节点状态与 FOLDER 状态与 Python 路径一致。
+- 请求数：两条路径各有 1 次首轮 0/1（模型采样：Rust 那次首轮的 `index.html` 按钮没有脚本；Python 那次是 `py-counter-dump`），都由「0/N 时一次重写」修好；其余运行都是 1 次请求。
+- Token：单请求运行的 prompt 差 1 token（510 对 509、437 对 436）。用 `OCTOS_ARC_PROXY_DUMP=1` 抓的 Python 侧请求体与 Rust 侧逐字段比对：model、`max_tokens: 32768`、`temperature: 0.0`、`stream: false`、`thinking: {type: disabled}`、system 消息完全一致，user 消息只差末尾一个换行（内核会话对回合输入做 trim，Rust 侧原样保留了模板末尾的换行）。已改为同样 trim（见下一行的复测）。completion 是采样波动：Counter 单请求均值 Python 335.5、Rust 362.8（+8.1%），Dice 305.5 对 321（+5.1%）；单请求总 token Counter 844.5 对 872.8（+3.3%）、Dice 741.5 对 758（+2.2%），都在 ≤10% 内。
+- `metrics.py` 的 cost 列两条路径估价表不同（Python 路径由内核会话按 deepseek-chat 价估，Rust 路径的账本按 `octos-llm` 的 deepseek-v4 价估），对照以 token 为准；平台计费以其 meter 为准。
+- 云端未评测（M5 前不请求云端运行）。
+- trim 之后复测（同一二进制重新编译）：rs-counter-5 1 请求 / 509 prompt / 343 completion / 1/1；rs-dice-3 1 请求 / 436 / 309 / 1/1——prompt 与 Python 路径逐 token 相同。
