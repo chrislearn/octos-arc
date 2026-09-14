@@ -1036,8 +1036,30 @@ impl Flow {
         request_budget: Option<u32>,
     ) -> (bool, String) {
         if self.dry_run {
-            self.log(format!("[flow] {label}: dry run, tool turn skipped"));
             self.note_turn();
+            let writes = self.policy.debug.dry_run_tool_files
+                && ["implement", "skeleton", "nudge", "repair", "rewrite"]
+                    .iter()
+                    .any(|k| label.contains(k));
+            if writes {
+                // Deep dry run: behave like a turn that wrote the placeholder app.
+                let files = codegen::parse_file_blocks(crate::llm::DRYRUN_FILES);
+                let _ = codegen::write_manifests(&self.output_dir);
+                match codegen::write_files(&self.output_dir, &files) {
+                    Ok(written) => self.log(format!(
+                        "[flow] {label}: dry run, wrote the placeholder app ({} files)",
+                        written.len()
+                    )),
+                    Err(error) => {
+                        self.log(format!("[flow] {label}: dry run write failed: {error}"))
+                    }
+                }
+                return (
+                    true,
+                    format!("dry run: placeholder app written for {label}"),
+                );
+            }
+            self.log(format!("[flow] {label}: dry run, tool turn skipped"));
             return (true, format!("dry run: {label}"));
         }
         self.note_turn();

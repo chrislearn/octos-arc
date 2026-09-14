@@ -112,3 +112,4 @@ chat_profile = "coding" # OCTOS_CHAT_PROFILE
 [debug]
 dump_requests = false   # OCTOS_ARC_PROXY_DUMP — keep the first request bodies under .arc/llm-requests
 dry_run = false         # OCTOS_ARC_DRYRUN — walk the flow without calling the model
+dry_run_tool_files = false  # OCTOS_ARC_DRYRUN_FILES — dry run only: tool turns write the placeholder app (deep structural walk; Python's dry run does not)

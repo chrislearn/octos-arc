@@ -486,6 +486,8 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 
 **通用性自查**：回收与看门狗按进程归属（cwd / 命令行 / 父子关系）判断；护栏阈值来自账本；无任务名 / REQ 编号分支。Python 的收尾回收按命令行关键词杀全机 chrom/node/npm/octos serve，在共享宿主（本机就有用户自己的 Chrome 与 `octos serve`）会误杀——Rust 版只杀能归属本次运行的进程，这是有意的行为差异，云端容器里两者等价。
 
+**深 dry-run（Rust 独有开关 `debug.dry_run_tool_files` / `OCTOS_ARC_DRYRUN_FILES=1`，tool 回合写占位应用而不是只回一句话）**：keep 32 节点全程走完，543 s，退出 0：骨架轮写出占位应用 → 32 个节点各 round 0 + 2 次修复（同一失败即停）→ 全套 0/32 两轮（同一失败集合即停）→ 演练通过 → 45 个需求（32 ATOMIC + 13 FOLDER）design/implement running+completed 各 45、test failed 77（32 节点在节点循环与收尾各标一次，Python 同）→ 收尾回收报告。这是 M4 在没有模型时能做到的最完整结构验证；Python 的 dry-run 在 tool 模式不写文件，所以这项没有 Python 对照。云端基准（C，2026-09-14）：keep 32/32、¥16.58、9,038 s、1,152 次请求、缓存命中 91%。
+
 **未做**：keep 的真实运行（32/32 或与 Python 持平）等 key 窗口结束；届时先估费用（Python 路径 keep 云端 ¥16.58，本机单次上限 ¥5 意味着本机不能整跑 keep，只能云端由 C 跑或本机 `--set repair.rounds=…` 缩短——需统筹决定）。
 
 ### 通用性自查总表（0.1 节；统筹 2026-09-14 补充要求后的复查）

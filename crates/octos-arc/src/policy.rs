@@ -388,6 +388,11 @@ pub struct DebugPolicy {
     pub dump_requests: bool,
     /// Walk the whole flow without calling the model (`OCTOS_ARC_DRYRUN`).
     pub dry_run: bool,
+    /// Dry run only: tool-mode implement/skeleton/repair turns write the placeholder app
+    /// instead of returning a sentence, so multi-node trees walk every node, the final
+    /// suite and the folder marking (`OCTOS_ARC_DRYRUN_FILES`; the Python dry run never
+    /// writes files in tool mode, so leave this off for side-by-side structure checks).
+    pub dry_run_tool_files: bool,
 }
 
 /// Environment variable → policy field. One row per variable the Python
@@ -460,6 +465,7 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("OCTOS_CHAT_PROFILE", "session.chat_profile"),
     ("OCTOS_ARC_PROXY_DUMP", "debug.dump_requests"),
     ("OCTOS_ARC_DRYRUN", "debug.dry_run"),
+    ("OCTOS_ARC_DRYRUN_FILES", "debug.dry_run_tool_files"),
 ];
 
 fn parse_bool(raw: &str) -> Result<bool> {
@@ -585,6 +591,7 @@ impl Policy {
             "session.chat_profile" => self.session.chat_profile = raw.trim().into(),
             "debug.dump_requests" => self.debug.dump_requests = parse_bool(raw)?,
             "debug.dry_run" => self.debug.dry_run = parse_bool(raw)?,
+            "debug.dry_run_tool_files" => self.debug.dry_run_tool_files = parse_bool(raw)?,
             other => bail!("unknown policy key {other}"),
         }
         Ok(())
