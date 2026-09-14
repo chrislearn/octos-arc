@@ -541,3 +541,18 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 - dry-run 证据：keep 32 节点 Rust 与 Python 事件分布逐项相同（上文）；TB 两条路径同样逐项相同（design/implement running+completed 各 5、test failed 9、signal 37，且都在「同一失败两次」处切到 tool 模式）；Evolution 退出 0。
 - 费用估算（A 的离线量：keep 工作区 5 个源文件 86k 字符，REQ-2.5.2 引用 ≈72k 字符 ≈21k token）：每请求输入 ≈20–26k token（平台拟合 ≈¥2–3/M → ≈¥0.05–0.08），每节点 1–3 次 → ≈¥0.1–0.2，整题 keep ≈¥3–6 对旧基准 ¥16.58。
 - 真跑对等（空窗）：keep 一题 Rust 路径 1 次（云端，需要 arc.12 Release 与 `OCTOS_ARC_ENGINE=rust`），与 A 同版本 Python 的 keep 对照；预计 1–3M token。
+
+### Release `v2.0.3-rc.11-arc.12`（Rust 引擎的 Linux 二进制；`arc/main.py` 默认地址与 `arc-runtime-lock.json` 不动）
+
+统筹从 main@6e2065c7（#88 合入）触发 `arc-linux-release.yml`；首次触发因 checkout 不接受 8 位短 SHA 失败（`A branch or tag with the name '6e2065c7' could not be found`），用完整 SHA 重新触发后成功（run 34848583262）。本机核对（2026-09-14）：
+
+| 项 | 值 |
+|---|---|
+| 地址 | https://github.com/octos-org/octos-arc/releases/download/v2.0.3-rc.11-arc.12/octos-bundle-x86_64-unknown-linux-gnu.tar.gz |
+| archive sha256（本机重算 = 发布的 bundle.sha256） | `9a60e32a38687b40f5c08e4b4428265077bae4e70381b2fded2737c621552903` |
+| binary sha256（解出的 `octos` = 发布的 octos.sha256） | `1855f612d7b5155dcd3c99e9a002a38a7737bdace0c2d1359d62f6dc18d1c0d2` |
+| source_commit | `6e2065c76e09485af3b334b3fa45413fe1cdf5ce` |
+| binary_version | `octos 2.0.3-rc.11 (6e2065c7 2026-09-14)`，rustc 1.98.0 |
+| 包内 | octos、octos-sandbox、model_catalog.json 与随包技能二进制；`octos` 内含 `arc run` / `deny-protected` 子命令 |
+
+云端让某次运行走 Rust 引擎：运行环境加 `OCTOS_ARC_ENGINE=rust` 和 `OCTOS_RELEASE_URL=<上面的地址>`（胶水 `_download_octos` 读这个变量；默认地址仍是 arc.11），bundle 用 main 上的 `arc/pack.sh` 打包（含 `rust_engine.py`、`arc-policy.toml`、`prompts/`）。M5 之前不改默认地址与 lock。
