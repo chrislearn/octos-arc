@@ -98,13 +98,17 @@ pub struct BudgetPolicy {
     pub min_repair_seconds: u64,
     /// Tool-mode iterations per turn (`OCTOS_MAX_ITERATIONS`).
     pub max_iterations: u32,
-    /// Global guardrail: total tokens (prompt + completion) after which the run degrades to
-    /// one implement turn per node and one full suite without repairs; 0 = off
-    /// (`OCTOS_ARC_MAX_TOTAL_TOKENS`).
-    pub max_total_tokens: u64,
-    /// Global guardrail: model turns after which the run degrades the same way; 0 = off
-    /// (`OCTOS_ARC_MAX_TOTAL_TURNS`).
-    pub max_total_turns: u32,
+    /// Run-wide cost guard (`OCTOS_ARC_MAX_TOTAL_TOKENS`): billable tokens (prompt + completion)
+    /// after which no repair turn starts, remaining nodes get one implement turn and the final
+    /// suite runs once. -1 = derived once the tree is known: max(6M, 2.5M × nodes), ≈3× the
+    /// calibrated keep run (cloud 2224a9013528: 26M tokens for 32 nodes); 0 = off.
+    pub max_total_tokens: i64,
+    /// Same guard on model turns (`OCTOS_ARC_MAX_TURNS`): -1 = max(24, 4 × nodes); 0 = off.
+    pub max_turns: i64,
+    /// Optional absolute token ceiling for a per-run spend rule (`OCTOS_ARC_MAX_TOTAL_TOKENS_ABS`),
+    /// 0 = off. A healthy 125-node tree costs more than ¥50 ≈ 75M tokens, so set it only when the
+    /// spend rule outranks completion.
+    pub max_total_tokens_abs: u64,
 }
 
 impl Default for BudgetPolicy {
@@ -120,8 +124,9 @@ impl Default for BudgetPolicy {
             implement_fraction: 0.6,
             min_repair_seconds: 300,
             max_iterations: 500,
-            max_total_tokens: 0,
-            max_total_turns: 0,
+            max_total_tokens: -1,
+            max_turns: -1,
+            max_total_tokens_abs: 0,
         }
     }
 }
@@ -130,8 +135,13 @@ impl Default for BudgetPolicy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RepairPolicy {
-    /// K, acceptance repair rounds per node (`OCTOS_REPAIR_ROUNDS`).
+    /// K, acceptance repair rounds per node (`OCTOS_REPAIR_ROUNDS`; an explicit value also
+    /// replaces `rounds_large_tree`).
     pub rounds: u32,
+    /// Repair rounds for trees with more than `large_tree_nodes` ATOMIC nodes (wf-adapter-30:
+    /// keep barely repaired, and the identical-failure / no-improvement stops make 5 rounds rare).
+    pub rounds_large_tree: u32,
+    pub large_tree_nodes: usize,
     /// Codegen repairs before falling back to tool mode (`OCTOS_ARC_CODEGEN_REPAIRS`).
     pub codegen_repairs: u32,
     /// One full rewrite turn when round 0 passes nothing (`OCTOS_ARC_REWRITE_ON_ZERO`).
@@ -153,6 +163,8 @@ impl Default for RepairPolicy {
             final_rounds: 2,
             stall_limit: 2,
             regression_limit: 2,
+            rounds_large_tree: 3,
+            large_tree_nodes: 2,
         }
     }
 }
@@ -238,8 +250,11 @@ pub struct AcceptancePolicy {
     pub workers: u32,
     /// Workers for the full parallel suite (`OCTOS_ARC_FINAL_WORKERS`).
     pub final_workers: u32,
-    /// Container memory per Chromium worker in MiB.
+    /// Container memory per Chromium worker in MiB (per-node runs).
     pub memory_per_worker_mib: u64,
+    /// Memory per worker for the full parallel suite: the platform grades with 4 workers in
+    /// 2 GiB, ≈450 MiB each, so the final suite mimics it and slow tests surface before grading.
+    pub final_memory_per_worker_mib: u64,
     /// Parallelism inside a spec file too (`OCTOS_ARC_FULLY_PARALLEL`).
     pub fully_parallel: bool,
     /// Install a private Playwright when none is found (`OCTOS_ARC_INSTALL_PLAYWRIGHT`).
@@ -268,6 +283,7 @@ impl Default for AcceptancePolicy {
             workers: 2,
             final_workers: 4,
             memory_per_worker_mib: 700,
+            final_memory_per_worker_mib: 450,
             fully_parallel: false,
             install_playwright: true,
             playwright_root: String::new(),
@@ -419,7 +435,11 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("OCTOS_MIN_REPAIR_SECONDS", "budget.min_repair_seconds"),
     ("OCTOS_MAX_ITERATIONS", "budget.max_iterations"),
     ("OCTOS_ARC_MAX_TOTAL_TOKENS", "budget.max_total_tokens"),
-    ("OCTOS_ARC_MAX_TOTAL_TURNS", "budget.max_total_turns"),
+    ("OCTOS_ARC_MAX_TURNS", "budget.max_turns"),
+    (
+        "OCTOS_ARC_MAX_TOTAL_TOKENS_ABS",
+        "budget.max_total_tokens_abs",
+    ),
     ("OCTOS_REPAIR_ROUNDS", "repair.rounds"),
     ("OCTOS_ARC_CODEGEN_REPAIRS", "repair.codegen_repairs"),
     ("OCTOS_ARC_REWRITE_ON_ZERO", "repair.rewrite_on_zero"),
@@ -552,8 +572,15 @@ impl Policy {
             "budget.min_repair_seconds" => self.budget.min_repair_seconds = parse(raw, key)?,
             "budget.max_iterations" => self.budget.max_iterations = parse(raw, key)?,
             "budget.max_total_tokens" => self.budget.max_total_tokens = parse(raw, key)?,
-            "budget.max_total_turns" => self.budget.max_total_turns = parse(raw, key)?,
-            "repair.rounds" => self.repair.rounds = parse(raw, key)?,
+            "budget.max_turns" => self.budget.max_turns = parse(raw, key)?,
+            "budget.max_total_tokens_abs" => self.budget.max_total_tokens_abs = parse(raw, key)?,
+            "repair.rounds" => {
+                // An explicit K applies to every tree size, like OCTOS_REPAIR_ROUNDS in the adapter.
+                self.repair.rounds = parse(raw, key)?;
+                self.repair.rounds_large_tree = self.repair.rounds;
+            }
+            "repair.rounds_large_tree" => self.repair.rounds_large_tree = parse(raw, key)?,
+            "repair.large_tree_nodes" => self.repair.large_tree_nodes = parse(raw, key)?,
             "repair.codegen_repairs" => self.repair.codegen_repairs = parse(raw, key)?,
             "repair.rewrite_on_zero" => self.repair.rewrite_on_zero = parse_bool(raw)?,
             "repair.final_rounds" => self.repair.final_rounds = parse(raw, key)?,
@@ -574,6 +601,12 @@ impl Policy {
             "acceptance.slow_ms" => self.acceptance.slow_ms = parse(raw, key)?,
             "acceptance.workers" => self.acceptance.workers = parse(raw, key)?,
             "acceptance.final_workers" => self.acceptance.final_workers = parse(raw, key)?,
+            "acceptance.memory_per_worker_mib" => {
+                self.acceptance.memory_per_worker_mib = parse(raw, key)?
+            }
+            "acceptance.final_memory_per_worker_mib" => {
+                self.acceptance.final_memory_per_worker_mib = parse(raw, key)?
+            }
             "acceptance.fully_parallel" => self.acceptance.fully_parallel = parse_bool(raw)?,
             "acceptance.install_playwright" => {
                 self.acceptance.install_playwright = parse_bool(raw)?
@@ -671,6 +704,9 @@ mod tests {
     /// Python glue). Regenerate with:
     /// grep -ohE 'os\.environ(\.get\(|\[)"[A-Z_]+"' arc/*.py | sort -u
     const PYTHON_TUNABLES: &[&str] = &[
+        "OCTOS_ARC_MAX_TOTAL_TOKENS",
+        "OCTOS_ARC_MAX_TURNS",
+        "OCTOS_ARC_MAX_TOTAL_TOKENS_ABS",
         "OCTOS_ARC_TINY",
         "OCTOS_ARC_TINY_SPEC_CHARS",
         "OCTOS_ARC_CODEGEN_REASONING_CHARS",
@@ -770,8 +806,12 @@ mod tests {
         assert_eq!(p.reasoning.mode, "auto");
         assert_eq!(p.reasoning.max_tokens_min, 32768);
         assert_eq!(p.reasoning.codegen_reasoning_chars, 5000);
-        assert_eq!(p.budget.max_total_tokens, 0);
-        assert_eq!(p.budget.max_total_turns, 0);
+        assert_eq!(p.budget.max_total_tokens, -1);
+        assert_eq!(p.budget.max_turns, -1);
+        assert_eq!(p.budget.max_total_tokens_abs, 0);
+        assert_eq!(p.repair.rounds_large_tree, 3);
+        assert_eq!(p.repair.large_tree_nodes, 2);
+        assert_eq!(p.acceptance.final_memory_per_worker_mib, 450);
         assert!(p.mode.tiny);
         assert_eq!(p.mode.tiny_spec_chars, 1500);
         assert_eq!(p.requests.implement, 20);

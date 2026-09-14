@@ -35,14 +35,18 @@ design_timeout_seconds = 420     # OCTOS_DESIGN_TIMEOUT
 implement_fraction = 0.6         # OCTOS_IMPLEMENT_FRACTION — implement turn ≤ this share of the node budget
 min_repair_seconds = 300         # OCTOS_MIN_REPAIR_SECONDS — no repair turn with less left
 max_iterations = 500             # OCTOS_MAX_ITERATIONS — tool-mode iterations per turn
-# Global guardrails (M4): once the run has spent this many tokens (prompt + completion) or model turns,
-# every remaining node gets one implement turn without repairs and the final suite runs once without
-# repairs. 0 = off. Derived from the run's own usage ledger, not from the task.
-max_total_tokens = 0        # OCTOS_ARC_MAX_TOTAL_TOKENS
-max_total_turns = 0         # OCTOS_ARC_MAX_TOTAL_TURNS
+# Run-wide cost guard (wf-adapter-30, calibrated on cloud keep 2224a9013528: 32 nodes, 26M platform
+# tokens, ~1.1 turns per node): once the run has spent its token or turn allowance, no repair turn
+# starts, remaining nodes get one implement turn each and the final suite runs once. -1 = derived once
+# the tree is known (tokens max(6M, 2.5M × nodes), turns max(24, 4 × nodes), ≈3× a healthy run); 0 = off.
+max_total_tokens = -1       # OCTOS_ARC_MAX_TOTAL_TOKENS
+max_turns = -1              # OCTOS_ARC_MAX_TURNS
+max_total_tokens_abs = 0    # OCTOS_ARC_MAX_TOTAL_TOKENS_ABS — absolute ceiling for a spend rule (¥50 ≈ 75M); can cut a healthy big tree short
 
 [repair]
 rounds = 5              # OCTOS_REPAIR_ROUNDS — K, acceptance repair rounds per node
+rounds_large_tree = 3   # trees with more than large_tree_nodes ATOMIC nodes (keep barely repaired; an explicit OCTOS_REPAIR_ROUNDS applies everywhere)
+large_tree_nodes = 2
 codegen_repairs = 2     # OCTOS_ARC_CODEGEN_REPAIRS — codegen repairs before falling back to tool mode
 rewrite_on_zero = true  # OCTOS_ARC_REWRITE_ON_ZERO — one full rewrite turn when round 0 passes nothing
 final_rounds = 2        # OCTOS_FINAL_REPAIR_ROUNDS — repair rounds after the full parallel suite
@@ -75,6 +79,7 @@ slow_ms = 3000                   # OCTOS_ARC_SLOW_MS — slower tests are report
 workers = 2                      # OCTOS_ARC_TEST_WORKERS — per-node runs
 final_workers = 4                # OCTOS_ARC_FINAL_WORKERS — full parallel suite
 memory_per_worker_mib = 700      # container memory per Chromium worker (cgroup limit / this = workers)
+final_memory_per_worker_mib = 450   # full suite: the platform grades with 4 workers in 2 GiB
 fully_parallel = false           # OCTOS_ARC_FULLY_PARALLEL — parallelism inside a spec file too
 install_playwright = true        # OCTOS_ARC_INSTALL_PLAYWRIGHT — private, pinned install when none is found
 playwright_root = ""             # OCTOS_ARC_PLAYWRIGHT_ROOT — directory holding node_modules/@playwright/test

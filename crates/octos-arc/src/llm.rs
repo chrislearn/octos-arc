@@ -331,6 +331,10 @@ impl UsageLedger {
 /// Real model client on top of `octos-llm`.
 pub struct LlmClient {
     provider: OpenAIProvider,
+    /// For the token-free start-up probe (GET /models with the same key).
+    base_url: String,
+    api_key: String,
+    model: String,
     runtime: tokio::runtime::Runtime,
     max_tokens_min: u32,
     retries: u32,
@@ -358,9 +362,14 @@ impl LlmClient {
             .wrap_err_with(|| format!("{} is not set", route.api_key_env))?;
         ensure!(!key.trim().is_empty(), "{} is empty", route.api_key_env);
         ensure!(!route.model.trim().is_empty(), "runner spec has no model");
-        let mut provider = OpenAIProvider::new(key, route.model.clone());
+        let base_url = if route.base_url.trim().is_empty() {
+            "https://api.openai.com/v1".to_string()
+        } else {
+            route.base_url.trim().trim_end_matches('/').to_string()
+        };
+        let mut provider = OpenAIProvider::new(key.clone(), route.model.clone());
         if !route.base_url.trim().is_empty() {
-            provider = provider.with_base_url(route.base_url.trim_end_matches('/'));
+            provider = provider.with_base_url(&base_url);
         }
         provider = provider.with_chat_timeout(chat_timeout);
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -369,6 +378,9 @@ impl LlmClient {
             .build()?;
         Ok(Self {
             provider,
+            base_url,
+            api_key: key,
+            model: route.model.clone(),
             runtime,
             max_tokens_min: policy.max_tokens_min,
             retries: policy.transient_retries.max(1),
@@ -483,38 +495,86 @@ impl Completer for LlmClient {
         }
     }
 
+    /// `main.probe_endpoint` (round 33): wait out endpoint/proxy outages without
+    /// spending tokens — GET /models first (unbilled; any non-5xx answer = up); only
+    /// if that never answers, one chat request with thinking disabled and
+    /// `max_tokens: 1`. The old "Reply with exactly: OK" probe let the model reason
+    /// before its answer (≈¥0.0008 per run, a third of a Smoke task).
     fn probe(&mut self, patience: Duration) -> Vec<String> {
         let mut lines = Vec::new();
         let deadline = Instant::now() + patience;
-        let messages = vec![Message::user("Reply with exactly: OK")];
-        let config = self.config(ReasoningMode::Disabled, 4);
+        let http = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build();
+        let Ok(http) = http else {
+            lines.push("[probe] could not build an HTTP client; proceeding anyway".into());
+            return lines;
+        };
+        let bearer = format!("Bearer {}", self.api_key);
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match self.call_once(&messages, &config, Duration::from_secs(60)) {
-                Ok(response) => {
+            match http
+                .get(format!("{}/models", self.base_url))
+                .header("Authorization", &bearer)
+                .timeout(Duration::from_secs(30))
+                .send()
+            {
+                Ok(response) if endpoint_is_up(response.status().as_u16()) => {
                     lines.push(format!(
-                        "[probe] chat/completions answered: {:?}",
-                        response
-                            .content
-                            .unwrap_or_default()
-                            .chars()
-                            .take(60)
-                            .collect::<String>()
+                        "[probe] GET /models -> HTTP {} (endpoint up, no tokens spent)",
+                        response.status().as_u16()
                     ));
                     return lines;
                 }
+                Ok(response) => lines.push(format!(
+                    "[probe] attempt {attempt}: GET /models -> HTTP {}",
+                    response.status().as_u16()
+                )),
                 Err(error) => {
-                    lines.push(format!("[probe] attempt {attempt} -> {error:#}"));
-                    if Instant::now() >= deadline {
-                        lines.push("[probe] endpoint still failing; proceeding anyway".into());
-                        return lines;
+                    lines.push(format!("[probe] attempt {attempt}: GET /models -> {error}"));
+                    // Some gateways expose only chat/completions: one minimal, reasoning-free request.
+                    match http
+                        .post(format!("{}/chat/completions", self.base_url))
+                        .header("Authorization", &bearer)
+                        .json(&minimal_probe_body(&self.model))
+                        .send()
+                    {
+                        Ok(response) if endpoint_is_up(response.status().as_u16()) => {
+                            lines.push(format!(
+                                "[probe] minimal chat probe -> HTTP {} (endpoint up)",
+                                response.status().as_u16()
+                            ));
+                            return lines;
+                        }
+                        Ok(response) => lines.push(format!(
+                            "[probe] attempt {attempt}: chat -> HTTP {}",
+                            response.status().as_u16()
+                        )),
+                        Err(error) => {
+                            lines.push(format!("[probe] attempt {attempt}: chat -> {error}"))
+                        }
                     }
-                    std::thread::sleep(Duration::from_secs(30));
                 }
             }
+            if Instant::now() >= deadline {
+                lines.push("[probe] endpoint still failing; proceeding anyway".into());
+                return lines;
+            }
+            std::thread::sleep(Duration::from_secs(30));
         }
     }
+}
+
+/// `main.endpoint_is_up`: any non-5xx HTTP answer proves the endpoint is reachable (401/404 included).
+pub fn endpoint_is_up(status: u16) -> bool {
+    status < 500
+}
+
+/// `main.minimal_probe_body`: a fallback chat probe that cannot bill reasoning.
+pub fn minimal_probe_body(model: &str) -> Value {
+    json!({"model": model, "messages": [{"role": "user", "content": "OK"}], "max_tokens": 1,
+        "thinking": {"type": "disabled"}})
 }
 
 /// `OCTOS_ARC_DRYRUN=1`: walk the flow without calling a model.
@@ -565,6 +625,15 @@ impl Completer for DryRunCompleter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_treat_any_non_5xx_answer_as_endpoint_up_and_keep_the_probe_reasoning_free() {
+        assert!(endpoint_is_up(200) && endpoint_is_up(401) && endpoint_is_up(404));
+        assert!(!endpoint_is_up(502) && !endpoint_is_up(503));
+        let body = minimal_probe_body("m");
+        assert_eq!(body["max_tokens"], 1);
+        assert_eq!(body["thinking"]["type"], "disabled");
+    }
 
     #[test]
     fn should_map_reasoning_modes_like_the_proxy() {

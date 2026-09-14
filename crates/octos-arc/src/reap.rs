@@ -25,9 +25,34 @@ const STRAY_MARKERS: &[&str] = &[
     "/node",
 ];
 
-/// Fragments that mark a per-node workspace leftover: a server or browser the
-/// turn started from inside frontend/ or backend/.
-const WORKSPACE_MARKERS: &[&str] = &["node", "chrom", "headless_shell", "playwright"];
+/// Command names of per-node workspace leftovers (`acceptance.REAP_COMMANDS`):
+/// a server or build the turn started from inside frontend/ or backend/.
+const REAP_COMMANDS: &[&str] = &["node", "npm", "npx", "sh", "bash"];
+
+/// `acceptance.should_reap`: a leftover server/build process from a tool turn —
+/// a node/npm process whose cwd is inside the app (frontend/ or backend/), never
+/// the kernel or the harness.
+pub fn should_reap(comm: &str, cwd: Option<&str>, root: &Path) -> bool {
+    let Some(cwd) = cwd.filter(|c| !c.is_empty()) else {
+        return false;
+    };
+    let name = Path::new(comm)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !REAP_COMMANDS.contains(&name.as_str()) {
+        return false;
+    }
+    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| Path::new(cwd).to_path_buf());
+    let Ok(rel) = cwd.strip_prefix(&root) else {
+        return false;
+    };
+    matches!(
+        rel.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned()),
+        Some(first) if first == "frontend" || first == "backend"
+    )
+}
 
 fn run(program: &str, args: &[&str]) -> String {
     match Command::new(program).args(args).output() {
@@ -166,24 +191,32 @@ pub fn sweep_all(root: &Path) -> Vec<u32> {
     victims
 }
 
-/// Per-node sweep: kill servers/browsers whose working directory is inside the
-/// workspace (a turn's `npm start` or a spec run it launched itself) so the
-/// next node's acceptance starts from a clean process table.
+/// Per-node sweep (`acceptance.reap_workspace_processes`): kill node/npm
+/// processes left running inside the app directories (cloud 29c840566f36: 346
+/// strays at postflight; on a 1-CPU grader they starve the acceptance runs).
 pub fn sweep_workspace(root: &Path) -> Vec<u32> {
-    let root = root.to_string_lossy().into_owned();
     let me = std::process::id();
     let mut killed = Vec::new();
-    for row in parse_ps(&ps_rows()) {
-        if row.pid == me {
+    for line in run("ps", &["-axo", "pid=,comm="]).lines() {
+        let mut parts = line.trim().splitn(2, char::is_whitespace);
+        let Some(pid) = parts.next().and_then(|p| p.parse::<u32>().ok()) else {
+            continue;
+        };
+        let comm = parts.next().unwrap_or("").trim();
+        if pid == me {
             continue;
         }
-        let low = row.args.to_lowercase();
-        if !WORKSPACE_MARKERS.iter().any(|m| low.contains(m)) {
+        let name = Path::new(comm)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !REAP_COMMANDS.contains(&name.as_str()) {
             continue;
         }
-        if process_cwd(row.pid).starts_with(&root) {
-            kill_pid(row.pid);
-            killed.push(row.pid);
+        let cwd = process_cwd(pid);
+        if should_reap(comm, Some(&cwd), root) {
+            kill_pid(pid);
+            killed.push(pid);
         }
     }
     killed
@@ -294,6 +327,35 @@ mod tests {
             vec![101, 104, 105]
         );
         assert_eq!(descendants_of(&rows, 100), vec![101]);
+    }
+
+    #[test]
+    fn should_reap_only_app_processes_inside_frontend_or_backend() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("backend")).unwrap();
+        std::fs::create_dir_all(root.join(".arc/codegen")).unwrap();
+        let backend = root.join("backend").to_string_lossy().into_owned();
+        assert!(should_reap("node", Some(&backend), root));
+        assert!(should_reap("/usr/bin/npm", Some(&backend), root));
+        assert!(
+            !should_reap("python3", Some(&backend), root),
+            "not a build/server command"
+        );
+        assert!(
+            !should_reap(
+                "node",
+                Some(&root.join(".arc/codegen").to_string_lossy()),
+                root
+            ),
+            "harness dirs are not app dirs"
+        );
+        assert!(
+            !should_reap("node", Some(&root.to_string_lossy()), root),
+            "the workspace root itself is the kernel's cwd"
+        );
+        assert!(!should_reap("node", Some("/tmp"), root));
+        assert!(!should_reap("node", None, root));
     }
 
     #[test]

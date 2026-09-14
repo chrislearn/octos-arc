@@ -149,6 +149,10 @@ pub struct Flow {
     turns: u32,
     /// Global guardrail tripped: one implement per node, one full suite, no repairs.
     degraded: bool,
+    /// Effective cost-guard limits (tokens, turns, absolute tokens); 0 = off.
+    guard_tokens: u64,
+    guard_turns: u32,
+    guard_abs: u64,
     /// Kills our own processes that bind the grading port while we generate.
     watchdog: Option<crate::reap::PortWatchdog>,
     /// Size of the spec text the current node must satisfy (codegen effort by spec size).
@@ -211,6 +215,18 @@ impl Flow {
             .filter(|id| !unchanged.contains(*id))
             .count();
         let plan = RunPlan::new(&policy, &tree, ordered.len(), nodes_to_implement, evolution)?;
+        // Cost guard defaults scale with the tree and sit ≈3× above a healthy run (calibration:
+        // cloud keep 2224a9013528, 32 nodes, 26M platform tokens, ~1.1 turns per node).
+        let n_nodes = ordered.len() as u64;
+        let guard_tokens: u64 = match policy.budget.max_total_tokens {
+            v if v < 0 => 6_000_000u64.max(2_500_000 * n_nodes),
+            v => v as u64,
+        };
+        let guard_turns: u32 = match policy.budget.max_turns {
+            v if v < 0 => 24u32.max(4 * ordered.len() as u32),
+            v => v as u32,
+        };
+        let guard_abs = policy.budget.max_total_tokens_abs;
         let budget = Global::new(plan.time_budget_seconds);
         let mut smoke_port = policy.ports.smoke_port;
         if smoke_port == spec.web_port {
@@ -280,6 +296,9 @@ impl Flow {
             probe_count: 0,
             turns: 0,
             degraded: false,
+            guard_tokens,
+            guard_turns,
+            guard_abs,
             watchdog: None,
             current_spec_chars: 0,
         })
@@ -329,20 +348,19 @@ impl Flow {
         }
         let totals = self.ledger.lock().map(|l| l.totals()).unwrap_or_default();
         let tokens = totals["total_tokens"].as_u64().unwrap_or(0);
-        let max_tokens = self.policy.budget.max_total_tokens;
-        let max_turns = self.policy.budget.max_total_turns;
-        let over_tokens = max_tokens > 0 && tokens >= max_tokens;
-        let over_turns = max_turns > 0 && self.turns >= max_turns;
-        if over_tokens || over_turns {
+        let (max_tokens, max_turns, abs) = (self.guard_tokens, self.guard_turns, self.guard_abs);
+        let over = (max_tokens > 0 && tokens >= max_tokens)
+            || (max_turns > 0 && self.turns >= max_turns)
+            || (abs > 0 && tokens >= abs);
+        if over {
             self.degraded = true;
             self.log(format!(
-                "[guardrail] {} (tokens {tokens}/{max_tokens}, turns {}/{max_turns}); degrading to one implement turn per node and one full suite without repairs",
-                if over_tokens { "token cap reached" } else { "turn cap reached" },
+                "[guard] cost guard tripped: {tokens} billable tokens, {} turns (limits {max_tokens} / {max_turns} / abs {abs}); no further repair turns",
                 self.turns
             ));
             self.events.emit(
                 "guardrail",
-                json!({"tokens": tokens, "turns": self.turns, "max_total_tokens": max_tokens, "max_total_turns": max_turns}),
+                json!({"tokens": tokens, "turns": self.turns, "max_total_tokens": max_tokens, "max_turns": max_turns, "max_total_tokens_abs": abs}),
             );
         }
     }
@@ -1503,7 +1521,11 @@ impl Flow {
         if self.runner.is_none() || specs.is_empty() {
             return None;
         }
-        let repair_rounds = self.policy.repair.rounds;
+        let repair_rounds = if self.plan.n_nodes > self.policy.repair.large_tree_nodes {
+            self.policy.repair.rounds_large_tree
+        } else {
+            self.policy.repair.rounds
+        };
         let mut best_passed: i64 = -1;
         let mut best_sha = self.git.head();
         let mut regressions = 0u32;
@@ -1779,6 +1801,15 @@ impl Flow {
         let node_id = tree::node_id(node);
         let specs: Vec<String> = self.spec_map.specs_for(&node_id).to_vec();
         self.codegen_blocked = false;
+        if index > 1 {
+            let killed = crate::reap::sweep_workspace(&self.output_dir);
+            if !killed.is_empty() {
+                self.log(format!(
+                    "[reap] killed {} leftover process(es) inside frontend/ or backend/",
+                    killed.len()
+                ));
+            }
+        }
         let nodes_left = total - index + 1;
         let node_budget = budget::node_budget_seconds(
             self.policy.budget.node_time_budget_seconds,
@@ -2130,7 +2161,7 @@ impl Flow {
         let workers = acceptance::workers_for_memory(
             self.mem_limit,
             self.policy.acceptance.final_workers,
-            self.policy.acceptance.memory_per_worker_mib,
+            self.policy.acceptance.final_memory_per_worker_mib,
         );
         let mut previous_failing: Option<BTreeSet<String>> = None;
         // Best full-suite state seen so far: (passed, commit, results). A repair
@@ -2604,6 +2635,16 @@ impl Flow {
             ids.len(),
             self.plan.time_budget_seconds
         ));
+        self.log(format!(
+            "[guard] cost guard: {} tokens / {} turns{}",
+            self.guard_tokens,
+            self.guard_turns,
+            if self.guard_abs > 0 {
+                format!(" / absolute {}", self.guard_abs)
+            } else {
+                String::new()
+            }
+        ));
         if self.plan.evolution {
             let to_implement: Vec<&String> = ids
                 .iter()
@@ -2727,13 +2768,6 @@ impl Flow {
                 self.node_cycle(node, index + 1, total);
             }
             self.end_scope("node");
-            let killed = crate::reap::sweep_workspace(&self.output_dir);
-            if !killed.is_empty() {
-                self.log(format!(
-                    "[reap] {node_id}: killed {} leftover process(es) started inside the workspace: {killed:?}",
-                    killed.len()
-                ));
-            }
         }
         if !self.time_up() {
             self.final_acceptance();
