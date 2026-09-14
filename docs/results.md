@@ -1,20 +1,25 @@
 # ARC-Bench 成绩看板
 
-生成时间：2026-09-14 08:42 UTC；账号：李尧；预生成判定：费用 < ¥0.01 且耗时 < 10s。
+生成时间：2026-09-14 09:01 UTC；账号：李尧, octos；预生成判定：费用 < ¥0.01 且耗时 < 10s。
 
 ## 各赛道我们的位置
 
 | 赛道 | 名次 | 通过率 | 功能率 | 费用 | 耗时 | 运行编号（有效） |
 |---|---|---|---|---|---|---|
-| smoke | 4/23（真实 agent 内 1/20，预生成 3） | 100% | 100% | ¥0.0095 | 24s | c8fc443adc45, 4bc6155eaeb6, ef7351eb9396, e5ba35b5574d, ce71b20cd1e9, ceb57c0a9603, db8980f15123, c6c35b0d1eab, c967b38e457c, 1868c77f82cb, 3a6067ba11b9, 2e03281e9449, c17bc1b44d26, aa1f5a0b981f, 549b16afca23, 1365151c2cf7, 783657d3f437, 96e0e4fb2b00, aefc01d1ae3f, bdcf35d968c7, 478a9be4715c, 6ff834e499d8, fab88d27c1d0, 3ddbaac0d8e0, 2e5f7cec22a9, 402a9be38707, a04246e9bfc0, 5424432e8276, 53a91acea453, cc066e8e11f6, c726465310c2, fe02bdc94d77, bd8418c88535, 0491d2a6f510, 50d049b049bd |
-| smoke-evolution | 4/13（真实 agent 内 1/10，预生成 3） | 100% | 100% | ¥0.0086 | 30s | 1b9d0eeeb392, 7bf27008cc42, f700e26638db, d049ec0e4462, 6232223b9863, 9a1b1944a73e, e1b848eec6e2, b400134172bf, 497502f1aefd, 96e2c8aaac3d, ba7ae29d3a46, eefebbdffc4f, 66f9d3d67017, b8f1b3da9208, 265f41f54fe9, 19f60a7de400, ad959cc86495, b4fed98daae8, 7b6d012e9a0a, d28dd2612f94, 17465b7eaa0e, fe9600d1c5a1, 65d055f9bd6f, 7cedb3299bd9, 0f03a259f963, efa79e3db00c, 9ba8f915d00b, 6c9ea2294ff6, b76aadf42e9b, a02d29a7064a, 37fb13835049 |
-| ticket-booking | 2/31（真实 agent 内 1/30，预生成 1） | 90% | 50% | ¥0.25 | 3m18s | 27de75de0cd0, 3e425ce2ebf6, 84444321d4f7, d24f1c3d1c84, e79b1160d081, 709788da672e, 060a3debc450, 2e4802e9cb97, 954a231a3d23, 7cc5accdf91e, c14ea5c5aa56, cbbec51884de, ab4c98a6cb17, 0a3cd1d66042, b00c4ee7b568, a74a5ac5afbd |
+| smoke | 4/24（真实 agent 内 1/21，预生成 3） | 100% | 100% | ¥0.0095 | 24s | c8fc443adc45, 4bc6155eaeb6, ef7351eb9396, e5ba35b5574d, ce71b20cd1e9, ceb57c0a9603, db8980f15123, c6c35b0d1eab, c967b38e457c, 1868c77f82cb, 3a6067ba11b9, 2e03281e9449, c17bc1b44d26, aa1f5a0b981f, 549b16afca23, 1365151c2cf7, 783657d3f437, 96e0e4fb2b00, aefc01d1ae3f, bdcf35d968c7, 478a9be4715c, 6ff834e499d8, fab88d27c1d0, 3ddbaac0d8e0, 2e5f7cec22a9, 402a9be38707, a04246e9bfc0, 5424432e8276, 53a91acea453, cc066e8e11f6, c726465310c2, fe02bdc94d77, bd8418c88535, 0491d2a6f510, 50d049b049bd, 92895ec3437e, 29f7f30395c0 |
+| smoke-evolution | 4/14（真实 agent 内 1/11，预生成 3） | 100% | 100% | ¥0.0086 | 30s | 1b9d0eeeb392, 7bf27008cc42, f700e26638db, d049ec0e4462, 6232223b9863, 9a1b1944a73e, e1b848eec6e2, b400134172bf, 497502f1aefd, 96e2c8aaac3d, ba7ae29d3a46, eefebbdffc4f, 66f9d3d67017, b8f1b3da9208, 265f41f54fe9, 19f60a7de400, ad959cc86495, b4fed98daae8, 7b6d012e9a0a, d28dd2612f94, 17465b7eaa0e, fe9600d1c5a1, 65d055f9bd6f, 7cedb3299bd9, 0f03a259f963, efa79e3db00c, 9ba8f915d00b, 6c9ea2294ff6, b76aadf42e9b, a02d29a7064a, 37fb13835049, 10b04d36f704, c30b29eab45b |
+| ticket-booking | 2/32（真实 agent 内 1/31，预生成 1） | 90% | 50% | ¥0.13 | 100s | 27de75de0cd0, 3e425ce2ebf6, 84444321d4f7, d24f1c3d1c84, e79b1160d081, 709788da672e, 060a3debc450, 2e4802e9cb97, 954a231a3d23, 7cc5accdf91e, c14ea5c5aa56, cbbec51884de, ab4c98a6cb17, 0a3cd1d66042, b00c4ee7b568, a74a5ac5afbd, 4c4146be7bbf |
 | arc-bench-web | 未上榜（榜共 1 条，其中预生成 1） | — | — | — | — | — |
 
 ## 我们的全部运行
 
 | 运行编号 | 赛道 | 题目 | 状态 | 通过 | 功能 | 费用 | Token | 耗时 | 创建(UTC) | 提交名 |
 |---|---|---|---|---|---|---|---|---|---|---|
+| 4c4146be7bbf | ticket-booking | ticket-booking--ticket-booking | FAILED | 9/10 | 1/2 | ¥0.13 | 0.02M | 100s | 2026-09-14 08:54 | Octos official · main@032a57ac · kernel arc.11 |
+| 10b04d36f704 | smoke-evolution | smoke-evolution--dice | PASSED | 2/2 | 2/2 | ¥0.37 | 0.14M | 4m39s | 2026-09-14 08:47 | Octos official · main@032a57ac · kernel arc.11 |
+| c30b29eab45b | smoke-evolution | smoke-evolution--counter | PASSED | 2/2 | 2/2 | ¥0.21 | 0.04M | 3m22s | 2026-09-14 08:43 | Octos official · main@032a57ac · kernel arc.11 |
+| 92895ec3437e | smoke | smoke--dice | PASSED | 1/1 | 1/1 | ¥0.0047 | 0.00M | 19s | 2026-09-14 08:42 | Octos official · main@032a57ac · kernel arc.11 |
+| 29f7f30395c0 | smoke | smoke--counter | PASSED | 1/1 | 1/1 | ¥0.0052 | 0.00M | 21s | 2026-09-14 08:41 | Octos official · main@032a57ac · kernel arc.11 |
 | 2224a9013528 | arc-bench-web | arc-bench-web--keep | PASSED | 32/32 | 32/32 | ¥16.58 | 28.81M | 150m38s | 2026-09-14 05:54 | Octos main@032a57ac web-keep probe (2g/1cpu eval), serial, kernel arc.11 |
 | 27de75de0cd0 | ticket-booking | ticket-booking--ticket-booking | FAILED | 9/10 | 1/2 | ¥0.61 | 0.18M | 7m21s | 2026-09-13 15:04 | Octos main@74d23181 round26 commonjs, serial, kernel arc.11 |
 | 3e425ce2ebf6 | ticket-booking | ticket-booking--ticket-booking | FAILED | 9/10 | 1/2 | ¥0.75 | 0.25M | 9m37s | 2026-09-13 14:47 | Octos main@6bf6b942 round25 speed budget, serial, kernel arc.11 |
@@ -121,38 +126,39 @@
 | f031f20d1558 | smoke | smoke--counter | FAILED | — | 0/0 | — | — | — | 2026-09-11 07:02 | Octos 官方 v2.0.2 · 实操演示 |
 | 50d049b049bd | smoke | smoke--counter | PASSED | 1/1 | 1/1 | ¥0.63 | 3.80M | 16m41s | 2026-09-11 02:07 | Octos 适配包 |
 
-## 榜单 · smoke（23 条，预生成 3 条，显示前 6 名与我们）
+## 榜单 · smoke（24 条，预生成 3 条，显示前 6 名与我们）
 
 | # | 真实# | 队伍 | 通过率 | 功能率 | 费用 | 耗时 | 级别 |
 |---|---|---|---|---|---|---|---|
 | 1 | — | VOLO AI ⚠预生成 | 100% | 100% | ¥0.0001 | 0s | senior |
 | 2 | — | 你也秃对不队 ⚠预生成 | 100% | 100% | ¥0.0031 | 2s | senior |
 | 3 | — | Orchestra ⚠预生成 | 100% | 100% | ¥0.0037 | 4s | senior |
-| 4 | 1 | **李尧** | 100% | 100% | ¥0.0095 | 24s | senior |
-| 5 | 2 | niceeeeee | 100% | 100% | ¥0.02 | 10s | senior |
-| 6 | 3 | 非常队 | 100% | 100% | ¥0.07 | 18s | senior |
+| 4 | 1 | 李尧 | 100% | 100% | ¥0.0095 | 24s | senior |
+| 5 | 2 | octos | 100% | 100% | ¥0.0099 | 20s | senior |
+| 6 | 3 | niceeeeee | 100% | 100% | ¥0.02 | 10s | senior |
 
-## 榜单 · smoke-evolution（13 条，预生成 3 条，显示前 6 名与我们）
+## 榜单 · smoke-evolution（14 条，预生成 3 条，显示前 6 名与我们）
 
 | # | 真实# | 队伍 | 通过率 | 功能率 | 费用 | 耗时 | 级别 |
 |---|---|---|---|---|---|---|---|
 | 1 | — | 你也秃对不队 ⚠预生成 | 100% | 100% | ¥0.0000 | 2s | senior |
 | 2 | — | VOLO AI ⚠预生成 | 100% | 100% | ¥0.0001 | 1s | senior |
 | 3 | — | Orchestra ⚠预生成 | 100% | 100% | ¥0.0046 | 4s | senior |
-| 4 | 1 | **李尧** | 100% | 100% | ¥0.0086 | 30s | senior |
+| 4 | 1 | 李尧 | 100% | 100% | ¥0.0086 | 30s | senior |
 | 5 | 2 | niceeeeee | 100% | 100% | ¥0.02 | 8s | senior |
 | 6 | 3 | 包子头队 | 100% | 100% | ¥0.10 | 20s | senior |
+| 8 | 5 | octos | 100% | 100% | ¥0.58 | 4m00s | senior |
 
-## 榜单 · ticket-booking（31 条，预生成 1 条，显示前 6 名与我们）
+## 榜单 · ticket-booking（32 条，预生成 1 条，显示前 6 名与我们）
 
 | # | 真实# | 队伍 | 通过率 | 功能率 | 费用 | 耗时 | 级别 |
 |---|---|---|---|---|---|---|---|
 | 1 | — | 你也秃对不队 ⚠预生成 | 80% | 0% | ¥0.0000 | 2s | senior |
-| 2 | 1 | **李尧** | 90% | 50% | ¥0.25 | 3m18s | senior |
-| 3 | 2 | net1111 | 100% | 100% | ¥0.42 | 4m17s | senior |
-| 4 | 3 | Orchestra | 100% | 100% | ¥0.61 | 10m39s | senior |
-| 5 | 4 | VOLO AI | 100% | 100% | ¥0.63 | 4m39s | senior |
-| 6 | 5 | 流星队 | 90% | 50% | ¥0.62 | 5m55s | senior |
+| 2 | 1 | octos | 90% | 50% | ¥0.13 | 100s | senior |
+| 3 | 2 | 李尧 | 90% | 50% | ¥0.25 | 3m18s | senior |
+| 4 | 3 | net1111 | 100% | 100% | ¥0.42 | 4m17s | senior |
+| 5 | 4 | Orchestra | 100% | 100% | ¥0.61 | 10m39s | senior |
+| 6 | 5 | VOLO AI | 100% | 100% | ¥0.63 | 4m39s | senior |
 
 ## 榜单 · arc-bench-web（1 条，预生成 1 条，显示前 6 名与我们）
 
@@ -182,6 +188,11 @@
 | 09-12 | ticket-booking | ticket-booking | ab4c98a6cb17 | 4ebb50bb26f5（main@9b0d3009：tests 写保护 + 并行安全持久化 + 哈希降本） | 9/10 | 1/2 | ¥1.99 | 1051 s | 自跑 10/10；唯一失败 REQ-1.2 登录用例注册时 `getByLabel(/证件号码|document number|passport number/)` 找不到可编辑输入框，10 s 超时（代码错：缺字段/label）。功能率首次非零 |
 | 09-12 | ticket-booking | ticket-booking | cbbec51884de | 07b56825e93b（main@0522db48：表单控件服务端直出契约） | 8/10 | 0/2 | ¥2.49 | 1352 s | 自跑 10/10；评测 2 条超时：REQ-1.1 注册后 locator.evaluate 超时（spec:71）、REQ-1.2 `locator.fill: Target crashed`（Chromium 渲染进程崩溃）。归因：环境（平台评测端内存/并行），与上一轮 9/10 同代码路径 |
 | 09-13 | arc-bench-web | keep | 29c840566f36 | 14a0dd892d0a（main@15a6bedf：A1–A7 + 1500 s/节点默认，官方 v2.0.2 runtime） | 0/32（全部 skipped） | 0/32 | **¥57.28** | 15735 s | 生成阶段 32 节点逐个验收全部 1/1（6 个节点用了一轮修复）；容器内全套并行验收 rc=-9、平台评测 4 worker 启动 1 秒被 Killed。reaper 读到 cgroup memory.max=512 MiB、memory.peak=512 MiB、oom 159 次 —— 平台给容器 512 MB 内存，4 个 Chromium 必然 OOM。单次费用超过 ¥50 阈值，已停止 Web 提交 |
+| 09-14 | smoke | counter | 29f7f30395c0 | Octos 官方账号「octos」，main@032a57ac，串行（统筹执行） | 1/1 | 1/1 | ¥0.0052 | 21 s | |
+| 09-14 | smoke | dice | 92895ec3437e | 同上 | 1/1 | 1/1 | ¥0.0047 | 19 s | 提交合计 ¥0.0099，Smoke 真实第 2（李尧 ¥0.0095 第 1） |
+| 09-14 | smoke-evolution | counter | c30b29eab45b | 同上 | 2/2 | 2/2 | ¥0.209 | 202 s | 新账号拿到平台占位模板，探测失败后多请求；已交 A 通用处理 |
+| 09-14 | smoke-evolution | dice | 10b04d36f704 | 同上 | 2/2 | 2/2 | ¥0.368 | 279 s | 同上；Evolution octos 第 5、李尧第 1 |
+| 09-14 | ticket-booking | ticket-booking | 4c4146be7bbf | 同上 | 9/10 | 1/2 | **¥0.134** | 100 s | TB 真实第 1（效率 67/¥），李尧第 2；net1111 100% / ¥0.42 第 3（榜按成本效率排） |
 | 09-14 | arc-bench-web | keep | 2224a9013528 | 2faf570b9741（main@032a57ac，内核 arc.11，评测容器 2 GiB / 1 CPU；统筹执行） | **32/32** | **32/32** | **¥16.58** | 9,038 s | 1,152 请求、平台 28.8M token（供应商 prompt 28.05M 其中 cache 25.65M、completion 0.76M）；评测 32 passed (24.6 s)，cgroup memory.max=2 GiB、峰值 0.96 GiB、oom 0；全套验收 28/32→32/32 |
 | 09-13 | ticket-booking | ticket-booking | 27de75de0cd0 | main@74d23181 round26 commonjs，串行（提交 08c5a5f2a045） | 9/10 | 1/2 | ¥0.61 | 441 s | 启动不再崩；失败 REQ-1.2 `Target crashed`（平台，第 6 次同类）；榜取 round24 提交 ¥0.25 |
 | 09-13 | ticket-booking | ticket-booking | 84444321d4f7 / 3e425ce2ebf6 | main@6bf6b942 round25 速度预算，串行（提交 349543f91559） | 9/10 / 9/10 | 1/2 | ¥0.56 / ¥0.75 | 360 / 577 s | 失败：条款复选框累计 10 s 超时；`page.goto ERR_ABORTED`（平台）。reasoning 涨到 45–50k，费用回升；3e425 首轮 server 启动 rc=1 走 24 请求修复。按「最近一次运行计分」该提交记 ¥0.75，榜取 round24 提交 |
@@ -339,10 +350,10 @@
 
 ## 窗口（ARCBENCH key 占用状态 · 所有工作流跑本机/云端前先看这里）
 
-最后更新：2026-09-14 08:45 UTC（工作流 C 维护；有云端运行时 key 必须空闲，本机运行会污染平台计费）
+最后更新：2026-09-14 09:40 UTC（工作流 C 维护；有云端运行时 key 必须空闲，本机运行会污染平台计费）
 
 | 状态 | 内容 | 预计结束 |
 |---|---|---|
 | 已结束 | keep 2224a9013528：PASSED 32/32、¥16.58、05:54–08:26 UTC | — |
-| **占用中** | octos 官方账号五道小题串行（smoke counter/dice、evolution counter/dice、ticket-booking，统筹执行，2026-09-14 08:30 UTC 起） | 约 15–30 min，以统筹「窗口结束」为准 |
-| 之后 | 空闲；D 的本机验证与 A 的本机运行可用 key。C 发起云端运行前会先更新本段 | — |
+| 已结束 | octos 官方账号五道小题串行（29f7f30395c0 / 92895ec3437e / c30b29eab45b / 10b04d36f704 / 4c4146be7bbf） | — |
+| **空闲** | 无云端运行占用 key（统筹于 2026-09-14 宣布窗口结束）。Web 其余五题待用户确认账号后启动，启动前 C 会先更新本段 | — |
