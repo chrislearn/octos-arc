@@ -833,7 +833,8 @@ impl Flow {
     }
 
     /// Build, start, run the specs, then undo whatever the test run mutated
-    /// (a persisted counter at -1 would otherwise be committed as the seed).
+    /// (tests mutate persisted state; only data the requirement says persists
+    /// across sessions may end up committed, so the worktree is restored).
     /// `grader_like` starts the backend with only PORT set, as the platform does.
     fn run_specs(
         &mut self,

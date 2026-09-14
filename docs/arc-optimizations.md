@@ -487,3 +487,29 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 **通用性自查**：回收与看门狗按进程归属（cwd / 命令行 / 父子关系）判断；护栏阈值来自账本；无任务名 / REQ 编号分支。Python 的收尾回收按命令行关键词杀全机 chrom/node/npm/octos serve，在共享宿主（本机就有用户自己的 Chrome 与 `octos serve`）会误杀——Rust 版只杀能归属本次运行的进程，这是有意的行为差异，云端容器里两者等价。
 
 **未做**：keep 的真实运行（32/32 或与 Python 持平）等 key 窗口结束；届时先估费用（Python 路径 keep 云端 ¥16.58，本机单次上限 ¥5 意味着本机不能整跑 keep，只能云端由 C 跑或本机 `--set repair.rounds=…` 缩短——需统筹决定）。
+
+### 通用性自查总表（0.1 节；统筹 2026-09-14 补充要求后的复查）
+
+复查方法：`grep` Rust 源码（非测试代码）里的任务名 / REQ 编号 / 中文题目文本，`grep` `arc/prompts/*.md` 里的枚举例子与具体参数，逐条核对目标书 0.1 列出的四处。
+
+| 项 | 现状 | 从哪个运行时输入推导 | 对哪些题生效 |
+|---|---|---|---|
+| 「Live indicators (password-strength meters, counters, previews)」 | 已是「any element the spec reads back after typing」（A 轮 29 文本，`ui-contract-core.md`） | spec 文本（被读回的元素） | 任何带实时反馈的页面 |
+| scryptSync 具体参数 | 已是「每请求 CPU 预算 30 ms，哈希每次几毫秒，不用默认代价 KDF / 原生模块」（`performance-contract.md`） | 容器事实（慢 CPU、并行 4 浏览器） | 任何有密码的题 |
+| 「counter at -1 seed」 | Rust 注释改为「测试会改动持久化状态；只有需求要求跨会话保持的数据才可能被提交，所以每次测试后还原工作树」（`flow.rs`），行为本身（`snapshot_worktree` / `restore_worktree`）对任何题一样 | 需求文本（是否要求持久化） | 所有题 |
+| 关键词裁剪的契约块 | 触发词在 `arc/arc-policy.toml` 的 `[prompts] session_keywords / data_keywords`（可改，不用编译）；Rust 里的默认值只是同一份的内置镜像，文件优先 | 需求树文本 | 有账号/会话或列出选项与预置数据的题 |
+| 本次复查另改的提示词例子 | `ui-contract-core.md`「the count is initially 0」「the element contains \`0\`」→「需求说明加载即显示的值」；去掉云端运行号；`ui-contract-data.md`「nationalities, seat classes」→「enumerated categories」；`ui-contract-session.md`「"Sign out" link」→「测试期望文本的退出链接」；`corrections.md`「a counter that every browser session shares」→「a value that every browser session shares」 | — | 这些句子相对 Python 常量是有意差异，Python 侧由 A 决定是否同步 |
+| 任务名 / REQ 编号分支 | Rust 非测试代码无；提示词无 | — | — |
+
+本工作流新增（Python 没有）的规则与阈值：
+
+| 规则/阈值 | 默认 | 推导输入 | 生效范围 |
+|---|---|---|---|
+| L16 codegen 回复无文件块重试一次 | 固定 1 次 | 回复文本 | 所有 codegen 模式（≤2 节点）的题 |
+| L17 全套修复轮保留最优、结束回滚 | — | 全套验收通过数 | 所有多 spec 的题 |
+| `budget.max_total_tokens` / `max_total_turns` 护栏 | 0（关） | 本次运行账本 | 开启后所有题同一条降级规则 |
+| `reap::sweep_workspace` 每节点回收 | — | 进程 cwd 在工作目录内 | 所有题 |
+| `reap::sweep_all` 只杀可归属进程 | — | cwd / 命令行 / 父子关系 | 所有题（Python 版按关键词杀全机，是有意差异） |
+| `PortWatchdog` 5 s | 5 s（Python 同） | 评测端口 + 进程 cwd | 所有题 |
+| tiny 档 `mode.tiny_spec_chars` 1500、档位 `codegen_reasoning_chars` 5000 | 与 Python 同 | spec 字符数 | Smoke、Evolution、任何小 spec 的节点 |
+| 弃用模板 | — | 探测结果（探测过且 0 节点通过） | 所有 Evolution 题 |
