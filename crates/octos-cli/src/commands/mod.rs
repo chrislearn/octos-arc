@@ -413,12 +413,18 @@ impl Executable for Command {
             Self::Channels(cmd) => cmd.execute(),
             Self::Chat(cmd) => cmd.execute(),
             Self::Arc(cmd) => {
-                if let Some(octos_arc::ArcSubcommand::Run(run)) = cmd.subcommand {
-                    let code = octos_arc::execute_run(run)?;
-                    if code != 0 {
-                        std::process::exit(code);
+                match cmd.subcommand {
+                    Some(octos_arc::ArcSubcommand::Run(run)) => {
+                        let code = octos_arc::execute_run(run)?;
+                        if code != 0 {
+                            std::process::exit(code);
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
+                    Some(octos_arc::ArcSubcommand::DenyProtected(deny)) => {
+                        std::process::exit(octos_arc::execute_deny_protected(deny));
+                    }
+                    None => {}
                 }
                 eyre::ensure!(
                     cfg!(feature = "api") || cmd.prepare_only,

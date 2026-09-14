@@ -148,6 +148,8 @@ impl Default for RepairPolicy {
 pub struct RequestPolicy {
     /// Implement turns of small tasks (`OCTOS_ARC_IMPLEMENT_REQUESTS`; 0 = off).
     pub implement: u32,
+    /// Implement turns of large trees (the adapter left those uncapped; 0 = off).
+    pub implement_large: u32,
     /// Repair turns (`OCTOS_ARC_REPAIR_REQUESTS`; 0 = off).
     pub repair: u32,
     /// Codegen turns: attempts including transient retries (`OCTOS_ARC_CODEGEN_REQUESTS`).
@@ -158,6 +160,7 @@ impl Default for RequestPolicy {
     fn default() -> Self {
         Self {
             implement: 20,
+            implement_large: 0,
             repair: 10,
             codegen: 3,
         }
@@ -517,6 +520,7 @@ impl Policy {
             "repair.rewrite_on_zero" => self.repair.rewrite_on_zero = parse_bool(raw)?,
             "repair.final_rounds" => self.repair.final_rounds = parse(raw, key)?,
             "requests.implement" => self.requests.implement = parse(raw, key)?,
+            "requests.implement_large" => self.requests.implement_large = parse(raw, key)?,
             "requests.repair" => self.requests.repair = parse(raw, key)?,
             "requests.codegen" => self.requests.codegen = parse(raw, key)?,
             "reasoning.mode" => self.reasoning.mode = raw.trim().into(),

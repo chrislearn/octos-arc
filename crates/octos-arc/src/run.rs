@@ -11,8 +11,8 @@ use eyre::{Result, WrapErr, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::events::Events;
-use crate::flow::Flow;
-use crate::llm::{Completer, DryRunCompleter, LlmClient, ModelRoute};
+use crate::flow::{Flow, FlowInputs};
+use crate::llm::{Completer, DryRunCompleter, LlmClient, ModelRoute, UsageLedger};
 use crate::policy::Policy;
 use crate::prompts::Prompts;
 use crate::tree;
@@ -132,7 +132,9 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
             prompts.overrides().len()
         ));
     }
-    let llm: Box<dyn Completer> = if policy.debug.dry_run {
+    let ledger = UsageLedger::shared(&arc_dir, &spec.model.model, &spec.model.provider);
+    let dry_run = policy.debug.dry_run;
+    let llm: Box<dyn Completer> = if dry_run {
         events.log("[llm] dry run: no model calls");
         Box::new(DryRunCompleter { calls: 0 })
     } else {
@@ -144,12 +146,24 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
         Box::new(LlmClient::new(
             &spec.model,
             &policy.reasoning,
+            ledger.clone(),
             &arc_dir,
             chat_timeout,
             policy.debug.dump_requests,
         )?)
     };
-    let mut flow = Flow::new(policy, prompts, &spec, tree, llm, events)?;
+    let executable = std::env::current_exe()?;
+    let inputs = FlowInputs {
+        policy,
+        prompts,
+        tree,
+        llm,
+        ledger,
+        events,
+        executable,
+        dry_run,
+    };
+    let mut flow = Flow::new(&spec, inputs)?;
     let outcome = flow.run();
     // The platform judges by events, not by the exit code: a completed or
     // aborted run still exits 0 (its verdicts are in the event stream); only

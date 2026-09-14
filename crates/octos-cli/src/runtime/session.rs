@@ -825,6 +825,19 @@ pub(crate) fn configured_agent_defaults(profile: &ProfileRuntime) -> AgentConfig
                     .and_then(|g| g.reasoning_effort)
             })
             .or_else(|| {
+                // The ARC harness sets the level per turn shape (thinking off
+                // for one-node builds, low otherwise); it beats the lean default.
+                super::profile::stdio_solo_lean_defaults_enabled()
+                    .then(|| {
+                        stdio_reasoning_override(
+                            std::env::var("OCTOS_STDIO_REASONING_EFFORT")
+                                .ok()
+                                .as_deref(),
+                        )
+                    })
+                    .flatten()
+            })
+            .or_else(|| {
                 (super::profile::stdio_solo_lean_defaults_enabled()
                     && profile
                         .primary_model_id
@@ -833,6 +846,19 @@ pub(crate) fn configured_agent_defaults(profile: &ProfileRuntime) -> AgentConfig
                 .then_some(octos_llm::ReasoningEffort::Low)
             }),
         ..Default::default()
+    }
+}
+
+/// `OCTOS_STDIO_REASONING_EFFORT` for the stdio/solo transport: `none` (thinking
+/// off), `low`, `medium`, `high` or `max`; anything else is ignored.
+fn stdio_reasoning_override(raw: Option<&str>) -> Option<octos_llm::ReasoningEffort> {
+    match raw?.trim().to_ascii_lowercase().as_str() {
+        "none" | "off" | "disabled" => Some(octos_llm::ReasoningEffort::Disabled),
+        "low" => Some(octos_llm::ReasoningEffort::Low),
+        "medium" => Some(octos_llm::ReasoningEffort::Medium),
+        "high" => Some(octos_llm::ReasoningEffort::High),
+        "max" => Some(octos_llm::ReasoningEffort::Max),
+        _ => None,
     }
 }
 
@@ -2781,5 +2807,29 @@ tools = ["read_file"]
                 parent_path.display()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod stdio_reasoning_override_tests {
+    use super::stdio_reasoning_override;
+    use octos_llm::ReasoningEffort;
+
+    #[test]
+    fn should_parse_levels_and_ignore_garbage() {
+        assert_eq!(
+            stdio_reasoning_override(Some("none")),
+            Some(ReasoningEffort::Disabled)
+        );
+        assert_eq!(
+            stdio_reasoning_override(Some(" Low ")),
+            Some(ReasoningEffort::Low)
+        );
+        assert_eq!(
+            stdio_reasoning_override(Some("max")),
+            Some(ReasoningEffort::Max)
+        );
+        assert_eq!(stdio_reasoning_override(Some("loud")), None);
+        assert_eq!(stdio_reasoning_override(None), None);
     }
 }

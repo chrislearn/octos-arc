@@ -29,6 +29,35 @@ pub enum Mode {
 pub enum ArcSubcommand {
     /// Run a whole ARC task from a runner-spec.json with the harness policy
     Run(crate::run::RunCommand),
+    /// before_tool_call hook: deny file writes inside protected directories
+    /// (payload on stdin; exit 1 = deny). Used by `octos arc run` itself.
+    #[command(hide = true, name = "deny-protected")]
+    DenyProtected(DenyProtectedCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct DenyProtectedCommand {
+    /// Protected directories (official tests, requirements).
+    #[arg(value_name = "DIR")]
+    pub dirs: Vec<PathBuf>,
+}
+
+/// Exit code for the hook: 0 allow, 1 deny (reason on stdout).
+pub fn execute_deny_protected(command: DenyProtectedCommand) -> i32 {
+    let mut raw = String::new();
+    if std::io::Read::read_to_string(&mut std::io::stdin(), &mut raw).is_err() {
+        return 0;
+    }
+    let Ok(payload) = serde_json::from_str::<Value>(&raw) else {
+        return 0;
+    };
+    match crate::guard::deny_protected(&payload, &command.dirs) {
+        Some(reason) => {
+            println!("{reason}");
+            1
+        }
+        None => 0,
+    }
 }
 
 #[derive(Debug, Args)]

@@ -77,6 +77,25 @@ fn is_stdio_solo_coding_tool(name: &str) -> bool {
     STDIO_SOLO_CODING_TOOLS.contains(&name)
 }
 
+/// `OCTOS_STDIO_SOLO_TOOLS`: an optional comma-separated subset of
+/// [`STDIO_SOLO_CODING_TOOLS`] the ARC harness narrows a session to (a
+/// codegen-style repair turn drops the shell, the tool-less planning tools
+/// are never useful to it). Names outside the built-in list are ignored so
+/// the allow-list can never widen the surface; unset or empty keeps all 12.
+fn stdio_solo_tool_allowlist(raw: Option<&str>) -> Option<Vec<String>> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(
+        raw.split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && is_stdio_solo_coding_tool(name))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
 /// Keep the headless ARC transport on the same compact instruction surface as
 /// `octos chat --profile coding`. The gateway prompt is intentionally broad
 /// (web/research/media/plugin guidance) and is the wrong default for an
@@ -1556,7 +1575,14 @@ impl ProfileRuntime {
             let (profile, _) = octos_agent::profile::ProfileDefinition::load("coding")
                 .wrap_err("failed to load built-in coding profile for stdio/solo")?;
             profile.apply_to_registry(&mut tools);
-            tools.retain(is_stdio_solo_coding_tool);
+            let allowlist =
+                stdio_solo_tool_allowlist(std::env::var("OCTOS_STDIO_SOLO_TOOLS").ok().as_deref());
+            tools.retain(|name| {
+                is_stdio_solo_coding_tool(name)
+                    && allowlist
+                        .as_ref()
+                        .is_none_or(|allowed| allowed.iter().any(|allow| allow == name))
+            });
             Some(Arc::new(profile))
         } else {
             None
@@ -1823,6 +1849,20 @@ mod tests {
         assert_eq!(STDIO_SOLO_CODING_TOOLS.len(), 12);
         assert!(is_stdio_solo_coding_tool("shell"));
         assert!(!is_stdio_solo_coding_tool("run_pipeline"));
+    }
+
+    #[test]
+    fn stdio_tool_allowlist_only_narrows_the_builtin_set() {
+        assert_eq!(stdio_solo_tool_allowlist(None), None);
+        assert_eq!(stdio_solo_tool_allowlist(Some("  ")), None);
+        assert_eq!(
+            stdio_solo_tool_allowlist(Some("read_file, write_file,run_pipeline,shell")),
+            Some(vec![
+                "read_file".to_owned(),
+                "write_file".to_owned(),
+                "shell".to_owned()
+            ])
+        );
     }
 
     #[test]
