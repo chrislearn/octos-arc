@@ -193,6 +193,7 @@
 | 09-14 | smoke-evolution | counter | c30b29eab45b | 同上 | 2/2 | 2/2 | ¥0.209 | 202 s | 新账号拿到平台占位模板，探测失败后多请求；已交 A 通用处理 |
 | 09-14 | smoke-evolution | dice | 10b04d36f704 | 同上 | 2/2 | 2/2 | ¥0.368 | 279 s | 同上；Evolution octos 第 5、李尧第 1 |
 | 09-14 | ticket-booking | ticket-booking | 4c4146be7bbf | 同上 | 9/10 | 1/2 | **¥0.134** | 100 s | TB 真实第 1（效率 67/¥），李尧第 2；net1111 100% / ¥0.42 第 3（榜按成本效率排） |
+| 09-14 | arc-bench-web | bookstack | 17fad96c6235 | 2faf570b9741（main@032a57ac，内核 arc.11；统筹执行） | **34/34** | **34/34** | ¥22.99（含 D 本机 ≈¥13.2、A ≈¥0.1，**干净约 ¥9.7 = ¥0.29/节点**） | 9,041 s | 1,199 请求、供应商 33.4M token（cache 30.1M）、平台 37.7M；骨架 95 s；全套 32/34（REQ-5.6.1、6.1.1）→ 34/34；评测 4 worker 30.8 s 全过，cgroup peak 1.0 GiB、oom 0。**待办：队列结束后干净重跑**（账单被污染，榜取最近一次） |
 | 09-14 | arc-bench-web | keep | 2224a9013528 | 2faf570b9741（main@032a57ac，内核 arc.11，评测容器 2 GiB / 1 CPU；统筹执行） | **32/32** | **32/32** | **¥16.58** | 9,038 s | 1,152 请求、平台 28.8M token（供应商 prompt 28.05M 其中 cache 25.65M、completion 0.76M）；评测 32 passed (24.6 s)，cgroup memory.max=2 GiB、峰值 0.96 GiB、oom 0；全套验收 28/32→32/32 |
 | 09-13 | ticket-booking | ticket-booking | 27de75de0cd0 | main@74d23181 round26 commonjs，串行（提交 08c5a5f2a045） | 9/10 | 1/2 | ¥0.61 | 441 s | 启动不再崩；失败 REQ-1.2 `Target crashed`（平台，第 6 次同类）；榜取 round24 提交 ¥0.25 |
 | 09-13 | ticket-booking | ticket-booking | 84444321d4f7 / 3e425ce2ebf6 | main@6bf6b942 round25 速度预算，串行（提交 349543f91559） | 9/10 / 9/10 | 1/2 | ¥0.56 / ¥0.75 | 360 / 577 s | 失败：条款复选框累计 10 s 超时；`page.goto ERR_ABORTED`（平台）。reasoning 涨到 45–50k，费用回升；3e425 首轮 server 启动 rc=1 走 24 请求修复。按「最近一次运行计分」该提交记 ¥0.75，榜取 round24 提交 |
@@ -350,11 +351,11 @@
 
 ## 窗口（ARCBENCH key 占用状态 · 所有工作流跑本机/云端前先看这里）
 
-最后更新：2026-09-14 11:10 UTC（工作流 C 维护；有云端运行时 key 必须空闲，本机运行会污染平台计费）
+最后更新：2026-09-14 11:45 UTC（工作流 C 维护；有云端运行时 key 必须空闲，本机运行会污染平台计费）
 
 | 状态 | 内容 | 预计结束 |
 |---|---|---|
-| **占用中（长期）** | Web 赛道全量串行，由统筹的看门狗推进：个人账号 bookstack **17fad96c6235**（2026-09-14 09:01 UTC 起）→ stackoverflow → prestashop → ctrip → 12306，随后 Octos 官方账号六题（keep + 五题）。按 keep 实测 282 s/节点估算：个人账号五题约 34–50 h，官方账号六题约 36–55 h | 约 2026-09-17 至 09-18；以统筹宣布「窗口结束」为准 |
+| **占用中（长期）** | Web 赛道全量串行，由统筹的看门狗推进：个人账号 bookstack 17fad96c6235（已完成 34/34，09:01–11:33 UTC）→ **当前：空窗内串行重跑小题（李尧 + octos 两账号 Smoke、octos Evolution，包 main@6974ffcd 极小 spec 档位）** → stackoverflow → prestashop → ctrip → 12306，随后 Octos 官方账号六题（keep + 五题）。按 keep 实测 282 s/节点估算：个人账号五题约 34–50 h，官方账号六题约 36–55 h | 约 2026-09-17 至 09-18；以统筹宣布「窗口结束」为准 |
 | 计量备注 | bookstack 17fad96c6235 账单含两笔外来用量，归档时扣除：① A 本机尾巴 09:01–09:06 UTC 约 16.6k token（<¥0.1）；② **D（内核 harness 收编）09:27–10:56 UTC 18 次本机对等运行，prompt 559,017 + completion 382,296 token，平台拟合价约 ¥13.2**（已停用 key） | — |
 | 待办 | **bookstack 在所有队列结束、key 空闲后干净重跑一次**（榜单取最近一次运行，本次账单被污染） | 排在官方账号六题之后 |
 | 计划 | bookstack 结束后的空窗：统筹先用 main@6974ffcd（round 32 极小 spec 档位）串行重跑 Smoke（李尧、octos 两账号）与 octos 的 Evolution，再起 stackoverflow | 紧随 bookstack |
