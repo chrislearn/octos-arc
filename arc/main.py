@@ -593,6 +593,51 @@ def run_octos(octos_bin: str, cwd: Path, prompt: str, env: dict, data_dir: Path,
         return True, out[-4000:]
 
 
+DRYRUN_FILES = """\
+<<<FILE frontend/src/index.html>>>
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>dry run</title></head>
+<body><!--NAV--><main data-testid="dryrun">dry run placeholder</main></body></html>
+<<<END FILE>>>
+<<<FILE backend/server.js>>>
+const http = require('http'); const fs = require('fs'); const path = require('path');
+const dist = path.join(__dirname, '..', 'frontend', 'dist');
+const handler = (req, res) => { try {
+  const file = path.join(dist, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+  if (!file.startsWith(dist) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('not found'); }
+  res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8'}); res.end(fs.readFileSync(file));
+} catch (e) { res.writeHead(500); res.end('error'); } };
+http.createServer(handler).listen(process.env.PORT || 3000);
+process.on('uncaughtException', () => {});
+<<<END FILE>>>
+"""
+
+
+class DryRunDriver:
+    """OCTOS_ARC_DRYRUN=1: no kernel, no model. Every turn returns a fixed reply
+    (file blocks for codegen prompts, a sentence otherwise) so the whole flow —
+    tree order, mode selection, probes, acceptance, repair/budget logic, events —
+    runs end to end for structural parity checks. Real-path behaviour is untouched."""
+
+    def __init__(self) -> None:
+        self.hooks: list = []
+        self.turns = 0
+
+    def run(self, prompt: str, timeout: int, monitor: TurnMonitor | None = None) -> tuple[bool, str]:
+        self.turns += 1
+        time.sleep(0.05)
+        if "<<<FILE" in prompt:
+            return True, DRYRUN_FILES
+        if "index.html only" in prompt:
+            return True, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><main>dry run</main></body></html>"
+        return True, "dry run: no model call; nothing written."
+
+    def end_scope(self, *args, **kwargs) -> None:
+        pass
+
+    def close(self, *args, **kwargs) -> None:
+        pass
+
+
 class OctosDriver:
     """stdio UI-protocol session (default) or one-shot chat turns.
 
@@ -745,10 +790,10 @@ UI_CONTRACT_CORE = """\
 UI contract (the hidden Playwright tests depend on these; a violation scores 0):
 - Buttons are real <button> elements, links are <a href>, every form control has a visible <label for=id>; their texts are copied VERBATIM from the requirement/spec (anchored regexes like /^name$/i reject "Full Name"). Use plain text/password/email inputs, native <select>/checkbox/radio; NEVER type="date"/"number". All controls exist in the served HTML itself and stay visible, enabled and editable at all times; no CSS transitions/animations and no JavaScript that re-renders or re-creates form controls after load (Playwright waits for elements to be "stable" — cloud run 954a231a3d23 timed out on a checkbox that kept changing).
 - No native HTML5 validation attributes; validate in JavaScript and show ONE inline error element (role="alert") naming the problem (required / invalid / match / terms / duplicate). On error stay on the page and create no record.
-- Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE element per page; every link target appears in EXACTLY ONE <a> per page (one "Register" link, one "Login" link — never a nav link plus a call-to-action to the same href; the specs click `a[href="/register"]` and fail on two matches); never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
+- Strict mode: every echoed value (an entered name, a chosen option, a date) appears in EXACTLY ONE element per page; every link target appears in EXACTLY ONE <a> per page (never a nav link plus a call-to-action to the same href: a spec that clicks `a[href=...]` fails on two matches); never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
 - State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server. The initial state must already be in the served HTML (e.g. the element contains `0` in the markup); never leave it empty until a fetch completes — the tests assert immediately after load.
 - Zero external requests (no CDN, fonts, analytics); assets small and same-origin.
-- Live indicators (password-strength meters, counters, previews) update their OWN element's text/attributes synchronously in the `input` event handler — never on change/blur, never debounced, never only a wrapper's class (specs compare the element's outerHTML before and after typing).
+- Live indicators (any element the spec reads back after typing) update their OWN element's text/attributes synchronously in the `input` event handler — never on change/blur, never debounced, never only a wrapper's class (specs compare the element's outerHTML before and after typing).
 - Text only: never OCR reference images. Write files in your first actions.
 """
 
@@ -765,15 +810,71 @@ Rules: texts, button names, labels and test ids exactly as in the test; the init
 
 CODEGEN_SIZE_SMALL = "index.html <= 20 lines, server.js <= 20 lines."
 CODEGEN_SIZE_FULL = ("As short as the tests allow; one page file per route. Mechanisms (follow exactly): "
-                     "(1) every page contains the literal `<!--NAV-->` and no other navigation links; the server replaces it "
-                     "with `<a href=\"/login\">登录</a> <a href=\"/register\">Register</a>` when signed out or "
-                     "`<span>USERNAME</span> <a href=\"/logout\">退出登录</a>` when signed in (read from the cookie) before sending. "
+                     "(1) every page contains the literal `<!--NAV-->` and no other navigation links; before sending, the server "
+                     "replaces it with the signed-out links or the signed-in header (the exact link texts and labels the tests "
+                     "expect, each exactly once), decided from the session cookie. "
                      "(2) Session cookie exactly `session=TOKEN; Path=/; HttpOnly; SameSite=Lax`; sign-out clears it and redirects to /. "
-                     "(3) Validation: the values produced by the test helpers (see the support file) are valid input and MUST be "
-                     "accepted (names with spaces, any document number, phone, email the helper uses); reject only the cases the "
-                     "tests assert are rejected; each message is the FIRST alternative of the test's regex copied verbatim, shown in one persistent `role=alert` element. "
+                     "(3) Validation: every value the test helpers generate is valid input and MUST be accepted; do not invent "
+                     "stricter rules than the requirement states; reject only the cases the tests assert are rejected; each message is the FIRST alternative of the test's regex copied verbatim, shown in one persistent `role=alert` element. "
                      "(4) Elements the test expects visible have a non-empty box (never an empty div/span). "
                      "(5) No HTML5 validation attributes (required/pattern/type=email): the server validates.")
+
+# Tiny-spec tier (OCTOS_ARC_TINY_SPEC_CHARS, default 1500; OCTOS_ARC_TINY=0 disables): the prompt is the
+# spec's own statements only, the reply is one HTML file, the server is a fixed harness scaffold (no task
+# logic), thinking is off. First-pass failure falls back to the compact codegen tier for the same node.
+TINY_SYSTEM = "Reply with HTML only."
+
+TINY_PROMPT = """\
+Playwright test the page at / must pass:
+{spec}
+Reply with the complete index.html only (inline script, no CSS, no comments).
+"""
+
+TINY_PROMPT_EVOLUTION = """\
+Current index.html:
+{page}
+Additional Playwright test it must also pass (keep existing behaviour):
+{spec}
+Reply with the complete updated index.html only (inline script, no CSS, no comments).
+"""
+
+TINY_SERVER_JS = """\
+const http = require('http'); const fs = require('fs'); const path = require('path');
+const dist = path.join(__dirname, '..', 'frontend', 'dist');
+const handler = (req, res) => {{ try {{
+  const url = req.url.split('?')[0];
+  const name = url === '/' ? 'index.html' : url.replace(/^\\//, '');
+  const candidates = [name, name + '.html'].map(n => path.join(dist, n));
+  const file = candidates.find(f => f.startsWith(dist) && fs.existsSync(f) && fs.statSync(f).isFile());
+  if (!file) {{ res.writeHead(404); return res.end('not found'); }}
+  const type = file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8';
+  res.writeHead(200, {{ 'Content-Type': type }}); res.end(fs.readFileSync(file));
+}} catch (e) {{ res.writeHead(500); res.end('error'); }} }};
+http.createServer(handler).listen(process.env.PORT || {port});
+if (process.env.ARC_EXTRA_PORTS !== '0') for (const p of {extra_ports}) if (String(p) !== String(process.env.PORT || {port})) http.createServer(handler).listen(p);
+process.on('uncaughtException', () => {{}}); process.on('unhandledRejection', () => {{}});
+"""
+
+
+def strip_code_fences(text: str) -> str:
+    text = text.strip()
+    m = re.search(r"```[a-zA-Z]*\n(.*?)```", text, re.DOTALL)
+    return m.group(1).strip() if m else text
+
+
+def compact_spec_lines(text: str) -> str:
+    """The spec's statements without imports, blank lines, `await` and closing
+    braces — what a page must satisfy, in the spec's own words."""
+    out = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("import ", "//", "/*", "*")) or line in ("});", "})", "}"):
+            continue
+        line = re.sub(r"^await\s+", "", line)
+        line = re.sub(r"^test\((['\"])(.*?)\1,\s*async\s*\(\{[^}]*\}\)\s*=>\s*\{$", r"test: \2", line)
+        out.append(line)
+    return "\n".join(out)
+
 
 UI_CONTRACT_DATA = """\
 - Concrete example values in the requirement (seed records, option labels, sample accounts, nationalities, seat classes) are FIXTURE DATA: they must exist verbatim as <option>s / seed rows. When a control's values are described but not listed, offer a broad standard set.
@@ -787,7 +888,7 @@ UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full 
 
 PERFORMANCE_CONTRACT = """\
 Performance & robustness (the grader is a slow container, tests run in parallel, EACH TEST HAS A 10 s BUDGET including reloads):
-- The grader CPU is 5–10x slower than a laptop and runs 4 browsers at once, so budget CPU per request at 30 ms: hash passwords with crypto.scryptSync(password, salt, 64, {N: 4096, r: 8, p: 1}) or pbkdf2Sync with <= 10000 iterations — never the default scrypt cost, never bcrypt; keep the JSON store small and rewrite it only on mutation.
+- The grader CPU is 5–10x slower than a laptop and runs 4 browsers at once, so budget CPU per request at 30 ms: any password hashing must cost a few milliseconds per call (a low-cost KDF parameter or a single digest), never a default-cost KDF or a native hashing module; keep the JSON store small and rewrite it only on mutation.
 - Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). Render every page server-side from the cookie (signed-in header, username) so a page needs NO XHR after load; keep pages tiny (one small inline script, no separate JS bundles) — the grader's browsers are slow and memory-starved.
 - Persistence: the in-memory store is the single source of truth; never re-read the JSON file per request. Mutations update memory first and then write the whole file synchronously (writeFileSync to a temp file, then rename) — never an async read-modify-write, because the grader runs 2–4 test files in parallel against ONE backend and a concurrent register/login pair must never lose a user. No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes.
 """
@@ -1026,6 +1127,7 @@ class Flow:
         self.tests_dir: Path | None = None
         self.spec_map: dict = {None: []}
         self.probe_summaries: dict = {}
+        self.probe_count = 0  # nodes actually probed against the existing app
         self.aliases: dict[str, str] = {}
         self.runner: AcceptanceRunner | None = None
         self.designs: dict[str, dict] = {}
@@ -1140,18 +1242,71 @@ class Flow:
                 and not getattr(self, "codegen_blocked", False)
                 and getattr(self, "n_nodes", 99) <= int(os.environ.get("OCTOS_ARC_CODEGEN_MAX_NODES", "2")))
 
-    def codegen_turn(self, prompt: str, timeout: int, label: str) -> tuple[bool, str]:
-        """Run a tool-less turn; parse and write the file blocks from the reply."""
+    def tiny_mode(self, spec_chars: int) -> bool:
+        threshold = int(os.environ.get("OCTOS_ARC_TINY_SPEC_CHARS", "1500"))
+        return os.environ.get("OCTOS_ARC_TINY", "1") != "0" and 0 < spec_chars < threshold
+
+    def tiny_turn(self, node_id: str, specs: list[str], timeout: int) -> bool:
+        """Tiny-spec tier: harness writes the manifests and a fixed static server, the
+        model returns one index.html for the spec's statements. Returns True only when
+        the node's specs pass right away; otherwise the caller falls back to the compact tier."""
+        write_codegen_manifests(self.output_dir)
+        server = self.output_dir / "backend" / "server.js"
+        if not server.exists():
+            server.parent.mkdir(parents=True, exist_ok=True)
+            extra = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
+            server.write_text(TINY_SERVER_JS.format(port=self.web_port, extra_ports=json.dumps(extra)), encoding="utf-8")
+        spec = compact_spec_lines(self.spec_bodies(node_id))
+        page = self.output_dir / "frontend" / "src" / "index.html"
+        if page.is_file():
+            prompt = TINY_PROMPT_EVOLUTION.format(page=page.read_text(encoding="utf-8", errors="replace").strip(), spec=spec)
+        else:
+            prompt = TINY_PROMPT.format(spec=spec)
+        ok, _ = self.codegen_turn(prompt, timeout, f"{node_id} implement (tiny)", spec_chars=len(spec),
+                                  system=TINY_SYSTEM, format_instructions="", raw_target="frontend/src/index.html")
+        if not ok or not page.is_file() or self.runner is None or not specs:
+            log(f"[flow] {node_id}: tiny tier produced no page; compact tier next")
+            return False
+        summary = self.run_specs(specs)
+        passed = (not summary.error) and summary.total and summary.passed == summary.total
+        log(f"[flow] {node_id}: tiny tier {'passed' if passed else 'failed'} its specs"
+            f" ({summary.passed}/{summary.total})" if not summary.error else f"[flow] {node_id}: tiny tier could not run specs")
+        return bool(passed)
+
+    def codegen_reasoning(self, spec_chars: int) -> str | None:
+        """Reasoning effort for a codegen turn, derived from the size of the spec it
+        must satisfy (OCTOS_ARC_CODEGEN_REASONING_CHARS, default 5000): small specs are
+        generated correctly without reasoning; large ones keep the base mode."""
+        if os.environ.get("OCTOS_ARC_REASONING", "auto") != "auto":
+            return None
+        threshold = int(os.environ.get("OCTOS_ARC_CODEGEN_REASONING_CHARS", "5000"))
+        return "none" if spec_chars and spec_chars < threshold else None
+
+    def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
+                     system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
+                     raw_target: str | None = None) -> tuple[bool, str]:
+        """Run a tool-less turn; parse and write the file blocks from the reply.
+        `raw_target`: when the reply is a bare HTML document (tiny tier), write it there."""
         proxy = self.llm_proxy
         proxy.no_tools = True
-        proxy.system_override = CODEGEN_SYSTEM
+        proxy.system_override = system
+        mode_override = self.codegen_reasoning(spec_chars)
+        saved_base = getattr(self, "base_reasoning_mode", proxy.mode)
+        if mode_override:
+            self.base_reasoning_mode = mode_override
         try:
-            ok, text = self.turn(prompt + "\n" + FORMAT_INSTRUCTIONS, timeout, label, expect_verification=False,
+            ok, text = self.turn((prompt + "\n" + format_instructions) if format_instructions else prompt, timeout, label,
+                                 expect_verification=False,
                                  request_budget=int(os.environ.get("OCTOS_ARC_CODEGEN_REQUESTS", "3")))
         finally:
             proxy.no_tools = False
             proxy.system_override = None
+            self.base_reasoning_mode = saved_base
         files = parse_file_blocks(text) if ok else {}
+        if ok and not files and raw_target:
+            html = strip_code_fences(text)
+            if re.search(r"<html|<!doctype", html, re.IGNORECASE):
+                files = {raw_target: html}
         if files:
             written = write_files(self.output_dir, files)
             log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
@@ -1474,7 +1629,8 @@ class Flow:
                 log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")
                 prompt = rebuild_prompt(failures or "(no detail)")
                 if self.codegen_mode():
-                    self.codegen_turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})")
+                    self.codegen_turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
+                                      spec_chars=getattr(self, "current_spec_chars", 0))
                 else:
                     self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
                               request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
@@ -1485,7 +1641,8 @@ class Flow:
                                           sources=self.sources_text())
             if self.codegen_mode():
                 self.codegen_turn(prompt + "\nReturn every file you change as a complete file block.",
-                                  min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
+                                  min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}",
+                                  spec_chars=getattr(self, "current_spec_chars", 0))
             else:
                 self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
         if best_passed > 0 and best_sha and self.head() != best_sha:
@@ -1578,17 +1735,28 @@ class Flow:
         prompt = self.corrections_text() + prompt
         codegen_prompt = None
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
-        if self.codegen_mode():
+        tiny_ok = False
+        if self.codegen_mode() and self.tiny_mode(len(self.spec_bodies(node_id))):
+            tiny_ok = self.tiny_turn(node_id, specs, implement_timeout)
+            self.current_spec_chars = len(self.spec_bodies(node_id))
+        if tiny_ok:
+            ok, text = True, "tiny tier: specs pass"
+        elif self.codegen_mode():
+            spec_text = self.spec_bodies(node_id)
+            self.current_spec_chars = len(spec_text)
+            # Small specs (by size, an input-derived measure) get the compact rule; the multi-page
+            # mechanisms only apply when the spec is large enough to need sessions/navigation.
+            small = self.codegen_reasoning(self.current_spec_chars) == "none"
             compact = CODEGEN_PROMPT.format(node_id=node_id, description=str(node.get("description") or "").strip(),
-                                            spec=self.spec_bodies(node_id), port=self.web_port, ports=self.codegen_ports_clause(),
-                                            size_rule=CODEGEN_SIZE_SMALL if self.n_nodes <= 1 else CODEGEN_SIZE_FULL)
+                                            spec=spec_text, port=self.web_port, ports=self.codegen_ports_clause(),
+                                            size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
             if self.has_app():  # evolution: keep the existing app, return every changed file complete
                 compact = (compact.replace("Files:", "Existing app below; keep everything that works and output "
                                            "every changed file complete. Files:", 1)
                            + inline_sources(self.output_dir, 30000, exts=(".html", ".js")))
             codegen_prompt = compact
             write_codegen_manifests(self.output_dir)
-            ok, text = self.codegen_turn(compact, implement_timeout, f"{node_id} implement")
+            ok, text = self.codegen_turn(compact, implement_timeout, f"{node_id} implement", spec_chars=self.current_spec_chars)
         else:
             ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
@@ -1681,6 +1849,26 @@ class Flow:
             log(f"[flow] {node_id}: source snapshot failed: {exc}")
             return None
 
+    def discard_template(self) -> Path | None:
+        """Move frontend/ and backend/ of a non-working existing app to
+        .arc/template-discarded/ so the fresh build starts from our own layout."""
+        dest = self.output_dir / ".arc" / "template-discarded"
+        try:
+            if dest.exists():
+                shutil.rmtree(dest)
+            dest.mkdir(parents=True, exist_ok=True)
+            moved = []
+            for name in ("frontend", "backend"):
+                src = self.output_dir / name
+                if src.exists():
+                    shutil.move(str(src), str(dest / name))
+                    moved.append(name)
+            log(f"[flow] existing app passes no spec; moved {moved} to {dest.relative_to(self.output_dir)} and building fresh")
+            return dest
+        except OSError as exc:
+            log(f"[flow] could not set the existing app aside: {exc}")
+            return None
+
     def already_passing_nodes(self, node_ids: list[str]) -> set[str]:
         """Evolution probe: run each candidate node's specs against the existing app
         (no LLM); nodes that fully pass need no implementation turn."""
@@ -1690,7 +1878,11 @@ class Flow:
             if not specs:
                 continue
             summary = self.run_specs(specs)
-            if summary.error or not summary.total:
+            self.probe_count += 1
+            if summary.error:
+                log(f"[acceptance] probe {node_id}: existing app does not build/start/serve ({summary.error[:160]})")
+                continue
+            if not summary.total:
                 continue
             log(f"[acceptance] probe {node_id}: {summary.passed}/{summary.total} against the existing app")
             if summary.all_passed:
@@ -1882,11 +2074,23 @@ class Flow:
                 # fingerprints cannot tell what is new. A node whose specs already
                 # pass against the existing app is unchanged — no LLM turn for it.
                 unchanged |= self.already_passing_nodes([n for n in node_ids if n not in unchanged])
+                if self.probe_count and not unchanged:
+                    # Nothing of the existing app satisfies any spec (a scaffold/placeholder
+                    # template, or an app the new specs no longer accept): it is not a usable
+                    # base. Set it aside and build the task fresh (cloud c30b29eab45b/10b04d36f704:
+                    # implement-then-rewrite on a placeholder cost 40-80x the fresh build).
+                    self.discard_template()
+                    self.evolution = False
                 self.nodes_to_implement = len([n for n in node_ids if n not in unchanged])
-                log(f"[flow] evolution mode after probing the existing app: unchanged {sorted(unchanged)}, "
-                    f"to implement {[i for i in node_ids if i not in unchanged]}")
+                log(f"[flow] {'evolution' if self.evolution else 'fresh build'} after probing the existing app: "
+                    f"unchanged {sorted(unchanged)}, to implement {[i for i in node_ids if i not in unchanged]}")
 
-            octos_bin = find_octos()
+            dry_run = os.environ.get("OCTOS_ARC_DRYRUN") == "1"
+            if dry_run:
+                octos_bin = "(dry run: no kernel)"
+                log("[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls")
+            else:
+                octos_bin = find_octos()
             log(f"[octos] binary {octos_bin}")
             data_dir = Path(tempfile.mkdtemp(prefix="octos-data-"))
             protected = [p for p in (self.tests_dir, self.req_dir) if p and p.is_dir()]
@@ -1896,9 +2100,9 @@ class Flow:
             write_profile_defaults(data_dir, config_dir, protected_hooks(protected))
             self.snapshot_protected()
             env["PORT"] = str(self.smoke_port)  # a bare `npm start` inside a turn must not hit the grading port
-            self.driver = OctosDriver(octos_bin, self.output_dir, env, data_dir,
-                                      int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),
-                                      events_log=self.output_dir / ".arc" / "octos-events.jsonl")
+            self.driver = DryRunDriver() if dry_run else OctosDriver(
+                octos_bin, self.output_dir, env, data_dir, int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),
+                events_log=self.output_dir / ".arc" / "octos-events.jsonl")
             self.driver.hooks = protected_hooks(protected)
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
@@ -2070,7 +2274,10 @@ def main() -> int:
     print(f"[env] ARCBENCH_TEMPLATE_DIR={os.environ.get('ARCBENCH_TEMPLATE_DIR', '<unset>')}", flush=True)
     print(f"[env] ARCBENCH_TASK_DIR={os.environ.get('ARCBENCH_TASK_DIR', '<unset>')}", flush=True)
     print(f"[env] argv requirement_path={args.requirement_path}", flush=True)
-    probe_endpoint()
+    if os.environ.get("OCTOS_ARC_DRYRUN") == "1":
+        log("[probe] skipped (OCTOS_ARC_DRYRUN=1)")
+    else:
+        probe_endpoint()
 
     req_src = Path(args.requirement_path).resolve()
     if args.output_dir:

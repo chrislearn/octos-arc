@@ -444,3 +444,153 @@ Remaining first-pass misses are model sampling (invented validation rules, messa
 twice server-side, cookie/redirect details). With the leaderboard scoring the MOST RECENT run and the current
 TB entry at ¥0.251 (a 3-request run), a rerun has negative expected value (median 3 requests ≈ ¥0.3, tail
 ¥0.6+): recommendation — do not rerun TB; keep the entry. Cloud: 未评测 for round 28.
+
+## Handover inventory for workflow D (Rust harness, `OCTOS_ARC_ENGINE=rust`)
+
+Everything the Python adapter does today, with defaults and the evidence that motivated it. Behavioural
+parity target; the Python path stays the default until D passes side-by-side verification.
+
+**Flow (`arc/main.py`)**
+- Requirement tree → atomic nodes in dependency order (`requirement_order.topo_order`, folder nodes marked
+  from children). Time budget max(3600, 1500 s × nodes); per-node cap 1500 s; per-node budget
+  min(cap, max(240, remaining / nodes_left)).
+- Spec↔node mapping by file-name prefix with aliases (`acceptance.map_specs_to_nodes`); support helpers
+  (`support/*.ts`) are quoted with the spec.
+- Per node: implement turn → run that node's specs → repair loop (≤5 rounds, 3 for >2-node trees on
+  wf-adapter-30): rewrite-on-zero once, identical normalized failure twice → tool mode, no improvement for two
+  repairs → stop, two regressions → restore best commit. Verdict recorded in traceability.
+- Codegen mode (≤2-node trees, `OCTOS_ARC_CODEGEN_MAX_NODES`): one tool-less request returning
+  `<<<FILE path>>>` blocks; system prompt replaced by one line (proxy `system_override`); lean prompt =
+  requirement description + spec bodies + fixed layout + rules; multi-node slot carries the NAV/cookie/
+  validation/visibility mechanisms; 2 codegen repairs (failure digest + quoted html/js) before tool mode.
+  Harness writes both package.json (build copies src→dist plus extensionless page copies; backend
+  `type: commonjs`), injects `<meta charset>`, restores flattened newlines (guarded by `node --check`),
+  strips static nav links duplicating `<!--NAV-->`. Evidence: rounds 22–28 (Smoke ¥0.0095, Evolution
+  ¥0.0086 real-agent #1; TB 20-sample study).
+- Evolution: `.arc/traceability/requirements.json` fingerprints, then probe each remaining node's specs
+  against the existing app (no LLM); passing nodes are unchanged and the probe doubles as their regression
+  run. Evidence: cloud 9a1b1944a73e/6232223b9863 (platform template has no snapshot).
+- Final suite grader-like (only PORT set): verifies spec default ports (3301) are bound, robustness probe
+  (/favicon.ico, unknown path/API), memory-aware workers, OOM-killed runner = no verdict; ≤2 repair rounds,
+  identical failing set → stop. Evidence: 3f0124e82113 (0/10 port contract), c17bc1b44d26, 29c840566f36.
+- Protected dirs: deny hook (`hooks/deny_protected.py`, patched into the profile JSON) + tree digest
+  restore after each turn; worktree snapshot/restore around every test run (tests mutate persisted state).
+- Guard (`guard.py`): unverified completion claims, repeated errors, protected writes → corrections
+  appended to the next prompt; per-turn request budget via proxy (`enforce_turn_budget`).
+- Source snapshots `.arc/codegen/<node>-r<n>/` before every repair; `[acceptance]` logs `Failed at:` +
+  `Observation:`; `[usage] provider totals` at the end.
+
+**LLM proxy (`arc/llm_proxy.py`)**: de-stream (upstream JSON, SSE synthesized to the kernel), reasoning
+injection (auto: none for ≤1 node to implement, low otherwise), `max_tokens ≥ 32768` floor (kernel arc.11
+caps at 4096), system-prompt section trimming + tool schema drops (shell tools for small tasks, all tools for
+codegen), per-turn request cap, usage log incl. `prompt_tokens_details.cached_tokens`, request dump.
+
+**Acceptance (`arc/acceptance.py`)**: Playwright discovery (`/opt/arcbench` preinstalled) or isolated pinned
+private install (1.63.0) removed after the run; 10 s test timeout, 4 s action/expect, 6 s navigation;
+failure digest (Feature / Failed at / Observation / Steps); slow-test threshold 3 s; `container_memory_limit`
+(cgroup v1/v2), `workers_for_memory` 700 MiB/worker (per node), `workers_for_final` 450 MiB/worker
+(wf-adapter-30); `free_owned_ports`, `reap_workspace_processes` (wf-adapter-30).
+
+**Known platform limits** (see "Platform-side issues" above): renderer crashes, 10 s cumulative timeouts,
+feature-rate prefix matching; container now 2 GiB / 1 CPU / `--workers=4` (keep 2224a9013528 pending).
+
+**Local tooling**: `run-task-local.py` (`--template` for Evolution), `grade-local.py` (restores worktree),
+`pack.sh` bundle list, `metrics.py`; unit tests `cd arc && python3 -m unittest discover -s tests -t .` (85).
+
+## Round 29 — generality review of the prompts (user rule: no task-specific strategy)
+
+Rule applied: a rule may only depend on what the run can derive from its own inputs (requirements.yaml,
+spec text, container facts, failure text); every prompt sentence must be a general engineering rule that
+matters for at least two tasks; no competition/task names, titles or known failing cases.
+
+Rewritten (main.py): strict-mode bullet no longer names "Register"/"Login" links or `a[href="/register"]`;
+echoed-value examples generic; "live indicators" no longer enumerates controls (meters/counters/previews);
+codegen multi-node mechanism (1) describes the NAV placeholder generically (link texts come from the tests)
+instead of hard-coding Chinese link texts and USERNAME; mechanism (3) says "values the test helpers generate
+must be accepted; do not invent stricter rules" instead of listing name/document/phone/email; performance
+contract says "a few ms per hash call, no default-cost KDF / native module" instead of scrypt parameters.
+codegen.py: `dedupe_nav_links` derives the hrefs to strip from the anchors the server itself renders into the
+placeholder (was a fixed /login|/register|/logout list).
+
+通用性自查 (checklist, all ✔):
+- [✔] No task id / title / competition name in any prompt constant or decision (`grep` for ticket|dice|counter|
+  keep in prompt text: none; only code comments and evidence ids remain, which are not sent to the model).
+- [✔] Ports: derived from spec text (`spec_base_ports`), never a literal.
+- [✔] Session/login rules: gated by requirement/spec keywords (`needs_session`), phrased as generic web rules.
+- [✔] Codegen mechanisms: placeholder/cookie/validation/visibility/no-HTML5-validation are generic; the only
+  literal is the placeholder token `<!--NAV-->` the harness itself introduces.
+- [✔] Deterministic post-processing: charset meta, extensionless page copies, flattened-newline repair, NAV
+  dedupe — all input-derived, none keyed to a task.
+- [✔] Acceptance/robustness probes: /favicon.ico + unknown path/API are browser/grader facts, not task facts.
+- [✔] Local parity: prompts render for Counter/Dice/Evolution/TB offline (1,940 / 1,577 / 2,521 / 14,791 chars,
+  ports clause only where a spec names a port); unit tests 79 OK. Live runs 未评测 (key reserved for keep).
+
+## Round 30 — existing app that satisfies no spec → fresh build; codegen effort by spec size
+
+Cloud (octos account, main@032a57ac): Evolution counter c30b29eab45b 2/2 ¥0.209 / 202 s, dice 10b04d36f704
+2/2 ¥0.368 / 279 s (personal account same package: ¥0.0044). The template handed to that account is the
+platform's React/Vite/Express/SQLite scaffold with a placeholder home page (template.yaml `web-react-express`),
+not a working app: the probe found 0/1 for every node, the flow still treated it as evolution (implement on
+top of the scaffold, then rewrite → multi-request).
+
+Generic rule (no template names involved): if the probe ran and NO node's specs pass against the existing app
+(placeholder page, scaffold that does not build/start, or an app the new specs no longer accept), the app is
+not a usable base → frontend/ and backend/ move to `.arc/template-discarded/` and the task is built fresh
+(single-request codegen per node with our manifests). A real previous app keeps the probe/1-request path.
+
+Codegen effort is now derived from spec size (`OCTOS_ARC_CODEGEN_REASONING_CHARS`, default 5000): specs
+below it get reasoning none and the compact size rule; larger specs (e.g. multi-page apps with sessions) keep
+the base mode and the multi-page mechanisms. Previously both hinged on node count, so a 2-node counter tree
+paid 4.4k reasoning tokens and got navigation/cookie mechanisms that crowded out the page script (first
+pass 0/1).
+
+| scenario (local) | before | after |
+|---|---|---|
+| Evolution counter, placeholder template | evolution path, implement + rewrite (cloud ¥0.21–0.37) | fresh build, 2 requests, 1,283 / 713 = 1,996 tokens, 2/2, grade 100 |
+| Evolution counter, real template (no snapshot) | 1 request 976 | 1 request 799 / 379 = 1,178, 2/2, grade 100 |
+| Dice | 743 tokens | 743 tokens, 1/1, grade 100 |
+
+Generality check: decision derived from probe results only; thresholds from spec size; no task/template
+names. Cloud: 未评测.
+
+## Round 31 — OCTOS_ARC_DRYRUN=1 (structural parity runs for workflow D)
+
+`OCTOS_ARC_DRYRUN=1` replaces the kernel driver with `DryRunDriver`: no kernel, no model, the endpoint
+preflight is skipped. Every turn returns a fixed reply (a placeholder index.html + static server as file
+blocks for codegen prompts, a sentence for tool-mode prompts), so the whole flow runs end to end — tree order,
+skeleton folding, mode selection, Evolution probe/discard, per-node acceptance and repair stops
+(rewrite-on-zero, identical failure, no improvement), source snapshots, final grader-like suite (port
+contract, robustness probe), rehearsal, traceability/runner events, usage summary. Real-path behaviour is
+untouched (the switch only selects the driver and skips the preflight).
+
+Verified locally with a dummy key: smoke--counter (1 node) and ticket-booking (2 nodes, `OCTOS_REPAIR_ROUNDS=1`)
+both complete with exit 0; TB emits 68 runner events (37 signal / 29 requirement_state / 2 runner_state) and
+its rehearsal reports the PORT CONTRACT violation of the placeholder server, as intended.
+
+## Round 32 — tiny-spec tier (Smoke ≤ 300 tokens per task target)
+
+Smoke board: three real entries ahead of ours at ¥0.0031–0.0037 for both tasks (≈250 tokens per task); ours
+≈845 tokens (prompt 509 + completion 335 incl. ≈176 reasoning) → ¥0.005 per task.
+
+Tier trigger: spec body smaller than `OCTOS_ARC_TINY_SPEC_CHARS` (default 1500; `OCTOS_ARC_TINY=0` disables) —
+input-derived, no task names. What changes for such a node:
+1. Prompt = the spec's own statements (imports, blank lines, `await`, closing braces stripped) + one output
+   sentence; no contract sections. System prompt "Reply with HTML only." (21 chars).
+2. Thinking off (the spec-size reasoning rule already yields none).
+3. Output = one index.html (inline script) written from the bare reply (code fences tolerated; FILE blocks still
+   accepted); the harness writes the manifests and a fixed static server (`TINY_SERVER_JS`: `/`→index.html,
+   `/<name>`→`<name>.html`, 404 otherwise, try/catch, PORT + spec default ports unless ARC_EXTRA_PORTS=0) —
+   generic scaffold, no task logic. Verified: `/` and `/register` 200 with charset, `/favicon.ico`, `/api/x`,
+   path traversal 404, extra port bound.
+4. The node's specs run right after; on failure the existing compact codegen tier redoes the node (then the
+   normal repair loop). Evolution nodes with an existing index.html use a variant that quotes the page.
+
+Offline token estimate (chars ÷ 3.8, the ratio measured on round-22 prompts):
+| task | prompt chars → tokens | expected completion | expected total |
+|---|---|---|---|
+| counter | 614 → ≈162 (+6 system) | ≈90–110 (≈350 chars of HTML) | ≈260–280 |
+| dice | 378 → ≈99 (+6) | ≈70–90 | ≈180–200 |
+| evolution REQ-2 (page quoted) | 995 → ≈262 (+6) | ≈100 | ≈370 |
+
+Dry-run (no model): counter and evolution traverse tiny → spec check → compact fallback → repair loop, exit 0.
+Live: 未评测 (key occupied by the Web queue; 5-minute window requested from C). Unit tests 93 OK.
