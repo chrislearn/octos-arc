@@ -283,6 +283,8 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 | L13 | smoke 端口 = `OCTOS_SMOKE_PORT`(3100)≠web_port；轮内 `PORT`=smoke；watchdog 每 5 s 杀掉自己进程对评测端口的绑定 | `Flow.__init__`、`_port_watchdog` | R0（runner 见到评测端口被占即终止） | `reap::PortWatchdog` | M4（codegen 路径不起服务，M1 不需要） |
 | L14 | 收尾：残留进程清理、把嵌套一层的 app 提到根、释放评测端口、写 preview-ready.json | `_reap_stray_processes`、`_postflight_structure_check`、`_free_web_port`、`write_preview_ready` | 0764e8d77c54、R0 | `reap.rs`（M4）；preview-ready 留在 Python 胶水 | M1/M4 |
 | L15 | 异常路径：未判定节点补 test_failed、FOLDER 补齐、run_failed，退出码 0 | `Flow.run` except | A1-4 | `run::execute` 的错误路径 + 事件 | M1 |
+| L16 | （Python 无）codegen 实现轮回复里没有 `<<<FILE>>>` 块时，带格式提醒重试一次，再判 implementation_failed | — | 本机 rs-tb-4：REQ-1 一次无块回复让节点被跳过，依赖它的 REQ-2 全失败，后续 17 次请求都在补救（最终 2/10） | `flow::node_cycle`（纠正句 `codegen_no_blocks`） | M2 |
+| L17 | （Python 无）全套修复轮记录最优状态（通过数上升即 commit），循环结束时最后一轮低于最优则回滚到最优并按最优轮的结果重记判定 | — | 本机 rs-tb-4：全套 0/10 → 修复 1 → 7/10 → 修复 2 → 2/10，Python 与 Rust 都交付了最后一轮；与节点循环「通过即快照、无提升回滚」同一规则 | `flow::final_acceptance` | M2 |
 
 #### budget.rs（← guard.py 的预算部分 + P2-7）
 
@@ -342,6 +344,11 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 | R1 | 收尾/异常时：打印 free -m、cgroup memory.*、ps 按 RSS 前 20；杀 chrom/headless_shell/playwright/octos serve/node/npm（排除自身与父进程） | `_reap_stray_processes` | 0764e8d77c54、e60fb3545eae（评测阶段 4 worker 1 秒被 Killed） | `reap::sweep(tag)`，并按目标书改为每节点结束回收 frontend/backend 目录下残留的 node/Chromium | M4 |
 | R2 | 评测端口 watchdog | `_port_watchdog` | R0 | `reap::PortWatchdog` | M4 |
 
+#### 里程碑状态
+
+- M1（PR #76）：对照表中标 M1 的行全部落地。
+- M2（本分支）：标 M2 的行全部落地——driver.rs（D1–D5）、guard.rs（G1–G3、A21）、flow.rs 的 tool 模式回合（P2–P4、L7–L11、C14 的切换落地）、内核侧等价物（M5：内核 `OCTOS_DISABLE_STREAMING`、M6：`OCTOS_STDIO_SOLO_TOOLS`、P6 的 tool 模式：`OCTOS_STDIO_REASONING_EFFORT`、B2：profile `gateway.max_iterations`）、hook 改为 `octos arc deny-protected`。M3/M4/M5 的行未动。
+
 #### 策略文件 `arc/arc-policy.toml`（← 约 60 个环境变量）
 
 全部 `OCTOS_*` / `OCTOS_ARC_*` 开关映射为有默认值、有注释的字段，环境变量仍可覆盖（命令行 > 环境变量 > 策略文件 > 内置默认）。字段清单与对应环境变量见 `arc/arc-policy.toml` 的注释；`policy::tests` 逐字段断言默认值与 Python 一致、环境变量覆盖生效。留在 Python 胶水的变量：`ARCBENCH_*`（平台输入）、`OCTOS_BIN`、`OCTOS_CACHE_DIR`、`OCTOS_RELEASE_URL`、`OCTOS_ARC_ENGINE`。
@@ -385,3 +392,44 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 - `metrics.py` 的 cost 列两条路径估价表不同（Python 路径由内核会话按 deepseek-chat 价估，Rust 路径的账本按 `octos-llm` 的 deepseek-v4 价估），对照以 token 为准；平台计费以其 meter 为准。
 - 云端未评测（M5 前不请求云端运行）。
 - trim 之后复测（同一二进制重新编译）：rs-counter-5 1 请求 / 509 prompt / 343 completion / 1/1；rs-dice-3 1 请求 / 436 / 309 / 1/1——prompt 与 Python 路径逐 token 相同。
+
+### M2：loop + budget + 端口/CommonJS 契约 — tool 模式与 Ticket Booking（PR 待编号）
+
+**改动位置**：`crates/octos-arc/src/driver.rs`（内核 stdio 会话驱动）、`guard.rs`（守护、受保护目录、`deny_protected`）、`flow.rs`（tool 模式回合与所有轮次）、`runner.rs`（隐藏子命令 `octos arc deny-protected`）、内核 `crates/octos-agent/src/agent/{llm_call,detection}.rs`（`OCTOS_DISABLE_STREAMING=1` 直接非流式）、`crates/octos-cli/src/runtime/{profile,session}.rs`（`OCTOS_STDIO_SOLO_TOOLS` 会话级工具收窄、`OCTOS_STDIO_REASONING_EFFORT`）、`arc/metrics.py`（按 `requests` 字段计数）。
+
+**tool 模式怎么跑**：`octos arc run` 从自己的可执行文件起 `octos serve --stdio --solo --data-dir <临时目录> --danger-full-access`（与 Python 的 `octos_stdio.py` 同一协议），每轮新会话（`session.scope = turn`）。Python 代理承担的四件事的内核侧等价物：去流式 → agent 直接非流式（`OCTOS_DISABLE_STREAMING`，此前内核根本不读这个变量）；推理档位 → `OCTOS_STDIO_REASONING_EFFORT`；裁剪工具（去 `ask_user_question/check/tool_search/update_plan`，最小自验轮再去 shell）→ `OCTOS_STDIO_SOLO_TOOLS`（只能收窄；实测发现 coding profile 里 shell 工具注册名是 `bash`，且会话重绑定 cwd 时重新创建沙箱工具，所以 allow-list 在 profile 与会话两级都应用）；每轮请求上限 → profile 的 `gateway.max_iterations`（内核以 `budget` 错误结束回合，harness 视为「回合被上限终止」，盘上文件照常进验收）；`max_tokens` 下限 → profile 的 `gateway.max_output_tokens`。请求数按内核进度事件的 `iteration` 最大值计（`token_cost_update` 是每回合一条）。写保护 hook 由 `octos arc deny-protected` 承担（不再需要 Python 脚本）。系统提示词不再裁剪：stdio/solo 的精简 worker 提示是内核内置的（第三阶段 B），v15 对照也表明裁剪与首轮成败无关。
+
+**Counter 强制 tool 模式的实测**（`OCTOS_ARC_CODEGEN=0`，同一内核）：修 allow-list 前 11 次工具调用（含 4 次 `bash`）、52,363 prompt（缓存 40,192）；修后 6 次 `write_file`、3 次 LLM 调用、20,948 prompt（缓存 12,032）、2,074 completion、30 s、1/1。
+
+**通用性自查（0.1 节）**：本 PR 没有新增提示词规则；新增的三个内核开关（非流式、工具收窄、推理档位）都是按回合形状而不是按题目取值（节点数 ≤2 的树关 shell，待实现节点 ≤1 关推理），条件只来自需求树的节点数。`deny-protected` 只用运行时传入的目录判定。
+
+**M2 对等验证：Ticket Booking（本机，2026-09-14，同一二进制、同一模型 `deepseek-v4-flash`、`run-task-local.py` 默认配置、`grade-local.py` 公开测试 10 条；每行一次运行；两条路径交替运行，`billed` 取 `.arc/llm-usage.jsonl`）**
+
+同价表估价用 `octos-llm` 的 DeepSeek V4 Flash 价（输入 $0.27/M、缓存命中 0.1×、输出 $1.10/M）；平台拟合估价用 `arc/CHANGELOG.md` 里从平台账单拟合的 ≈¥3/M 输入、≈¥30/M 输出（平台没有观察到缓存折扣）。
+
+| 运行 | 路径 | 请求 | prompt | cache hit | completion | 其中推理 | 同价表估价 $ | 平台拟合估价 ¥ | 耗时 s | 公开测试 | REQ-1 首轮 | REQ-2 首轮 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|
+| py-tb-1 | Python | 2 | 13,271 | 6,144 | 42,802 | 35,560 | 0.0492 | 1.324 | 275 | 10/10 | 6/6 | 4/4 |
+| py-tb-2 | Python | 2 | 13,243 | 8,192 | 46,024 | 38,690 | 0.0522 | 1.420 | 278 | 10/10 | 6/6 | 4/4 |
+| py-tb-3 | Python | 3 | 16,983 | 8,192 | 19,484 | 10,297 | 0.0240 | 0.635 | 154 | 10/10 | 4/6 | 4/4 |
+| py-tb-4 | Python | 2 | 12,781 | 8,192 | 13,666 | 4,498 | 0.0165 | 0.448 | 96 | 10/10 | 6/6 | 4/4 |
+| rs-tb-1 | Rust（修 L16/L17 前） | 5 | 34,150 | 14,592 | 29,615 | 21,789 | 0.0383 | 0.991 | 250 | 10/10 | 4/6 | 4/4 |
+| rs-tb-2 | Rust（同上） | 4 | 32,421 | 18,432 | 27,530 | 18,905 | 0.0346 | 0.923 | 231 | 10/10 | 0/6 | 0/4 |
+| rs-tb-3 | Rust（同上） | 3 | 17,945 | 8,192 | 28,185 | 19,503 | 0.0339 | 0.899 | 255 | 10/10 | 1/6 | 4/4 |
+| rs-tb-4 | Rust（同上） | 18 | 166,597 | 124,928 | 60,120 | 23,907 | 0.0808 | 2.303 | 530 | **2/10** | 无文件块 | 0/4 |
+
+- **请求体对照**：REQ-1 的 codegen 请求 Python 5,145 prompt tokens、Rust 5,126，user 消息 18,221 对 18,201 字符，差的 20 个字符正好是多节点 codegen 规则里被通用化改写的导航句（Python 原文写死 `登录`/`Register`/`退出登录` 三个 TB 文本；Rust 版改为「文本取测试里该链接正则的第一个候选、href 取测试点击的」），其余逐字相同；两条路径都是 `mode=low`（thinking enabled + reasoning_effort low）。缓存命中两边都恒为 4,096（DeepSeek 前缀缓存的粒度，与谁先跑无关），不能用来判断差异。
+- **首轮差异的归因（逐条核对代码快照 `.arc/codegen/REQ-1-r0/`）**：rs-tb-2 的 0/6 是生成代码在异步读文件回调里对 `null` 取 `.name`（`server.js:202`），本机复现：进程在第一个请求上崩溃，之后全部 `ERR_CONNECTION_REFUSED`；rs-tb-3 的 1/6 是「下一步」按钮 4 s 内不可点击（页面脚本问题）；rs-tb-1 的 4/6 是退出登录后没有出现「登录」链接（`e2e.ts:63`），这一条与导航句的改写有关；rs-tb-4 的 REQ-1 回复 10,023 completion（6,843 推理）却没有文件块。py-tb-3 的 4/6 是两条校验用例。也就是说 4 次 Rust 首轮失败里 3 次是与提示词无关的模型采样（崩溃 bug、脚本 bug、无文件块），1 次可能与改写的导航句有关。
+- **导航句的处理**：保留通用规则但恢复具体的 HTML 形状——`<a href="/login">LOGIN</a> <a href="/register">REGISTER</a>` / `<span>USERNAME</span> <a href="/logout">SIGN_OUT</a>`，其中大写占位是「测试里该链接正则的第一个候选」，href 是测试点击的路径。规则本身对任何带会话的 Web 题成立（登录/注册/退出三条路由是测试用 `a[href=…]` 定位的约定），不再含任何题目文本。
+- **循环层的两条通用改进（L16、L17）**：rs-tb-4 暴露的是 Python 与 Rust 共有的两个洞，都不是提示词问题。L16：codegen 回复没有文件块时 Python 直接判 implementation_failed 并跳过节点，依赖它的节点必然全失败，rs-tb-4 后面的 17 次请求（其中 tool 模式修复一轮 10 次）都在补救；改为带格式提醒重试一次。L17：全套修复轮 Python 与 Rust 都是「每轮修复后 commit、交付最后一轮」，rs-tb-4 里修复 1 把 0/10 提到 7/10、修复 2 又降到 2/10 并被交付；改为记录最优轮并在结束时回滚到最优（与节点循环同一规则）。两条都只依赖运行时事实（回复里有没有文件块、全套通过数的升降）。
+- **修 L16/L17 与导航句之后的复测**（同一二进制重新编译，4 次连续运行）：
+
+| 运行 | 路径 | 请求 | prompt | cache hit | completion | 其中推理 | 同价表估价 $ | 平台拟合估价 ¥ | 耗时 s | 公开测试 | REQ-1 首轮 | REQ-2 首轮 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|
+| rs-tb-5 | Rust（修后） | 2 | 13,458 | 6,144 | 42,412 | 35,521 | 0.0488 | 1.313 | 253 | 10/10 | 6/6 | 4/4 |
+| rs-tb-6 | Rust（修后） | 2 | 12,870 | 8,192 | 14,355 | 7,295 | 0.0173 | 0.469 | 106 | 10/10 | 6/6 | 4/4 |
+| rs-tb-7 | Rust（修后） | 13 | 135,269 | 109,312 | 36,704 | 21,193 | 0.0503 | 1.507 | 298 | 10/10 | 5/6 | 4/4 |
+| rs-tb-8 | Rust（修后） | 2 | 12,434 | 8,192 | 16,063 | 10,201 | 0.0190 | 0.519 | 120 | 10/10 | 6/6 | 4/4 |
+
+- **M2 结论**：修后 Rust 4/4 次 10/10（修前 3/4），Python 4/4 次 10/10。同价表估价均值 Rust 修后 $0.034（0.017–0.050）对 Python $0.035（0.017–0.052）；平台拟合估价均值 ¥0.95 对 ¥0.96。请求数：Rust 修后 2/2/13/2 对 Python 2/2/3/2——rs-tb-7 的 13 次是 REQ-1 首轮 5/6、codegen 修复一轮后同一失败再现，按 Python 同样的规则切到 tool 模式修复（一轮 10 次 LLM 调用、13 次工具调用、118,718 prompt 里 101,120 是缓存命中、82 s）后 6/6；这一轮在同价表下 $0.011，在平台拟合价（无缓存折扣）下 ¥0.58，是该题 tool 模式修复的固有成本，Python 路径遇到同样的首轮结果会走同一条路（py-tb-3 的 4/6 一轮 codegen 修复就过了，所以没触发）。REQ-1 首轮 6/6 的比例：修后 3/4，与 Python 的 3/4 相同。「请求数与费用不高于 Python」：费用成立（均值持平、区间重合），请求数在 4 次里 3 次持平、1 次因 tool 模式修复更高。
+- 云端未评测（M5 前不请求云端运行）。

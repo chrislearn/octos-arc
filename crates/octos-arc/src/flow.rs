@@ -1130,6 +1130,15 @@ impl Flow {
                 );
                 let files = codegen::parse_file_blocks(&completion.text);
                 if files.is_empty() {
+                    // Keep the reply for diagnosis: a codegen answer without file
+                    // blocks is otherwise invisible (the platform keeps the
+                    // workspace, not our stdout).
+                    let dump = self
+                        .output_dir
+                        .join(".arc/codegen")
+                        .join(format!("{}.reply.txt", TEST_ID.replace_all(label, "-")));
+                    let _ = std::fs::create_dir_all(dump.parent().unwrap());
+                    let _ = std::fs::write(&dump, &completion.text);
                     if completion.truncated {
                         (
                             false,
@@ -1607,8 +1616,22 @@ impl Flow {
                 Ok(_) => {}
                 Err(error) => self.log(format!("[codegen] could not write manifests: {error}")),
             }
-            let result =
+            let mut result =
                 self.codegen_turn(&compact, implement_timeout, &format!("{node_id} implement"));
+            if !result.0 && result.1.contains("no <<<FILE>>> blocks") {
+                // A reply without file blocks writes nothing; one more request with the
+                // format reminder is far cheaper than skipping the node (a skipped node
+                // takes every dependent node down with it).
+                self.log(format!(
+                    "[flow] {node_id}: codegen reply had no file blocks; retrying once with the format reminder"
+                ));
+                let reminder = self.correction("codegen_no_blocks", &[]);
+                let retry = format!("{compact}\n{reminder}");
+                let left = deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(implement_timeout);
+                result = self.codegen_turn(&retry, left, &format!("{node_id} implement (retry)"));
+            }
             codegen_prompt = Some(compact);
             result
         } else {
@@ -1841,6 +1864,11 @@ impl Flow {
             self.policy.acceptance.memory_per_worker_mib,
         );
         let mut previous_failing: Option<BTreeSet<String>> = None;
+        // Best full-suite state seen so far: (passed, commit, results). A repair
+        // turn that loses tests is rolled back to it when the loop ends, exactly
+        // like the per-node loop keeps its best snapshot.
+        let mut best: Option<(usize, String, Vec<acceptance::TestOutcome>)> = None;
+        let mut last_passed: Option<usize> = None;
         for attempt in 0..=rounds {
             let summary = self.run_specs(&all_specs, Some(workers), true);
             if summary.error.is_some() && summary.killed {
@@ -1926,6 +1954,20 @@ impl Flow {
                 ));
                 return;
             }
+            last_passed = Some(summary.passed);
+            if !summary.results.is_empty()
+                && best
+                    .as_ref()
+                    .is_none_or(|(passed, _, _)| summary.passed > *passed)
+            {
+                self.commit(&format!(
+                    "chore: full acceptance suite {}/{} (best so far)",
+                    summary.passed, summary.total
+                ));
+                if let Some(sha) = self.git.head() {
+                    best = Some((summary.passed, sha, summary.results.clone()));
+                }
+            }
             self.log_failure_lines(&failures);
             let failing_titles: BTreeSet<String> = grouped
                 .values()
@@ -1966,6 +2008,45 @@ impl Flow {
                 None,
             );
             self.commit(&format!("fix: full-suite repair {}", attempt + 1));
+        }
+        if let (Some((best_passed, sha, results)), Some(last)) = (best, last_passed)
+            && last < best_passed
+        {
+            self.log(format!(
+                "[acceptance] full suite: last repair left {last} passing, best was {best_passed}; restoring the best state"
+            ));
+            self.restore_app(&sha);
+            self.events.emit(
+                "full_suite_restored",
+                json!({"best": best_passed, "last": last, "sha": sha}),
+            );
+            let best_summary = RunSummary::from_results(results);
+            let grouped = acceptance::nodes_for_failures(&best_summary.results, &self.spec_map);
+            for node_id in self.node_ids.clone() {
+                let specs = self.spec_map.specs_for(&node_id).to_vec();
+                if specs.is_empty() {
+                    continue;
+                }
+                let names: BTreeSet<String> = specs
+                    .iter()
+                    .filter_map(|p| {
+                        Path::new(p)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                    })
+                    .collect();
+                let subset: Vec<acceptance::TestOutcome> = best_summary
+                    .results
+                    .iter()
+                    .filter(|r| names.contains(&r.file))
+                    .cloned()
+                    .collect();
+                self.record_tests(&node_id, &RunSummary::from_results(subset));
+                self.test_verdict.insert(
+                    node_id.clone(),
+                    Some(!grouped.contains_key(&Some(node_id.clone()))),
+                );
+            }
         }
     }
 

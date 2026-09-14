@@ -239,4 +239,12 @@ mod tests {
         assert!(text.contains("(3/6)"));
         assert!(prompts.correction("nope", &[]).is_err());
     }
+
+    #[test]
+    fn should_carry_the_codegen_format_reminder_used_by_the_no_blocks_retry() {
+        let prompts = Prompts::builtin();
+        let text = prompts.correction("codegen_no_blocks", &[]).unwrap();
+        assert!(text.contains("<<<FILE path>>>"));
+        assert!(text.contains("<<<END FILE>>>"));
+    }
 }
