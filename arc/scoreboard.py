@@ -37,8 +37,8 @@ import urllib.request
 
 BASE = "https://arc-bench.com/api"
 TRACKS = ["smoke", "smoke-evolution", "ticket-booking", "arc-bench-web"]
-PREGEN_COST_CNY = 0.01
-PREGEN_SECONDS = 10
+PREGEN_COST_CNY = 0.001
+PREGEN_SECONDS = 5
 NOTES_MARKER = "<!-- notes: everything below this line is kept across regenerations -->"
 
 
@@ -124,10 +124,12 @@ def fetch_runs(c: Client, limit: int = 200) -> list[dict]:
 
 
 def is_pregen(entry: dict) -> bool:
-    """Phase-3 definition (GOAL-arc-phase3-win-all §0): only entries with
-    zero cost are uploaded apps; every entry that paid for a model call is
-    a competitor, however cheap."""
-    return (entry.get("total_token_cost") or 0.0) <= 0.0
+    """Coordinator ruling (2026-09-14): an uploaded app is anything under
+    PREGEN_COST_CNY *and* PREGEN_SECONDS — that magnitude cannot contain a
+    single app-generating model call. Every other paid entry is a rival."""
+    cost = entry.get("total_token_cost") or 0.0
+    secs = entry.get("avg_runtime_seconds") or 0
+    return cost < PREGEN_COST_CNY and secs < PREGEN_SECONDS
 
 
 # ------------------------------------------------------------------ format
@@ -220,7 +222,7 @@ def board_table(track: str, board: list[dict], me: str | None, top: int) -> str:
 def render(boards, runs, me, top) -> str:
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     parts = [f"# ARC-Bench 成绩看板\n\n生成时间：{now}；账号：{', '.join(me) if me else '未登录'}；"
-             f"预置判定：费用 = 0（费用 > 0 的一律算对手）。\n",
+             f"预置判定：费用 < ¥{PREGEN_COST_CNY} 且耗时 < {PREGEN_SECONDS}s；其余费用 > 0 的一律算对手。\n",
              "## 各赛道我们的位置\n", summary_table(boards, runs, me), ""]
     if runs:
         parts += ["## 我们的全部运行\n", runs_table(runs), ""]
