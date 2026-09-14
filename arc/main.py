@@ -2058,6 +2058,11 @@ def main() -> int:
                         default=int(os.environ.get("ARCBENCH_WEB_PORT", os.environ.get("ARC_WEB_PORT", "3000"))))
     args = parser.parse_args()
 
+    if os.environ.get("OCTOS_ARC_ENGINE") == "rust":
+        # Kernel harness (`octos arc run`); this module keeps the default Python path.
+        import rust_engine
+        return rust_engine.main(args)
+
     key = os.environ.get("OPENAI_API_KEY", "")
     print(f"[env] OPENAI_BASE_URL={os.environ.get('OPENAI_BASE_URL', '<unset>')}", flush=True)
     print(f"[env] MODEL={os.environ.get('MODEL', '<unset>')}", flush=True)

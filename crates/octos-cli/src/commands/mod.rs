@@ -413,6 +413,13 @@ impl Executable for Command {
             Self::Channels(cmd) => cmd.execute(),
             Self::Chat(cmd) => cmd.execute(),
             Self::Arc(cmd) => {
+                if let Some(octos_arc::ArcSubcommand::Run(run)) = cmd.subcommand {
+                    let code = octos_arc::execute_run(run)?;
+                    if code != 0 {
+                        std::process::exit(code);
+                    }
+                    return Ok(());
+                }
                 eyre::ensure!(
                     cfg!(feature = "api") || cmd.prepare_only,
                     "ARC coding requires an Octos build with the api feature"

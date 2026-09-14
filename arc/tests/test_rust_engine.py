@@ -1,0 +1,79 @@
+import json
+import unittest
+
+from rust_engine import Translator, parse_event, write_runner_spec
+
+
+class Calls:
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        def record(*args, **kwargs):
+            self.calls.append((name, args, kwargs))
+            return []
+        return record
+
+
+class Runtime:
+    def __init__(self):
+        self.events = Calls()
+        self.traceability = Calls()
+
+
+class ParseTests(unittest.TestCase):
+    def test_should_only_accept_prefixed_json_objects(self):
+        self.assertEqual(parse_event('@@arc-event {"event": "x"}'), {"event": "x"})
+        self.assertIsNone(parse_event("[flow] plain log"))
+        self.assertIsNone(parse_event("@@arc-event not json"))
+        self.assertIsNone(parse_event("@@arc-event [1]"))
+
+
+class TranslatorTests(unittest.TestCase):
+    def test_should_mirror_requirement_states_onto_aliases_and_record_tests(self):
+        runtime = Runtime()
+        t = Translator(runtime, lambda m: None)
+        t.handle({"event": "requirement_state", "node_id": "REQ-1", "phase": "test", "status": "passed",
+                  "message": "ok", "aliases": ["REQ-1.1"]})
+        t.handle({"event": "test_result", "node_id": "REQ-1", "test_id": "REQ-1-increments", "title": "REQ-1: increments",
+                  "file": "REQ-1.spec.ts", "ok": True, "type": "e2e"})
+        t.handle({"event": "commit", "message": "m", "sha": "abc"})
+        t.handle({"event": "run_completed", "message": "all requirement nodes implemented and verified"})
+        names = [c[0] for c in runtime.events.calls]
+        self.assertEqual(names[:2], ["mark_test_passed", "mark_test_passed"])
+        self.assertEqual(runtime.events.calls[1][1], ("REQ-1.1", "ok"))
+        self.assertIn("notify_commit_history_changed", names)
+        self.assertEqual(runtime.traceability.calls[0][0], "list_interfaces")
+        upsert = next(c for c in runtime.traceability.calls if c[0] == "upsert_test")
+        self.assertEqual(upsert[2]["req_id"], "REQ-1")
+        self.assertTrue(upsert[2]["passed"])
+        self.assertEqual(t.final["event"], "run_completed")
+
+    def test_should_ignore_unknown_states(self):
+        runtime = Runtime()
+        t = Translator(runtime, lambda m: None)
+        t.handle({"event": "requirement_state", "node_id": "REQ-1", "phase": "design", "status": "weird"})
+        t.handle({"event": "usage", "prompt_tokens": 1})
+        self.assertEqual(runtime.events.calls, [])
+
+
+class RunnerSpecTests(unittest.TestCase):
+    def test_should_write_the_kernel_contract(self):
+        import os, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["MODEL"] = "deepseek-v4-flash"
+            os.environ["OPENAI_BASE_URL"] = "https://api.arc-bench.com/v1"
+            path = Path(tmp) / ".arc" / "runner-spec.json"
+            spec = write_runner_spec(path, req_dir=Path(tmp) / "req", output_dir=Path(tmp), web_port=3000, tests_dir=None)
+            data = json.loads(path.read_text())
+            self.assertEqual(data["schema_version"], 1)
+            self.assertEqual(data["web_port"], 3000)
+            self.assertIsNone(data["tests_dir"])
+            self.assertEqual(data["model"]["model"], "deepseek-v4-flash")
+            self.assertEqual(spec["model"]["api_key_env"], "OPENAI_API_KEY")
+            self.assertNotIn("sk-", path.read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()

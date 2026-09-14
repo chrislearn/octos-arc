@@ -1,0 +1,100 @@
+# ARC harness policy — read at runtime by `octos arc run --policy arc/arc-policy.toml`.
+#
+# Every field has a built-in default (the values shown here are those
+# defaults, identical to the Python adapter's OCTOS_* environment variables).
+# Precedence: `octos arc run --set key=value` > environment variable > this
+# file > built-in default. Prompt text lives in prompts/*.md next to this
+# file; a missing prompt file falls back to the copy compiled into the kernel.
+#
+# Changing this file or a prompt never needs a cargo build.
+
+[mode]
+codegen = true              # OCTOS_ARC_CODEGEN — one-request codegen turns for small trees
+codegen_max_nodes = 2       # OCTOS_ARC_CODEGEN_MAX_NODES — trees up to this many ATOMIC nodes use codegen
+small_task_nodes = 2        # OCTOS_SMALL_TASK_NODES — trees up to this size get the minimal self-verification text
+verify_mode = "auto"        # OCTOS_VERIFY_MODE — auto | minimal | full
+skeleton_min_nodes = 3      # OCTOS_SKELETON_MIN_NODES — separate skeleton turn only for trees at least this big
+skeleton_always = false     # OCTOS_SKELETON_ALWAYS
+design_turn = true          # OCTOS_DESIGN_TURN
+design_mode = "inline"      # OCTOS_DESIGN_MODE — inline | separate (own read-only design turn)
+design_min_nodes = 3        # OCTOS_DESIGN_MIN_NODES — design only for trees at least this big
+
+[budget]
+time_budget_seconds = 0          # OCTOS_TIME_BUDGET — 0 = automatic: max(floor, seconds_per_node × nodes)
+time_budget_floor_seconds = 3600 # floor of the automatic budget
+seconds_per_node = 1500          # OCTOS_SECONDS_PER_NODE — per-node allowance of the automatic budget
+node_time_budget_seconds = 1500  # OCTOS_NODE_TIME_BUDGET — cap per node incl. repairs
+node_time_floor_seconds = 240    # minimum node budget when little time is left
+node_timeout_seconds = 1200      # OCTOS_NODE_TIMEOUT — one model turn
+design_timeout_seconds = 420     # OCTOS_DESIGN_TIMEOUT
+implement_fraction = 0.6         # OCTOS_IMPLEMENT_FRACTION — implement turn ≤ this share of the node budget
+min_repair_seconds = 300         # OCTOS_MIN_REPAIR_SECONDS — no repair turn with less left
+max_iterations = 500             # OCTOS_MAX_ITERATIONS — tool-mode iterations per turn
+
+[repair]
+rounds = 5              # OCTOS_REPAIR_ROUNDS — K, acceptance repair rounds per node
+codegen_repairs = 2     # OCTOS_ARC_CODEGEN_REPAIRS — codegen repairs before falling back to tool mode
+rewrite_on_zero = true  # OCTOS_ARC_REWRITE_ON_ZERO — one full rewrite turn when round 0 passes nothing
+final_rounds = 2        # OCTOS_FINAL_REPAIR_ROUNDS — repair rounds after the full parallel suite
+stall_limit = 2         # stop a node after this many repairs without improvement
+regression_limit = 2    # roll back to the best commit after this many consecutive regressions
+
+[requests]
+implement = 20   # OCTOS_ARC_IMPLEMENT_REQUESTS — hard request cap of implement turns (0 = off)
+repair = 10      # OCTOS_ARC_REPAIR_REQUESTS — hard request cap of repair turns (0 = off)
+codegen = 3      # OCTOS_ARC_CODEGEN_REQUESTS — attempts (incl. transient retries) of a codegen turn
+
+[reasoning]
+mode = "auto"              # OCTOS_ARC_REASONING — auto (none for ≤1 node to implement, else low) | low | medium | high | none | passthrough
+implement_override = ""    # OCTOS_ARC_IMPLEMENT_REASONING — first implement turn of small tasks; empty = mode
+max_tokens_min = 32768     # OCTOS_ARC_MAX_TOKENS — minimum max_tokens on chat requests
+destream = true            # OCTOS_ARC_DESTREAM — one JSON response upstream instead of SSE
+trim_prompt = true         # OCTOS_ARC_TRIM_PROMPT — drop ARC-irrelevant prompt sections / tool schemas (tool mode)
+drop_shell = true          # OCTOS_ARC_DROP_SHELL — no shell tools in minimal-verification turns
+transient_retries = 3      # retries of a turn on provider hiccups (503/429/timeouts)
+transient_backoff_seconds = 30
+probe_patience_seconds = 600  # wait for the endpoint to answer the start-up probe
+
+[acceptance]
+test_timeout_ms = 10000          # OCTOS_ARC_TEST_TIMEOUT_MS — per-test timeout, same as the grader
+slow_ms = 3000                   # OCTOS_ARC_SLOW_MS — slower tests are reported to the repair turn
+workers = 2                      # OCTOS_ARC_TEST_WORKERS — per-node runs
+final_workers = 4                # OCTOS_ARC_FINAL_WORKERS — full parallel suite
+memory_per_worker_mib = 700      # container memory per Chromium worker (cgroup limit / this = workers)
+fully_parallel = false           # OCTOS_ARC_FULLY_PARALLEL — parallelism inside a spec file too
+install_playwright = true        # OCTOS_ARC_INSTALL_PLAYWRIGHT — private, pinned install when none is found
+playwright_root = ""             # OCTOS_ARC_PLAYWRIGHT_ROOT — directory holding node_modules/@playwright/test
+playwright_fallback_version = "1.63.0"
+install_timeout_seconds = 540
+run_wall_timeout_seconds = 900   # one Playwright run
+start_wait_seconds = 45          # backend must bind its port within this
+build_timeout_seconds = 600      # npm install / npm run build
+alias_spec_ids = true            # OCTOS_ARC_ALIAS_SPEC_IDS — mirror node states onto spec ids
+
+[ports]
+smoke_port = 3100            # OCTOS_SMOKE_PORT — the harness's own port (bumped when it equals the grading port)
+extra_port_contract = true   # tell the model to also bind the ports the specs default to
+
+[prompts]
+dir = "prompts"              # <name>.md templates, relative to this file
+inline_specs = true          # OCTOS_ARC_INLINE_SPECS — quote the node's specs into tool-mode prompts
+inline_spec_chars = 24000    # OCTOS_ARC_INLINE_SPEC_CHARS
+inline_source_chars = 40000  # OCTOS_ARC_INLINE_SOURCE_CHARS — sources quoted into repair/rewrite prompts (0 = off)
+codegen_source_chars = 30000 # sources quoted into codegen evolution/rewrite prompts
+perf_contract = true         # OCTOS_PERF_CONTRACT
+guard = true                 # OCTOS_GUARD — inject guard corrections into the next prompt
+# Requirement keywords (case-insensitive substrings of the tree text) that
+# switch optional contract blocks on: session/performance rules only for
+# trees that talk about accounts, fixture-data rules only when the tree
+# lists concrete options or seed records.
+session_keywords = ["login", "log in", "sign in", "password", "session", "register", "注册", "登录", "密码", "会话"]
+data_keywords = ["seed", "published", "fixture", "option", "select", "dropdown", "选项", "下拉", "预置"]
+
+[session]
+scope = "turn"          # OCTOS_SESSION_SCOPE — turn | node | run
+driver = "stdio"        # OCTOS_DRIVER — stdio | chat
+chat_profile = "coding" # OCTOS_CHAT_PROFILE
+
+[debug]
+dump_requests = false   # OCTOS_ARC_PROXY_DUMP — keep the first request bodies under .arc/llm-requests
+dry_run = false         # OCTOS_ARC_DRYRUN — walk the flow without calling the model

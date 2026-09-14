@@ -263,6 +263,8 @@ pub struct OpenAIProvider {
     /// explicit opt-in/out must survive either builder-call order (mirrors
     /// `AnthropicProvider::prompt_caching_override`).
     prompt_cache_affinity_override: Option<bool>,
+    /// Total timeout of one non-streaming chat request.
+    chat_timeout: std::time::Duration,
 }
 
 const OFFICIAL_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
@@ -297,6 +299,7 @@ impl OpenAIProvider {
             provider_label: "openai".to_string(),
             prompt_cache_affinity: true,
             prompt_cache_affinity_override: None,
+            chat_timeout: std::time::Duration::from_secs(crate::provider::DEFAULT_LLM_TIMEOUT_SECS),
         }
     }
 
@@ -405,6 +408,15 @@ impl OpenAIProvider {
         self
     }
 
+    /// Total timeout of one non-streaming chat request (default
+    /// [`crate::provider::DEFAULT_LLM_TIMEOUT_SECS`]). Long single-response
+    /// generations (whole applications in one reply) need more than the
+    /// interactive default; streaming requests are unaffected.
+    pub fn with_chat_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.chat_timeout = timeout;
+        self
+    }
+
     /// POST a non-streaming chat request. Factored so the graceful
     /// image-modality fallback can re-send a rebuilt (text-only) request
     /// without duplicating the wire setup.
@@ -416,9 +428,7 @@ impl OpenAIProvider {
                 format!("Bearer {}", self.api_key.expose_secret()),
             )
             .header("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(
-                crate::provider::DEFAULT_LLM_TIMEOUT_SECS,
-            ))
+            .timeout(self.chat_timeout)
             .json(request)
             .send()
             .await
