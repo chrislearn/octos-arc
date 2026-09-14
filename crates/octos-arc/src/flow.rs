@@ -39,7 +39,8 @@ static JSON_FENCE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)```json\s*(\{.*?\})\s*```").unwrap());
 static JSON_ANY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)(\{.*\})").unwrap());
 
-/// The 12 tools of the stdio/solo coding transport.
+/// The tools of the stdio/solo coding transport (the shell is registered as
+/// `bash` in coding profiles, `shell` elsewhere).
 const STDIO_TOOLS: &[&str] = &[
     "diff_edit",
     "edit_file",
@@ -48,6 +49,7 @@ const STDIO_TOOLS: &[&str] = &[
     "list_dir",
     "read_file",
     "shell",
+    "bash",
     "write_file",
     "ask_user_question",
     "check",

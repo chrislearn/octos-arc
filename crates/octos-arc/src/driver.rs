@@ -53,7 +53,8 @@ pub struct TurnSettings {
 pub struct TurnOutcome {
     pub ok: bool,
     pub text: String,
-    /// LLM calls observed during the turn (`token_cost_update` events).
+    /// LLM calls observed during the turn: the highest `iteration` the
+    /// kernel's progress events reported (`token_cost_update` is per turn).
     pub requests: u32,
     pub tokens_in: u32,
     pub tokens_out: u32,
@@ -421,13 +422,16 @@ impl StdioSession {
                 }
                 "tool/started" if same_turn => outcome.tool_calls += 1,
                 "progress/updated" if same_turn => {
-                    if params
-                        .get("metadata")
-                        .and_then(|m| m.get("kind"))
-                        .and_then(Value::as_str)
+                    let metadata = params.get("metadata");
+                    if let Some(iteration) = metadata
+                        .and_then(|m| m.get("iteration"))
+                        .and_then(Value::as_u64)
+                    {
+                        outcome.requests = outcome.requests.max(iteration as u32);
+                    } else if metadata.and_then(|m| m.get("kind")).and_then(Value::as_str)
                         == Some("token_cost_update")
                     {
-                        outcome.requests += 1;
+                        outcome.requests = outcome.requests.max(1);
                     }
                 }
                 "approval/requested" => {
@@ -686,6 +690,8 @@ for line in sys.stdin:
         notify("message/delta", {"turn_id": t, "text": "hello "})
         notify("tool/started", {"turn_id": t, "tool_call_id": "1", "tool_name": "write_file", "arguments": {"path": "a"}})
         notify("approval/requested", {"turn_id": t, "approval_id": "ap-1"})
+        notify("progress/updated", {"turn_id": t, "metadata": {"kind": "thinking", "iteration": 1}})
+        notify("progress/updated", {"turn_id": t, "metadata": {"kind": "response", "iteration": 2}})
         notify("progress/updated", {"turn_id": t, "metadata": {"kind": "token_cost_update", "token_cost": {"input_tokens": 10}}})
         notify("message/delta", {"turn_id": t, "text": "world"})
         notify("turn/completed", {"turn_id": t, "tokens_in": 10, "tokens_out": 4, "cache_hit": 2})
@@ -765,7 +771,7 @@ for line in sys.stdin:
         });
         assert!(outcome.ok, "{}", outcome.text);
         assert_eq!(outcome.text, "hello world");
-        assert_eq!((outcome.requests, outcome.tool_calls), (1, 1));
+        assert_eq!((outcome.requests, outcome.tool_calls), (2, 1));
         assert_eq!(
             (outcome.tokens_in, outcome.tokens_out, outcome.cache_hit),
             (10, 4, 2)

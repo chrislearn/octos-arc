@@ -354,6 +354,14 @@ impl SessionRuntime {
             create_sandbox(&sandbox),
             permissions,
         );
+        // The stdio/solo transport (ARC harness) may narrow the session's tools
+        // further than the built-in coding set; the CWD rebind above re-created
+        // sandbox-bound tools, so the allow-list is applied here as well.
+        if super::profile::stdio_solo_lean_defaults_enabled()
+            && let Some(allow) = super::profile::stdio_solo_tool_allowlist_from_env()
+        {
+            tools.retain(|name| allow.iter().any(|allowed| allowed == name));
+        }
         tools.set_output_dir_hint(plugin_work_dir.to_string_lossy().into_owned());
         tools.rebind_plugin_work_dirs(if profile.session_defaults.is_some() {
             &workspace_root
