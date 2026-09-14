@@ -56,6 +56,8 @@ pub const BUILTIN: &[(&str, &str)] = builtin!(
     "skeleton",
     "skeleton-tests",
     "slow-tests",
+    "relevant-sources-header",
+    "relevant-sources-omitted",
     "startup-failure",
     "startup-failure-grader",
     "tiny-prompt",

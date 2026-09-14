@@ -47,14 +47,17 @@ impl RunPlan {
         let minimal_verify = policy.mode.verify_mode == "minimal"
             || (policy.mode.verify_mode != "full" && n_nodes <= policy.mode.small_task_nodes);
         let design_enabled = policy.mode.design_turn && n_nodes >= policy.mode.design_min_nodes;
+        let codegen = policy.mode.codegen && n_nodes <= policy.mode.codegen_max_nodes;
         let mut plan = Self {
             n_nodes,
             nodes_to_implement,
             evolution,
-            codegen: policy.mode.codegen && n_nodes <= policy.mode.codegen_max_nodes,
+            codegen,
             minimal_verify,
+            // Round 35: in codegen mode the harness manifests replace the skeleton turn.
             wants_skeleton: !evolution
-                && (n_nodes >= policy.mode.skeleton_min_nodes || policy.mode.skeleton_always),
+                && (n_nodes >= policy.mode.skeleton_min_nodes || policy.mode.skeleton_always)
+                && (!codegen || policy.mode.skeleton_always),
             design_enabled,
             design_inline: design_enabled && policy.mode.design_mode == "inline",
             base_reasoning: ReasoningMode::Low,
@@ -155,13 +158,18 @@ mod tests {
         let policy = Policy::default();
         let tree = json!({"id": "ROOT"});
         let plan = RunPlan::new(&policy, &tree, 32, 32, false).unwrap();
+        // Round 35: every tree size takes codegen; the manifests replace the skeleton turn.
         assert!(
-            !plan.codegen
+            plan.codegen
                 && !plan.minimal_verify
-                && plan.wants_skeleton
+                && !plan.wants_skeleton
                 && plan.design_enabled
                 && plan.design_inline
         );
+        let mut tool_policy = Policy::default();
+        tool_policy.mode.codegen_max_nodes = 2;
+        let tool = RunPlan::new(&tool_policy, &tree, 32, 32, false).unwrap();
+        assert!(!tool.codegen && tool.wants_skeleton);
         assert_eq!(plan.time_budget_seconds, 48000);
         let evolution = RunPlan::new(&policy, &tree, 32, 1, true).unwrap();
         assert!(!evolution.wants_skeleton);

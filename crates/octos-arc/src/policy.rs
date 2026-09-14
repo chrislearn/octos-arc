@@ -60,7 +60,7 @@ impl Default for ModePolicy {
     fn default() -> Self {
         Self {
             codegen: true,
-            codegen_max_nodes: 2,
+            codegen_max_nodes: 999,
             small_task_nodes: 2,
             verify_mode: "auto".into(),
             skeleton_min_nodes: 3,
@@ -328,8 +328,10 @@ pub struct PromptPolicy {
     pub inline_spec_chars: usize,
     /// Budget for quoting the app's sources into repair/rewrite prompts (`OCTOS_ARC_INLINE_SOURCE_CHARS`; 0 = off).
     pub inline_source_chars: usize,
-    /// Budget for the sources quoted into codegen evolution/rewrite prompts.
-    pub codegen_source_chars: usize,
+    /// Codegen prompt budget in characters (`OCTOS_ARC_CODEGEN_CONTEXT_CHARS`, round 35): the spec
+    /// must fit 60% of it for a node to take the single-request path; the existing sources are
+    /// quoted into the rest, ranked by how many of the spec's terms they contain.
+    pub codegen_context_chars: usize,
     /// Include the performance rules (`OCTOS_PERF_CONTRACT`).
     pub perf_contract: bool,
     /// Inject guard corrections into the next prompt (`OCTOS_GUARD`).
@@ -347,7 +349,7 @@ impl Default for PromptPolicy {
             inline_specs: true,
             inline_spec_chars: 24000,
             inline_source_chars: 40000,
-            codegen_source_chars: 30000,
+            codegen_context_chars: 90000,
             perf_contract: true,
             guard: true,
             session_keywords: [
@@ -477,6 +479,10 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     (
         "OCTOS_ARC_INLINE_SOURCE_CHARS",
         "prompts.inline_source_chars",
+    ),
+    (
+        "OCTOS_ARC_CODEGEN_CONTEXT_CHARS",
+        "prompts.codegen_context_chars",
     ),
     ("OCTOS_PERF_CONTRACT", "prompts.perf_contract"),
     ("OCTOS_GUARD", "prompts.guard"),
@@ -617,6 +623,9 @@ impl Policy {
             "prompts.inline_specs" => self.prompts.inline_specs = parse_bool(raw)?,
             "prompts.inline_spec_chars" => self.prompts.inline_spec_chars = parse(raw, key)?,
             "prompts.inline_source_chars" => self.prompts.inline_source_chars = parse(raw, key)?,
+            "prompts.codegen_context_chars" => {
+                self.prompts.codegen_context_chars = parse(raw, key)?
+            }
             "prompts.perf_contract" => self.prompts.perf_contract = parse_bool(raw)?,
             "prompts.guard" => self.prompts.guard = parse_bool(raw)?,
             "session.scope" => self.session.scope = raw.trim().into(),
@@ -704,6 +713,7 @@ mod tests {
     /// Python glue). Regenerate with:
     /// grep -ohE 'os\.environ(\.get\(|\[)"[A-Z_]+"' arc/*.py | sort -u
     const PYTHON_TUNABLES: &[&str] = &[
+        "OCTOS_ARC_CODEGEN_CONTEXT_CHARS",
         "OCTOS_ARC_MAX_TOTAL_TOKENS",
         "OCTOS_ARC_MAX_TURNS",
         "OCTOS_ARC_MAX_TOTAL_TOKENS_ABS",
@@ -801,7 +811,7 @@ mod tests {
         assert_eq!(p.mode.design_min_nodes, 3);
         assert_eq!(p.mode.skeleton_min_nodes, 3);
         assert_eq!(p.mode.small_task_nodes, 2);
-        assert_eq!(p.mode.codegen_max_nodes, 2);
+        assert_eq!(p.mode.codegen_max_nodes, 999); // round 35: codegen for every tree size
         assert_eq!(p.mode.design_mode, "inline");
         assert_eq!(p.reasoning.mode, "auto");
         assert_eq!(p.reasoning.max_tokens_min, 32768);
@@ -824,6 +834,8 @@ mod tests {
         assert_eq!(p.ports.smoke_port, 3100);
         assert_eq!(p.prompts.inline_spec_chars, 24000);
         assert_eq!(p.prompts.inline_source_chars, 40000);
+        assert_eq!(p.prompts.codegen_context_chars, 90000);
+        assert_eq!(p.mode.codegen_max_nodes, 999);
         assert_eq!(p.session.scope, "turn");
         assert_eq!(p.time_budget_for(1), 3600);
         assert_eq!(p.time_budget_for(32), 48000);

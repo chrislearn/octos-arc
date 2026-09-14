@@ -360,6 +360,9 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 | N5 | 轮 32：tiny-spec 档（spec < `OCTOS_ARC_TINY_SPEC_CHARS`=1500）：提示只含 spec 语句 + 一句输出要求，系统提示 "Reply with HTML only."，回复裸 HTML 写成 index.html，harness 写固定静态 server（`TINY_SERVER_JS`），失败回退 compact codegen；`OCTOS_ARC_TINY=0` 关闭 | Smoke 榜前三 ≈250 token/题，我们 ≈845 | `mode.tiny` / `mode.tiny_spec_chars`；`codegen::{strip_code_fences, compact_spec_lines, tiny_server_js}`；`Flow::{tiny_mode, tiny_turn}`、`codegen_turn_with`（system / 无格式段 / 裸 HTML 落盘）；提示词 `tiny-*.md` 从 `main.py` 常量导出 | M3 ✔ |
 | N6 | wf-adapter-30（#81，main@fdbcd106）：>2 节点树修复轮 3（显式 `OCTOS_REPAIR_ROUNDS` 例外）、全套 `workers_for_final` 450 MiB/worker、每节点 `reap_workspace_processes`（cwd 在 frontend/backend 里的 node/npm/npx/sh/bash）、费用护栏 `OCTOS_ARC_MAX_TOTAL_TOKENS`=max(6M, 2.5M×节点)、`OCTOS_ARC_MAX_TURNS`=max(24, 4×节点)、`OCTOS_ARC_MAX_TOTAL_TOKENS_ABS`（选配）——按 keep 2224a9013528 标定 ≈3× 健康运行 | keep 云端 32/32、¥16.58、1,152 请求 | `repair.rounds_large_tree` / `large_tree_nodes`；`acceptance.final_memory_per_worker_mib`；`reap::should_reap` / `sweep_workspace`（节点开始时，index>1）；`budget.max_total_tokens` / `max_turns` / `max_total_tokens_abs`（-1 = 树已知后推导），触发后 `[guard] cost guard tripped`，语义同 Python `wound_down` | M4 ✔ |
 | N7 | 轮 33（#90）：启动探测改 GET /models（不计费，非 5xx 即可用），失败才发一次 thinking disabled、max_tokens 1 的 chat 请求；tiny 档输出句收紧（最小标记、一个内联脚本、无空行） | 旧探测让模型先推理再答 OK，≈¥0.0008/次 | `llm::probe`（reqwest GET，再最小 chat）、`endpoint_is_up` / `minimal_probe_body`；`tiny-prompt*.md` 从 `main.py` 常量重导 | M4 ✔ |
+| N8 | 轮 34（#94）：探测策略按档位——整题都是 tiny 档就不探测（第一个真实请求即探测），dry-run 不探测，其余 GET /models；tiny 回复只要页面标记（无 doctype/head），`looks_like_markup` 接受片段，`ensure_charset` 补 charset 头 | 探测约 ¥0.0008/次，是 tiny 题的三分之一 | `Flow::all_specs_tiny`、探测分支；`codegen::looks_like_markup`；`tiny-prompt*.md` 重导 | M4 ✔ |
+| N9 | 轮 35（#95）：任何规模的树每节点都走单请求 codegen（`OCTOS_ARC_CODEGEN_MAX_NODES` 默认 999）；提示引用 `relevant_sources` 选出的现有源码（后端入口优先，其余页面按 spec 词项命中数排序，预算 `OCTOS_ARC_CODEGEN_CONTEXT_CHARS`=90,000 字符减去 spec，其余只列名）；spec 单独超过预算 60% 的节点走 tool 模式；codegen 模式下 harness manifests 取代骨架轮（`OCTOS_SKELETON_ALWAYS=1` 例外） | keep/bookstack tool 模式每节点 ≈36 次请求 | `mode.codegen_max_nodes`=999、`prompts.codegen_context_chars`；`codegen::{spec_terms, relevant_sources}`（替换 codegen 路径的 `inline_sources`）；`Flow::codegen_context_fits`；`RunPlan.wants_skeleton` 含 `!codegen` | M4 ✔ |
+| N10 | 轮 36（#96）：L17 回流 Python（全套修复轮交付最优轮，`record_full_suite`） | 本工作流 rs-tb-4 | Rust 原有（M2） | — |
 
 #### 策略文件 `arc/arc-policy.toml`（← 约 60 个环境变量）
 
@@ -516,3 +519,7 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 | `PortWatchdog` 5 s | 5 s（Python 同） | 评测端口 + 进程 cwd | 所有题 |
 | tiny 档 `mode.tiny_spec_chars` 1500、档位 `codegen_reasoning_chars` 5000 | 与 Python 同 | spec 字符数 | Smoke、Evolution、任何小 spec 的节点 |
 | 弃用模板 | — | 探测结果（探测过且 0 节点通过） | 所有 Evolution 题 |
+
+**轮 35 对 M3/M4 的影响**：从 main@34f9d7e2 起 Python 对 keep 这类多节点树也走每节点单请求 codegen（不再是 tool 模式 + 骨架轮），M4 的对照基准因此从「tool 模式 1,152 请求」变成 A 下一空窗要跑的「每节点单请求」新版本；Rust 已同步（keep dry-run：骨架跳过、32 个节点各一次 codegen 请求、全套 + 演练、退出 0，见下）。tool 模式仍是每节点的兜底（spec 超预算、codegen 修复两次后、同一失败两次）。
+
+**轮 35 之后的 keep dry-run 对照（2026-09-14，同配置各一次）**：结构完全一致——runner-events 分布 design running/completed 45/45、implement running/completed 45/45、test failed 77、runner 1/1、signal 295 对 295；每节点轮次相同（32 个 round 0，11 个节点各 2 次修复，其余受本机 3600 s 预算的 240 s 节点下限限制不修复）；Rust 450 s、Python 418 s，两边都是骨架跳过 → 32 次 codegen → 全套两轮 → 演练通过 → 退出 0。TB 与 Evolution 的 dry-run 同样退出 0。

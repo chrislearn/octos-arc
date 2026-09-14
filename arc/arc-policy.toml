@@ -10,7 +10,7 @@
 
 [mode]
 codegen = true              # OCTOS_ARC_CODEGEN — one-request codegen turns for small trees
-codegen_max_nodes = 2       # OCTOS_ARC_CODEGEN_MAX_NODES — trees up to this many ATOMIC nodes use codegen
+codegen_max_nodes = 999      # OCTOS_ARC_CODEGEN_MAX_NODES — round 35: every node of any tree takes the single-request path (a node whose spec does not fit the context budget uses tool mode)
 small_task_nodes = 2        # OCTOS_SMALL_TASK_NODES — trees up to this size get the minimal self-verification text
 verify_mode = "auto"        # OCTOS_VERIFY_MODE — auto | minimal | full
 skeleton_min_nodes = 3      # OCTOS_SKELETON_MIN_NODES — separate skeleton turn only for trees at least this big
@@ -99,7 +99,7 @@ dir = "prompts"              # <name>.md templates, relative to this file
 inline_specs = true          # OCTOS_ARC_INLINE_SPECS — quote the node's specs into tool-mode prompts
 inline_spec_chars = 24000    # OCTOS_ARC_INLINE_SPEC_CHARS
 inline_source_chars = 40000  # OCTOS_ARC_INLINE_SOURCE_CHARS — sources quoted into repair/rewrite prompts (0 = off)
-codegen_source_chars = 30000 # sources quoted into codegen evolution/rewrite prompts
+codegen_context_chars = 90000  # OCTOS_ARC_CODEGEN_CONTEXT_CHARS — codegen prompt budget: spec must fit 60% of it; existing sources ranked by spec-term overlap fill the rest (≈26k tokens)
 perf_contract = true         # OCTOS_PERF_CONTRACT
 guard = true                 # OCTOS_GUARD — inject guard corrections into the next prompt
 # Requirement keywords (case-insensitive substrings of the tree text) that

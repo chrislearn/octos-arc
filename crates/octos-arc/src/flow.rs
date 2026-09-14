@@ -1225,6 +1225,24 @@ impl Flow {
             .then_some(ReasoningMode::Disabled)
     }
 
+    /// `main.codegen_context_fits`: spec + (trimmed) sources must fit the codegen
+    /// prompt budget; the source quote is bounded to the budget minus the spec,
+    /// so this only fails when the spec alone (with helpers) is too large.
+    fn codegen_context_fits(&self, spec_chars: usize) -> bool {
+        (spec_chars as f64) < self.policy.prompts.codegen_context_chars as f64 * 0.6
+    }
+
+    /// `main.all_specs_tiny`: every node that has specs falls in the tiny tier (and at least one does).
+    fn all_specs_tiny(&self) -> bool {
+        let sizes: Vec<usize> = self
+            .node_ids
+            .iter()
+            .filter(|n| !self.spec_map.specs_for(n).is_empty())
+            .map(|n| self.spec_bodies(n).chars().count())
+            .collect();
+        !sizes.is_empty() && sizes.iter().all(|s| self.tiny_mode(*s))
+    }
+
     /// `main.tiny_mode`: the tiny tier applies to specs below the size threshold.
     fn tiny_mode(&self, spec_chars: usize) -> bool {
         self.policy.mode.tiny && spec_chars > 0 && spec_chars < self.policy.mode.tiny_spec_chars
@@ -1352,8 +1370,7 @@ impl Flow {
                 {
                     // Tiny tier: the reply is a bare HTML document (code fences tolerated).
                     let html = codegen::strip_code_fences(&completion.text);
-                    let lower = html.to_lowercase();
-                    if lower.contains("<html") || lower.contains("<!doctype") {
+                    if codegen::looks_like_markup(&html) {
                         files.insert(target.to_string(), html);
                     }
                 }
@@ -1674,12 +1691,14 @@ impl Flow {
                 if self.codegen_mode()
                     && let Some(codegen_prompt) = &rebuild.codegen_prompt
                 {
+                    let spec_text = self.spec_bodies(node_id);
                     match codegen::rewrite_prompt(
                         &self.prompts,
                         codegen_prompt,
                         &failures_text,
                         &self.output_dir,
-                        self.policy.prompts.codegen_source_chars,
+                        &spec_text,
+                        self.policy.prompts.codegen_context_chars,
                     ) {
                         Ok(prompt) => {
                             self.codegen_turn(&prompt, turn_timeout, &label);
@@ -1864,7 +1883,7 @@ impl Flow {
         }
         let (mut ok, mut text) = if tiny_ok {
             (true, "tiny tier: specs pass".to_string())
-        } else if self.codegen_mode() {
+        } else if self.codegen_mode() && self.codegen_context_fits(spec_chars) {
             let description = node
                 .get("description")
                 .and_then(Value::as_str)
@@ -1886,7 +1905,7 @@ impl Flow {
                 n_nodes: self.plan.n_nodes,
                 small_rule: small,
                 existing_app: existing.then_some(self.output_dir.as_path()),
-                existing_app_chars: self.policy.prompts.codegen_source_chars,
+                context_chars: self.policy.prompts.codegen_context_chars,
             };
             let compact = match codegen::implement_prompt(&self.prompts, &inputs) {
                 Ok(prompt) => prompt,
@@ -1923,6 +1942,11 @@ impl Flow {
             codegen_prompt = Some(compact);
             result
         } else {
+            if self.codegen_mode() {
+                self.log(format!(
+                    "[flow] {node_id}: spec too large for one request ({spec_chars} chars); tool mode"
+                ));
+            }
             self.turn(
                 &tool_prompt,
                 implement_timeout,
@@ -2721,9 +2745,19 @@ impl Flow {
                 self.end_scope("node");
             }
         }
-        let patience = Duration::from_secs(self.policy.reasoning.probe_patience_seconds);
-        for line in self.llm.probe(patience) {
-            self.log(line);
+        // Probe policy (round 34): none in dry runs; none when the whole task is tiny-tier (the
+        // first real request doubles as the probe); otherwise the token-free GET /models probe.
+        if self.dry_run {
+            self.log("[probe] skipped (dry run)");
+        } else if self.all_specs_tiny() {
+            self.log(
+                "[probe] skipped (tiny-tier task: the first real request doubles as the probe)",
+            );
+        } else {
+            let patience = Duration::from_secs(self.policy.reasoning.probe_patience_seconds);
+            for line in self.llm.probe(patience) {
+                self.log(line);
+            }
         }
         let mut protected_dirs: Vec<PathBuf> = Vec::new();
         if let Some(tests) = &self.tests_dir {
@@ -2741,6 +2775,11 @@ impl Flow {
         if self.plan.wants_skeleton {
             self.skeleton()?;
             self.end_scope("node");
+        } else if !self.plan.evolution && self.plan.codegen {
+            self.log(format!(
+                "[flow] {}-node tree: codegen mode, harness manifests replace the skeleton turn",
+                ids.len()
+            ));
         } else if !self.plan.evolution {
             self.log(format!(
                 "[flow] {}-node tree: skeleton folded into the first node turn",
