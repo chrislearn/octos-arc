@@ -23,6 +23,7 @@ pub mod plan;
 pub mod policy;
 mod process;
 pub mod prompts;
+pub mod reap;
 pub mod run;
 mod runner;
 pub mod spec;

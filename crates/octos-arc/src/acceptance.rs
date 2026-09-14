@@ -820,7 +820,7 @@ pub fn workers_for_memory(limit: Option<u64>, requested: u32, per_worker_mib: u6
 
 // ---------------------------------------------------------------- ports & processes
 
-fn lsof_pids(port: u16) -> Vec<u32> {
+pub(crate) fn lsof_pids(port: u16) -> Vec<u32> {
     let args: Vec<OsString> = ["-ti", &format!(":{port}")]
         .iter()
         .map(OsString::from)
@@ -841,7 +841,7 @@ fn lsof_pids(port: u16) -> Vec<u32> {
     }
 }
 
-fn kill_pid(pid: u32) {
+pub(crate) fn kill_pid(pid: u32) {
     let _ = std::process::Command::new("kill")
         .args(["-9", &pid.to_string()])
         .stdin(std::process::Stdio::null())
@@ -857,7 +857,7 @@ pub fn free_port(port: u16) {
     }
 }
 
-fn process_cwd(pid: u32) -> String {
+pub(crate) fn process_cwd(pid: u32) -> String {
     if let Ok(link) = std::fs::read_link(format!("/proc/{pid}/cwd")) {
         return link.to_string_lossy().into_owned();
     }

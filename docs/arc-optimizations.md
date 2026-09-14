@@ -341,8 +341,8 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 
 | # | Python 策略 | 来源 | 为什么存在 | Rust | 里程碑 |
 |---|---|---|---|---|---|
-| R1 | 收尾/异常时：打印 free -m、cgroup memory.*、ps 按 RSS 前 20；杀 chrom/headless_shell/playwright/octos serve/node/npm（排除自身与父进程） | `_reap_stray_processes` | 0764e8d77c54、e60fb3545eae（评测阶段 4 worker 1 秒被 Killed） | `reap::sweep(tag)`，并按目标书改为每节点结束回收 frontend/backend 目录下残留的 node/Chromium | M4 |
-| R2 | 评测端口 watchdog | `_port_watchdog` | R0 | `reap::PortWatchdog` | M4 |
+| R1 | 收尾/异常时：打印 free -m、cgroup memory.*、ps 按 RSS 前 20；杀 chrom/headless_shell/playwright/octos serve/node/npm（排除自身与父进程） | `_reap_stray_processes` | 0764e8d77c54、e60fb3545eae（评测阶段 4 worker 1 秒被 Killed） | `reap::report` + `reap::sweep_all(root)`（只杀能归属本次运行的：cwd/命令行在工作目录内或本进程后代——Python 版在共享宿主上会误杀）；每节点结束 `reap::sweep_workspace(root)` 回收工作目录里的 node/Chromium/Playwright | M4 ✔ |
+| R2 | 评测端口 watchdog | `_port_watchdog` | R0 | `reap::PortWatchdog`（5 s 轮询；我们的进程杀、外来进程报告一次） | M4 ✔ |
 
 #### 里程碑状态
 
@@ -358,7 +358,7 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 | N3 | 轮 30：codegen 推理档位与 size rule 按 spec 字符数（`OCTOS_ARC_CODEGEN_REASONING_CHARS`=5000）而不是节点数 | 2 节点 Counter 树付了 4.4k 推理 token 还拿到导航/cookie 机制 | `reasoning.codegen_reasoning_chars`；`Flow::codegen_reasoning`、`current_spec_chars`；`CodegenInputs.small_rule` | M3 ✔ |
 | N4 | 轮 31：`OCTOS_ARC_DRYRUN=1` 用 `DryRunDriver` 替换内核驱动 | 给本工作流做结构对等 | `octos arc run --dry-run`（M1 已有，语义相同） | — |
 | N5 | 轮 32：tiny-spec 档（spec < `OCTOS_ARC_TINY_SPEC_CHARS`=1500）：提示只含 spec 语句 + 一句输出要求，系统提示 "Reply with HTML only."，回复裸 HTML 写成 index.html，harness 写固定静态 server（`TINY_SERVER_JS`），失败回退 compact codegen；`OCTOS_ARC_TINY=0` 关闭 | Smoke 榜前三 ≈250 token/题，我们 ≈845 | `mode.tiny` / `mode.tiny_spec_chars`；`codegen::{strip_code_fences, compact_spec_lines, tiny_server_js}`；`Flow::{tiny_mode, tiny_turn}`、`codegen_turn_with`（system / 无格式段 / 裸 HTML 落盘）；提示词 `tiny-*.md` 从 `main.py` 常量导出 | M3 ✔ |
-| N6 | 交接清单：>2 节点树修复轮 3（wf-adapter-30）、`workers_for_final` 450 MiB/worker、`reap_workspace_processes`、`enforce_turn_budget` | wf-adapter-30 | 需逐项核对分支点后的 acceptance.py/guard.py 差异 | M4 |
+| N6 | 交接清单：>2 节点树修复轮 3（wf-adapter-30）、`workers_for_final` 450 MiB/worker、`reap_workspace_processes`、`enforce_turn_budget` | wf-adapter-30 | 核对结果：分支点后 acceptance.py/guard.py 无差异；main.py 里 `OCTOS_REPAIR_ROUNDS` 默认仍是 5、`workers_for_memory` 仍是 700 MiB/worker、没有 `reap_workspace_processes` 函数——清单描述的是计划而非代码；`enforce_turn_budget`（代理的每回合请求上限）对应 profile `gateway.max_iterations`（M2） | M4 ✔（无需改动） |
 
 #### 策略文件 `arc/arc-policy.toml`（← 约 60 个环境变量）
 
@@ -475,3 +475,15 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
   - `rs-evo-scaffold-dry`（占位脚手架模板：欢迎页 + 静态 server）：unchanged {}，probe REQ-1 0/1、REQ-2 0/1 → 「existing app passes no spec; moved [frontend, backend] to .arc/template-discarded and building fresh」→ fresh build（2 节点树骨架折进首节点）→ REQ-1 tiny → 回退。
 - 通用性自查：弃用模板只看探测结果；档位与 tiny 的阈值来自 spec 字符数；tiny 静态 server 无任务逻辑、端口来自 spec；NAV 去重的 href 从服务端源码推导；无任务名 / REQ 编号分支。
 - 真实模型对等（Evolution 2/2、1 次请求；Smoke 两题 tiny 档 token）等 key 窗口结束后与 Python 同题同配置各跑 2 次再补。
+
+### M4：reap + cgroup worker 选择 + 全局护栏，keep 走通（PR 待编号；分支 `wf-kernel-harness-m4`，叠在 M3 上）
+
+**改动位置**：`crates/octos-arc/src/reap.rs`（新：`report`、`sweep_all`、`sweep_workspace`、`select_victims`/`descendants_of` 纯函数、`PortWatchdog`）、`flow.rs`（每节点后回收、看门狗起停、收尾报告与回收、`note_turn` 护栏、降级分支：节点循环不修复、全套 0 轮、演练不修复）、`policy.rs` / `arc-policy.toml`（`budget.max_total_tokens`、`budget.max_total_turns`，默认 0=关）、`acceptance.rs`（进程辅助函数对 crate 可见）。cgroup worker 选择在 M1 已落地（`container_memory_limit` + `workers_for_memory`），本里程碑核对无改动。
+
+**护栏的设计**：Python 只有时间预算；目标书要求的「全局 Token 与回合上限、超限降级为每节点一次实现 + 一次全套」以账本为输入：每个模型回合后核对 `total_tokens` 与回合数，超限一次性切到降级模式并记 `guardrail` 事件。默认关闭，不改变对等行为；开启阈值时对任何题都是同一条规则。
+
+**keep 结构对等（dry-run，无模型、不用 key）**：Python 与 Rust 都在骨架轮中止（dry-run 的 tool 回合写不出 frontend/backend）：design running/completed 各 13、implement running 13、test failed 45、runner running/failed 各 1，signal 88 对 89；Rust 6 s，Python 124 s。中止路径原来多发 13 条 FOLDER implement/completed，已对齐。护栏 dry-run（Counter，`OCTOS_ARC_MAX_TOTAL_TURNS=2`）：两回合后触发降级，REQ-1 不修复、全套一轮、演练通过，`guardrail` 事件 1 条。
+
+**通用性自查**：回收与看门狗按进程归属（cwd / 命令行 / 父子关系）判断；护栏阈值来自账本；无任务名 / REQ 编号分支。Python 的收尾回收按命令行关键词杀全机 chrom/node/npm/octos serve，在共享宿主（本机就有用户自己的 Chrome 与 `octos serve`）会误杀——Rust 版只杀能归属本次运行的进程，这是有意的行为差异，云端容器里两者等价。
+
+**未做**：keep 的真实运行（32/32 或与 Python 持平）等 key 窗口结束；届时先估费用（Python 路径 keep 云端 ¥16.58，本机单次上限 ¥5 意味着本机不能整跑 keep，只能云端由 C 跑或本机 `--set repair.rounds=…` 缩短——需统筹决定）。

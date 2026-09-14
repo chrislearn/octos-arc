@@ -98,6 +98,13 @@ pub struct BudgetPolicy {
     pub min_repair_seconds: u64,
     /// Tool-mode iterations per turn (`OCTOS_MAX_ITERATIONS`).
     pub max_iterations: u32,
+    /// Global guardrail: total tokens (prompt + completion) after which the run degrades to
+    /// one implement turn per node and one full suite without repairs; 0 = off
+    /// (`OCTOS_ARC_MAX_TOTAL_TOKENS`).
+    pub max_total_tokens: u64,
+    /// Global guardrail: model turns after which the run degrades the same way; 0 = off
+    /// (`OCTOS_ARC_MAX_TOTAL_TURNS`).
+    pub max_total_turns: u32,
 }
 
 impl Default for BudgetPolicy {
@@ -113,6 +120,8 @@ impl Default for BudgetPolicy {
             implement_fraction: 0.6,
             min_repair_seconds: 300,
             max_iterations: 500,
+            max_total_tokens: 0,
+            max_total_turns: 0,
         }
     }
 }
@@ -404,6 +413,8 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("OCTOS_IMPLEMENT_FRACTION", "budget.implement_fraction"),
     ("OCTOS_MIN_REPAIR_SECONDS", "budget.min_repair_seconds"),
     ("OCTOS_MAX_ITERATIONS", "budget.max_iterations"),
+    ("OCTOS_ARC_MAX_TOTAL_TOKENS", "budget.max_total_tokens"),
+    ("OCTOS_ARC_MAX_TOTAL_TURNS", "budget.max_total_turns"),
     ("OCTOS_REPAIR_ROUNDS", "repair.rounds"),
     ("OCTOS_ARC_CODEGEN_REPAIRS", "repair.codegen_repairs"),
     ("OCTOS_ARC_REWRITE_ON_ZERO", "repair.rewrite_on_zero"),
@@ -534,6 +545,8 @@ impl Policy {
             "budget.implement_fraction" => self.budget.implement_fraction = parse(raw, key)?,
             "budget.min_repair_seconds" => self.budget.min_repair_seconds = parse(raw, key)?,
             "budget.max_iterations" => self.budget.max_iterations = parse(raw, key)?,
+            "budget.max_total_tokens" => self.budget.max_total_tokens = parse(raw, key)?,
+            "budget.max_total_turns" => self.budget.max_total_turns = parse(raw, key)?,
             "repair.rounds" => self.repair.rounds = parse(raw, key)?,
             "repair.codegen_repairs" => self.repair.codegen_repairs = parse(raw, key)?,
             "repair.rewrite_on_zero" => self.repair.rewrite_on_zero = parse_bool(raw)?,
@@ -750,6 +763,8 @@ mod tests {
         assert_eq!(p.reasoning.mode, "auto");
         assert_eq!(p.reasoning.max_tokens_min, 32768);
         assert_eq!(p.reasoning.codegen_reasoning_chars, 5000);
+        assert_eq!(p.budget.max_total_tokens, 0);
+        assert_eq!(p.budget.max_total_turns, 0);
         assert!(p.mode.tiny);
         assert_eq!(p.mode.tiny_spec_chars, 1500);
         assert_eq!(p.requests.implement, 20);

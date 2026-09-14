@@ -35,6 +35,11 @@ design_timeout_seconds = 420     # OCTOS_DESIGN_TIMEOUT
 implement_fraction = 0.6         # OCTOS_IMPLEMENT_FRACTION — implement turn ≤ this share of the node budget
 min_repair_seconds = 300         # OCTOS_MIN_REPAIR_SECONDS — no repair turn with less left
 max_iterations = 500             # OCTOS_MAX_ITERATIONS — tool-mode iterations per turn
+# Global guardrails (M4): once the run has spent this many tokens (prompt + completion) or model turns,
+# every remaining node gets one implement turn without repairs and the final suite runs once without
+# repairs. 0 = off. Derived from the run's own usage ledger, not from the task.
+max_total_tokens = 0        # OCTOS_ARC_MAX_TOTAL_TOKENS
+max_total_turns = 0         # OCTOS_ARC_MAX_TOTAL_TURNS
 
 [repair]
 rounds = 5              # OCTOS_REPAIR_ROUNDS — K, acceptance repair rounds per node

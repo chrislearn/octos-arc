@@ -145,6 +145,12 @@ pub struct Flow {
     probe_summaries: BTreeMap<String, RunSummary>,
     /// Nodes actually probed against an existing app (Evolution).
     probe_count: usize,
+    /// Model turns so far (tool and codegen), for the global guardrail.
+    turns: u32,
+    /// Global guardrail tripped: one implement per node, one full suite, no repairs.
+    degraded: bool,
+    /// Kills our own processes that bind the grading port while we generate.
+    watchdog: Option<crate::reap::PortWatchdog>,
     /// Size of the spec text the current node must satisfy (codegen effort by spec size).
     current_spec_chars: usize,
 }
@@ -272,6 +278,9 @@ impl Flow {
             unchanged,
             probe_summaries: BTreeMap::new(),
             probe_count: 0,
+            turns: 0,
+            degraded: false,
+            watchdog: None,
             current_spec_chars: 0,
         })
     }
@@ -309,6 +318,33 @@ impl Flow {
 
     fn remaining(&self) -> f64 {
         self.budget.remaining()
+    }
+
+    /// Count a model turn and trip the global guardrail when the run has spent
+    /// more tokens or turns than the policy allows (`budget.max_total_*`).
+    fn note_turn(&mut self) {
+        self.turns += 1;
+        if self.degraded {
+            return;
+        }
+        let totals = self.ledger.lock().map(|l| l.totals()).unwrap_or_default();
+        let tokens = totals["total_tokens"].as_u64().unwrap_or(0);
+        let max_tokens = self.policy.budget.max_total_tokens;
+        let max_turns = self.policy.budget.max_total_turns;
+        let over_tokens = max_tokens > 0 && tokens >= max_tokens;
+        let over_turns = max_turns > 0 && self.turns >= max_turns;
+        if over_tokens || over_turns {
+            self.degraded = true;
+            self.log(format!(
+                "[guardrail] {} (tokens {tokens}/{max_tokens}, turns {}/{max_turns}); degrading to one implement turn per node and one full suite without repairs",
+                if over_tokens { "token cap reached" } else { "turn cap reached" },
+                self.turns
+            ));
+            self.events.emit(
+                "guardrail",
+                json!({"tokens": tokens, "turns": self.turns, "max_total_tokens": max_tokens, "max_total_turns": max_turns}),
+            );
+        }
     }
 
     fn time_up(&self) -> bool {
@@ -1000,8 +1036,10 @@ impl Flow {
     ) -> (bool, String) {
         if self.dry_run {
             self.log(format!("[flow] {label}: dry run, tool turn skipped"));
+            self.note_turn();
             return (true, format!("dry run: {label}"));
         }
+        self.note_turn();
         let mode = self.plan.reasoning_for(label);
         let budget = request_budget.unwrap_or_else(|| {
             if label.contains("repair") {
@@ -1245,6 +1283,7 @@ impl Flow {
         } else {
             prompt.trim().to_string()
         };
+        self.note_turn();
         let mode = self
             .codegen_reasoning(self.current_spec_chars)
             .unwrap_or_else(|| self.plan.reasoning_for(label));
@@ -1549,6 +1588,12 @@ impl Flow {
                 .as_secs_f64();
             if left < self.policy.budget.min_repair_seconds as f64 || self.time_up() {
                 self.log(format!("[flow] {node_id}: {left:.0}s left, below the {}s a repair needs; keeping the best state", self.policy.budget.min_repair_seconds));
+                break;
+            }
+            if self.degraded {
+                self.log(format!(
+                    "[flow] {node_id}: guardrail active; no repair turns, keeping the best state"
+                ));
                 break;
             }
             self.snapshot_sources(node_id, attempt);
@@ -2054,7 +2099,11 @@ impl Flow {
         if all_specs.len() < 2 && unverified.is_empty() {
             return; // single spec already judged by the node run
         }
-        let rounds = self.policy.repair.final_rounds;
+        let rounds = if self.degraded {
+            0
+        } else {
+            self.policy.repair.final_rounds
+        };
         let workers = acceptance::workers_for_memory(
             self.mem_limit,
             self.policy.acceptance.final_workers,
@@ -2266,7 +2315,7 @@ impl Flow {
                 "[rehearsal] FAILED: {}",
                 head(error.lines().next().unwrap_or(""), 200)
             ));
-            if attempt == 3 || self.remaining() < -600.0 {
+            if attempt == 3 || self.remaining() < -600.0 || self.degraded {
                 self.log("[rehearsal] giving up; submitting as-is");
                 return false;
             }
@@ -2474,6 +2523,8 @@ impl Flow {
             Err(error) => {
                 let text = format!("{error:#}");
                 self.log(format!("[flow] aborted: {text}"));
+                // Like `main.Flow.run`'s except path: undecided nodes get a test_failed
+                // mark but no local verdict, so folder rows derive from what was decided.
                 for node_id in self.node_ids.clone() {
                     if !self.test_verdict.contains_key(&node_id) {
                         self.mark(
@@ -2481,7 +2532,6 @@ impl Flow {
                             &node_id,
                             Some(&format!("run aborted: {}", head(&text, 200))),
                         );
-                        self.test_verdict.insert(node_id, Some(false));
                     }
                 }
                 self.mark_folders();
@@ -2495,6 +2545,21 @@ impl Flow {
     }
 
     fn finish(&mut self, kind: &str, message: &str) {
+        if let Some(mut dog) = self.watchdog.take() {
+            dog.stop();
+        }
+        for line in crate::reap::report() {
+            self.log(format!("[reap:postflight] {line}"));
+        }
+        let killed = crate::reap::sweep_all(&self.output_dir);
+        self.log(format!(
+            "[reap:postflight] {}",
+            if killed.is_empty() {
+                "nothing to kill".to_string()
+            } else {
+                format!("killed {killed:?}")
+            }
+        ));
         self.cleanup_playwright();
         let totals = self
             .ledger
@@ -2544,6 +2609,11 @@ impl Flow {
         }
         self.git.ensure_repo()?;
         self.setup_playwright();
+        self.watchdog = Some(crate::reap::PortWatchdog::start(
+            self.web_port,
+            &self.output_dir,
+            Duration::from_secs(5),
+        ));
         if self.plan.evolution && self.runner.is_some() {
             // The platform's template app carries no traceability records, so fingerprints cannot tell
             // what is new. A node whose specs already pass against the existing app is unchanged.
@@ -2634,6 +2704,13 @@ impl Flow {
                 self.node_cycle(node, index + 1, total);
             }
             self.end_scope("node");
+            let killed = crate::reap::sweep_workspace(&self.output_dir);
+            if !killed.is_empty() {
+                self.log(format!(
+                    "[reap] {node_id}: killed {} leftover process(es) started inside the workspace: {killed:?}",
+                    killed.len()
+                ));
+            }
         }
         if !self.time_up() {
             self.final_acceptance();
