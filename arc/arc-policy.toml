@@ -7,6 +7,23 @@
 # file; a missing prompt file falls back to the copy compiled into the kernel.
 #
 # Changing this file or a prompt never needs a cargo build.
+#
+# Per-node path (phase 3 §1.1; the Python adapter follows the same rule, this file is the
+# reference for both):
+#   1. spec text shorter than mode.tiny_spec_chars      -> tiny tier: spec statements only, one
+#      page of markup back, harness-written static server; its specs failing -> step 2.
+#   2. spec text shorter than 60% of prompts.codegen_context_chars -> single-request codegen:
+#      spec + the existing sources ranked by spec-term overlap (backend entry files first,
+#      the rest listed by name), every changed file returned complete; thinking off below
+#      reasoning.codegen_reasoning_chars. Trees of any size (mode.codegen_max_nodes = 999);
+#      the harness manifests replace the skeleton turn.
+#   3. spec too large for one request, or codegen blocked -> tool mode (kernel session).
+#   Failure handling per node: round 0 passes nothing -> one codegen rewrite
+#   (repair.rewrite_on_zero); then repair.codegen_repairs (2) single-request repairs; the same
+#   failure twice, or the repairs used up -> tool-mode repairs (requests.repair calls each) until
+#   repair.rounds / rounds_large_tree, stall_limit or the cost guard stops the node. Setting
+#   repair.codegen_repairs = 0 makes the first failure fall back to tool mode directly.
+#   Targets (phase 3): <= 5 requests and <= ¥0.2 per node; the cost guard ([budget]) bounds the run.
 
 [mode]
 codegen = true              # OCTOS_ARC_CODEGEN — one-request codegen turns for small trees

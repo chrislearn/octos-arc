@@ -523,3 +523,21 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 **轮 35 对 M3/M4 的影响**：从 main@34f9d7e2 起 Python 对 keep 这类多节点树也走每节点单请求 codegen（不再是 tool 模式 + 骨架轮），M4 的对照基准因此从「tool 模式 1,152 请求」变成 A 下一空窗要跑的「每节点单请求」新版本；Rust 已同步（keep dry-run：骨架跳过、32 个节点各一次 codegen 请求、全套 + 演练、退出 0，见下）。tool 模式仍是每节点的兜底（spec 超预算、codegen 修复两次后、同一失败两次）。
 
 **轮 35 之后的 keep dry-run 对照（2026-09-14，同配置各一次）**：结构完全一致——runner-events 分布 design running/completed 45/45、implement running/completed 45/45、test failed 77、runner 1/1、signal 295 对 295；每节点轮次相同（32 个 round 0，11 个节点各 2 次修复，其余受本机 3600 s 预算的 240 s 节点下限限制不修复）；Rust 450 s、Python 418 s，两边都是骨架跳过 → 32 次 codegen → 全套两轮 → 演练通过 → 退出 0。TB 与 Evolution 的 dry-run 同样退出 0。
+
+### 第三阶段 §1.1：N 节点树每节点单请求 codegen（Rust 引擎；规则以 `arc/arc-policy.toml` 为准）
+
+统筹 2026-09-14 的优先级调整：把两条路径（单请求 codegen / 内核 tool 会话）的选择改成按节点判定。Rust 侧在 #88（ac9adb85、14b85ad8）落地，与 A 的轮 35 同一规则：
+
+| 判定 | 输入 | 策略键 | 结果 |
+|---|---|---|---|
+| tiny 档 | 该节点 spec 字符数 < 1,500 | `mode.tiny`、`mode.tiny_spec_chars` | 只含 spec 语句的提示，回一页标记，harness 写静态 server；specs 不过进下一档 |
+| 单请求 codegen | spec 字符数 < 60% × 90,000 | `mode.codegen`、`mode.codegen_max_nodes`(999)、`prompts.codegen_context_chars` | 提示 = spec + `relevant_sources`（后端入口优先，其余页面按 spec 词项命中数排序，预算 = 90,000 − spec，其余只列名）+ 格式段；一次输出整文件；spec < 5,000 字符时 thinking off + 紧凑规则（`reasoning.codegen_reasoning_chars`） |
+| tool 模式 | spec 超预算，或该节点 codegen 已被阻断 | — | 内核 stdio 会话回合（NODE 提示） |
+| 失败处理 | round 0 = 0 → 一次 codegen 重写；之后 ≤2 次 codegen 修复；同一失败两次或修复用尽 → tool 模式修复 | `repair.rewrite_on_zero`、`repair.codegen_repairs`、`repair.rounds` / `rounds_large_tree`、`stall_limit` | `codegen_repairs = 0` 即「首轮失败直接回退 tool 模式」 |
+| 骨架轮 | codegen 模式且非 Evolution | `mode.skeleton_always` | harness manifests 取代骨架轮 |
+
+- 与树大小无关：`codegen_max_nodes` 只是上限开关（999），选择只看节点的 spec 大小与现有源码；源码引用按 spec 词项重叠排序、按预算裁剪。
+- 目标：每节点 ≤5 次请求、≤¥0.2。codegen 路径每节点最多 1 + 1 + 2 = 4 次单请求；tool 模式修复每回合最多 `requests.repair`(10) 次调用，是超出目标的唯一来源，靠「同一失败两次才切」与费用护栏兜住。
+- dry-run 证据：keep 32 节点 Rust 与 Python 事件分布逐项相同（上文）；TB 两条路径同样逐项相同（design/implement running+completed 各 5、test failed 9、signal 37，且都在「同一失败两次」处切到 tool 模式）；Evolution 退出 0。
+- 费用估算（A 的离线量：keep 工作区 5 个源文件 86k 字符，REQ-2.5.2 引用 ≈72k 字符 ≈21k token）：每请求输入 ≈20–26k token（平台拟合 ≈¥2–3/M → ≈¥0.05–0.08），每节点 1–3 次 → ≈¥0.1–0.2，整题 keep ≈¥3–6 对旧基准 ¥16.58。
+- 真跑对等（空窗）：keep 一题 Rust 路径 1 次（云端，需要 arc.12 Release 与 `OCTOS_ARC_ENGINE=rust`），与 A 同版本 Python 的 keep 对照；预计 1–3M token。
