@@ -112,17 +112,18 @@ def log_factory():
     return log
 
 
-def snapshot_previous_requirements(output_dir: Path) -> Path | None:
+def snapshot_previous_requirements(output_dir: Path) -> Path:
     """Copy the previous run's `.arc/traceability/requirements.json` (committed with an
     Evolution template) to `.arc/previous-requirements.json` before the runtime stores
-    the new tree over it. Returns the copy's path, or None when there is no table."""
+    the new tree over it. Always written — `{}` when the template carries no table — so
+    the kernel never mistakes the freshly stored tree for the previous one."""
     source = output_dir / ".arc" / "traceability" / "requirements.json"
     try:
         data = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict) or not data:
-        return None
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
     target = output_dir / ".arc" / "previous-requirements.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

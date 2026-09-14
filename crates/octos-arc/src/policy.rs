@@ -50,6 +50,10 @@ pub struct ModePolicy {
     pub design_mode: String,
     /// Design only for trees with at least this many nodes (`OCTOS_DESIGN_MIN_NODES`).
     pub design_min_nodes: usize,
+    /// Tiny-spec tier: spec statements only, bare HTML reply, harness-written static server (`OCTOS_ARC_TINY`).
+    pub tiny: bool,
+    /// A node whose spec text is shorter than this many characters uses the tiny tier (`OCTOS_ARC_TINY_SPEC_CHARS`).
+    pub tiny_spec_chars: usize,
 }
 
 impl Default for ModePolicy {
@@ -64,6 +68,8 @@ impl Default for ModePolicy {
             design_turn: true,
             design_mode: "inline".into(),
             design_min_nodes: 3,
+            tiny: true,
+            tiny_spec_chars: 1500,
         }
     }
 }
@@ -188,6 +194,10 @@ pub struct ReasoningPolicy {
     pub transient_backoff_seconds: u64,
     /// Seconds to wait for the endpoint to answer the start-up probe.
     pub probe_patience_seconds: u64,
+    /// Codegen turns for specs shorter than this many characters run with thinking off and the
+    /// compact size rule; larger specs keep the base mode and the multi-page mechanisms
+    /// (`OCTOS_ARC_CODEGEN_REASONING_CHARS`; only when `mode` is auto).
+    pub codegen_reasoning_chars: usize,
 }
 
 impl Default for ReasoningPolicy {
@@ -202,6 +212,7 @@ impl Default for ReasoningPolicy {
             transient_retries: 3,
             transient_backoff_seconds: 30,
             probe_patience_seconds: 600,
+            codegen_reasoning_chars: 5000,
         }
     }
 }
@@ -383,6 +394,8 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("OCTOS_DESIGN_TURN", "mode.design_turn"),
     ("OCTOS_DESIGN_MODE", "mode.design_mode"),
     ("OCTOS_DESIGN_MIN_NODES", "mode.design_min_nodes"),
+    ("OCTOS_ARC_TINY", "mode.tiny"),
+    ("OCTOS_ARC_TINY_SPEC_CHARS", "mode.tiny_spec_chars"),
     ("OCTOS_TIME_BUDGET", "budget.time_budget_seconds"),
     ("OCTOS_SECONDS_PER_NODE", "budget.seconds_per_node"),
     ("OCTOS_NODE_TIME_BUDGET", "budget.node_time_budget_seconds"),
@@ -399,6 +412,10 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("OCTOS_ARC_REPAIR_REQUESTS", "requests.repair"),
     ("OCTOS_ARC_CODEGEN_REQUESTS", "requests.codegen"),
     ("OCTOS_ARC_REASONING", "reasoning.mode"),
+    (
+        "OCTOS_ARC_CODEGEN_REASONING_CHARS",
+        "reasoning.codegen_reasoning_chars",
+    ),
     (
         "OCTOS_ARC_IMPLEMENT_REASONING",
         "reasoning.implement_override",
@@ -503,6 +520,8 @@ impl Policy {
             "mode.design_turn" => self.mode.design_turn = parse_bool(raw)?,
             "mode.design_mode" => self.mode.design_mode = raw.trim().into(),
             "mode.design_min_nodes" => self.mode.design_min_nodes = parse(raw, key)?,
+            "mode.tiny" => self.mode.tiny = parse_bool(raw)?,
+            "mode.tiny_spec_chars" => self.mode.tiny_spec_chars = parse(raw, key)?,
             "budget.time_budget_seconds" => self.budget.time_budget_seconds = parse(raw, key)?,
             "budget.seconds_per_node" => self.budget.seconds_per_node = parse(raw, key)?,
             "budget.node_time_budget_seconds" => {
@@ -524,6 +543,9 @@ impl Policy {
             "requests.repair" => self.requests.repair = parse(raw, key)?,
             "requests.codegen" => self.requests.codegen = parse(raw, key)?,
             "reasoning.mode" => self.reasoning.mode = raw.trim().into(),
+            "reasoning.codegen_reasoning_chars" => {
+                self.reasoning.codegen_reasoning_chars = parse(raw, key)?
+            }
             "reasoning.implement_override" => self.reasoning.implement_override = raw.trim().into(),
             "reasoning.max_tokens_min" => self.reasoning.max_tokens_min = parse(raw, key)?,
             "reasoning.destream" => self.reasoning.destream = parse_bool(raw)?,
@@ -629,6 +651,9 @@ mod tests {
     /// Python glue). Regenerate with:
     /// grep -ohE 'os\.environ(\.get\(|\[)"[A-Z_]+"' arc/*.py | sort -u
     const PYTHON_TUNABLES: &[&str] = &[
+        "OCTOS_ARC_TINY",
+        "OCTOS_ARC_TINY_SPEC_CHARS",
+        "OCTOS_ARC_CODEGEN_REASONING_CHARS",
         "OCTOS_ARC_ALIAS_SPEC_IDS",
         "OCTOS_ARC_CODEGEN",
         "OCTOS_ARC_CODEGEN_MAX_NODES",
@@ -724,6 +749,9 @@ mod tests {
         assert_eq!(p.mode.design_mode, "inline");
         assert_eq!(p.reasoning.mode, "auto");
         assert_eq!(p.reasoning.max_tokens_min, 32768);
+        assert_eq!(p.reasoning.codegen_reasoning_chars, 5000);
+        assert!(p.mode.tiny);
+        assert_eq!(p.mode.tiny_spec_chars, 1500);
         assert_eq!(p.requests.implement, 20);
         assert_eq!(p.requests.repair, 10);
         assert_eq!(p.requests.codegen, 3);

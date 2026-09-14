@@ -522,11 +522,38 @@ pub struct DryRunCompleter {
     pub calls: u32,
 }
 
+/// `main.DRYRUN_FILES`: the placeholder app a dry-run codegen turn "returns".
+pub const DRYRUN_FILES: &str = r#"<<<FILE frontend/src/index.html>>>
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>dry run</title></head>
+<body><!--NAV--><main data-testid="dryrun">dry run placeholder</main></body></html>
+<<<END FILE>>>
+<<<FILE backend/server.js>>>
+const http = require('http'); const fs = require('fs'); const path = require('path');
+const dist = path.join(__dirname, '..', 'frontend', 'dist');
+const handler = (req, res) => { try {
+  const file = path.join(dist, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+  if (!file.startsWith(dist) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('not found'); }
+  res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8'}); res.end(fs.readFileSync(file));
+} catch (e) { res.writeHead(500); res.end('error'); } };
+http.createServer(handler).listen(process.env.PORT || 3000);
+process.on('uncaughtException', () => {});
+<<<END FILE>>>
+"#;
+
 impl Completer for DryRunCompleter {
     fn complete(&mut self, request: &CompletionRequest<'_>) -> Result<Completion> {
         self.calls += 1;
+        // Same fixed replies as the Python `DryRunDriver`: file blocks for codegen
+        // prompts, a bare page for the tiny tier, a sentence otherwise.
+        let text = if request.user.contains("<<<FILE") {
+            DRYRUN_FILES.to_string()
+        } else if request.user.contains("index.html only") {
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><main>dry run</main></body></html>".to_string()
+        } else {
+            format!("dry run: no model call for {}", request.label)
+        };
         Ok(Completion {
-            text: format!("dry run: no model call for {}", request.label),
+            text,
             truncated: false,
             usage: TokenUsage::default(),
             elapsed_ms: 0,

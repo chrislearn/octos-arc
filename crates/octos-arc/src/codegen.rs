@@ -25,10 +25,10 @@ static META_CHARSET: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)<meta[^>]+charset").unwrap());
 static HEAD_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<head[^>]*>").unwrap());
 static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<html[^>]*>").unwrap());
-static NAV_LINK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?is)<a\b[^>]*href=["'](?:/login|/register|/logout)["'][^>]*>.*?</a>\s*"#)
-        .unwrap()
-});
+/// Absolute hrefs the server renders (`codegen.HREF`): the links it fills the
+/// NAV placeholder with, derived from its own source rather than a fixed list.
+static HREF: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)href=["'](/[^"'#?]*)["']"#).unwrap());
 
 pub const CHARSET_META: &str = "<meta charset=\"utf-8\">";
 pub const NAV_PLACEHOLDER: &str = "<!--NAV-->";
@@ -170,6 +170,25 @@ pub fn dedupe_nav_links(root: &Path) -> Vec<String> {
     if !server_text.contains(NAV_PLACEHOLDER) {
         return vec![];
     }
+    let mut nav_hrefs: Vec<String> = HREF
+        .captures_iter(&server_text)
+        .map(|c| c[1].to_string())
+        .collect();
+    nav_hrefs.sort();
+    nav_hrefs.dedup();
+    if nav_hrefs.is_empty() {
+        return vec![];
+    }
+    let alternatives = nav_hrefs
+        .iter()
+        .map(|h| regex::escape(h))
+        .collect::<Vec<_>>()
+        .join("|");
+    let Ok(nav_link) = Regex::new(&format!(
+        r#"(?is)<a\b[^>]*href=["'](?:{alternatives})["'][^>]*>.*?</a>\s*"#
+    )) else {
+        return vec![];
+    };
     let mut changed = Vec::new();
     let Ok(entries) = std::fs::read_dir(root.join("frontend/src")) else {
         return vec![];
@@ -187,7 +206,7 @@ pub fn dedupe_nav_links(root: &Path) -> Vec<String> {
         if !text.contains(NAV_PLACEHOLDER) {
             continue;
         }
-        let cleaned = NAV_LINK.replace_all(&text, "");
+        let cleaned = nav_link.replace_all(&text, "");
         if cleaned != text && std::fs::write(&page, cleaned.as_bytes()).is_ok() {
             changed.push(page.file_name().unwrap().to_string_lossy().into_owned());
         }
@@ -384,8 +403,10 @@ pub struct CodegenInputs<'a> {
     pub spec: &'a str,
     pub web_port: u16,
     pub extra_ports: &'a [u16],
-    /// Total ATOMIC nodes in the tree: one-node tasks get the size caps.
+    /// Total ATOMIC nodes in the tree.
     pub n_nodes: usize,
+    /// Compact size rule (small spec: thinking off) instead of the multi-page mechanisms.
+    pub small_rule: bool,
     /// Evolution: quote the existing app and ask for complete changed files.
     pub existing_app: Option<&'a Path>,
     pub existing_app_chars: usize,
@@ -406,7 +427,7 @@ pub fn ports_clause(prompts: &Prompts, extra_ports: &[u16]) -> Result<String> {
 /// The compact implement prompt; the caller appends the format instructions.
 pub fn implement_prompt(prompts: &Prompts, inputs: &CodegenInputs<'_>) -> Result<String> {
     let ports = ports_clause(prompts, inputs.extra_ports)?;
-    let size_rule = if inputs.n_nodes <= 1 {
+    let size_rule = if inputs.small_rule {
         prompts.get("codegen-size-small")
     } else {
         prompts.get("codegen-size-full")
@@ -450,6 +471,57 @@ pub fn with_format(prompts: &Prompts, prompt: &str) -> String {
         .to_string()
 }
 
+/// `main.strip_code_fences`: the body of the first fenced block, else the trimmed text.
+pub fn strip_code_fences(text: &str) -> String {
+    static FENCE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?s)```[a-zA-Z]*\n(.*?)```").unwrap());
+    let text = text.trim();
+    match FENCE.captures(text) {
+        Some(c) => c[1].trim().to_string(),
+        None => text.to_string(),
+    }
+}
+
+/// `main.compact_spec_lines`: the spec's statements without imports, blank
+/// lines, `await` and closing braces — what a page must satisfy, in the spec's
+/// own words.
+pub fn compact_spec_lines(text: &str) -> String {
+    static AWAIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^await\s+").unwrap());
+    static TEST_HEAD: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"^test\((['"])(.*?)['"],\s*async\s*\(\{[^}]*\}\)\s*=>\s*\{$"#).unwrap()
+    });
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty()
+            || line.starts_with("import ")
+            || line.starts_with("//")
+            || line.starts_with("/*")
+            || line.starts_with('*')
+            || matches!(line, "});" | "})" | "}")
+        {
+            continue;
+        }
+        let line = AWAIT.replace(line, "");
+        let line = TEST_HEAD.replace(&line, "test: $2");
+        out.push(line.into_owned());
+    }
+    out.join("\n")
+}
+
+/// The fixed static server of the tiny tier (`main.TINY_SERVER_JS`): PORT plus the
+/// spec default ports unless `ARC_EXTRA_PORTS=0`; no task logic.
+pub fn tiny_server_js(prompts: &Prompts, web_port: u16, extra_ports: &[u16]) -> Result<String> {
+    let port = web_port.to_string();
+    let extra = serde_json::to_string(
+        &extra_ports
+            .iter()
+            .filter(|p| **p != web_port)
+            .collect::<Vec<_>>(),
+    )?;
+    prompts.render("tiny-server", &[("port", &port), ("extra_ports", &extra)])
+}
+
 /// Rewrite prompt when round 0 passed nothing (`Flow.node_cycle.rebuild_prompt`).
 pub fn rewrite_prompt(
     prompts: &Prompts,
@@ -472,6 +544,59 @@ pub fn rewrite_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_strip_code_fences_and_compact_spec_lines_like_the_python_helpers() {
+        assert_eq!(
+            strip_code_fences("```html\n<html></html>\n```"),
+            "<html></html>"
+        );
+        assert_eq!(strip_code_fences("  <html></html>  "), "<html></html>");
+        let spec = "import { test, expect } from '@playwright/test';\n\ntest('counts', async ({ page }) => {\n  await page.goto('/');\n  // note\n  await expect(page.getByTestId('count')).toHaveText('0');\n});\n";
+        assert_eq!(
+            compact_spec_lines(spec),
+            "test: counts\npage.goto('/');\nexpect(page.getByTestId('count')).toHaveText('0');"
+        );
+    }
+
+    #[test]
+    fn should_render_the_tiny_server_with_the_spec_default_ports() {
+        let prompts = Prompts::builtin();
+        let js = tiny_server_js(&prompts, 3000, &[3000, 3301]).unwrap();
+        assert!(js.contains("process.env.PORT || 3000"));
+        assert!(js.contains("for (const p of [3301])"));
+        assert!(
+            js.contains("{ try {"),
+            "double braces must render as single braces"
+        );
+        assert!(!js.contains("{{"));
+    }
+
+    #[test]
+    fn should_derive_the_nav_hrefs_to_strip_from_the_server_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("backend")).unwrap();
+        std::fs::create_dir_all(root.join("frontend/src")).unwrap();
+        std::fs::write(
+            root.join("backend/server.js"),
+            "html.replace('<!--NAV-->', signedIn ? '<a href=\"/account\">Me</a> <a href=\"/logout\">Out</a>' : '<a href=\"/login\">In</a>')",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("frontend/src/index.html"),
+            "<body><!--NAV--><a href=\"/login\">In</a><a href=\"/about\">About</a></body>",
+        )
+        .unwrap();
+        let changed = dedupe_nav_links(root);
+        assert_eq!(changed, vec!["index.html".to_string()]);
+        let page = std::fs::read_to_string(root.join("frontend/src/index.html")).unwrap();
+        assert!(!page.contains("/login"), "server-rendered link removed");
+        assert!(
+            page.contains("/about"),
+            "links the server does not render stay"
+        );
+    }
 
     #[test]
     fn should_extract_blocks_and_confine_paths() {
@@ -593,9 +718,10 @@ mod tests {
         std::fs::write(dir.path().join("frontend/src/index.html"), page).unwrap();
         std::fs::write(dir.path().join("backend/server.js"), "no placeholder").unwrap();
         assert!(dedupe_nav_links(dir.path()).is_empty());
+        // The server renders /login into the placeholder; /about is a page link it never renders.
         std::fs::write(
             dir.path().join("backend/server.js"),
-            "html.replace('<!--NAV-->', nav)",
+            "const nav = '<a href=\"/login\">L</a>'; html.replace('<!--NAV-->', nav)",
         )
         .unwrap();
         assert_eq!(dedupe_nav_links(dir.path()), ["index.html"]);
@@ -632,6 +758,7 @@ mod tests {
             web_port: 3000,
             extra_ports: &[3301],
             n_nodes: 1,
+            small_rule: true,
             existing_app: None,
             existing_app_chars: 0,
         };
