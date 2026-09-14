@@ -81,7 +81,7 @@ def summarize(output_dir: Path) -> dict:
         pass
     billed = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "cache_hit": 0}
     for rec in _iter_jsonl(arc / "llm-usage.jsonl"):
-        billed["requests"] += 1
+        billed["requests"] += int(rec.get("requests") or 1)  # kernel-session turns carry their LLM-call count
         billed["prompt_tokens"] += int(rec.get("prompt_tokens") or 0)
         billed["completion_tokens"] += int(rec.get("completion_tokens") or 0)
         billed["cache_hit"] += int(rec.get("prompt_cache_hit_tokens") or 0)

@@ -18,3 +18,5 @@ Your previous turn claimed completion without running any build, start or reques
 You hit the same error {count} times in a row ({error}). Stop repeating the command; diagnose the root cause (read the file / port / path involved) and change approach.
 ## protected_writes
 You modified protected files that must never change: {files}. Revert nothing yourself; only touch frontend/ and backend/ from now on.
+## codegen_no_blocks
+Your previous reply contained no file blocks, so nothing was written. Reply ONLY with `<<<FILE path>>>` ... `<<<END FILE>>>` blocks holding complete files: no prose, no markdown fences, no notes.

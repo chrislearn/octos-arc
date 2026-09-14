@@ -109,12 +109,11 @@ pub trait Completer {
     fn probe(&mut self, _patience: Duration) -> Vec<String> {
         Vec::new()
     }
-
-    /// Provider-reported totals (`[usage] provider totals`).
-    fn totals(&self) -> Value {
-        json!({})
-    }
 }
+
+/// The ledger is shared by the in-process client and the kernel-session
+/// driver so `[usage] provider totals` covers both turn shapes.
+pub type SharedLedger = std::sync::Arc<std::sync::Mutex<UsageLedger>>;
 
 /// Provider hiccups worth a retry (`OctosDriver._transient`); the harness's
 /// own turn timeouts are never replayed.
@@ -162,6 +161,9 @@ pub struct UsageLedger {
     events_path: PathBuf,
     model: String,
     provider: String,
+    /// Mirror `turn/completed` / `token_cost_update` into `.arc/octos-events.jsonl`
+    /// (the in-process client has no kernel session emitting them).
+    mirror_events: bool,
     requests: u32,
     prompt_tokens: u64,
     completion_tokens: u64,
@@ -177,6 +179,7 @@ impl UsageLedger {
             events_path: arc_dir.join("octos-events.jsonl"),
             model: model.to_string(),
             provider: provider.to_string(),
+            mirror_events: true,
             requests: 0,
             prompt_tokens: 0,
             completion_tokens: 0,
@@ -193,6 +196,64 @@ impl UsageLedger {
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
             let _ = writeln!(file, "{line}");
         }
+    }
+
+    pub fn shared(arc_dir: &Path, model: &str, provider: &str) -> SharedLedger {
+        std::sync::Arc::new(std::sync::Mutex::new(Self::new(arc_dir, model, provider)))
+    }
+
+    fn price(&mut self, usage: &TokenUsage) {
+        let pricing_provider = if self.model.to_lowercase().contains("deepseek") {
+            "deepseek"
+        } else {
+            self.provider.as_str()
+        };
+        if let Some(pricing) = octos_llm::pricing::model_pricing(&self.model) {
+            self.cost += pricing.cost_with_cache_for_provider(
+                pricing_provider,
+                &self.model,
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_read_tokens,
+                usage.cache_write_tokens,
+            );
+        }
+    }
+
+    /// One kernel-session turn (tool mode): the kernel already emitted its own
+    /// `turn/completed` / `token_cost_update` events, so only the usage line
+    /// is written, with the number of LLM calls the turn made.
+    pub fn record_turn(
+        &mut self,
+        label: &str,
+        mode: ReasoningMode,
+        requests: u32,
+        usage: &TokenUsage,
+        elapsed_ms: u64,
+    ) -> Value {
+        let prompt = u64::from(usage.input_tokens) + u64::from(usage.cache_read_tokens);
+        let completion = u64::from(usage.output_tokens);
+        self.requests += requests.max(1);
+        self.prompt_tokens += prompt;
+        self.completion_tokens += completion;
+        self.reasoning_tokens += u64::from(usage.reasoning_tokens);
+        self.cache_hit_tokens += u64::from(usage.cache_read_tokens);
+        self.price(usage);
+        let record = json!({
+            "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
+            "elapsed_ms": elapsed_ms,
+            "mode": mode.label(),
+            "label": label,
+            "requests": requests.max(1),
+            "sse_chunks": 0,
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": prompt + completion,
+            "prompt_cache_hit_tokens": usage.cache_read_tokens,
+            "reasoning_tokens": usage.reasoning_tokens,
+        });
+        Self::append(&self.usage_path, &record.to_string());
+        record
     }
 
     pub fn record(&mut self, entry: &UsageEntry<'_>) -> Value {
@@ -220,21 +281,7 @@ impl UsageLedger {
         self.completion_tokens += completion;
         self.reasoning_tokens += u64::from(usage.reasoning_tokens);
         self.cache_hit_tokens += u64::from(usage.cache_read_tokens);
-        let pricing_provider = if self.model.to_lowercase().contains("deepseek") {
-            "deepseek"
-        } else {
-            self.provider.as_str()
-        };
-        if let Some(pricing) = octos_llm::pricing::model_pricing(&self.model) {
-            self.cost += pricing.cost_with_cache_for_provider(
-                pricing_provider,
-                &self.model,
-                usage.input_tokens,
-                usage.output_tokens,
-                usage.cache_read_tokens,
-                usage.cache_write_tokens,
-            );
-        }
+        self.price(usage);
         let record = json!({
             "ts": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
             "elapsed_ms": elapsed_ms,
@@ -251,18 +298,20 @@ impl UsageLedger {
             "request": shape.clone(),
         });
         Self::append(&self.usage_path, &record.to_string());
-        Self::append(
-            &self.events_path,
-            &json!({"method": "turn/completed", "params": {"session_id": "arc-run", "turn_id": label,
-                "tokens_in": prompt, "tokens_out": completion, "cache_hit": usage.cache_read_tokens}})
-            .to_string(),
-        );
-        Self::append(
-            &self.events_path,
-            &json!({"method": "progress/updated", "params": {"session_id": "arc-run", "metadata": {"kind": "token_cost_update",
-                "token_cost": {"session_cost": self.cost, "input_tokens": self.prompt_tokens, "output_tokens": self.completion_tokens}}}})
-            .to_string(),
-        );
+        if self.mirror_events {
+            Self::append(
+                &self.events_path,
+                &json!({"method": "turn/completed", "params": {"session_id": "arc-run", "turn_id": label,
+                    "tokens_in": prompt, "tokens_out": completion, "cache_hit": usage.cache_read_tokens}})
+                .to_string(),
+            );
+            Self::append(
+                &self.events_path,
+                &json!({"method": "progress/updated", "params": {"session_id": "arc-run", "metadata": {"kind": "token_cost_update",
+                    "token_cost": {"session_cost": self.cost, "input_tokens": self.prompt_tokens, "output_tokens": self.completion_tokens}}}})
+                .to_string(),
+            );
+        }
         record
     }
 
@@ -286,7 +335,7 @@ pub struct LlmClient {
     max_tokens_min: u32,
     retries: u32,
     backoff: Duration,
-    ledger: UsageLedger,
+    ledger: SharedLedger,
     dump_dir: Option<PathBuf>,
     dumped: usize,
 }
@@ -295,6 +344,7 @@ impl LlmClient {
     pub fn new(
         route: &ModelRoute,
         policy: &ReasoningPolicy,
+        ledger: SharedLedger,
         arc_dir: &Path,
         chat_timeout: Duration,
         dump: bool,
@@ -323,7 +373,7 @@ impl LlmClient {
             max_tokens_min: policy.max_tokens_min,
             retries: policy.transient_retries.max(1),
             backoff: Duration::from_secs(policy.transient_backoff_seconds),
-            ledger: UsageLedger::new(arc_dir, &route.model, &route.provider),
+            ledger,
             dump_dir: dump.then(|| arc_dir.join("llm-requests")),
             dumped: 0,
         })
@@ -395,15 +445,17 @@ impl Completer for LlmClient {
                             .as_ref()
                             .map(|r| r.len())
                             .unwrap_or(0);
-                    self.ledger.record(&UsageEntry {
-                        label: request.label,
-                        mode: request.mode,
-                        usage: &response.usage,
-                        elapsed_ms,
-                        request_chars,
-                        response_chars,
-                        shape,
-                    });
+                    if let Ok(mut ledger) = self.ledger.lock() {
+                        ledger.record(&UsageEntry {
+                            label: request.label,
+                            mode: request.mode,
+                            usage: &response.usage,
+                            elapsed_ms,
+                            request_chars,
+                            response_chars,
+                            shape,
+                        });
+                    }
                     return Ok(Completion {
                         text,
                         truncated: response.stop_reason == StopReason::MaxTokens,
@@ -463,10 +515,6 @@ impl Completer for LlmClient {
             }
         }
     }
-
-    fn totals(&self) -> Value {
-        self.ledger.totals()
-    }
 }
 
 /// `OCTOS_ARC_DRYRUN=1`: walk the flow without calling a model.
@@ -484,10 +532,6 @@ impl Completer for DryRunCompleter {
             elapsed_ms: 0,
             attempts: 1,
         })
-    }
-
-    fn totals(&self) -> Value {
-        json!({"requests": 0, "dry_run_calls": self.calls})
     }
 }
 
@@ -546,6 +590,23 @@ mod tests {
         assert!(events.contains("token_cost_update"));
         assert_eq!(ledger.totals()["requests"], 1);
         assert_eq!(ledger.totals()["total_tokens"], 540);
+        let turn = ledger.record_turn("REQ-1 repair 1/5", ReasoningMode::Low, 3, &usage, 5000);
+        assert_eq!(turn["requests"], 3);
+        assert_eq!(ledger.totals()["requests"], 4);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("llm-usage.jsonl"))
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("octos-events.jsonl"))
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
     }
 
     #[test]

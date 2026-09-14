@@ -77,6 +77,31 @@ fn is_stdio_solo_coding_tool(name: &str) -> bool {
     STDIO_SOLO_CODING_TOOLS.contains(&name)
 }
 
+/// `OCTOS_STDIO_SOLO_TOOLS`: an optional comma-separated allow-list the ARC
+/// harness narrows a stdio/solo session to (a codegen-style repair turn drops
+/// the shell, the planning tools are never useful to it). It is applied with
+/// `retain`, so it can only ever narrow the surface: names that are not
+/// registered match nothing. Unset or empty keeps the built-in set.
+pub(crate) fn stdio_solo_tool_allowlist(raw: Option<&str>) -> Option<Vec<String>> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(
+        raw.split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// The allow-list from the process environment (read per call: the harness
+/// starts one kernel process per turn shape).
+pub(crate) fn stdio_solo_tool_allowlist_from_env() -> Option<Vec<String>> {
+    stdio_solo_tool_allowlist(std::env::var("OCTOS_STDIO_SOLO_TOOLS").ok().as_deref())
+}
+
 /// Keep the headless ARC transport on the same compact instruction surface as
 /// `octos chat --profile coding`. The gateway prompt is intentionally broad
 /// (web/research/media/plugin guidance) and is the wrong default for an
@@ -1556,7 +1581,13 @@ impl ProfileRuntime {
             let (profile, _) = octos_agent::profile::ProfileDefinition::load("coding")
                 .wrap_err("failed to load built-in coding profile for stdio/solo")?;
             profile.apply_to_registry(&mut tools);
-            tools.retain(is_stdio_solo_coding_tool);
+            let allowlist = stdio_solo_tool_allowlist_from_env();
+            tools.retain(|name| {
+                is_stdio_solo_coding_tool(name)
+                    && allowlist
+                        .as_ref()
+                        .is_none_or(|allowed| allowed.iter().any(|allow| allow == name))
+            });
             Some(Arc::new(profile))
         } else {
             None
@@ -1823,6 +1854,20 @@ mod tests {
         assert_eq!(STDIO_SOLO_CODING_TOOLS.len(), 12);
         assert!(is_stdio_solo_coding_tool("shell"));
         assert!(!is_stdio_solo_coding_tool("run_pipeline"));
+    }
+
+    #[test]
+    fn stdio_tool_allowlist_parses_names_and_ignores_blank_input() {
+        assert_eq!(stdio_solo_tool_allowlist(None), None);
+        assert_eq!(stdio_solo_tool_allowlist(Some("  ")), None);
+        assert_eq!(
+            stdio_solo_tool_allowlist(Some("read_file, write_file,,bash ")),
+            Some(vec![
+                "read_file".to_owned(),
+                "write_file".to_owned(),
+                "bash".to_owned()
+            ])
+        );
     }
 
     #[test]

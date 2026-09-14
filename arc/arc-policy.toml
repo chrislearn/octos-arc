@@ -40,7 +40,8 @@ stall_limit = 2         # stop a node after this many repairs without improvemen
 regression_limit = 2    # roll back to the best commit after this many consecutive regressions
 
 [requests]
-implement = 20   # OCTOS_ARC_IMPLEMENT_REQUESTS — hard request cap of implement turns (0 = off)
+implement = 20   # OCTOS_ARC_IMPLEMENT_REQUESTS — hard request cap of implement turns in small tasks (0 = off)
+implement_large = 0  # implement turns of large trees (tool mode); 0 = uncapped like the adapter
 repair = 10      # OCTOS_ARC_REPAIR_REQUESTS — hard request cap of repair turns (0 = off)
 codegen = 3      # OCTOS_ARC_CODEGEN_REQUESTS — attempts (incl. transient retries) of a codegen turn
 

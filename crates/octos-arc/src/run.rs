@@ -11,8 +11,8 @@ use eyre::{Result, WrapErr, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::events::Events;
-use crate::flow::Flow;
-use crate::llm::{Completer, DryRunCompleter, LlmClient, ModelRoute};
+use crate::flow::{Flow, FlowInputs};
+use crate::llm::{Completer, DryRunCompleter, LlmClient, ModelRoute, UsageLedger};
 use crate::policy::Policy;
 use crate::prompts::Prompts;
 use crate::tree;
@@ -34,6 +34,10 @@ pub struct RunnerSpec {
     /// The adapter bundle (a `local-grader/` Playwright may live there).
     #[serde(default)]
     pub bundle_dir: Option<PathBuf>,
+    /// Evolution: the previous run's requirement table, copied by the glue before
+    /// the platform runtime stores the new tree over `.arc/traceability/requirements.json`.
+    #[serde(default)]
+    pub previous_requirements: Option<PathBuf>,
     pub model: ModelRoute,
 }
 
@@ -132,7 +136,9 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
             prompts.overrides().len()
         ));
     }
-    let llm: Box<dyn Completer> = if policy.debug.dry_run {
+    let ledger = UsageLedger::shared(&arc_dir, &spec.model.model, &spec.model.provider);
+    let dry_run = policy.debug.dry_run;
+    let llm: Box<dyn Completer> = if dry_run {
         events.log("[llm] dry run: no model calls");
         Box::new(DryRunCompleter { calls: 0 })
     } else {
@@ -144,12 +150,24 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
         Box::new(LlmClient::new(
             &spec.model,
             &policy.reasoning,
+            ledger.clone(),
             &arc_dir,
             chat_timeout,
             policy.debug.dump_requests,
         )?)
     };
-    let mut flow = Flow::new(policy, prompts, &spec, tree, llm, events)?;
+    let executable = std::env::current_exe()?;
+    let inputs = FlowInputs {
+        policy,
+        prompts,
+        tree,
+        llm,
+        ledger,
+        events,
+        executable,
+        dry_run,
+    };
+    let mut flow = Flow::new(&spec, inputs)?;
     let outcome = flow.run();
     // The platform judges by events, not by the exit code: a completed or
     // aborted run still exits 0 (its verdicts are in the event stream); only
@@ -181,6 +199,28 @@ mod tests {
         assert_eq!(spec.model.api_key_env, "OPENAI_API_KEY");
         assert_eq!(spec.model.provider, "openai");
         assert!(spec.tests_dir.is_none());
+        assert!(spec.previous_requirements.is_none());
+    }
+
+    #[test]
+    fn should_read_the_previous_requirement_snapshot_path_when_the_glue_provides_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runner-spec.json");
+        std::fs::write(
+            &path,
+            json!({"requirement_path": "/tmp/task", "output_dir": "/tmp/out", "web_port": 3000,
+                "previous_requirements": "/tmp/out/.arc/previous-requirements.json",
+                "model": {"model": "deepseek-v4-flash", "base_url": "https://api.arc-bench.com/v1"}})
+            .to_string(),
+        )
+        .unwrap();
+        let spec = RunnerSpec::read(&path).unwrap();
+        assert_eq!(
+            spec.previous_requirements.as_deref(),
+            Some(std::path::Path::new(
+                "/tmp/out/.arc/previous-requirements.json"
+            ))
+        );
     }
 
     #[test]

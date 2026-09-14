@@ -1,12 +1,16 @@
-//! The harness main loop (`Flow` in `arc/main.py`): per node implement →
-//! acceptance → repair ≤ K, commit on improvement, roll back on regression,
-//! then the full parallel suite and the startup rehearsal.
+//! The harness main loop (`Flow` in `arc/main.py`): skeleton turn for large
+//! trees, then per node implement → acceptance → repair ≤ K (commit on
+//! improvement, roll back on regression), the full parallel suite with its
+//! repair rounds, the final check for nodes without a local verdict, and the
+//! startup rehearsal.
 //!
-//! Tool-mode turns (a kernel session with file/shell tools) are not wired
-//! yet: trees that need them, and codegen nodes whose repairs fall back to
-//! tool mode, stop at the best state reached so far and say so in the log.
+//! Two turn shapes: single-request codegen (in-process model call, files
+//! parsed from the reply) and tool mode (a kernel session spawned from this
+//! executable, driven over stdio, watched by the guard).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -18,9 +22,11 @@ use serde_json::{Value, json};
 use crate::acceptance::{self, AcceptanceRunner, AppServer, RunSummary, SpecMap};
 use crate::budget::{self, Global};
 use crate::codegen::{self, CodegenInputs};
+use crate::driver::{self, Driver, KernelConfig, TurnSettings};
 use crate::events::Events;
 use crate::git::Git;
-use crate::llm::{Completer, CompletionRequest};
+use crate::guard::{ProtectedTrees, TurnMonitor};
+use crate::llm::{Completer, CompletionRequest, ModelRoute, SharedLedger};
 use crate::plan::RunPlan;
 use crate::policy::Policy;
 use crate::prompts::Prompts;
@@ -29,10 +35,53 @@ use crate::tree;
 
 static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").unwrap());
 static TEST_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^A-Za-z0-9._-]+").unwrap());
+static JSON_FENCE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)```json\s*(\{.*?\})\s*```").unwrap());
+static JSON_ANY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)(\{.*\})").unwrap());
+
+/// The tools of the stdio/solo coding transport (the shell is registered as
+/// `bash` in coding profiles, `shell` elsewhere).
+const STDIO_TOOLS: &[&str] = &[
+    "diff_edit",
+    "edit_file",
+    "glob",
+    "grep",
+    "list_dir",
+    "read_file",
+    "shell",
+    "bash",
+    "write_file",
+    "ask_user_question",
+    "check",
+    "tool_search",
+    "update_plan",
+];
+/// Tools the coding turns never need (`llm_proxy.DROP_TOOLS`).
+const DROP_TOOLS: &[&str] = &[
+    "spawn",
+    "ask_user_question",
+    "check",
+    "tool_search",
+    "update_plan",
+    "exec_command",
+];
+const SHELL_TOOLS: &[&str] = &["bash", "shell", "exec_command"];
+const WRITE_TOOL_FILTER: &[&str] = &[
+    "write_file",
+    "edit_file",
+    "diff_edit",
+    "apply_patch",
+    "create_file",
+    "append_file",
+];
 
 fn tail(text: &str, n: usize) -> String {
     let count = text.chars().count();
     text.chars().skip(count.saturating_sub(n)).collect()
+}
+
+fn head(text: &str, n: usize) -> String {
+    text.chars().take(n).collect()
 }
 
 pub struct Flow {
@@ -44,9 +93,13 @@ pub struct Flow {
     bundle_dir: Option<PathBuf>,
     web_port: u16,
     smoke_port: u16,
+    executable: PathBuf,
+    route: ModelRoute,
     events: Events,
     git: Git,
     llm: Box<dyn Completer>,
+    ledger: SharedLedger,
+    dry_run: bool,
     tree: Value,
     ordered: Vec<Value>,
     node_ids: Vec<String>,
@@ -59,6 +112,11 @@ pub struct Flow {
     runner: Option<AcceptanceRunner>,
     mem_limit: Option<u64>,
     private_playwright: Option<PathBuf>,
+    driver: Option<Driver>,
+    kernel_dirs: Vec<tempfile::TempDir>,
+    kernel_events: Option<File>,
+    protected: Option<ProtectedTrees>,
+    designs: BTreeMap<String, Value>,
     test_verdict: BTreeMap<String, Option<bool>>,
     impl_failed: Vec<String>,
     pending_corrections: Vec<String>,
@@ -68,8 +126,11 @@ pub struct Flow {
 }
 
 /// How a node is rebuilt when round 0 passes nothing.
-enum Rebuild {
-    Codegen { codegen_prompt: String },
+struct Rebuild {
+    /// The compact codegen prompt (codegen mode).
+    codegen_prompt: Option<String>,
+    /// The tool-mode implement prompt.
+    tool_prompt: String,
 }
 
 pub struct RunOutcome {
@@ -77,15 +138,29 @@ pub struct RunOutcome {
     pub aborted: Option<String>,
 }
 
+pub struct FlowInputs {
+    pub policy: Policy,
+    pub prompts: Prompts,
+    pub tree: Value,
+    pub llm: Box<dyn Completer>,
+    pub ledger: SharedLedger,
+    pub events: Events,
+    pub executable: PathBuf,
+    pub dry_run: bool,
+}
+
 impl Flow {
-    pub fn new(
-        policy: Policy,
-        prompts: Prompts,
-        spec: &RunnerSpec,
-        tree: Value,
-        llm: Box<dyn Completer>,
-        events: Events,
-    ) -> Result<Self> {
+    pub fn new(spec: &RunnerSpec, inputs: FlowInputs) -> Result<Self> {
+        let FlowInputs {
+            policy,
+            prompts,
+            tree,
+            llm,
+            ledger,
+            events,
+            executable,
+            dry_run,
+        } = inputs;
         let ordered = tree::topo_order(&tree);
         if ordered.is_empty() {
             bail!("no ATOMIC requirement nodes found");
@@ -94,7 +169,10 @@ impl Flow {
         let output_dir = spec.output_dir.clone();
         let evolution = has_app(&output_dir);
         let unchanged = if evolution {
-            tree::unchanged_node_ids(&ordered, &previous_requirement_records(&output_dir))
+            tree::unchanged_node_ids(
+                &ordered,
+                &previous_requirement_records(&output_dir, spec.previous_requirements.as_deref()),
+            )
         } else {
             BTreeSet::new()
         };
@@ -140,8 +218,12 @@ impl Flow {
             bundle_dir: spec.bundle_dir.clone(),
             web_port: spec.web_port,
             smoke_port,
+            executable,
+            route: spec.model.clone(),
             events,
             llm,
+            ledger,
+            dry_run,
             tree,
             ordered,
             node_ids,
@@ -154,6 +236,11 @@ impl Flow {
             runner: None,
             mem_limit: None,
             private_playwright: None,
+            driver: None,
+            kernel_dirs: Vec::new(),
+            kernel_events: None,
+            protected: None,
+            designs: BTreeMap::new(),
             test_verdict: BTreeMap::new(),
             impl_failed: Vec::new(),
             pending_corrections: Vec::new(),
@@ -216,12 +303,60 @@ impl Flow {
             .unwrap_or_default()
     }
 
+    fn correction(&self, key: &str, vars: &[(&str, &str)]) -> String {
+        self.prompts
+            .correction(key, vars)
+            .unwrap_or_else(|_| key.to_string())
+    }
+
     fn perf_text(&self) -> String {
         if self.policy.prompts.perf_contract && self.plan.needs_session {
             self.prompts.get("performance-contract").to_string()
         } else {
             String::new()
         }
+    }
+
+    fn ui_contract(&self) -> String {
+        let mut blocks = vec![self.prompts.get("ui-contract-core")];
+        if self.plan.needs_data {
+            blocks.push(self.prompts.get("ui-contract-data"));
+        }
+        if self.plan.needs_session {
+            blocks.push(self.prompts.get("ui-contract-session"));
+        }
+        blocks.concat()
+    }
+
+    fn verify_text(&self) -> String {
+        if self.plan.minimal_verify {
+            self.prompts.get("verify-minimal").to_string()
+        } else {
+            self.prompts
+                .render("verify-full", &[("smoke", &self.smoke_port.to_string())])
+                .unwrap_or_default()
+        }
+    }
+
+    fn port_rules(&self) -> String {
+        self.prompts
+            .render(
+                "port-rules",
+                &[
+                    ("smoke", &self.smoke_port.to_string()),
+                    ("port", &self.web_port.to_string()),
+                ],
+            )
+            .unwrap_or_default()
+    }
+
+    fn architecture_contract(&self) -> String {
+        self.prompts
+            .render(
+                "architecture-contract",
+                &[("port", &self.web_port.to_string())],
+            )
+            .unwrap_or_default()
     }
 
     fn sources_text(&self) -> String {
@@ -239,10 +374,17 @@ impl Flow {
         self.plan.codegen && !self.codegen_blocked
     }
 
-    fn correction(&self, key: &str, vars: &[(&str, &str)]) -> String {
-        self.prompts
-            .correction(key, vars)
-            .unwrap_or_else(|_| key.to_string())
+    fn protected_prefixes(&self) -> Vec<String> {
+        let mut prefixes = vec![
+            ".arc/".to_string(),
+            self.output_dir.join(".arc").to_string_lossy().into_owned(),
+            "requirements/".to_string(),
+            self.req_dir.to_string_lossy().into_owned(),
+        ];
+        if let Some(tests) = &self.tests_dir {
+            prefixes.push(tests.to_string_lossy().into_owned());
+        }
+        prefixes
     }
 
     /// Just the spec file contents for a node (codegen prompts): the node's
@@ -274,6 +416,256 @@ impl Flow {
         } else {
             parts.join("\n")
         }
+    }
+
+    /// Quote spec + helper files into the prompt (bounded). Each read the
+    /// model would otherwise issue is a full-context round trip.
+    fn inline_spec_text(&self, files: &[String]) -> String {
+        let Some(tests_dir) = &self.tests_dir else {
+            return String::new();
+        };
+        let max_chars = self.policy.prompts.inline_spec_chars;
+        let mut parts = String::new();
+        let mut total = 0usize;
+        for rel in files {
+            let Ok(text) = std::fs::read_to_string(tests_dir.join(rel)) else {
+                continue;
+            };
+            let chars = text.chars().count();
+            if total + chars > max_chars {
+                return String::new(); // too big to inline; let the model read selectively
+            }
+            total += chars;
+            parts.push_str(&format!("--- {rel} ---\n{}\n", text.trim_end()));
+        }
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!("{}{parts}", self.prompts.get("inline-spec-header"))
+        }
+    }
+
+    fn port_contract_text(&self) -> String {
+        if self.extra_ports.is_empty() {
+            return String::new();
+        }
+        let ports = self
+            .extra_ports
+            .iter()
+            .map(u16::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.prompts
+            .render(
+                "port-contract",
+                &[("ports", &ports), ("port", &self.web_port.to_string())],
+            )
+            .unwrap_or_default()
+    }
+
+    fn acceptance_tests_prompt(&self, files: &[String], inline: bool) -> String {
+        let Some(tests_dir) = &self.tests_dir else {
+            return String::new();
+        };
+        let listed: Vec<&str> = files.iter().take(40).map(String::as_str).collect();
+        let files_text = if listed.is_empty() {
+            "(none)".to_string()
+        } else {
+            listed.join(", ")
+        };
+        let mut text = self
+            .prompts
+            .render(
+                "acceptance-tests",
+                &[
+                    ("tests_dir", &tests_dir.to_string_lossy()),
+                    ("files", &files_text),
+                ],
+            )
+            .unwrap_or_default();
+        if inline {
+            text.push_str(&self.inline_spec_text(files));
+        }
+        text.push_str(&self.port_contract_text());
+        text
+    }
+
+    /// Tests paragraph for a node's turns; `None` lists every spec (final
+    /// check), `skeleton` only points at the helpers.
+    fn tests_prompt_for(&self, node_id: Option<&str>, skeleton: bool) -> String {
+        let Some(tests_dir) = &self.tests_dir else {
+            return String::new();
+        };
+        let support = acceptance::support_files(tests_dir);
+        if skeleton {
+            let listed: Vec<&str> = support.iter().take(10).map(String::as_str).collect();
+            let support_text = if listed.is_empty() {
+                "none".to_string()
+            } else {
+                listed.join(", ")
+            };
+            let intro = self
+                .prompts
+                .render(
+                    "skeleton-tests",
+                    &[
+                        ("n_specs", &self.all_specs.len().to_string()),
+                        ("tests_dir", &tests_dir.to_string_lossy()),
+                        ("support", &support_text),
+                    ],
+                )
+                .unwrap_or_default();
+            // The one-line tests paragraph is dropped; only the port contract that follows it stays.
+            let rest = self.acceptance_tests_prompt(&[], false);
+            let after_first_line = rest.split_once('\n').map(|(_, r)| r).unwrap_or("");
+            return format!("{intro}{after_first_line}");
+        }
+        let mut files: Vec<String> = node_id
+            .map(|n| self.spec_map.specs_for(n).to_vec())
+            .unwrap_or_default();
+        if files.is_empty() {
+            files = self.all_specs.clone();
+        }
+        files.extend(support);
+        self.acceptance_tests_prompt(&files, self.policy.prompts.inline_specs)
+    }
+
+    fn ancestors_text(&self, node_id: &str) -> String {
+        let ancestors = tree::ancestors_of(node_id, &self.ordered);
+        if ancestors.is_empty() {
+            return String::new();
+        }
+        let parts: Vec<String> = ancestors
+            .iter()
+            .map(|dep| match self.designs.get(dep) {
+                Some(design) => {
+                    let mut slim = serde_json::Map::new();
+                    for key in ["routes", "pages", "data_model"] {
+                        if let Some(value) = design.get(key).filter(|v| !v.is_null()) {
+                            slim.insert(key.into(), value.clone());
+                        }
+                    }
+                    format!("{dep}: {}", head(&Value::Object(slim).to_string(), 1500))
+                }
+                None => format!("{dep}: implemented (see code)"),
+            })
+            .collect();
+        self.prompts
+            .render("ancestors-note", &[("ancestors", &parts.join("\n"))])
+            .unwrap_or_default()
+    }
+
+    /// The tool-mode implement prompt (`NODE_PROMPT`); corrections are consumed here.
+    fn node_prompt(
+        &mut self,
+        node: &Value,
+        node_id: &str,
+        inline_design: bool,
+        design: Option<&Value>,
+    ) -> String {
+        let mut design_text = match design {
+            Some(design) => self
+                .prompts
+                .render(
+                    "design-contract-note",
+                    &[("design", &head(&design.to_string(), 4000))],
+                )
+                .unwrap_or_default(),
+            None => String::new(),
+        };
+        if inline_design {
+            design_text = self
+                .prompts
+                .render("inline-design-note", &[("node_id", node_id)])
+                .unwrap_or_default();
+        }
+        if self.plan.evolution {
+            let listing = codegen::source_listing(&self.output_dir, 60);
+            design_text = format!(
+                "{}{design_text}",
+                self.prompts
+                    .render("evolution-note", &[("listing", &listing)])
+                    .unwrap_or_default()
+            );
+        } else if self.has_app() {
+            let listing = codegen::source_listing(&self.output_dir, 60);
+            design_text = format!(
+                "{}{design_text}",
+                self.prompts
+                    .render("current-files-note", &[("listing", &listing)])
+                    .unwrap_or_default()
+            );
+        }
+        let preamble = if self.has_app() {
+            self.prompts
+                .render("node-preamble-extend", &[("node_id", node_id)])
+                .unwrap_or_default()
+        } else {
+            let architecture = self.architecture_contract();
+            self.prompts
+                .render(
+                    "node-preamble-create",
+                    &[
+                        ("node_id", node_id),
+                        ("req_dir", &self.req_dir.to_string_lossy()),
+                        ("port", &self.web_port.to_string()),
+                        ("architecture_contract", &architecture),
+                    ],
+                )
+                .unwrap_or_default()
+        };
+        let prompt = self
+            .prompts
+            .render(
+                "node",
+                &[
+                    ("preamble", &preamble),
+                    ("node_spec", &tree::describe_node(node)),
+                    ("design", &design_text),
+                    ("ancestors", &self.ancestors_text(node_id)),
+                    ("tests", &self.tests_prompt_for(Some(node_id), false)),
+                    ("ui", &self.ui_contract()),
+                    ("performance", &self.perf_text()),
+                    ("verify", &self.verify_text()),
+                    ("port_rules", &self.port_rules()),
+                ],
+            )
+            .unwrap_or_default();
+        format!("{}{prompt}", self.corrections_text())
+    }
+
+    fn repair_prompt(
+        &mut self,
+        node_label: &str,
+        passed: usize,
+        total: usize,
+        failures: &str,
+        extra_corrections: &str,
+        slow: &str,
+    ) -> String {
+        let corrections = format!("{}{extra_corrections}", self.corrections_text());
+        let sources = self.sources_text();
+        let port_rules = self.port_rules();
+        let failures_text = if failures.is_empty() {
+            "(no detail)"
+        } else {
+            failures
+        };
+        self.prompts
+            .render(
+                "repair",
+                &[
+                    ("node_id", node_label),
+                    ("passed", &passed.to_string()),
+                    ("total", &total.to_string()),
+                    ("failures", failures_text),
+                    ("corrections", &corrections),
+                    ("slow", slow),
+                    ("sources", &sources),
+                    ("port_rules", &port_rules),
+                ],
+            )
+            .unwrap_or_default()
     }
 
     // -- acceptance -------------------------------------------------------
@@ -421,11 +813,7 @@ impl Flow {
 
     fn record_tests(&mut self, node_id: &str, summary: &RunSummary) {
         for r in &summary.results {
-            let test_id: String = TEST_ID
-                .replace_all(&r.title, "-")
-                .chars()
-                .take(120)
-                .collect();
+            let test_id: String = head(&TEST_ID.replace_all(&r.title, "-"), 120);
             self.events.emit(
                 "test_result",
                 json!({"node_id": node_id, "test_id": test_id, "title": r.title, "file": r.file, "ok": r.ok, "type": "e2e"}),
@@ -438,7 +826,7 @@ impl Flow {
     }
 
     fn startup_failure_digest(&self, error: &str, grader: bool) -> String {
-        let limited: String = error.chars().take(if grader { 700 } else { 600 }).collect();
+        let limited = head(error, if grader { 700 } else { 600 });
         self.prompts
             .render(
                 if grader {
@@ -451,7 +839,274 @@ impl Flow {
             .unwrap_or_else(|_| format!("- Feature: app startup\n  Observation: {limited}"))
     }
 
-    // -- turns ------------------------------------------------------------
+    fn log_failure_lines(&mut self, failures: &str) {
+        for line in failures.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Failed at:") || trimmed.starts_with("Observation:") {
+                let squashed: String = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+                self.log(format!("[acceptance]   {}", head(&squashed, 360)));
+            }
+        }
+    }
+
+    // -- kernel session (tool mode) ------------------------------------------
+
+    fn hooks(&self) -> Vec<Value> {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        if let Some(tests) = &self.tests_dir {
+            dirs.push(tests.clone());
+        }
+        if self.req_dir.is_dir() {
+            dirs.push(self.req_dir.clone());
+        }
+        if dirs.is_empty() {
+            return Vec::new();
+        }
+        let mut command: Vec<String> = vec![
+            self.executable.to_string_lossy().into_owned(),
+            "arc".into(),
+            "deny-protected".into(),
+        ];
+        command.extend(dirs.iter().map(|d| d.to_string_lossy().into_owned()));
+        vec![
+            json!({"event": "before_tool_call", "command": command, "timeout_ms": 4000, "tool_filter": WRITE_TOOL_FILTER}),
+        ]
+    }
+
+    fn tool_allowlist(&self) -> Option<Vec<String>> {
+        let trim = self.policy.reasoning.trim_prompt;
+        let drop_shell = self.plan.minimal_verify && self.policy.reasoning.drop_shell;
+        if !trim && !drop_shell {
+            return None;
+        }
+        Some(
+            STDIO_TOOLS
+                .iter()
+                .filter(|name| !(trim && DROP_TOOLS.contains(name)))
+                .filter(|name| !(drop_shell && SHELL_TOOLS.contains(name)))
+                .map(|name| name.to_string())
+                .collect(),
+        )
+    }
+
+    fn driver(&mut self) -> Result<&mut Driver> {
+        if self.driver.is_none() {
+            let config_dir = tempfile::Builder::new().prefix("octos-config-").tempdir()?;
+            let data_dir = tempfile::Builder::new().prefix("octos-data-").tempdir()?;
+            let hooks = self.hooks();
+            let (env, family_key) = driver::kernel_env(
+                config_dir.path(),
+                &self.route.provider,
+                &self.route.api_key_env,
+                self.smoke_port,
+                self.policy.reasoning.destream,
+            );
+            let mut config = json!({
+                "provider": self.route.provider,
+                "model": self.route.model,
+                "sandbox": {"allow_network": true},
+                "memory": {"refresh": {"enabled": false}},
+                "gateway": {"max_output_tokens": 65536},
+                "hooks": hooks,
+            });
+            if !matches!(
+                self.route.provider.as_str(),
+                "openai" | "deepseek" | "anthropic"
+            ) && !self.route.base_url.is_empty()
+            {
+                config["base_url"] = json!(self.route.base_url);
+            }
+            std::fs::write(
+                config_dir.path().join("config.json"),
+                serde_json::to_string_pretty(&config)?,
+            )?;
+            let kernel = KernelConfig {
+                executable: self.executable.clone(),
+                cwd: self.output_dir.clone(),
+                data_dir: data_dir.path().to_path_buf(),
+                env,
+                danger_full_access: true,
+                provider: self.route.provider.clone(),
+                model: self.route.model.clone(),
+                base_url: (!self.route.base_url.is_empty()).then(|| self.route.base_url.clone()),
+                api_key_env: Some(family_key),
+                hooks,
+                max_output_tokens: self.policy.reasoning.max_tokens_min,
+            };
+            self.kernel_dirs.push(config_dir);
+            self.kernel_dirs.push(data_dir);
+            self.kernel_events = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(self.output_dir.join(".arc/octos-events.jsonl"))
+                .ok();
+            self.driver = Some(Driver::new(
+                kernel,
+                &self.policy.session.scope,
+                self.policy.reasoning.transient_retries,
+                Duration::from_secs(self.policy.reasoning.transient_backoff_seconds),
+            ));
+        }
+        Ok(self.driver.as_mut().expect("driver just created"))
+    }
+
+    fn end_scope(&mut self, scope: &str) {
+        if let Some(driver) = self.driver.as_mut() {
+            driver.end_scope(scope);
+        }
+    }
+
+    fn close_driver(&mut self) {
+        if let Some(driver) = self.driver.as_mut() {
+            driver.close();
+        }
+    }
+
+    /// One tool-mode turn: a kernel session turn watched by the guard, with
+    /// the reasoning level, request cap and tool surface of this turn shape.
+    fn turn(
+        &mut self,
+        prompt: &str,
+        timeout: Duration,
+        label: &str,
+        expect_verification: bool,
+        request_budget: Option<u32>,
+    ) -> (bool, String) {
+        if self.dry_run {
+            self.log(format!("[flow] {label}: dry run, tool turn skipped"));
+            return (true, format!("dry run: {label}"));
+        }
+        let mode = self.plan.reasoning_for(label);
+        let budget = request_budget.unwrap_or_else(|| {
+            if label.contains("repair") {
+                self.policy.requests.repair
+            } else if self.plan.minimal_verify {
+                self.policy.requests.implement
+            } else {
+                self.policy.requests.implement_large
+            }
+        });
+        let settings = TurnSettings {
+            reasoning: mode,
+            max_iterations: (budget > 0).then_some(budget),
+            tools: self.tool_allowlist(),
+        };
+        let mut monitor = TurnMonitor::new(
+            self.protected_prefixes(),
+            vec![
+                ".arc/design/".into(),
+                self.output_dir
+                    .join(".arc/design")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+            expect_verification,
+        );
+        let started = Instant::now();
+        let timeout = timeout.max(Duration::from_secs(60));
+        let outcome = match self.driver() {
+            Ok(_) => {
+                let mut driver = self.driver.take().expect("driver");
+                let events = &mut self.events;
+                let kernel_events = self.kernel_events.as_mut();
+                let mut observer = |method: &str, params: &Value| match method {
+                    "harness/heartbeat" => events.log(format!(
+                        "[flow] turn still running ({}s elapsed)",
+                        params.get("elapsed_s").and_then(Value::as_u64).unwrap_or(0)
+                    )),
+                    "harness/retry" => events.log(format!(
+                        "[driver] transient error, retry {}/{} after {}s: {}",
+                        params.get("attempt").and_then(Value::as_u64).unwrap_or(0),
+                        params.get("of").and_then(Value::as_u64).unwrap_or(0),
+                        params.get("wait_s").and_then(Value::as_u64).unwrap_or(0),
+                        params.get("error").and_then(Value::as_str).unwrap_or("")
+                    )),
+                    "core/marker" => events.log(format!(
+                        "[core-mod] {}",
+                        params.get("line").and_then(Value::as_str).unwrap_or("")
+                    )),
+                    _ => {
+                        monitor.observe(method, params);
+                        if let Some(file) = kernel_events.as_deref() {
+                            let _ =
+                                writeln!(&*file, "{}", json!({"method": method, "params": params}));
+                        }
+                    }
+                };
+                let outcome = driver.run(prompt, timeout, &settings, &mut observer);
+                self.driver = Some(driver);
+                outcome
+            }
+            Err(error) => driver::TurnOutcome {
+                ok: false,
+                text: format!("stdio driver error: {error:#}"),
+                requests: 0,
+                tokens_in: 0,
+                tokens_out: 0,
+                cache_hit: 0,
+                tool_calls: 0,
+            },
+        };
+        let mut ok = outcome.ok;
+        let text = outcome.text;
+        monitor.finish(&text);
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        if outcome.requests > 0 || outcome.tokens_in > 0 {
+            let usage = octos_llm::TokenUsage {
+                input_tokens: outcome.tokens_in,
+                output_tokens: outcome.tokens_out,
+                cache_read_tokens: outcome.cache_hit,
+                ..Default::default()
+            };
+            if let Ok(mut ledger) = self.ledger.lock() {
+                ledger.record_turn(label, mode, outcome.requests, &usage, elapsed_ms);
+            }
+            self.events.emit(
+                "usage",
+                json!({"label": label, "mode": mode.label(), "elapsed_ms": elapsed_ms, "requests": outcome.requests,
+                    "prompt_tokens": outcome.tokens_in + outcome.cache_hit, "completion_tokens": outcome.tokens_out,
+                    "cache_hit_tokens": outcome.cache_hit, "tool_calls": outcome.tool_calls}),
+            );
+        }
+        // The request cap ends the turn with an error; the files written so far are what count.
+        if !ok && budget > 0 && (text.contains("budget") || text.contains("iteration")) {
+            self.log(format!(
+                "[guard] {label}: request budget {budget} hit; turn forced to finish"
+            ));
+            ok = true;
+        }
+        self.log(format!(
+            "[flow] {label} {} in {}s (tools={} wrote={} verified={}): {:?}",
+            if ok { "ok" } else { "FAILED" },
+            elapsed_ms / 1000,
+            monitor.tool_calls,
+            monitor.wrote_files,
+            monitor.verified,
+            tail(&text, 240)
+        ));
+        for correction in monitor.corrections(&self.prompts) {
+            self.log(format!("[guard] {label}: {}", head(&correction, 160)));
+            if self.policy.prompts.guard {
+                self.pending_corrections.push(correction);
+            }
+        }
+        let restored = self
+            .protected
+            .as_ref()
+            .map(|p| p.restore())
+            .unwrap_or_default();
+        if !restored.is_empty() {
+            self.log(format!(
+                "[guard] restored {} protected file(s): {:?}",
+                restored.len(),
+                restored.iter().take(5).collect::<Vec<_>>()
+            ));
+            let files: Vec<&str> = restored.iter().take(5).map(String::as_str).collect();
+            let correction = self.correction("protected_restored", &[("files", &files.join(", "))]);
+            self.pending_corrections.push(correction);
+        }
+        (ok, text)
+    }
 
     /// Run a tool-less turn; parse and write the file blocks from the reply.
     /// Returns (ok, text) like the Python `codegen_turn`.
@@ -471,13 +1126,22 @@ impl Flow {
             Ok(completion) => {
                 self.events.emit(
                     "usage",
-                    json!({"label": label, "mode": mode.label(), "elapsed_ms": completion.elapsed_ms, "attempts": completion.attempts,
+                    json!({"label": label, "mode": mode.label(), "elapsed_ms": completion.elapsed_ms, "attempts": completion.attempts, "requests": 1,
                         "prompt_tokens": u64::from(completion.usage.input_tokens) + u64::from(completion.usage.cache_read_tokens),
                         "completion_tokens": completion.usage.output_tokens, "reasoning_tokens": completion.usage.reasoning_tokens,
                         "cache_hit_tokens": completion.usage.cache_read_tokens, "truncated": completion.truncated}),
                 );
                 let files = codegen::parse_file_blocks(&completion.text);
                 if files.is_empty() {
+                    // Keep the reply for diagnosis: a codegen answer without file
+                    // blocks is otherwise invisible (the platform keeps the
+                    // workspace, not our stdout).
+                    let dump = self
+                        .output_dir
+                        .join(".arc/codegen")
+                        .join(format!("{}.reply.txt", TEST_ID.replace_all(label, "-")));
+                    let _ = std::fs::create_dir_all(dump.parent().unwrap());
+                    let _ = std::fs::write(&dump, &completion.text);
                     if completion.truncated {
                         (
                             false,
@@ -600,7 +1264,7 @@ impl Flow {
         node_id: &str,
         specs: &[String],
         deadline: Instant,
-        rebuild: Option<Rebuild>,
+        rebuild: Option<&Rebuild>,
     ) -> Option<bool> {
         if self.runner.is_none() || specs.is_empty() {
             return None;
@@ -618,14 +1282,14 @@ impl Flow {
             if summary.error.is_some() && summary.killed {
                 self.log(format!(
                     "[acceptance] {node_id}: test runner killed ({}); no verdict from this round",
-                    tail(summary.error.as_deref().unwrap_or(""), 120)
+                    head(summary.error.as_deref().unwrap_or(""), 120)
                 ));
                 return None;
             }
             let (passed, failures) = if let Some(error) = summary.error.clone() {
                 self.log(format!(
                     "[acceptance] {node_id} infrastructure error: {}",
-                    error.chars().take(300).collect::<String>()
+                    head(&error, 300)
                 ));
                 let digest = self.startup_failure_digest(&error, false);
                 summary = RunSummary {
@@ -660,16 +1324,7 @@ impl Flow {
                 self.codegen_blocked = true;
                 self.log(format!("[flow] {node_id}: codegen attempt {attempt} still failing; repairs use tool mode"));
             }
-            for line in failures.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("Failed at:") || trimmed.starts_with("Observation:") {
-                    let squashed: String = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
-                    self.log(format!(
-                        "[acceptance]   {}",
-                        squashed.chars().take(360).collect::<String>()
-                    ));
-                }
-            }
+            self.log_failure_lines(&failures);
             if summary.total > 0 && passed == summary.total {
                 self.commit(&format!(
                     "{node_id} (accepted): {passed}/{} acceptance tests pass",
@@ -721,10 +1376,7 @@ impl Flow {
                 .saturating_duration_since(Instant::now())
                 .as_secs_f64();
             if left < self.policy.budget.min_repair_seconds as f64 || self.time_up() {
-                self.log(format!(
-                    "[flow] {node_id}: {left:.0}s left, below the {}s a repair needs; keeping the best state",
-                    self.policy.budget.min_repair_seconds
-                ));
+                self.log(format!("[flow] {node_id}: {left:.0}s left, below the {}s a repair needs; keeping the best state", self.policy.budget.min_repair_seconds));
                 break;
             }
             self.snapshot_sources(node_id, attempt);
@@ -745,18 +1397,21 @@ impl Flow {
             if passed == 0
                 && !rewrite_used
                 && self.policy.repair.rewrite_on_zero
-                && let Some(Rebuild::Codegen { codegen_prompt }) = &rebuild
+                && let Some(rebuild) = rebuild
             {
                 rewrite_used = true;
                 self.log(format!(
                     "[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch"
                 ));
-                if self.codegen_mode() {
-                    let failures_text = if failures.is_empty() {
-                        "(no detail)".to_string()
-                    } else {
-                        failures.clone()
-                    };
+                let failures_text = if failures.is_empty() {
+                    "(no detail)".to_string()
+                } else {
+                    failures.clone()
+                };
+                let label = format!("{node_id} rewrite (repair {})", attempt + 1);
+                if self.codegen_mode()
+                    && let Some(codegen_prompt) = &rebuild.codegen_prompt
+                {
                     match codegen::rewrite_prompt(
                         &self.prompts,
                         codegen_prompt,
@@ -765,67 +1420,38 @@ impl Flow {
                         self.policy.prompts.codegen_source_chars,
                     ) {
                         Ok(prompt) => {
-                            self.codegen_turn(
-                                &prompt,
-                                turn_timeout,
-                                &format!("{node_id} rewrite (repair {})", attempt + 1),
-                            );
+                            self.codegen_turn(&prompt, turn_timeout, &label);
                         }
                         Err(error) => self.log(format!(
                             "[flow] {node_id}: could not build the rewrite prompt: {error}"
                         )),
                     }
-                    continue;
+                } else {
+                    let sources = self.sources_text();
+                    let prompt = self
+                        .prompts
+                        .render(
+                            "rewrite",
+                            &[
+                                ("prompt", &rebuild.tool_prompt),
+                                ("failures", &failures_text),
+                                ("sources", &sources),
+                            ],
+                        )
+                        .unwrap_or_default();
+                    let budget = self.policy.requests.implement;
+                    self.turn(&prompt, turn_timeout, &label, true, Some(budget));
                 }
-                self.log(format!("[flow] {node_id}: rewrite needs tool mode, which octos arc run does not drive yet; keeping the best state"));
-                break;
+                continue;
             }
-            if !self.codegen_mode() {
-                self.log(format!("[flow] {node_id}: repairs need tool mode, which octos arc run does not drive yet; keeping the best state"));
-                break;
-            }
-            let corrections = self.corrections_text();
-            let sources = self.sources_text();
-            let port_rules = self
-                .prompts
-                .render(
-                    "port-rules",
-                    &[
-                        ("smoke", &self.smoke_port.to_string()),
-                        ("port", &self.web_port.to_string()),
-                    ],
-                )
-                .unwrap_or_default();
-            let failures_text = if failures.is_empty() {
-                "(no detail)".to_string()
+            let prompt =
+                self.repair_prompt(node_id, passed, summary.total, &failures, "", &slow_text);
+            let label = format!("{node_id} repair {}/{repair_rounds}", attempt + 1);
+            if self.codegen_mode() {
+                let prompt = format!("{prompt}{}", self.prompts.get("codegen-repair-suffix"));
+                self.codegen_turn(&prompt, turn_timeout, &label);
             } else {
-                failures.clone()
-            };
-            let prompt = self.prompts.render(
-                "repair",
-                &[
-                    ("node_id", node_id),
-                    ("passed", &passed.to_string()),
-                    ("total", &summary.total.to_string()),
-                    ("failures", &failures_text),
-                    ("corrections", &corrections),
-                    ("slow", &slow_text),
-                    ("sources", &sources),
-                    ("port_rules", &port_rules),
-                ],
-            );
-            match prompt {
-                Ok(prompt) => {
-                    let prompt = format!("{prompt}{}", self.prompts.get("codegen-repair-suffix"));
-                    self.codegen_turn(
-                        &prompt,
-                        turn_timeout,
-                        &format!("{node_id} repair {}/{repair_rounds}", attempt + 1),
-                    );
-                }
-                Err(error) => self.log(format!(
-                    "[flow] {node_id}: could not build the repair prompt: {error}"
-                )),
+                self.turn(&prompt, turn_timeout, &label, true, None);
             }
         }
         if best_passed > 0
@@ -841,6 +1467,73 @@ impl Flow {
     }
 
     // -- per node ---------------------------------------------------------
+
+    /// Separate design turn: read the specs and the code, write ONE JSON
+    /// contract to .arc/design/<node>.json.
+    fn design(&mut self, node: &Value, node_id: &str, deadline: Instant) -> Option<Value> {
+        let prompt = self
+            .prompts
+            .render(
+                "design",
+                &[
+                    ("node_id", node_id),
+                    ("node_spec", &tree::describe_node(node)),
+                    ("ancestors", &self.ancestors_text(node_id)),
+                    ("tests", &self.tests_prompt_for(Some(node_id), false)),
+                ],
+            )
+            .unwrap_or_default();
+        let timeout = Duration::from_secs(self.policy.budget.design_timeout_seconds)
+            .min(deadline.saturating_duration_since(Instant::now()));
+        let (ok, text) = self.turn(&prompt, timeout, &format!("{node_id} design"), false, None);
+        let mut design: Option<Value> = None;
+        if ok {
+            let candidate = JSON_FENCE
+                .captures(&text)
+                .or_else(|| JSON_ANY.captures(&text))
+                .map(|c| c[1].to_string());
+            design = candidate
+                .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                .filter(Value::is_object);
+        }
+        if design.is_none() {
+            let written = self
+                .output_dir
+                .join(".arc/design")
+                .join(format!("{node_id}.json"));
+            if let Ok(text) = std::fs::read_to_string(&written)
+                && let Ok(value) = serde_json::from_str::<Value>(&text)
+                && value.is_object()
+            {
+                self.log(format!(
+                    "[flow] {node_id}: design read from .arc/design/{node_id}.json"
+                ));
+                design = Some(value);
+            }
+        }
+        if design.is_none() {
+            self.log(format!(
+                "[flow] {node_id}: design turn produced no JSON; continuing with prose design"
+            ));
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                design = Some(json!({"notes": tail(trimmed, 1500)}));
+            }
+        }
+        design
+    }
+
+    fn save_design(&mut self, node_id: &str, design: &Value) {
+        let dir = self.output_dir.join(".arc/design");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(
+            dir.join(format!("{node_id}.json")),
+            serde_json::to_string_pretty(design).unwrap_or_default(),
+        );
+        self.designs.insert(node_id.to_string(), design.clone());
+        self.events
+            .emit("design", json!({"node_id": node_id, "design": design}));
+    }
 
     fn node_cycle(&mut self, node: &Value, index: usize, total: usize) {
         let node_id = tree::node_id(node);
@@ -859,10 +1552,20 @@ impl Flow {
         self.mark("design_started", &node_id, None);
         let design_wanted = self.plan.design_enabled;
         let inline_design = design_wanted && self.plan.design_inline;
+        let mut design: Option<Value> = None;
         if design_wanted && !inline_design {
-            self.log(format!("[flow] {node_id}: separate design turns need tool mode, which octos arc run does not drive yet"));
+            design = self.design(node, &node_id, deadline);
         }
-        if !inline_design {
+        if let Some(design) = &design {
+            self.save_design(&node_id, design);
+            self.mark(
+                "design_done",
+                &node_id,
+                Some(&format!(
+                    "design JSON written to .arc/design/{node_id}.json"
+                )),
+            );
+        } else if !inline_design {
             self.mark(
                 "design_done",
                 &node_id,
@@ -871,22 +1574,25 @@ impl Flow {
         }
 
         self.mark("implementation_started", &node_id, None);
-        if !self.codegen_mode() {
-            let message = "tool-mode implementation is not available in octos arc run yet; nothing was generated";
-            self.log(format!("[flow] {node_id}: {message}"));
-            self.mark("implementation_failed", &node_id, Some(message));
-            self.impl_failed.push(node_id);
-            return;
-        }
-        let description = node
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let spec_text = self.spec_bodies(&node_id);
-        let existing = self.has_app();
-        let compact = {
+        let tool_prompt = self.node_prompt(node, &node_id, inline_design, design.as_ref());
+        let mut codegen_prompt: Option<String> = None;
+        let implement_timeout = (self.policy.budget.node_timeout_seconds as f64)
+            .min(self.policy.budget.implement_fraction * node_budget)
+            .min(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .as_secs_f64(),
+            );
+        let implement_timeout = Duration::from_secs_f64(implement_timeout.max(1.0));
+        let (mut ok, mut text) = if self.codegen_mode() {
+            let description = node
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let spec_text = self.spec_bodies(&node_id);
+            let existing = self.has_app();
             let inputs = CodegenInputs {
                 node_id: &node_id,
                 description: &description,
@@ -897,7 +1603,7 @@ impl Flow {
                 existing_app: existing.then_some(self.output_dir.as_path()),
                 existing_app_chars: self.policy.prompts.codegen_source_chars,
             };
-            match codegen::implement_prompt(&self.prompts, &inputs) {
+            let compact = match codegen::implement_prompt(&self.prompts, &inputs) {
                 Ok(prompt) => prompt,
                 Err(error) => {
                     let message = format!("could not build the codegen prompt: {error}");
@@ -905,27 +1611,62 @@ impl Flow {
                     self.impl_failed.push(node_id);
                     return;
                 }
+            };
+            match codegen::write_manifests(&self.output_dir) {
+                Ok(written) if !written.is_empty() => {
+                    self.log(format!("[codegen] wrote manifests {written:?}"))
+                }
+                Ok(_) => {}
+                Err(error) => self.log(format!("[codegen] could not write manifests: {error}")),
             }
-        };
-        match codegen::write_manifests(&self.output_dir) {
-            Ok(written) if !written.is_empty() => {
-                self.log(format!("[codegen] wrote manifests {written:?}"))
-            }
-            Ok(_) => {}
-            Err(error) => self.log(format!("[codegen] could not write manifests: {error}")),
-        }
-        let implement_timeout = (self.policy.budget.node_timeout_seconds as f64)
-            .min(self.policy.budget.implement_fraction * node_budget)
-            .min(
-                deadline
+            let mut result =
+                self.codegen_turn(&compact, implement_timeout, &format!("{node_id} implement"));
+            if !result.0 && result.1.contains("no <<<FILE>>> blocks") {
+                // A reply without file blocks writes nothing; one more request with the
+                // format reminder is far cheaper than skipping the node (a skipped node
+                // takes every dependent node down with it).
+                self.log(format!(
+                    "[flow] {node_id}: codegen reply had no file blocks; retrying once with the format reminder"
+                ));
+                let reminder = self.correction("codegen_no_blocks", &[]);
+                let retry = format!("{compact}\n{reminder}");
+                let left = deadline
                     .saturating_duration_since(Instant::now())
-                    .as_secs_f64(),
+                    .min(implement_timeout);
+                result = self.codegen_turn(&retry, left, &format!("{node_id} implement (retry)"));
+            }
+            codegen_prompt = Some(compact);
+            result
+        } else {
+            self.turn(
+                &tool_prompt,
+                implement_timeout,
+                &format!("{node_id} implement"),
+                true,
+                None,
+            )
+        };
+        if !ok && text.to_lowercase().contains("truncated") && !self.codegen_mode() {
+            // Output cut by max_tokens, nothing written. Retry once, one file per response (fresh session, same prompt).
+            self.log(format!(
+                "[flow] {node_id}: output truncated; retrying with one file per response"
+            ));
+            self.close_driver();
+            let retry = self
+                .prompts
+                .render("truncated-retry", &[("prompt", &tool_prompt)])
+                .unwrap_or_default();
+            let left = deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_secs(self.policy.budget.node_timeout_seconds));
+            (ok, text) = self.turn(
+                &retry,
+                left,
+                &format!("{node_id} implement (retry)"),
+                true,
+                None,
             );
-        let (ok, text) = self.codegen_turn(
-            &compact,
-            Duration::from_secs_f64(implement_timeout.max(1.0)),
-            &format!("{node_id} implement"),
-        );
+        }
         let timed_out = !ok && text.to_lowercase().contains("timed out");
         if ok && !self.has_app() {
             self.log(format!("[flow] {node_id}: app layout incomplete after the turn; acceptance loop will drive the repair"));
@@ -938,16 +1679,41 @@ impl Flow {
             return;
         }
         if timed_out {
-            self.log(format!("[flow] {node_id}: implement turn hit its {implement_timeout:.0}s cap; testing what exists"));
+            // The files written so far stay on disk; let the acceptance loop judge them.
+            self.log(format!(
+                "[flow] {node_id}: implement turn hit its {}s cap; testing what exists",
+                implement_timeout.as_secs()
+            ));
+            self.close_driver();
             let correction = self.correction("implement_timed_out", &[]);
             self.pending_corrections.push(correction);
         }
         if inline_design {
-            self.mark(
-                "design_done",
-                &node_id,
-                Some("design folded into the implementation turn (no JSON file)"),
-            );
+            let written = self
+                .output_dir
+                .join(".arc/design")
+                .join(format!("{node_id}.json"));
+            let parsed = std::fs::read_to_string(&written)
+                .ok()
+                .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                .filter(Value::is_object);
+            match parsed {
+                Some(design) => {
+                    self.save_design(&node_id, &design);
+                    self.mark(
+                        "design_done",
+                        &node_id,
+                        Some(&format!(
+                            "design JSON written inline to .arc/design/{node_id}.json"
+                        )),
+                    );
+                }
+                None => self.mark(
+                    "design_done",
+                    &node_id,
+                    Some("design folded into the implementation turn (no JSON file)"),
+                ),
+            }
         }
         let done_message = if ok {
             tail(&text, 500)
@@ -958,14 +1724,11 @@ impl Flow {
         let name = node.get("name").and_then(Value::as_str).unwrap_or("");
         self.commit(&format!("{node_id} (implement): {name}"));
 
-        let verdict = self.acceptance_loop(
-            &node_id,
-            &specs,
-            deadline,
-            Some(Rebuild::Codegen {
-                codegen_prompt: compact,
-            }),
-        );
+        let rebuild = Rebuild {
+            codegen_prompt,
+            tool_prompt,
+        };
+        let verdict = self.acceptance_loop(&node_id, &specs, deadline, Some(&rebuild));
         self.test_verdict.insert(node_id.clone(), verdict);
         match verdict {
             Some(true) => {
@@ -1031,7 +1794,7 @@ impl Flow {
             if let Some(error) = &summary.error {
                 self.log(format!(
                     "[acceptance] regression {node_id} infrastructure error: {}",
-                    error.chars().take(300).collect::<String>()
+                    head(error, 300)
                 ));
             } else {
                 self.record_tests(&node_id, &summary);
@@ -1072,9 +1835,7 @@ impl Flow {
 
     /// Run EVERY spec file together, files in parallel, like the grader does.
     /// Per-node runs cannot see cross-node interference through shared server
-    /// state; this pass can. The repair rounds after a failing suite need
-    /// tool mode (not wired yet), so this pass records the verdicts of one
-    /// grader-like round.
+    /// state; this pass can, and it repairs the nodes whose tests fail.
     fn final_acceptance(&mut self) {
         if self.runner.is_none() || self.tests_dir.is_none() {
             return;
@@ -1099,58 +1860,171 @@ impl Flow {
         if all_specs.len() < 2 && unverified.is_empty() {
             return; // single spec already judged by the node run
         }
+        let rounds = self.policy.repair.final_rounds;
         let workers = acceptance::workers_for_memory(
             self.mem_limit,
             self.policy.acceptance.final_workers,
             self.policy.acceptance.memory_per_worker_mib,
         );
-        let summary = self.run_specs(&all_specs, Some(workers), true);
-        if summary.error.is_some() && summary.killed {
-            self.log(format!(
-                "[acceptance] full suite could not run ({}); keeping per-node verdicts",
-                tail(summary.error.as_deref().unwrap_or(""), 120)
-            ));
-            return;
-        }
-        let (grouped, summary) = if let Some(error) = summary.error.clone() {
-            // The app does not even start the way the grader starts it: every node fails.
-            self.log(format!(
-                "[acceptance] full suite (grader-like start) failed: {}",
-                error.chars().take(300).collect::<String>()
-            ));
-            for node_id in self.node_ids.clone() {
-                self.test_verdict.insert(node_id, Some(false));
+        let mut previous_failing: Option<BTreeSet<String>> = None;
+        // Best full-suite state seen so far: (passed, commit, results). A repair
+        // turn that loses tests is rolled back to it when the loop ends, exactly
+        // like the per-node loop keeps its best snapshot.
+        let mut best: Option<(usize, String, Vec<acceptance::TestOutcome>)> = None;
+        let mut last_passed: Option<usize> = None;
+        for attempt in 0..=rounds {
+            let summary = self.run_specs(&all_specs, Some(workers), true);
+            if summary.error.is_some() && summary.killed {
+                // The runner was OOM-killed under the cgroup; repair rounds on a non-failure would be wasted.
+                self.log(format!(
+                    "[acceptance] full suite could not run ({}); keeping per-node verdicts",
+                    head(summary.error.as_deref().unwrap_or(""), 120)
+                ));
+                return;
             }
-            let mut grouped: BTreeMap<Option<String>, Vec<acceptance::TestOutcome>> =
-                BTreeMap::new();
-            grouped.insert(None, Vec::new());
-            (
-                grouped,
-                RunSummary {
-                    passed: 0,
-                    total: all_specs.len(),
-                    ..Default::default()
-                },
-            )
-        } else {
-            (
-                acceptance::nodes_for_failures(&summary.results, &self.spec_map),
-                summary,
-            )
-        };
-        let failing_nodes: Vec<String> = grouped.keys().flatten().cloned().collect();
-        let failing_text = if !failing_nodes.is_empty() {
-            format!("{failing_nodes:?}")
-        } else if grouped.contains_key(&None) && summary.results.is_empty() {
-            "all".to_string()
-        } else {
-            "[]".to_string()
-        };
-        self.log(format!(
-            "[acceptance] full suite round 0: {}/{}; failing nodes {failing_text}",
-            summary.passed, summary.total
-        ));
-        if !summary.results.is_empty() {
+            let (grouped, failures, summary) = if let Some(error) = summary.error.clone() {
+                // The app does not even start the way the grader starts it: every node fails.
+                self.log(format!(
+                    "[acceptance] full suite (grader-like start) failed: {}",
+                    head(&error, 300)
+                ));
+                for node_id in self.node_ids.clone() {
+                    self.test_verdict.insert(node_id, Some(false));
+                }
+                let mut grouped: BTreeMap<Option<String>, Vec<acceptance::TestOutcome>> =
+                    BTreeMap::new();
+                grouped.insert(None, Vec::new());
+                let digest = self.startup_failure_digest(&error, true);
+                (
+                    grouped,
+                    digest,
+                    RunSummary {
+                        passed: 0,
+                        total: all_specs.len(),
+                        ..Default::default()
+                    },
+                )
+            } else {
+                let grouped = acceptance::nodes_for_failures(&summary.results, &self.spec_map);
+                let flat: Vec<acceptance::TestOutcome> =
+                    grouped.values().flatten().cloned().collect();
+                let failures = self.failures_of(&RunSummary::from_results(flat));
+                (grouped, failures, summary)
+            };
+            let failing_nodes: Vec<String> = grouped.keys().flatten().cloned().collect();
+            let failing_text = if !failing_nodes.is_empty() {
+                format!("{failing_nodes:?}")
+            } else if grouped.contains_key(&None) && summary.results.is_empty() {
+                "all".to_string()
+            } else {
+                "[]".to_string()
+            };
+            self.log(format!(
+                "[acceptance] full suite round {attempt}: {}/{}; failing nodes {failing_text}",
+                summary.passed, summary.total
+            ));
+            if !summary.results.is_empty() {
+                for node_id in self.node_ids.clone() {
+                    let specs = self.spec_map.specs_for(&node_id).to_vec();
+                    if specs.is_empty() {
+                        continue;
+                    }
+                    let names: BTreeSet<String> = specs
+                        .iter()
+                        .filter_map(|p| {
+                            Path::new(p)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                        })
+                        .collect();
+                    let subset: Vec<acceptance::TestOutcome> = summary
+                        .results
+                        .iter()
+                        .filter(|r| names.contains(&r.file))
+                        .cloned()
+                        .collect();
+                    self.record_tests(&node_id, &RunSummary::from_results(subset));
+                    self.test_verdict.insert(
+                        node_id.clone(),
+                        Some(!grouped.contains_key(&Some(node_id.clone()))),
+                    );
+                }
+            }
+            if grouped.is_empty() {
+                self.commit(&format!(
+                    "chore: full acceptance suite {}/{} pass (parallel)",
+                    summary.passed, summary.total
+                ));
+                return;
+            }
+            last_passed = Some(summary.passed);
+            if !summary.results.is_empty()
+                && best
+                    .as_ref()
+                    .is_none_or(|(passed, _, _)| summary.passed > *passed)
+            {
+                self.commit(&format!(
+                    "chore: full acceptance suite {}/{} (best so far)",
+                    summary.passed, summary.total
+                ));
+                if let Some(sha) = self.git.head() {
+                    best = Some((summary.passed, sha, summary.results.clone()));
+                }
+            }
+            self.log_failure_lines(&failures);
+            let failing_titles: BTreeSet<String> = grouped
+                .values()
+                .flatten()
+                .map(|r| r.title.clone())
+                .collect();
+            if previous_failing.as_ref() == Some(&failing_titles) {
+                self.log("[acceptance] full suite: same failures as the previous round; stopping repairs");
+                break;
+            }
+            previous_failing = Some(failing_titles);
+            if attempt == rounds || self.remaining() < 240.0 {
+                break;
+            }
+            let failing = if failing_nodes.is_empty() {
+                "all nodes".to_string()
+            } else {
+                failing_nodes.join(", ")
+            };
+            let parallel = format!("{}\n", self.correction("parallel_suite", &[]));
+            let prompt = self.repair_prompt(
+                &failing,
+                summary.passed,
+                summary.total,
+                &failures,
+                &parallel,
+                "",
+            );
+            let timeout = Duration::from_secs_f64(
+                (self.policy.budget.node_timeout_seconds as f64)
+                    .min((self.remaining() - 200.0).max(120.0)),
+            );
+            self.turn(
+                &prompt,
+                timeout,
+                &format!("full-suite repair {}/{rounds}", attempt + 1),
+                true,
+                None,
+            );
+            self.commit(&format!("fix: full-suite repair {}", attempt + 1));
+        }
+        if let (Some((best_passed, sha, results)), Some(last)) = (best, last_passed)
+            && last < best_passed
+        {
+            self.log(format!(
+                "[acceptance] full suite: last repair left {last} passing, best was {best_passed}; restoring the best state"
+            ));
+            self.restore_app(&sha);
+            self.events.emit(
+                "full_suite_restored",
+                json!({"best": best_passed, "last": last, "sha": sha}),
+            );
+            let best_summary = RunSummary::from_results(results);
+            let grouped = acceptance::nodes_for_failures(&best_summary.results, &self.spec_map);
             for node_id in self.node_ids.clone() {
                 let specs = self.spec_map.specs_for(&node_id).to_vec();
                 if specs.is_empty() {
@@ -1164,7 +2038,7 @@ impl Flow {
                             .map(|n| n.to_string_lossy().into_owned())
                     })
                     .collect();
-                let subset: Vec<acceptance::TestOutcome> = summary
+                let subset: Vec<acceptance::TestOutcome> = best_summary
                     .results
                     .iter()
                     .filter(|r| names.contains(&r.file))
@@ -1177,61 +2051,109 @@ impl Flow {
                 );
             }
         }
-        if grouped.is_empty() {
-            self.commit(&format!(
-                "chore: full acceptance suite {}/{} pass (parallel)",
-                summary.passed, summary.total
-            ));
-            return;
-        }
-        let failures = {
-            let flat: Vec<acceptance::TestOutcome> = grouped.values().flatten().cloned().collect();
-            self.failures_of(&RunSummary::from_results(flat))
-        };
-        for line in failures
-            .lines()
-            .filter(|l| l.trim().starts_with("Failed at:") || l.trim().starts_with("Observation:"))
-        {
-            let squashed: String = line.split_whitespace().collect::<Vec<_>>().join(" ");
-            self.log(format!(
-                "[acceptance]   {}",
-                squashed.chars().take(360).collect::<String>()
-            ));
-        }
-        self.log("[acceptance] full-suite repairs need tool mode, which octos arc run does not drive yet; keeping the verdicts");
     }
 
-    /// Build and start exactly like the grader (only PORT set). A failure
-    /// would go to a repair turn, which needs tool mode (not wired yet), so
-    /// one attempt decides.
+    /// Build and start exactly like the grader (only PORT set); a failure goes
+    /// to a repair turn, at most three attempts.
     fn rehearsal(&mut self) -> bool {
-        self.log(format!(
-            "[rehearsal] startup rehearsal 1/1 (smoke port {}, grader-like env)",
-            self.smoke_port
-        ));
-        let mut server = self.app_server(true);
-        let error = server.build().or_else(|| server.start());
-        server.stop();
-        match error {
-            None => {
+        for attempt in 1..=3 {
+            self.log(format!(
+                "[rehearsal] startup rehearsal {attempt}/3 (smoke port {}, grader-like env)",
+                self.smoke_port
+            ));
+            let mut server = self.app_server(true);
+            let error = server.build().or_else(|| server.start());
+            server.stop();
+            let Some(error) = error else {
                 self.log("[rehearsal] app builds and starts cleanly");
-                true
+                return true;
+            };
+            self.log(format!(
+                "[rehearsal] FAILED: {}",
+                head(error.lines().next().unwrap_or(""), 200)
+            ));
+            if attempt == 3 || self.remaining() < -600.0 {
+                self.log("[rehearsal] giving up; submitting as-is");
+                return false;
             }
-            Some(error) => {
-                self.log(format!(
-                    "[rehearsal] FAILED: {}",
-                    error
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .chars()
-                        .take(200)
-                        .collect::<String>()
-                ));
-                self.log("[rehearsal] repair turns need tool mode, which octos arc run does not drive yet; submitting as-is");
-                false
-            }
+            let prompt = self
+                .prompts
+                .render(
+                    "rehearsal-repair",
+                    &[
+                        ("error", &tail(&error, 1200)),
+                        ("port", &self.web_port.to_string()),
+                        ("smoke", &self.smoke_port.to_string()),
+                    ],
+                )
+                .unwrap_or_default();
+            self.turn(
+                &prompt,
+                Duration::from_secs(self.policy.budget.node_timeout_seconds),
+                &format!("rehearsal repair {attempt}"),
+                true,
+                None,
+            );
+            self.commit("fix: startup rehearsal repair");
         }
+        false
+    }
+
+    /// Skeleton turn for large trees: frontend/ and backend/ with a home page
+    /// and a health endpoint; nudges when the model only planned.
+    fn skeleton(&mut self) -> Result<()> {
+        self.log("[flow] skeleton turn starting");
+        let architecture = self.architecture_contract();
+        let port_rules = self.port_rules();
+        let prompt = self.prompts.render(
+            "skeleton",
+            &[
+                ("req_dir", &self.req_dir.to_string_lossy()),
+                ("port", &self.web_port.to_string()),
+                ("smoke", &self.smoke_port.to_string()),
+                ("tests", &self.tests_prompt_for(None, true)),
+                ("architecture_contract", &architecture),
+                ("port_rules", &port_rules),
+            ],
+        )?;
+        let node_timeout = Duration::from_secs(self.policy.budget.node_timeout_seconds);
+        for attempt in 1..=4 {
+            if self.time_up() {
+                bail!("time budget exhausted before the skeleton existed");
+            }
+            let (ok, _) = self.turn(
+                &prompt,
+                node_timeout,
+                &format!("skeleton attempt {attempt}"),
+                true,
+                None,
+            );
+            if ok && !self.has_app() {
+                self.log("[flow] skeleton turn wrote no frontend/backend; nudging");
+                let nudge = self.prompts.get("nudge").to_string();
+                for n in 1..=2 {
+                    self.turn(
+                        &nudge,
+                        Duration::from_secs(600),
+                        &format!("nudge {n}/2"),
+                        true,
+                        None,
+                    );
+                    if self.has_app() {
+                        break;
+                    }
+                }
+            }
+            if self.has_app() {
+                self.commit("chore: scaffold web application skeleton");
+                return Ok(());
+            }
+            if self.dry_run {
+                break;
+            }
+            std::thread::sleep(Duration::from_secs(30));
+        }
+        bail!("skeleton scaffolding failed: no frontend/ and backend/ after 4 attempts")
     }
 
     /// The platform counts FOLDER nodes as requirements too; derive their
@@ -1294,18 +2216,17 @@ impl Flow {
                     &[],
                 );
             } else {
-                let failing: Vec<&String> = leaves
+                let failing: Vec<&str> = leaves
                     .iter()
                     .zip(&verdicts)
                     .filter(|(_, v)| **v != Some(true))
-                    .map(|(l, _)| l)
+                    .map(|(l, _)| l.as_str())
                     .collect();
-                let names: Vec<&str> = failing.iter().map(|s| s.as_str()).collect();
                 self.events.requirement_state(
                     &folder_id,
                     "test",
                     "failed",
-                    Some(&format!("children not verified: {}", names.join(", "))),
+                    Some(&format!("children not verified: {}", failing.join(", "))),
                     &[],
                 );
             }
@@ -1319,9 +2240,10 @@ impl Flow {
             "run_started",
             json!({"nodes": self.node_ids, "time_budget_seconds": self.plan.time_budget_seconds, "codegen": self.plan.codegen,
                 "evolution": self.plan.evolution, "web_port": self.web_port, "smoke_port": self.smoke_port,
-                "reasoning": self.plan.base_reasoning.label(), "tests_dir": self.tests_dir}),
+                "reasoning": self.plan.base_reasoning.label(), "tests_dir": self.tests_dir, "dry_run": self.dry_run}),
         );
         let outcome = self.run_inner();
+        self.close_driver();
         match outcome {
             Ok(()) => {
                 for node_id in self.node_ids.clone() {
@@ -1363,16 +2285,13 @@ impl Flow {
                         self.mark(
                             "test_failed",
                             &node_id,
-                            Some(&format!(
-                                "run aborted: {}",
-                                text.chars().take(200).collect::<String>()
-                            )),
+                            Some(&format!("run aborted: {}", head(&text, 200))),
                         );
                         self.test_verdict.insert(node_id, Some(false));
                     }
                 }
                 self.mark_folders();
-                self.finish("run_failed", &text.chars().take(1000).collect::<String>());
+                self.finish("run_failed", &head(&text, 1000));
                 RunOutcome {
                     failed_nodes: self.node_ids.clone(),
                     aborted: Some(text),
@@ -1383,7 +2302,11 @@ impl Flow {
 
     fn finish(&mut self, kind: &str, message: &str) {
         self.cleanup_playwright();
-        let totals = self.llm.totals();
+        let totals = self
+            .ledger
+            .lock()
+            .map(|l| l.totals())
+            .unwrap_or_else(|_| json!({}));
         self.log(format!("[usage] provider totals: {totals}"));
         self.events.emit("usage_total", totals);
         self.events.emit(
@@ -1404,10 +2327,7 @@ impl Flow {
                 .iter()
                 .filter(|i| !self.unchanged.contains(*i))
                 .collect();
-            self.log(format!(
-                "[flow] evolution mode: existing app detected; unchanged nodes {:?}, to implement {to_implement:?}",
-                self.unchanged
-            ));
+            self.log(format!("[flow] evolution mode: existing app detected; unchanged nodes {:?}, to implement {to_implement:?}", self.unchanged));
         }
         match self.tests_dir.clone() {
             Some(dir) => {
@@ -1445,21 +2365,36 @@ impl Flow {
                 .filter(|i| !self.unchanged.contains(*i))
                 .cloned()
                 .collect();
+            let policy = self.policy.clone();
             self.plan
-                .set_nodes_to_implement(&self.policy.clone(), to_implement.len())?;
-            self.log(format!(
-                "[flow] evolution mode after probing the existing app: unchanged {:?}, to implement {to_implement:?}",
-                self.unchanged
-            ));
+                .set_nodes_to_implement(&policy, to_implement.len())?;
+            self.log(format!("[flow] evolution mode after probing the existing app: unchanged {:?}, to implement {to_implement:?}", self.unchanged));
         }
         let patience = Duration::from_secs(self.policy.reasoning.probe_patience_seconds);
         for line in self.llm.probe(patience) {
             self.log(line);
         }
-        if self.plan.wants_skeleton && !self.plan.codegen {
-            bail!(
-                "this tree needs the skeleton and tool-mode turns, which octos arc run does not drive yet"
-            );
+        let mut protected_dirs: Vec<PathBuf> = Vec::new();
+        if let Some(tests) = &self.tests_dir {
+            protected_dirs.push(tests.clone());
+        }
+        if self.req_dir.is_dir() {
+            protected_dirs.push(self.req_dir.clone());
+        }
+        match ProtectedTrees::snapshot(&protected_dirs) {
+            Ok(trees) => self.protected = Some(trees),
+            Err(error) => self.log(format!(
+                "[guard] could not snapshot the protected directories: {error}"
+            )),
+        }
+        if self.plan.wants_skeleton {
+            self.skeleton()?;
+            self.end_scope("node");
+        } else if !self.plan.evolution {
+            self.log(format!(
+                "[flow] {}-node tree: skeleton folded into the first node turn",
+                ids.len()
+            ));
         }
         let total = self.ordered.len();
         let ordered = self.ordered.clone();
@@ -1481,9 +2416,11 @@ impl Flow {
             } else {
                 self.node_cycle(node, index + 1, total);
             }
+            self.end_scope("node");
         }
         if !self.time_up() {
             self.final_acceptance();
+            self.end_scope("node");
         }
         let undecided: Vec<String> = ids
             .iter()
@@ -1493,27 +2430,50 @@ impl Flow {
             })
             .cloned()
             .collect();
-        let rehearsed = self.rehearsal();
-        if !undecided.is_empty() {
-            self.log(format!("[flow] nodes without a local verdict: {undecided:?}; the final check turn needs tool mode, so the rehearsal decides"));
+        let mut final_ok: Option<bool> = None;
+        if !undecided.is_empty() && !self.time_up() {
+            self.log(format!(
+                "[flow] final check turn for nodes without a local verdict: {undecided:?}"
+            ));
+            let prompt = self.prompts.render(
+                "final-check",
+                &[
+                    ("smoke", &self.smoke_port.to_string()),
+                    ("port", &self.web_port.to_string()),
+                    ("tests", &self.tests_prompt_for(None, false)),
+                    ("performance", &self.perf_text()),
+                    ("ui", &self.ui_contract()),
+                    ("port_rules", &self.port_rules()),
+                ],
+            )?;
+            let (ok, _) = self.turn(
+                &prompt,
+                Duration::from_secs(self.policy.budget.node_timeout_seconds),
+                "final check",
+                true,
+                None,
+            );
+            final_ok = Some(ok);
+            self.commit("chore: final verification pass");
         }
+        let rehearsed = self.rehearsal();
         for node_id in undecided {
-            if rehearsed {
+            if rehearsed && final_ok != Some(false) {
                 self.mark(
                     "test_passed",
                     &node_id,
-                    Some("startup rehearsal passed (no local spec verdict)"),
+                    Some("final check and startup rehearsal passed"),
                 );
+                self.test_verdict.insert(node_id, Some(true));
             } else {
                 self.mark(
                     "test_failed",
                     &node_id,
-                    Some("no local spec verdict and the startup rehearsal failed"),
+                    Some("final check or startup rehearsal failed"),
                 );
+                self.test_verdict.insert(node_id, Some(false));
             }
-            self.test_verdict.insert(node_id, Some(rehearsed));
         }
-        let _ = &self.req_dir;
         let _ = &self.tree;
         Ok(())
     }
@@ -1524,9 +2484,17 @@ pub fn has_app(output_dir: &Path) -> bool {
         && output_dir.join("backend/package.json").is_file()
 }
 
-/// The previous run's requirement table (committed with the template).
-fn previous_requirement_records(output_dir: &Path) -> BTreeMap<String, Value> {
-    let path = output_dir.join(".arc/traceability/requirements.json");
+/// The previous run's requirement table (committed with the template). The glue
+/// copies it aside before the platform runtime stores the new tree over the
+/// traceability file, so the copy wins when it exists.
+fn previous_requirement_records(
+    output_dir: &Path,
+    snapshot: Option<&Path>,
+) -> BTreeMap<String, Value> {
+    let path = snapshot
+        .filter(|p| p.is_file())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| output_dir.join(".arc/traceability/requirements.json"));
     let Ok(text) = std::fs::read_to_string(path) else {
         return BTreeMap::new();
     };
@@ -1534,4 +2502,31 @@ fn previous_requirement_records(output_dir: &Path) -> BTreeMap<String, Value> {
         return BTreeMap::new();
     };
     map.into_iter().filter(|(_, v)| v.is_object()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn should_prefer_the_previous_requirement_snapshot_over_the_traceability_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let trace = dir.path().join(".arc/traceability");
+        std::fs::create_dir_all(&trace).unwrap();
+        std::fs::write(
+            trace.join("requirements.json"),
+            r#"{"REQ-1": {"id": "REQ-1", "description": "new"}, "REQ-2": {"id": "REQ-2"}}"#,
+        )
+        .unwrap();
+        let snapshot = dir.path().join(".arc/previous-requirements.json");
+        std::fs::write(
+            &snapshot,
+            r#"{"REQ-1": {"id": "REQ-1", "description": "old"}}"#,
+        )
+        .unwrap();
+        let records = super::previous_requirement_records(dir.path(), Some(&snapshot));
+        assert_eq!(records.len(), 1);
+        assert_eq!(records["REQ-1"]["description"], "old");
+        let missing = dir.path().join(".arc/nope.json");
+        let fallback = super::previous_requirement_records(dir.path(), Some(&missing));
+        assert_eq!(fallback.len(), 2);
+    }
 }

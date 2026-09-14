@@ -11,10 +11,12 @@
 pub mod acceptance;
 pub mod budget;
 pub mod codegen;
+pub mod driver;
 pub mod envs;
 pub mod events;
 pub mod flow;
 pub mod git;
+pub mod guard;
 pub mod llm;
 pub mod pin;
 pub mod plan;
@@ -28,4 +30,6 @@ pub mod tree;
 mod workspace;
 
 pub use run::{RunCommand, RunnerSpec, execute_run};
-pub use runner::{ArcCommand, ArcSubcommand, Mode, execute};
+pub use runner::{
+    ArcCommand, ArcSubcommand, DenyProtectedCommand, Mode, execute, execute_deny_protected,
+};
