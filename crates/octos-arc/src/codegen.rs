@@ -10,6 +10,7 @@
 //! ```
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -267,7 +268,6 @@ pub fn write_manifests(root: &Path) -> Result<Vec<String>> {
 }
 
 const SOURCE_EXTS_ALL: &[&str] = &[".js", ".mjs", ".cjs", ".html", ".css", ".json"];
-const SOURCE_EXTS_CODEGEN: &[&str] = &[".html", ".js"];
 
 fn source_paths(root: &Path, exts: &[&str]) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -311,7 +311,7 @@ pub fn inline_sources(
     codegen_only: bool,
 ) -> String {
     let exts = if codegen_only {
-        SOURCE_EXTS_CODEGEN
+        &[".html", ".js"][..]
     } else {
         SOURCE_EXTS_ALL
     };
@@ -346,6 +346,131 @@ pub fn inline_sources(
     } else {
         format!("{}{}", prompts.get("inline-sources-header"), parts)
     }
+}
+
+/// `main.spec_terms`: identifiers, paths and quoted strings a spec mentions (≥ 3 chars), lower-cased.
+pub fn spec_terms(spec_text: &str) -> BTreeSet<String> {
+    static IDENT: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"[A-Za-z_][A-Za-z0-9_-]{2,}").unwrap());
+    static PATH: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"['"`](/[^'"`\s]{1,60})['"`]"#).unwrap());
+    static QUOTED: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"['"`]([^'"`\n]{3,40})['"`]"#).unwrap());
+    const STOP: &[&str] = &[
+        "await",
+        "page",
+        "expect",
+        "const",
+        "test",
+        "async",
+        "import",
+        "from",
+        "playwright",
+        "toBeVisible",
+        "toHaveText",
+        "getByRole",
+        "getByTestId",
+        "getByLabel",
+        "getByText",
+        "click",
+        "fill",
+        "goto",
+        "name",
+        "button",
+        "link",
+        "true",
+        "false",
+        "null",
+        "let",
+        "var",
+        "return",
+        "function",
+    ];
+    let mut terms: BTreeSet<String> = BTreeSet::new();
+    for m in IDENT.find_iter(spec_text) {
+        terms.insert(m.as_str().to_string());
+    }
+    for c in PATH.captures_iter(spec_text) {
+        terms.insert(c[1].to_string());
+    }
+    for c in QUOTED.captures_iter(spec_text) {
+        terms.insert(c[1].to_string());
+    }
+    terms
+        .into_iter()
+        .filter(|t| !STOP.contains(&t.as_str()))
+        .map(|t| t.to_lowercase())
+        .collect()
+}
+
+/// `main.relevant_sources` (round 35): quote the existing sources a node most
+/// likely touches — every backend entry file first (the router every node
+/// extends), then pages ranked by how many of the spec's terms (locators,
+/// texts, routes) they contain, until the budget is spent; the rest are listed
+/// by name so the model knows they exist. Stylesheets never decide a spec.
+pub fn relevant_sources(
+    prompts: &Prompts,
+    root: &Path,
+    spec_text: &str,
+    max_chars: usize,
+) -> String {
+    let files = source_paths(root, &[".html", ".js", ".mjs", ".cjs"]);
+    if files.is_empty() {
+        return String::new();
+    }
+    let terms = spec_terms(spec_text);
+    let mut scored: Vec<(u8, i64, usize, String, String)> = Vec::new();
+    for path in files {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let low = text.to_lowercase();
+        let hits = terms.iter().filter(|t| low.contains(t.as_str())).count() as i64;
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let is_backend = rel.starts_with("backend/");
+        scored.push((
+            u8::from(!is_backend),
+            -hits,
+            text.chars().count(),
+            rel,
+            text,
+        ));
+    }
+    scored.sort_by(|a, b| (a.0, a.1, a.2, &a.3).cmp(&(b.0, b.1, b.2, &b.3)));
+    let mut parts = String::new();
+    let mut omitted: Vec<String> = Vec::new();
+    let mut total = 0usize;
+    for (_, neg_hits, size, rel, text) in scored {
+        if total + size > max_chars && !parts.is_empty() {
+            omitted.push(format!("{rel} ({size} chars, {} spec terms)", -neg_hits));
+            continue;
+        }
+        total += size;
+        parts.push_str(&format!("--- {rel} ---\n{}\n", text.trim_end()));
+    }
+    let mut out = format!("{}{}", prompts.get("relevant-sources-header"), parts);
+    if !omitted.is_empty() {
+        out.push_str(&format!(
+            "{}{}\n",
+            prompts.get("relevant-sources-omitted"),
+            omitted.join("; ")
+        ));
+    }
+    out
+}
+
+/// `main.looks_like_markup`: a bare page or page fragment (the tiny tier asks
+/// for markup without doctype/head).
+pub fn looks_like_markup(text: &str) -> bool {
+    static TAG: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)<(html|body|main|div|section|form|button|script|span|p|h[1-6]|input|label|ul|table)\b")
+            .unwrap()
+    });
+    TAG.is_match(text)
 }
 
 /// Short, stable listing of the app sources for evolution prompts.
@@ -407,9 +532,11 @@ pub struct CodegenInputs<'a> {
     pub n_nodes: usize,
     /// Compact size rule (small spec: thinking off) instead of the multi-page mechanisms.
     pub small_rule: bool,
-    /// Evolution: quote the existing app and ask for complete changed files.
+    /// Existing app (evolution or later nodes): quote the relevant sources and ask for
+    /// complete changed files.
     pub existing_app: Option<&'a Path>,
-    pub existing_app_chars: usize,
+    /// Codegen prompt budget in characters (`prompts.codegen_context_chars`).
+    pub context_chars: usize,
 }
 
 pub fn ports_clause(prompts: &Prompts, extra_ports: &[u16]) -> Result<String> {
@@ -451,12 +578,11 @@ pub fn implement_prompt(prompts: &Prompts, inputs: &CodegenInputs<'_>) -> Result
         ],
     )?;
     if let Some(root) = inputs.existing_app {
-        prompt.push_str(&inline_sources(
-            prompts,
-            root,
-            inputs.existing_app_chars,
-            true,
-        ));
+        let budget = inputs
+            .context_chars
+            .saturating_sub(inputs.spec.chars().count())
+            .max(8000);
+        prompt.push_str(&relevant_sources(prompts, root, inputs.spec, budget));
     }
     Ok(prompt)
 }
@@ -528,9 +654,13 @@ pub fn rewrite_prompt(
     codegen_prompt: &str,
     failures: &str,
     root: &Path,
-    chars: usize,
+    spec_text: &str,
+    context_chars: usize,
 ) -> Result<String> {
-    let sources = inline_sources(prompts, root, chars, true);
+    let budget = context_chars
+        .saturating_sub(codegen_prompt.chars().count())
+        .max(8000);
+    let sources = relevant_sources(prompts, root, spec_text, budget);
     prompts.render(
         "codegen-rewrite",
         &[
@@ -544,6 +674,54 @@ pub fn rewrite_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_rank_sources_by_spec_terms_with_backend_first_and_list_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("backend")).unwrap();
+        std::fs::create_dir_all(root.join("frontend/src")).unwrap();
+        std::fs::write(
+            root.join("backend/server.js"),
+            "const http = require('http'); // router",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("frontend/src/index.html"),
+            "<a href=\"/notes\">Notes</a>",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("frontend/src/login.html"),
+            "<form id=\"login\"></form>",
+        )
+        .unwrap();
+        std::fs::write(root.join("frontend/src/style.css"), "body{}").unwrap();
+        let spec =
+            "await page.goto('/notes'); await expect(page.getByText('Notes')).toBeVisible();";
+        let terms = spec_terms(spec);
+        assert!(terms.contains("/notes") && terms.contains("notes"));
+        assert!(!terms.contains("await") && !terms.contains("page"));
+        let text = relevant_sources(&Prompts::builtin(), root, spec, 1_000);
+        let server = text.find("backend/server.js").unwrap();
+        let index = text.find("frontend/src/index.html").unwrap();
+        let login = text.find("frontend/src/login.html").unwrap();
+        assert!(
+            server < index && index < login,
+            "backend first, then by spec-term hits"
+        );
+        assert!(!text.contains("style.css"), "stylesheets are never quoted");
+        let tight = relevant_sources(&Prompts::builtin(), root, spec, 60);
+        assert!(tight.contains("Other files, unchanged unless the requirement needs them: "));
+        assert!(tight.contains("login.html (") && tight.contains("spec terms)"));
+    }
+
+    #[test]
+    fn should_accept_page_fragments_as_markup() {
+        assert!(looks_like_markup("<main><button>+</button></main>"));
+        assert!(looks_like_markup("<!DOCTYPE html><html></html>"));
+        assert!(!looks_like_markup("Sure, here is the page."));
+    }
 
     #[test]
     fn should_strip_code_fences_and_compact_spec_lines_like_the_python_helpers() {
@@ -760,7 +938,7 @@ mod tests {
             n_nodes: 1,
             small_rule: true,
             existing_app: None,
-            existing_app_chars: 0,
+            context_chars: 90000,
         };
         let prompt = implement_prompt(&prompts, &inputs).unwrap();
         assert!(prompt.starts_with("Requirement REQ-1: The home page shows a count.\n"));

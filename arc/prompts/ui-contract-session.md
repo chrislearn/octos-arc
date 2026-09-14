@@ -1,1 +1,1 @@
-- Sessions: after register/login navigate to `/`, show the exact username in one element and a "Sign out" link; the session survives reload. Failed login/registration shows one generic error, keeps the anonymous header, creates nothing.
+- Sessions: after register/login navigate to `/`, show the exact user name in one element and a sign-out link with the text the specs expect; the session survives reload. Failed login/registration shows one generic error, keeps the anonymous header, creates nothing.

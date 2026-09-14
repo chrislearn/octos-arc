@@ -7,10 +7,27 @@
 # file; a missing prompt file falls back to the copy compiled into the kernel.
 #
 # Changing this file or a prompt never needs a cargo build.
+#
+# Per-node path (phase 3 §1.1; the Python adapter follows the same rule, this file is the
+# reference for both):
+#   1. spec text shorter than mode.tiny_spec_chars      -> tiny tier: spec statements only, one
+#      page of markup back, harness-written static server; its specs failing -> step 2.
+#   2. spec text shorter than 60% of prompts.codegen_context_chars -> single-request codegen:
+#      spec + the existing sources ranked by spec-term overlap (backend entry files first,
+#      the rest listed by name), every changed file returned complete; thinking off below
+#      reasoning.codegen_reasoning_chars. Trees of any size (mode.codegen_max_nodes = 999);
+#      the harness manifests replace the skeleton turn.
+#   3. spec too large for one request, or codegen blocked -> tool mode (kernel session).
+#   Failure handling per node: round 0 passes nothing -> one codegen rewrite
+#   (repair.rewrite_on_zero); then repair.codegen_repairs (2) single-request repairs; the same
+#   failure twice, or the repairs used up -> tool-mode repairs (requests.repair calls each) until
+#   repair.rounds / rounds_large_tree, stall_limit or the cost guard stops the node. Setting
+#   repair.codegen_repairs = 0 makes the first failure fall back to tool mode directly.
+#   Targets (phase 3): <= 5 requests and <= ¥0.2 per node; the cost guard ([budget]) bounds the run.
 
 [mode]
 codegen = true              # OCTOS_ARC_CODEGEN — one-request codegen turns for small trees
-codegen_max_nodes = 2       # OCTOS_ARC_CODEGEN_MAX_NODES — trees up to this many ATOMIC nodes use codegen
+codegen_max_nodes = 999      # OCTOS_ARC_CODEGEN_MAX_NODES — round 35: every node of any tree takes the single-request path (a node whose spec does not fit the context budget uses tool mode)
 small_task_nodes = 2        # OCTOS_SMALL_TASK_NODES — trees up to this size get the minimal self-verification text
 verify_mode = "auto"        # OCTOS_VERIFY_MODE — auto | minimal | full
 skeleton_min_nodes = 3      # OCTOS_SKELETON_MIN_NODES — separate skeleton turn only for trees at least this big
@@ -35,9 +52,18 @@ design_timeout_seconds = 420     # OCTOS_DESIGN_TIMEOUT
 implement_fraction = 0.6         # OCTOS_IMPLEMENT_FRACTION — implement turn ≤ this share of the node budget
 min_repair_seconds = 300         # OCTOS_MIN_REPAIR_SECONDS — no repair turn with less left
 max_iterations = 500             # OCTOS_MAX_ITERATIONS — tool-mode iterations per turn
+# Run-wide cost guard (wf-adapter-30, calibrated on cloud keep 2224a9013528: 32 nodes, 26M platform
+# tokens, ~1.1 turns per node): once the run has spent its token or turn allowance, no repair turn
+# starts, remaining nodes get one implement turn each and the final suite runs once. -1 = derived once
+# the tree is known (tokens max(6M, 2.5M × nodes), turns max(24, 4 × nodes), ≈3× a healthy run); 0 = off.
+max_total_tokens = -1       # OCTOS_ARC_MAX_TOTAL_TOKENS
+max_turns = -1              # OCTOS_ARC_MAX_TURNS
+max_total_tokens_abs = 0    # OCTOS_ARC_MAX_TOTAL_TOKENS_ABS — absolute ceiling for a spend rule (¥50 ≈ 75M); can cut a healthy big tree short
 
 [repair]
 rounds = 5              # OCTOS_REPAIR_ROUNDS — K, acceptance repair rounds per node
+rounds_large_tree = 3   # trees with more than large_tree_nodes ATOMIC nodes (keep barely repaired; an explicit OCTOS_REPAIR_ROUNDS applies everywhere)
+large_tree_nodes = 2
 codegen_repairs = 2     # OCTOS_ARC_CODEGEN_REPAIRS — codegen repairs before falling back to tool mode
 rewrite_on_zero = true  # OCTOS_ARC_REWRITE_ON_ZERO — one full rewrite turn when round 0 passes nothing
 final_rounds = 2        # OCTOS_FINAL_REPAIR_ROUNDS — repair rounds after the full parallel suite
@@ -70,6 +96,7 @@ slow_ms = 3000                   # OCTOS_ARC_SLOW_MS — slower tests are report
 workers = 2                      # OCTOS_ARC_TEST_WORKERS — per-node runs
 final_workers = 4                # OCTOS_ARC_FINAL_WORKERS — full parallel suite
 memory_per_worker_mib = 700      # container memory per Chromium worker (cgroup limit / this = workers)
+final_memory_per_worker_mib = 450   # full suite: the platform grades with 4 workers in 2 GiB
 fully_parallel = false           # OCTOS_ARC_FULLY_PARALLEL — parallelism inside a spec file too
 install_playwright = true        # OCTOS_ARC_INSTALL_PLAYWRIGHT — private, pinned install when none is found
 playwright_root = ""             # OCTOS_ARC_PLAYWRIGHT_ROOT — directory holding node_modules/@playwright/test
@@ -89,7 +116,7 @@ dir = "prompts"              # <name>.md templates, relative to this file
 inline_specs = true          # OCTOS_ARC_INLINE_SPECS — quote the node's specs into tool-mode prompts
 inline_spec_chars = 24000    # OCTOS_ARC_INLINE_SPEC_CHARS
 inline_source_chars = 40000  # OCTOS_ARC_INLINE_SOURCE_CHARS — sources quoted into repair/rewrite prompts (0 = off)
-codegen_source_chars = 30000 # sources quoted into codegen evolution/rewrite prompts
+codegen_context_chars = 90000  # OCTOS_ARC_CODEGEN_CONTEXT_CHARS — codegen prompt budget: spec must fit 60% of it; existing sources ranked by spec-term overlap fill the rest (≈26k tokens)
 perf_contract = true         # OCTOS_PERF_CONTRACT
 guard = true                 # OCTOS_GUARD — inject guard corrections into the next prompt
 # Requirement keywords (case-insensitive substrings of the tree text) that
@@ -107,3 +134,4 @@ chat_profile = "coding" # OCTOS_CHAT_PROFILE
 [debug]
 dump_requests = false   # OCTOS_ARC_PROXY_DUMP — keep the first request bodies under .arc/llm-requests
 dry_run = false         # OCTOS_ARC_DRYRUN — walk the flow without calling the model
+dry_run_tool_files = false  # OCTOS_ARC_DRYRUN_FILES — dry run only: tool turns write the placeholder app (deep structural walk; Python's dry run does not)

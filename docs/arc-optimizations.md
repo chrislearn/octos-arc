@@ -341,8 +341,8 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 
 | # | Python 策略 | 来源 | 为什么存在 | Rust | 里程碑 |
 |---|---|---|---|---|---|
-| R1 | 收尾/异常时：打印 free -m、cgroup memory.*、ps 按 RSS 前 20；杀 chrom/headless_shell/playwright/octos serve/node/npm（排除自身与父进程） | `_reap_stray_processes` | 0764e8d77c54、e60fb3545eae（评测阶段 4 worker 1 秒被 Killed） | `reap::sweep(tag)`，并按目标书改为每节点结束回收 frontend/backend 目录下残留的 node/Chromium | M4 |
-| R2 | 评测端口 watchdog | `_port_watchdog` | R0 | `reap::PortWatchdog` | M4 |
+| R1 | 收尾/异常时：打印 free -m、cgroup memory.*、ps 按 RSS 前 20；杀 chrom/headless_shell/playwright/octos serve/node/npm（排除自身与父进程） | `_reap_stray_processes` | 0764e8d77c54、e60fb3545eae（评测阶段 4 worker 1 秒被 Killed） | `reap::report` + `reap::sweep_all(root)`（只杀能归属本次运行的：cwd/命令行在工作目录内或本进程后代——Python 版在共享宿主上会误杀）；每节点开始（index>1）`reap::sweep_workspace(root)` 回收 cwd 在 frontend/backend 里的 node/npm/npx/sh/bash（#81 的 `should_reap` 语义） | M4 ✔ |
+| R2 | 评测端口 watchdog | `_port_watchdog` | R0 | `reap::PortWatchdog`（5 s 轮询；我们的进程杀、外来进程报告一次） | M4 ✔ |
 
 #### 里程碑状态
 
@@ -358,7 +358,11 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
 | N3 | 轮 30：codegen 推理档位与 size rule 按 spec 字符数（`OCTOS_ARC_CODEGEN_REASONING_CHARS`=5000）而不是节点数 | 2 节点 Counter 树付了 4.4k 推理 token 还拿到导航/cookie 机制 | `reasoning.codegen_reasoning_chars`；`Flow::codegen_reasoning`、`current_spec_chars`；`CodegenInputs.small_rule` | M3 ✔ |
 | N4 | 轮 31：`OCTOS_ARC_DRYRUN=1` 用 `DryRunDriver` 替换内核驱动 | 给本工作流做结构对等 | `octos arc run --dry-run`（M1 已有，语义相同） | — |
 | N5 | 轮 32：tiny-spec 档（spec < `OCTOS_ARC_TINY_SPEC_CHARS`=1500）：提示只含 spec 语句 + 一句输出要求，系统提示 "Reply with HTML only."，回复裸 HTML 写成 index.html，harness 写固定静态 server（`TINY_SERVER_JS`），失败回退 compact codegen；`OCTOS_ARC_TINY=0` 关闭 | Smoke 榜前三 ≈250 token/题，我们 ≈845 | `mode.tiny` / `mode.tiny_spec_chars`；`codegen::{strip_code_fences, compact_spec_lines, tiny_server_js}`；`Flow::{tiny_mode, tiny_turn}`、`codegen_turn_with`（system / 无格式段 / 裸 HTML 落盘）；提示词 `tiny-*.md` 从 `main.py` 常量导出 | M3 ✔ |
-| N6 | 交接清单：>2 节点树修复轮 3（wf-adapter-30）、`workers_for_final` 450 MiB/worker、`reap_workspace_processes`、`enforce_turn_budget` | wf-adapter-30 | 需逐项核对分支点后的 acceptance.py/guard.py 差异 | M4 |
+| N6 | wf-adapter-30（#81，main@fdbcd106）：>2 节点树修复轮 3（显式 `OCTOS_REPAIR_ROUNDS` 例外）、全套 `workers_for_final` 450 MiB/worker、每节点 `reap_workspace_processes`（cwd 在 frontend/backend 里的 node/npm/npx/sh/bash）、费用护栏 `OCTOS_ARC_MAX_TOTAL_TOKENS`=max(6M, 2.5M×节点)、`OCTOS_ARC_MAX_TURNS`=max(24, 4×节点)、`OCTOS_ARC_MAX_TOTAL_TOKENS_ABS`（选配）——按 keep 2224a9013528 标定 ≈3× 健康运行 | keep 云端 32/32、¥16.58、1,152 请求 | `repair.rounds_large_tree` / `large_tree_nodes`；`acceptance.final_memory_per_worker_mib`；`reap::should_reap` / `sweep_workspace`（节点开始时，index>1）；`budget.max_total_tokens` / `max_turns` / `max_total_tokens_abs`（-1 = 树已知后推导），触发后 `[guard] cost guard tripped`，语义同 Python `wound_down` | M4 ✔ |
+| N7 | 轮 33（#90）：启动探测改 GET /models（不计费，非 5xx 即可用），失败才发一次 thinking disabled、max_tokens 1 的 chat 请求；tiny 档输出句收紧（最小标记、一个内联脚本、无空行） | 旧探测让模型先推理再答 OK，≈¥0.0008/次 | `llm::probe`（reqwest GET，再最小 chat）、`endpoint_is_up` / `minimal_probe_body`；`tiny-prompt*.md` 从 `main.py` 常量重导 | M4 ✔ |
+| N8 | 轮 34（#94）：探测策略按档位——整题都是 tiny 档就不探测（第一个真实请求即探测），dry-run 不探测，其余 GET /models；tiny 回复只要页面标记（无 doctype/head），`looks_like_markup` 接受片段，`ensure_charset` 补 charset 头 | 探测约 ¥0.0008/次，是 tiny 题的三分之一 | `Flow::all_specs_tiny`、探测分支；`codegen::looks_like_markup`；`tiny-prompt*.md` 重导 | M4 ✔ |
+| N9 | 轮 35（#95）：任何规模的树每节点都走单请求 codegen（`OCTOS_ARC_CODEGEN_MAX_NODES` 默认 999）；提示引用 `relevant_sources` 选出的现有源码（后端入口优先，其余页面按 spec 词项命中数排序，预算 `OCTOS_ARC_CODEGEN_CONTEXT_CHARS`=90,000 字符减去 spec，其余只列名）；spec 单独超过预算 60% 的节点走 tool 模式；codegen 模式下 harness manifests 取代骨架轮（`OCTOS_SKELETON_ALWAYS=1` 例外） | keep/bookstack tool 模式每节点 ≈36 次请求 | `mode.codegen_max_nodes`=999、`prompts.codegen_context_chars`；`codegen::{spec_terms, relevant_sources}`（替换 codegen 路径的 `inline_sources`）；`Flow::codegen_context_fits`；`RunPlan.wants_skeleton` 含 `!codegen` | M4 ✔ |
+| N10 | 轮 36（#96）：L17 回流 Python（全套修复轮交付最优轮，`record_full_suite`） | 本工作流 rs-tb-4 | Rust 原有（M2） | — |
 
 #### 策略文件 `arc/arc-policy.toml`（← 约 60 个环境变量）
 
@@ -475,3 +479,65 @@ Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并�
   - `rs-evo-scaffold-dry`（占位脚手架模板：欢迎页 + 静态 server）：unchanged {}，probe REQ-1 0/1、REQ-2 0/1 → 「existing app passes no spec; moved [frontend, backend] to .arc/template-discarded and building fresh」→ fresh build（2 节点树骨架折进首节点）→ REQ-1 tiny → 回退。
 - 通用性自查：弃用模板只看探测结果；档位与 tiny 的阈值来自 spec 字符数；tiny 静态 server 无任务逻辑、端口来自 spec；NAV 去重的 href 从服务端源码推导；无任务名 / REQ 编号分支。
 - 真实模型对等（Evolution 2/2、1 次请求；Smoke 两题 tiny 档 token）等 key 窗口结束后与 Python 同题同配置各跑 2 次再补。
+
+### M4：reap + cgroup worker 选择 + 全局护栏，keep 走通（PR 待编号；分支 `wf-kernel-harness-m4`，叠在 M3 上）
+
+**改动位置**：`crates/octos-arc/src/reap.rs`（新：`report`、`sweep_all`、`sweep_workspace`、`select_victims`/`descendants_of` 纯函数、`PortWatchdog`）、`flow.rs`（每节点后回收、看门狗起停、收尾报告与回收、`note_turn` 护栏、降级分支：节点循环不修复、全套 0 轮、演练不修复）、`policy.rs` / `arc-policy.toml`（`budget.max_total_tokens`、`budget.max_total_turns`，默认 0=关）、`acceptance.rs`（进程辅助函数对 crate 可见）。cgroup worker 选择在 M1 已落地（`container_memory_limit` + `workers_for_memory`），本里程碑核对无改动。
+
+**护栏的设计**：与 A 在 #81 落地的费用护栏同名同义（`OCTOS_ARC_MAX_TOTAL_TOKENS` / `OCTOS_ARC_MAX_TURNS` / `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS`）：树已知后推导默认值（tokens max(6M, 2.5M×节点)、turns max(24, 4×节点)，按 keep 标定 ≈3× 健康运行），每个模型回合后核对账本的 `total_tokens` 与回合数，超限一次性切到「不再修复、余下节点各一次实现、全套一轮、演练不修复」并记 `guardrail` 事件；0 关闭。规则输入只有账本与节点数。
+
+**keep 结构对等（dry-run，无模型、不用 key）**：Python 与 Rust 都在骨架轮中止（dry-run 的 tool 回合写不出 frontend/backend）：design running/completed 各 13、implement running 13、test failed 45、runner running/failed 各 1，signal 88 对 89；Rust 6 s，Python 124 s。中止路径原来多发 13 条 FOLDER implement/completed，已对齐。护栏 dry-run（Counter，`OCTOS_ARC_MAX_TOTAL_TURNS=2`）：两回合后触发降级，REQ-1 不修复、全套一轮、演练通过，`guardrail` 事件 1 条。
+
+**通用性自查**：回收与看门狗按进程归属（cwd / 命令行 / 父子关系）判断；护栏阈值来自账本；无任务名 / REQ 编号分支。Python 的收尾回收按命令行关键词杀全机 chrom/node/npm/octos serve，在共享宿主（本机就有用户自己的 Chrome 与 `octos serve`）会误杀——Rust 版只杀能归属本次运行的进程，这是有意的行为差异，云端容器里两者等价。
+
+**深 dry-run（Rust 独有开关 `debug.dry_run_tool_files` / `OCTOS_ARC_DRYRUN_FILES=1`，tool 回合写占位应用而不是只回一句话）**：keep 32 节点全程走完，543 s，退出 0：骨架轮写出占位应用 → 32 个节点各 round 0 + 2 次修复（同一失败即停）→ 全套 0/32 两轮（同一失败集合即停）→ 演练通过 → 45 个需求（32 ATOMIC + 13 FOLDER）design/implement running+completed 各 45、test failed 77（32 节点在节点循环与收尾各标一次，Python 同）→ 收尾回收报告。这是 M4 在没有模型时能做到的最完整结构验证；Python 的 dry-run 在 tool 模式不写文件，所以这项没有 Python 对照。云端基准（C，2026-09-14）：keep 32/32、¥16.58、9,038 s、1,152 次请求、缓存命中 91%。
+
+**未做**：keep 的真实运行（32/32 或与 Python 持平）等 key 窗口结束；届时先估费用（Python 路径 keep 云端 ¥16.58，本机单次上限 ¥5 意味着本机不能整跑 keep，只能云端由 C 跑或本机 `--set repair.rounds=…` 缩短——需统筹决定）。
+
+### 通用性自查总表（0.1 节；统筹 2026-09-14 补充要求后的复查）
+
+复查方法：`grep` Rust 源码（非测试代码）里的任务名 / REQ 编号 / 中文题目文本，`grep` `arc/prompts/*.md` 里的枚举例子与具体参数，逐条核对目标书 0.1 列出的四处。
+
+| 项 | 现状 | 从哪个运行时输入推导 | 对哪些题生效 |
+|---|---|---|---|
+| 「Live indicators (password-strength meters, counters, previews)」 | 已是「any element the spec reads back after typing」（A 轮 29 文本，`ui-contract-core.md`） | spec 文本（被读回的元素） | 任何带实时反馈的页面 |
+| scryptSync 具体参数 | 已是「每请求 CPU 预算 30 ms，哈希每次几毫秒，不用默认代价 KDF / 原生模块」（`performance-contract.md`） | 容器事实（慢 CPU、并行 4 浏览器） | 任何有密码的题 |
+| 「counter at -1 seed」 | Rust 注释改为「测试会改动持久化状态；只有需求要求跨会话保持的数据才可能被提交，所以每次测试后还原工作树」（`flow.rs`），行为本身（`snapshot_worktree` / `restore_worktree`）对任何题一样 | 需求文本（是否要求持久化） | 所有题 |
+| 关键词裁剪的契约块 | 触发词在 `arc/arc-policy.toml` 的 `[prompts] session_keywords / data_keywords`（可改，不用编译）；Rust 里的默认值只是同一份的内置镜像，文件优先 | 需求树文本 | 有账号/会话或列出选项与预置数据的题 |
+| 本次复查另改的提示词例子 | `ui-contract-core.md`「the count is initially 0」「the element contains \`0\`」→「需求说明加载即显示的值」；去掉云端运行号；`ui-contract-data.md`「nationalities, seat classes」→「enumerated categories」；`ui-contract-session.md`「"Sign out" link」→「测试期望文本的退出链接」；`corrections.md`「a counter that every browser session shares」→「a value that every browser session shares」 | — | 这些句子相对 Python 常量是有意差异，Python 侧由 A 决定是否同步 |
+| 任务名 / REQ 编号分支 | Rust 非测试代码无；提示词无 | — | — |
+
+本工作流新增（Python 没有）的规则与阈值：
+
+| 规则/阈值 | 默认 | 推导输入 | 生效范围 |
+|---|---|---|---|
+| L16 codegen 回复无文件块重试一次 | 固定 1 次 | 回复文本 | 所有 codegen 模式（≤2 节点）的题 |
+| L17 全套修复轮保留最优、结束回滚 | — | 全套验收通过数 | 所有多 spec 的题 |
+| `budget.max_total_tokens` / `max_total_turns` 护栏 | 0（关） | 本次运行账本 | 开启后所有题同一条降级规则 |
+| `reap::sweep_workspace` 每节点回收 | — | 进程 cwd 在工作目录内 | 所有题 |
+| `reap::sweep_all` 只杀可归属进程 | — | cwd / 命令行 / 父子关系 | 所有题（Python 版按关键词杀全机，是有意差异） |
+| `PortWatchdog` 5 s | 5 s（Python 同） | 评测端口 + 进程 cwd | 所有题 |
+| tiny 档 `mode.tiny_spec_chars` 1500、档位 `codegen_reasoning_chars` 5000 | 与 Python 同 | spec 字符数 | Smoke、Evolution、任何小 spec 的节点 |
+| 弃用模板 | — | 探测结果（探测过且 0 节点通过） | 所有 Evolution 题 |
+
+**轮 35 对 M3/M4 的影响**：从 main@34f9d7e2 起 Python 对 keep 这类多节点树也走每节点单请求 codegen（不再是 tool 模式 + 骨架轮），M4 的对照基准因此从「tool 模式 1,152 请求」变成 A 下一空窗要跑的「每节点单请求」新版本；Rust 已同步（keep dry-run：骨架跳过、32 个节点各一次 codegen 请求、全套 + 演练、退出 0，见下）。tool 模式仍是每节点的兜底（spec 超预算、codegen 修复两次后、同一失败两次）。
+
+**轮 35 之后的 keep dry-run 对照（2026-09-14，同配置各一次）**：结构完全一致——runner-events 分布 design running/completed 45/45、implement running/completed 45/45、test failed 77、runner 1/1、signal 295 对 295；每节点轮次相同（32 个 round 0，11 个节点各 2 次修复，其余受本机 3600 s 预算的 240 s 节点下限限制不修复）；Rust 450 s、Python 418 s，两边都是骨架跳过 → 32 次 codegen → 全套两轮 → 演练通过 → 退出 0。TB 与 Evolution 的 dry-run 同样退出 0。
+
+### 第三阶段 §1.1：N 节点树每节点单请求 codegen（Rust 引擎；规则以 `arc/arc-policy.toml` 为准）
+
+统筹 2026-09-14 的优先级调整：把两条路径（单请求 codegen / 内核 tool 会话）的选择改成按节点判定。Rust 侧在 #88（ac9adb85、14b85ad8）落地，与 A 的轮 35 同一规则：
+
+| 判定 | 输入 | 策略键 | 结果 |
+|---|---|---|---|
+| tiny 档 | 该节点 spec 字符数 < 1,500 | `mode.tiny`、`mode.tiny_spec_chars` | 只含 spec 语句的提示，回一页标记，harness 写静态 server；specs 不过进下一档 |
+| 单请求 codegen | spec 字符数 < 60% × 90,000 | `mode.codegen`、`mode.codegen_max_nodes`(999)、`prompts.codegen_context_chars` | 提示 = spec + `relevant_sources`（后端入口优先，其余页面按 spec 词项命中数排序，预算 = 90,000 − spec，其余只列名）+ 格式段；一次输出整文件；spec < 5,000 字符时 thinking off + 紧凑规则（`reasoning.codegen_reasoning_chars`） |
+| tool 模式 | spec 超预算，或该节点 codegen 已被阻断 | — | 内核 stdio 会话回合（NODE 提示） |
+| 失败处理 | round 0 = 0 → 一次 codegen 重写；之后 ≤2 次 codegen 修复；同一失败两次或修复用尽 → tool 模式修复 | `repair.rewrite_on_zero`、`repair.codegen_repairs`、`repair.rounds` / `rounds_large_tree`、`stall_limit` | `codegen_repairs = 0` 即「首轮失败直接回退 tool 模式」 |
+| 骨架轮 | codegen 模式且非 Evolution | `mode.skeleton_always` | harness manifests 取代骨架轮 |
+
+- 与树大小无关：`codegen_max_nodes` 只是上限开关（999），选择只看节点的 spec 大小与现有源码；源码引用按 spec 词项重叠排序、按预算裁剪。
+- 目标：每节点 ≤5 次请求、≤¥0.2。codegen 路径每节点最多 1 + 1 + 2 = 4 次单请求；tool 模式修复每回合最多 `requests.repair`(10) 次调用，是超出目标的唯一来源，靠「同一失败两次才切」与费用护栏兜住。
+- dry-run 证据：keep 32 节点 Rust 与 Python 事件分布逐项相同（上文）；TB 两条路径同样逐项相同（design/implement running+completed 各 5、test failed 9、signal 37，且都在「同一失败两次」处切到 tool 模式）；Evolution 退出 0。
+- 费用估算（A 的离线量：keep 工作区 5 个源文件 86k 字符，REQ-2.5.2 引用 ≈72k 字符 ≈21k token）：每请求输入 ≈20–26k token（平台拟合 ≈¥2–3/M → ≈¥0.05–0.08），每节点 1–3 次 → ≈¥0.1–0.2，整题 keep ≈¥3–6 对旧基准 ¥16.58。
+- 真跑对等（空窗）：keep 一题 Rust 路径 1 次（云端，需要 arc.12 Release 与 `OCTOS_ARC_ENGINE=rust`），与 A 同版本 Python 的 keep 对照；预计 1–3M token。

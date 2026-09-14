@@ -145,6 +145,16 @@ pub struct Flow {
     probe_summaries: BTreeMap<String, RunSummary>,
     /// Nodes actually probed against an existing app (Evolution).
     probe_count: usize,
+    /// Model turns so far (tool and codegen), for the global guardrail.
+    turns: u32,
+    /// Global guardrail tripped: one implement per node, one full suite, no repairs.
+    degraded: bool,
+    /// Effective cost-guard limits (tokens, turns, absolute tokens); 0 = off.
+    guard_tokens: u64,
+    guard_turns: u32,
+    guard_abs: u64,
+    /// Kills our own processes that bind the grading port while we generate.
+    watchdog: Option<crate::reap::PortWatchdog>,
     /// Size of the spec text the current node must satisfy (codegen effort by spec size).
     current_spec_chars: usize,
 }
@@ -205,6 +215,18 @@ impl Flow {
             .filter(|id| !unchanged.contains(*id))
             .count();
         let plan = RunPlan::new(&policy, &tree, ordered.len(), nodes_to_implement, evolution)?;
+        // Cost guard defaults scale with the tree and sit ≈3× above a healthy run (calibration:
+        // cloud keep 2224a9013528, 32 nodes, 26M platform tokens, ~1.1 turns per node).
+        let n_nodes = ordered.len() as u64;
+        let guard_tokens: u64 = match policy.budget.max_total_tokens {
+            v if v < 0 => 6_000_000u64.max(2_500_000 * n_nodes),
+            v => v as u64,
+        };
+        let guard_turns: u32 = match policy.budget.max_turns {
+            v if v < 0 => 24u32.max(4 * ordered.len() as u32),
+            v => v as u32,
+        };
+        let guard_abs = policy.budget.max_total_tokens_abs;
         let budget = Global::new(plan.time_budget_seconds);
         let mut smoke_port = policy.ports.smoke_port;
         if smoke_port == spec.web_port {
@@ -272,6 +294,12 @@ impl Flow {
             unchanged,
             probe_summaries: BTreeMap::new(),
             probe_count: 0,
+            turns: 0,
+            degraded: false,
+            guard_tokens,
+            guard_turns,
+            guard_abs,
+            watchdog: None,
             current_spec_chars: 0,
         })
     }
@@ -309,6 +337,32 @@ impl Flow {
 
     fn remaining(&self) -> f64 {
         self.budget.remaining()
+    }
+
+    /// Count a model turn and trip the global guardrail when the run has spent
+    /// more tokens or turns than the policy allows (`budget.max_total_*`).
+    fn note_turn(&mut self) {
+        self.turns += 1;
+        if self.degraded {
+            return;
+        }
+        let totals = self.ledger.lock().map(|l| l.totals()).unwrap_or_default();
+        let tokens = totals["total_tokens"].as_u64().unwrap_or(0);
+        let (max_tokens, max_turns, abs) = (self.guard_tokens, self.guard_turns, self.guard_abs);
+        let over = (max_tokens > 0 && tokens >= max_tokens)
+            || (max_turns > 0 && self.turns >= max_turns)
+            || (abs > 0 && tokens >= abs);
+        if over {
+            self.degraded = true;
+            self.log(format!(
+                "[guard] cost guard tripped: {tokens} billable tokens, {} turns (limits {max_tokens} / {max_turns} / abs {abs}); no further repair turns",
+                self.turns
+            ));
+            self.events.emit(
+                "guardrail",
+                json!({"tokens": tokens, "turns": self.turns, "max_total_tokens": max_tokens, "max_turns": max_turns, "max_total_tokens_abs": abs}),
+            );
+        }
     }
 
     fn time_up(&self) -> bool {
@@ -797,7 +851,8 @@ impl Flow {
     }
 
     /// Build, start, run the specs, then undo whatever the test run mutated
-    /// (a persisted counter at -1 would otherwise be committed as the seed).
+    /// (tests mutate persisted state; only data the requirement says persists
+    /// across sessions may end up committed, so the worktree is restored).
     /// `grader_like` starts the backend with only PORT set, as the platform does.
     fn run_specs(
         &mut self,
@@ -999,9 +1054,33 @@ impl Flow {
         request_budget: Option<u32>,
     ) -> (bool, String) {
         if self.dry_run {
+            self.note_turn();
+            let writes = self.policy.debug.dry_run_tool_files
+                && ["implement", "skeleton", "nudge", "repair", "rewrite"]
+                    .iter()
+                    .any(|k| label.contains(k));
+            if writes {
+                // Deep dry run: behave like a turn that wrote the placeholder app.
+                let files = codegen::parse_file_blocks(crate::llm::DRYRUN_FILES);
+                let _ = codegen::write_manifests(&self.output_dir);
+                match codegen::write_files(&self.output_dir, &files) {
+                    Ok(written) => self.log(format!(
+                        "[flow] {label}: dry run, wrote the placeholder app ({} files)",
+                        written.len()
+                    )),
+                    Err(error) => {
+                        self.log(format!("[flow] {label}: dry run write failed: {error}"))
+                    }
+                }
+                return (
+                    true,
+                    format!("dry run: placeholder app written for {label}"),
+                );
+            }
             self.log(format!("[flow] {label}: dry run, tool turn skipped"));
             return (true, format!("dry run: {label}"));
         }
+        self.note_turn();
         let mode = self.plan.reasoning_for(label);
         let budget = request_budget.unwrap_or_else(|| {
             if label.contains("repair") {
@@ -1146,6 +1225,24 @@ impl Flow {
             .then_some(ReasoningMode::Disabled)
     }
 
+    /// `main.codegen_context_fits`: spec + (trimmed) sources must fit the codegen
+    /// prompt budget; the source quote is bounded to the budget minus the spec,
+    /// so this only fails when the spec alone (with helpers) is too large.
+    fn codegen_context_fits(&self, spec_chars: usize) -> bool {
+        (spec_chars as f64) < self.policy.prompts.codegen_context_chars as f64 * 0.6
+    }
+
+    /// `main.all_specs_tiny`: every node that has specs falls in the tiny tier (and at least one does).
+    fn all_specs_tiny(&self) -> bool {
+        let sizes: Vec<usize> = self
+            .node_ids
+            .iter()
+            .filter(|n| !self.spec_map.specs_for(n).is_empty())
+            .map(|n| self.spec_bodies(n).chars().count())
+            .collect();
+        !sizes.is_empty() && sizes.iter().all(|s| self.tiny_mode(*s))
+    }
+
     /// `main.tiny_mode`: the tiny tier applies to specs below the size threshold.
     fn tiny_mode(&self, spec_chars: usize) -> bool {
         self.policy.mode.tiny && spec_chars > 0 && spec_chars < self.policy.mode.tiny_spec_chars
@@ -1245,6 +1342,7 @@ impl Flow {
         } else {
             prompt.trim().to_string()
         };
+        self.note_turn();
         let mode = self
             .codegen_reasoning(self.current_spec_chars)
             .unwrap_or_else(|| self.plan.reasoning_for(label));
@@ -1272,8 +1370,7 @@ impl Flow {
                 {
                     // Tiny tier: the reply is a bare HTML document (code fences tolerated).
                     let html = codegen::strip_code_fences(&completion.text);
-                    let lower = html.to_lowercase();
-                    if lower.contains("<html") || lower.contains("<!doctype") {
+                    if codegen::looks_like_markup(&html) {
                         files.insert(target.to_string(), html);
                     }
                 }
@@ -1441,7 +1538,11 @@ impl Flow {
         if self.runner.is_none() || specs.is_empty() {
             return None;
         }
-        let repair_rounds = self.policy.repair.rounds;
+        let repair_rounds = if self.plan.n_nodes > self.policy.repair.large_tree_nodes {
+            self.policy.repair.rounds_large_tree
+        } else {
+            self.policy.repair.rounds
+        };
         let mut best_passed: i64 = -1;
         let mut best_sha = self.git.head();
         let mut regressions = 0u32;
@@ -1551,6 +1652,12 @@ impl Flow {
                 self.log(format!("[flow] {node_id}: {left:.0}s left, below the {}s a repair needs; keeping the best state", self.policy.budget.min_repair_seconds));
                 break;
             }
+            if self.degraded {
+                self.log(format!(
+                    "[flow] {node_id}: guardrail active; no repair turns, keeping the best state"
+                ));
+                break;
+            }
             self.snapshot_sources(node_id, attempt);
             let slow = summary.slow(self.policy.acceptance.slow_ms);
             let slow_text = if slow.is_empty() {
@@ -1584,12 +1691,14 @@ impl Flow {
                 if self.codegen_mode()
                     && let Some(codegen_prompt) = &rebuild.codegen_prompt
                 {
+                    let spec_text = self.spec_bodies(node_id);
                     match codegen::rewrite_prompt(
                         &self.prompts,
                         codegen_prompt,
                         &failures_text,
                         &self.output_dir,
-                        self.policy.prompts.codegen_source_chars,
+                        &spec_text,
+                        self.policy.prompts.codegen_context_chars,
                     ) {
                         Ok(prompt) => {
                             self.codegen_turn(&prompt, turn_timeout, &label);
@@ -1711,6 +1820,15 @@ impl Flow {
         let node_id = tree::node_id(node);
         let specs: Vec<String> = self.spec_map.specs_for(&node_id).to_vec();
         self.codegen_blocked = false;
+        if index > 1 {
+            let killed = crate::reap::sweep_workspace(&self.output_dir);
+            if !killed.is_empty() {
+                self.log(format!(
+                    "[reap] killed {} leftover process(es) inside frontend/ or backend/",
+                    killed.len()
+                ));
+            }
+        }
         let nodes_left = total - index + 1;
         let node_budget = budget::node_budget_seconds(
             self.policy.budget.node_time_budget_seconds,
@@ -1765,7 +1883,7 @@ impl Flow {
         }
         let (mut ok, mut text) = if tiny_ok {
             (true, "tiny tier: specs pass".to_string())
-        } else if self.codegen_mode() {
+        } else if self.codegen_mode() && self.codegen_context_fits(spec_chars) {
             let description = node
                 .get("description")
                 .and_then(Value::as_str)
@@ -1787,7 +1905,7 @@ impl Flow {
                 n_nodes: self.plan.n_nodes,
                 small_rule: small,
                 existing_app: existing.then_some(self.output_dir.as_path()),
-                existing_app_chars: self.policy.prompts.codegen_source_chars,
+                context_chars: self.policy.prompts.codegen_context_chars,
             };
             let compact = match codegen::implement_prompt(&self.prompts, &inputs) {
                 Ok(prompt) => prompt,
@@ -1824,6 +1942,11 @@ impl Flow {
             codegen_prompt = Some(compact);
             result
         } else {
+            if self.codegen_mode() {
+                self.log(format!(
+                    "[flow] {node_id}: spec too large for one request ({spec_chars} chars); tool mode"
+                ));
+            }
             self.turn(
                 &tool_prompt,
                 implement_timeout,
@@ -2054,11 +2177,15 @@ impl Flow {
         if all_specs.len() < 2 && unverified.is_empty() {
             return; // single spec already judged by the node run
         }
-        let rounds = self.policy.repair.final_rounds;
+        let rounds = if self.degraded {
+            0
+        } else {
+            self.policy.repair.final_rounds
+        };
         let workers = acceptance::workers_for_memory(
             self.mem_limit,
             self.policy.acceptance.final_workers,
-            self.policy.acceptance.memory_per_worker_mib,
+            self.policy.acceptance.final_memory_per_worker_mib,
         );
         let mut previous_failing: Option<BTreeSet<String>> = None;
         // Best full-suite state seen so far: (passed, commit, results). A repair
@@ -2266,7 +2393,7 @@ impl Flow {
                 "[rehearsal] FAILED: {}",
                 head(error.lines().next().unwrap_or(""), 200)
             ));
-            if attempt == 3 || self.remaining() < -600.0 {
+            if attempt == 3 || self.remaining() < -600.0 || self.degraded {
                 self.log("[rehearsal] giving up; submitting as-is");
                 return false;
             }
@@ -2474,6 +2601,8 @@ impl Flow {
             Err(error) => {
                 let text = format!("{error:#}");
                 self.log(format!("[flow] aborted: {text}"));
+                // Like `main.Flow.run`'s except path: undecided nodes get a test_failed
+                // mark but no local verdict, so folder rows derive from what was decided.
                 for node_id in self.node_ids.clone() {
                     if !self.test_verdict.contains_key(&node_id) {
                         self.mark(
@@ -2481,7 +2610,6 @@ impl Flow {
                             &node_id,
                             Some(&format!("run aborted: {}", head(&text, 200))),
                         );
-                        self.test_verdict.insert(node_id, Some(false));
                     }
                 }
                 self.mark_folders();
@@ -2495,6 +2623,21 @@ impl Flow {
     }
 
     fn finish(&mut self, kind: &str, message: &str) {
+        if let Some(mut dog) = self.watchdog.take() {
+            dog.stop();
+        }
+        for line in crate::reap::report() {
+            self.log(format!("[reap:postflight] {line}"));
+        }
+        let killed = crate::reap::sweep_all(&self.output_dir);
+        self.log(format!(
+            "[reap:postflight] {}",
+            if killed.is_empty() {
+                "nothing to kill".to_string()
+            } else {
+                format!("killed {killed:?}")
+            }
+        ));
         self.cleanup_playwright();
         let totals = self
             .ledger
@@ -2515,6 +2658,16 @@ impl Flow {
             "[flow] {} atomic nodes in dependency order: {ids:?}; time budget {}s",
             ids.len(),
             self.plan.time_budget_seconds
+        ));
+        self.log(format!(
+            "[guard] cost guard: {} tokens / {} turns{}",
+            self.guard_tokens,
+            self.guard_turns,
+            if self.guard_abs > 0 {
+                format!(" / absolute {}", self.guard_abs)
+            } else {
+                String::new()
+            }
         ));
         if self.plan.evolution {
             let to_implement: Vec<&String> = ids
@@ -2544,6 +2697,11 @@ impl Flow {
         }
         self.git.ensure_repo()?;
         self.setup_playwright();
+        self.watchdog = Some(crate::reap::PortWatchdog::start(
+            self.web_port,
+            &self.output_dir,
+            Duration::from_secs(5),
+        ));
         if self.plan.evolution && self.runner.is_some() {
             // The platform's template app carries no traceability records, so fingerprints cannot tell
             // what is new. A node whose specs already pass against the existing app is unchanged.
@@ -2587,9 +2745,19 @@ impl Flow {
                 self.end_scope("node");
             }
         }
-        let patience = Duration::from_secs(self.policy.reasoning.probe_patience_seconds);
-        for line in self.llm.probe(patience) {
-            self.log(line);
+        // Probe policy (round 34): none in dry runs; none when the whole task is tiny-tier (the
+        // first real request doubles as the probe); otherwise the token-free GET /models probe.
+        if self.dry_run {
+            self.log("[probe] skipped (dry run)");
+        } else if self.all_specs_tiny() {
+            self.log(
+                "[probe] skipped (tiny-tier task: the first real request doubles as the probe)",
+            );
+        } else {
+            let patience = Duration::from_secs(self.policy.reasoning.probe_patience_seconds);
+            for line in self.llm.probe(patience) {
+                self.log(line);
+            }
         }
         let mut protected_dirs: Vec<PathBuf> = Vec::new();
         if let Some(tests) = &self.tests_dir {
@@ -2607,6 +2775,11 @@ impl Flow {
         if self.plan.wants_skeleton {
             self.skeleton()?;
             self.end_scope("node");
+        } else if !self.plan.evolution && self.plan.codegen {
+            self.log(format!(
+                "[flow] {}-node tree: codegen mode, harness manifests replace the skeleton turn",
+                ids.len()
+            ));
         } else if !self.plan.evolution {
             self.log(format!(
                 "[flow] {}-node tree: skeleton folded into the first node turn",

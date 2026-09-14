@@ -1,3 +1,3 @@
 Playwright test the page at / must pass:
 {spec}
-Reply with the complete index.html only (inline script, no CSS, no comments).
+Reply with the page markup only: minimal elements + one inline <script>; no doctype, head, CSS, comments or blank lines.
