@@ -281,3 +281,166 @@ test('REQ-1: roll a dice', async ({ page }) => {
     def test_should_strip_code_fences(self):
         self.assertEqual(m.strip_code_fences("```html\n<html></html>\n```"), "<html></html>")
         self.assertEqual(m.strip_code_fences("<html></html>"), "<html></html>")
+
+
+class ProbeTests(unittest.TestCase):
+    def test_minimal_probe_body_disables_thinking_and_caps_output(self):
+        import json
+        body = json.loads(m.minimal_probe_body("deepseek-v4-flash"))
+        self.assertEqual(body["max_tokens"], 1)
+        self.assertEqual(body["thinking"], {"type": "disabled"})
+        self.assertNotIn("reasoning_effort", body)
+
+    def test_any_non_5xx_means_endpoint_up(self):
+        for code in (200, 204, 401, 403, 404, 405, 429):
+            self.assertTrue(m.endpoint_is_up(code))
+        for code in (500, 502, 503, 504):
+            self.assertFalse(m.endpoint_is_up(code))
+class CostGuardTests(unittest.TestCase):
+    def test_should_wind_down_on_token_or_turn_limit(self):
+        import argparse, os
+        from pathlib import Path
+        from types import SimpleNamespace
+        os.environ["OCTOS_ARC_MAX_TOTAL_TOKENS"] = "1000"; os.environ["OCTOS_ARC_MAX_TURNS"] = "3"
+        try:
+            flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
+        finally:
+            del os.environ["OCTOS_ARC_MAX_TOTAL_TOKENS"]; del os.environ["OCTOS_ARC_MAX_TURNS"]
+        flow.llm_proxy = SimpleNamespace(total_tokens=999)
+        self.assertFalse(flow.wound_down())
+        flow.llm_proxy.total_tokens = 1000
+        self.assertTrue(flow.wound_down())
+        flow.llm_proxy.total_tokens = 0; flow.turn_count = 3
+        self.assertTrue(flow.wound_down())
+
+    def test_should_stay_unset_until_the_tree_is_known_and_never_trip_a_normal_run(self):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
+        self.assertEqual((flow.max_total_tokens, flow.max_turns), (-1, -1))
+        flow.llm_proxy = SimpleNamespace(total_tokens=10**9); flow.turn_count = 10**6
+        self.assertFalse(flow.wound_down())  # -1 = not derived yet -> inactive
+        # keep-sized tree: calibrated run (26M tokens, 35 turns) is far below the derived limits
+        flow.max_total_tokens = max(6_000_000, 2_500_000 * 32); flow.max_turns = max(24, 4 * 32)
+        flow.llm_proxy.total_tokens = 26_000_000; flow.turn_count = 35
+        self.assertFalse(flow.wound_down())
+        flow.llm_proxy.total_tokens = 80_000_000
+        self.assertTrue(flow.wound_down())
+
+    def test_should_honor_absolute_ceiling(self):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
+        flow.max_total_tokens, flow.max_turns, flow.max_total_tokens_abs = 0, 0, 75_000_000
+        flow.llm_proxy = SimpleNamespace(total_tokens=74_999_999); flow.turn_count = 999
+        self.assertFalse(flow.wound_down())
+        flow.llm_proxy.total_tokens = 75_000_000
+        self.assertTrue(flow.wound_down())
+
+
+class ProbePolicyTests(unittest.TestCase):
+    def test_all_specs_tiny_requires_every_spec_node_small(self):
+        import argparse, tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        (root / "a.spec.ts").write_text("x" * 400); (root / "b.spec.ts").write_text("y" * 4000)
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root
+        flow.spec_map = {"REQ-1": ["a.spec.ts"], "REQ-2": ["b.spec.ts"], "REQ-3": [], None: []}
+        self.assertFalse(flow.all_specs_tiny(["REQ-1", "REQ-2", "REQ-3"]))
+        self.assertTrue(flow.all_specs_tiny(["REQ-1", "REQ-3"]))
+        self.assertFalse(flow.all_specs_tiny(["REQ-3"]))
+
+    def test_looks_like_markup_accepts_fragments(self):
+        self.assertTrue(m.looks_like_markup('<div data-testid="count">0</div><button>Increment</button><script>1</script>'))
+        self.assertTrue(m.looks_like_markup("<!DOCTYPE html><html></html>"))
+        self.assertFalse(m.looks_like_markup("dry run: no model call; nothing written."))
+
+
+class RelevantSourcesTests(unittest.TestCase):
+    def test_should_quote_backend_first_then_pages_by_spec_overlap_within_budget(self):
+        import tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        (root / "frontend/src").mkdir(parents=True); (root / "backend").mkdir()
+        (root / "backend/server.js").write_text("const http = require('http'); // router")
+        (root / "frontend/src/index.html").write_text("<a href='/notes'>Notes</a>" + "x" * 300)
+        (root / "frontend/src/notes.html").write_text("<h1>Notes</h1><button>New note</button><ul data-testid='note-list'></ul>" + "y" * 300)
+        (root / "frontend/src/settings.html").write_text("<h1>Settings</h1>" + "z" * 300)
+        spec = "await page.goto('/notes'); await page.getByRole('button', { name: 'New note' }).click(); await expect(page.getByTestId('note-list')).toBeVisible();"
+        out = m.relevant_sources(root, spec, max_chars=800)
+        self.assertLess(out.index("backend/server.js"), out.index("frontend/src/notes.html"))
+        self.assertIn("--- frontend/src/notes.html ---", out)
+        self.assertIn("settings.html", out)  # listed as omitted
+        self.assertNotIn("--- frontend/src/settings.html ---", out)
+
+    def test_codegen_applies_to_big_trees_unless_capped(self):
+        import argparse, os
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
+        flow.llm_proxy = SimpleNamespace(); flow.n_nodes = 32
+        self.assertTrue(flow.codegen_mode())
+        os.environ["OCTOS_ARC_CODEGEN_MAX_NODES"] = "2"
+        try:
+            self.assertFalse(flow.codegen_mode())
+        finally:
+            del os.environ["OCTOS_ARC_CODEGEN_MAX_NODES"]
+        self.assertTrue(flow.codegen_context_fits("x" * 20000)); self.assertFalse(flow.codegen_context_fits("x" * 60000))
+
+
+class FinalSuiteBestRoundTests(unittest.TestCase):
+    """L17 port: the final suite delivers the best round. Simulated with stubbed test runs."""
+    def _flow(self, rounds_results):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        for n in ("REQ-1", "REQ-2"):
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"; flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
+        flow.runner = object(); flow.test_verdict = {"REQ-1": False}
+        flow.heads = iter(["sha0", "sha1", "sha2"]); flow.restored = []; flow.commits = []
+        it = iter(rounds_results)
+        def run_specs(specs, workers=None, grader_like=False):
+            passed = next(it)
+            results = [TestOutcome(title=f"{n} t", ok=i < passed, status="passed" if i < passed else "failed", duration_ms=1,
+                                   file=f"{n}.spec.ts") for i, n in enumerate(["REQ-1", "REQ-2"])]
+            return RunSummary(passed=passed, total=2, results=results)
+        flow.run_specs = run_specs
+        flow.head = lambda: getattr(flow, "_head", "sha0")
+        flow.commit = lambda msg: (flow.commits.append(msg), setattr(flow, "_head", f"sha{len(flow.commits)}"))[1] or True
+        flow.restore_app = lambda sha: flow.restored.append(sha)
+        flow.turn = lambda *a, **k: (True, "repaired")
+        flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000
+        flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        return flow
+
+    def test_should_restore_best_state_after_regressing_repairs(self):
+        import os
+        os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "2"
+        try:
+            flow = self._flow([1, 0, 0])
+            flow.final_acceptance()
+        finally:
+            del os.environ["OCTOS_FINAL_REPAIR_ROUNDS"]
+        # round 0 (1/2) is best at sha0; repairs regress to 0/2 twice (identical failures stop) -> restore sha0
+        self.assertEqual(flow.restored, ["sha0"])
+        self.assertTrue(flow.test_verdict["REQ-1"]); self.assertFalse(flow.test_verdict["REQ-2"])
+
+    def test_should_not_restore_when_last_round_is_best(self):
+        import os
+        os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "1"
+        try:
+            flow = self._flow([0, 1])
+            flow.final_acceptance()
+        finally:
+            del os.environ["OCTOS_FINAL_REPAIR_ROUNDS"]
+        self.assertEqual(flow.restored, [])
+        self.assertTrue(flow.test_verdict["REQ-1"])
