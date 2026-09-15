@@ -82,6 +82,15 @@ Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Be
 
 Python 和支持 `--model-routes-json` 的新版 Rust 内核使用同一规则格式；旧版 Rust 会明确报不支持参数，需换用新构建。Rust 的代码生成和工具请求共用本机转发层，实际模型记录在 `.arc/model-routes.jsonl`；分档开启后单模型费用估算为空，费用以 provider 账单为准。尚未完成云端对等验证，默认引擎仍为 Python。
 
+本地验证真实 CLI 与内核请求链路（不调用付费 provider）：
+
+```sh
+cargo build --locked -p octos-cli --bin octos
+python3 arc/integration/routed_cli.py target/debug/octos /tmp/octos-routing-evidence
+```
+
+脚本让真实工具模式完成设计，再切换到代码生成模型，模拟余额错误后检查整个运行失败且不再请求。该检查不证明模型生成质量或云端成绩。
+
 下面仅是配置示例，不是经过费用/质量验证的默认值。模型 ID 来自 2026-09-15 ARC provider 的 `/v1/models`；该端点没有提供参数量和价格，也没有列出 `qwen3.8-27b`。应以使用时 provider 返回的目录和参数能力为准。
 
 ```json
