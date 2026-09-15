@@ -978,7 +978,7 @@ Verify briefly before you finish — the harness runs the official acceptance te
 """
 
 VERIFY_MINIMAL = """\
-You have no shell in this turn — the harness runs `npm run build`, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete) and at most 2 read_file calls. Group the write_file calls into as few responses as possible — small files together, but a large file (more than ~150 lines) alone in its own response — then finish with a one-line summary; every extra round trip resends the whole context and is billed, and an oversized response gets truncated and loses everything in it. Do not list directories or re-read files you just wrote; the file listing above is authoritative. Double-check syntax mentally before writing: a build or start failure costs a repair round.
+You have no shell in this turn. The harness runs `npm run build`, starts the backend and runs the official Playwright specs after your turn, then supplies any failures. Work within the configured request and output budgets. Preserve the existing application structure and create or edit the files needed by the requirements; do not combine unrelated modules merely to reduce file count. Use the supplied file listing and source evidence first, and inspect additional files when needed to resolve uncertainty. Batch independent small edits where practical, split changes that would exceed the response budget, and avoid rereading unchanged files without a reason. Check syntax and imports before finishing, then give a brief summary.
 """
 
 PORT_RULES = """\
