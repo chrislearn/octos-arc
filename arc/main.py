@@ -806,12 +806,12 @@ class OctosDriver:
     def run(self, prompt: str, timeout: int, monitor: TurnMonitor | None = None) -> tuple[bool, str]:
         self.monitor = monitor
         if self.mode == "chat" and not self.tools_disabled:
-            fn = lambda: run_octos(self.octos_bin, self.cwd, prompt, self.env, self.data_dir,  # noqa: E731
-                                   timeout, self.max_iterations)
+            fn = lambda remaining: run_octos(self.octos_bin, self.cwd, prompt, self.env, self.data_dir,  # noqa: E731
+                                   remaining, self.max_iterations)
         else:
-            fn = lambda: self._run_stdio(prompt, timeout)  # noqa: E731
+            fn = lambda remaining: self._run_stdio(prompt, remaining)  # noqa: E731
         try:
-            ok, text = self._run_with_heartbeat(lambda: self._run_with_retries(fn))
+            ok, text = self._run_with_heartbeat(lambda: self._run_with_retries(fn, timeout))
         finally:
             self.monitor = None
             if self.session_scope == "turn":
@@ -856,27 +856,42 @@ class OctosDriver:
             "temporarily unavailable", "rate limit", "timeout", "timed out",
             "connection reset", "overloaded", "failed to send", "streaming request"))
 
-    def _run_with_retries(self, fn, attempts: int = 3) -> tuple[bool, str]:
-        ok, text = fn()
-        for attempt in range(2, attempts + 1):
-            if ok or not self._transient(text):
+    def _run_with_retries(self, fn, timeout: float, attempts: int = 3) -> tuple[bool, str]:
+        deadline = time.monotonic() + max(0, timeout)
+        ok, text = False, "octos turn timed out"
+        for attempt in range(1, attempts + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 break
-            wait = 30 * (attempt - 1)
-            log(f"[driver] transient error, retry {attempt}/{attempts} after {wait}s: {text[:200]}")
+            ok, text = fn(remaining)
+            if ok or not self._transient(text) or attempt == attempts:
+                break
+            wait = 30 * attempt
+            if wait >= deadline - time.monotonic():
+                log("[driver] remaining turn budget cannot accommodate retry backoff")
+                break
+            log(f"[driver] transient error, retry {attempt + 1}/{attempts} after {wait}s: {text[:200]}")
             time.sleep(wait)
             self.close()
-            ok, text = fn()
         return ok, text
 
-    def _run_stdio(self, prompt: str, timeout: int) -> tuple[bool, str]:
+    def _run_stdio(self, prompt: str, timeout: float) -> tuple[bool, str]:
+        deadline = time.monotonic() + timeout
         try:
-            return self._get_session().run_turn(prompt, timeout=float(timeout))
+            session = self._get_session()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False, "octos turn timed out"
+            return session.run_turn(prompt, timeout=remaining)
         except Exception as exc:  # noqa: BLE001
             self.close()
             if self.tools_disabled:
                 return False, f"tool-free stdio driver error: {exc}"[:1000]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False, "octos turn timed out"
             chat_ok, chat_text = run_octos(self.octos_bin, self.cwd, prompt, self.env, self.data_dir,
-                                           timeout, self.max_iterations)
+                                           remaining, self.max_iterations)
             if chat_ok:
                 return True, chat_text
             return False, f"stdio driver error: {exc}; chat fallback: {chat_text}"[:1000]

@@ -187,15 +187,17 @@ class OctosStdioSession:
 
     def run_turn(self, text: str, timeout: float = 1800.0) -> tuple[bool, str]:
         """Run one turn; stream events to on_event. Returns (ok, full_text)."""
+        deadline = time.monotonic() + timeout
+        if timeout <= 0:
+            return False, "octos turn timed out"
         turn_id = str(uuid.uuid4())
         self._send("turn/start", {
             "session_id": self.session_id,
             "turn_id": turn_id,
             "input": [{"kind": "text", "text": text}],
-        }, want_response=True, timeout=60.0)
+        }, want_response=True, timeout=min(60.0, timeout))
 
         chunks: list[str] = []
-        deadline = time.monotonic() + timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
