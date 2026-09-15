@@ -1347,6 +1347,26 @@ impl Flow {
             .prompts
             .render("codegen-repair-suffix", &[("spec", &spec)])
             .ok()?;
+        // Requote source against the total allowance; the complete prompt below
+        // includes requirements, acceptance, headings and format instructions.
+        let current_sources = self.sources_text();
+        let prompt = if !current_sources.trim().is_empty() && prompt.contains(&current_sources) {
+            let sources = codegen::inline_sources(
+                &self.prompts,
+                &self.output_dir,
+                self.policy.prompts.codegen_context_chars,
+                false,
+            );
+            if sources
+                .lines()
+                .any(|line| line.starts_with("--- ") && line.contains(" --- (omitted,"))
+            {
+                return None;
+            }
+            prompt.replacen(&current_sources, &sources, 1)
+        } else {
+            prompt.to_string()
+        };
         let full = format!("{prompt}{suffix}");
         (full.chars().count() + self.prompts.get("codegen-format").chars().count()
             <= self.policy.prompts.codegen_context_chars)
@@ -3306,6 +3326,30 @@ mod tests {
             flow.codegen_repair_prompt("feature", "failure and sources")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn repair_uses_spare_context_for_omitted_source() {
+        let (mut flow, _, dir) = rejected_flow("unused");
+        let frontend = flow.output_dir.join("frontend");
+        std::fs::create_dir_all(&frontend).unwrap();
+        let page = format!("unique page content {}", "x".repeat(45000));
+        std::fs::write(frontend.join("index.html"), &page).unwrap();
+        let tests = dir.path().join("tests");
+        std::fs::create_dir_all(&tests).unwrap();
+        std::fs::write(tests.join("feature.spec.ts"), "acceptance").unwrap();
+        flow.tests_dir = Some(tests);
+        flow.spec_map
+            .by_node
+            .insert("feature".into(), vec!["feature.spec.ts".into()]);
+        let prompt = format!("failure evidence\n{}preserve behavior", flow.sources_text());
+        let full = flow.codegen_repair_prompt("feature", &prompt).unwrap();
+        assert!(full.contains(&page));
+        assert!(full.contains("preserve behavior"));
+        assert!(!full.contains("(omitted,"));
+        std::fs::write(frontend.join("index.html"), "x".repeat(100000)).unwrap();
+        let prompt = format!("failure evidence\n{}", flow.sources_text());
+        assert!(flow.codegen_repair_prompt("feature", &prompt).is_none());
     }
 
     #[test]

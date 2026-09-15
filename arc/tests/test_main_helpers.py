@@ -808,3 +808,28 @@ class ToolFreeExecutionTests(unittest.TestCase):
             self.assertEqual(driver.run('generate', 60), (True, 'generated'))
         driver._run_stdio.assert_called_once_with('generate', 60)
         chat.assert_not_called()
+
+
+class RepairSourceBudgetTests(unittest.TestCase):
+    def test_repair_uses_spare_context_for_omitted_source(self):
+        import argparse, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "frontend").mkdir()
+            page = "unique page content " + "x" * 45000
+            (root / "frontend/index.html").write_text(page)
+            (root / "tests").mkdir()
+            (root / "tests/feature.spec.ts").write_text("acceptance")
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.tests_dir = root / "tests"
+            flow.spec_map = {"feature": ["feature.spec.ts"]}
+            prompt = "failure evidence\n" + flow.sources_text() + "preserve behavior"
+            full = flow.codegen_repair_prompt("feature", prompt)
+            self.assertIsNotNone(full)
+            self.assertIn(page, full)
+            self.assertIn("preserve behavior", full)
+            self.assertNotIn("(omitted,", full)
+            (root / "frontend/index.html").write_text("x" * 100000)
+            prompt = "failure evidence\n" + flow.sources_text()
+            self.assertIsNone(flow.codegen_repair_prompt("feature", prompt))
