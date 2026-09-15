@@ -14,7 +14,7 @@ module.exports = class ActionErrors {
           const message = JSON.parse(line.slice(prefix.length));
           if (typeof message === 'string' && errors.length < 8)
             errors.push({order:errors.length, duration:Number.MAX_SAFE_INTEGER,
-              text:'Page runtime exception (diagnostic only):\n'+clip(message,1600)});
+              text:'Browser observation (diagnostic only):\n'+clip(message,1600)});
         } catch (_) { /* Optional diagnostics cannot change the verdict. */ }
       }
     }
