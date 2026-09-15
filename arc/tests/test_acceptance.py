@@ -240,3 +240,23 @@ class FinalWorkersAndReapTests(unittest.TestCase):
         self.assertFalse(should_reap("node", str(root), root))
         self.assertFalse(should_reap("octos", str(root / "backend"), root))
         self.assertFalse(should_reap("node", None, root))
+
+class ActionableFailureTests(unittest.TestCase):
+    def test_should_keep_locator_error_after_generic_test_timeout(self):
+        data = report(('open detail', 'timedOut', 'Test timeout of 10000ms exceeded.', [], 10000))
+        result = data['suites'][0]['specs'][0]['tests'][0]['results'][0]
+        result['errors'].append({'message': "locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for getByRole('button', {name: 'Open'})", 'location': {'file': '/w/tests/helpers.ts', 'line': 42}})
+        summary = summarize_report(data)
+        self.assertIn("waiting for getByRole", failure_summaries(summary))
+        self.assertEqual(summary.results[0].location, 'helpers.ts:42')
+
+    def test_should_not_infer_slow_server_from_missing_element(self):
+        summary = summarize_report(report(('open', 'timedOut', "locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for getByRole('button')", [], 4100)))
+        self.assertNotIn('page or a request never settled', failure_summaries(summary))
+
+    def test_should_distinguish_changed_locator_but_ignore_elapsed_time(self):
+        from acceptance import failure_signature, RunSummary, TestOutcome
+        def sample(locator, duration):
+            return RunSummary(results=[TestOutcome(title='open', ok=False, status='timedOut', duration_ms=duration, file='x.spec.ts', message=f"Timeout {duration}ms exceeded.\nCall log:\n  - waiting for {locator}")])
+        self.assertEqual(failure_signature(sample('button', 4000)), failure_signature(sample('button', 4100)))
+        self.assertNotEqual(failure_signature(sample('button', 4000)), failure_signature(sample('link', 4000)))

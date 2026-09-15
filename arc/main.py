@@ -77,7 +77,7 @@ from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     workers_for_memory,
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, container_memory_limit, ensure_playwright,
-    failure_summaries, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
+    failure_signature, failure_summaries, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
@@ -2059,7 +2059,7 @@ class Flow:
             return  # single spec already judged by the node run
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "2"))
         workers = workers_for_final(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
-        previous_failing: set[str] | None = None
+        previous_failing: frozenset | None = None
         best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
         last_passed = -1
         for attempt in range(rounds + 1):
@@ -2093,11 +2093,11 @@ class Flow:
             if not grouped:
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (parallel)")
                 return
-            failing_titles = {r.title for rs in grouped.values() for r in rs}
-            if previous_failing is not None and failing_titles == previous_failing:
+            failing_signature = failure_signature(summary)
+            if previous_failing is not None and failing_signature == previous_failing:
                 log("[acceptance] full suite: same failures as the previous round; stopping repairs")
                 break
-            previous_failing = failing_titles
+            previous_failing = failing_signature
             if attempt == rounds or self.remaining() < 240 or self.wound_down():
                 break
             failing = sorted(k for k in grouped if k) or ["all nodes"]

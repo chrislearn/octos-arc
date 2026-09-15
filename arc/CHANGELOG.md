@@ -675,3 +675,14 @@ worker → 4 under 2 GiB, matching `--workers=4`), 10 s test budget, 3 s slow-te
 Verified by simulated rounds (1/2 → 0/2 → 0/2 restores the 1/2 state and its verdicts; 0/2 → 2/2 keeps the last
 round) and a TB dry run through the full-suite path. Generality: pure loop logic, no task content.
 Cloud: 未评测 (needs a TB gap). Unit tests 105 OK.
+
+## 2026-09-15：保留可操作错误，按失败观察判断修复停滞
+
+云端运行 `2b6406557024`：生成阶段全套验收两次均 46/66，平台评测也是 46/66（69.7%，¥47.993744，28,635 秒）。平台 stdout 显示缺失按钮、隐藏元素以及等待定位器，不能仅凭 `timedOut` 归因为机器性能。最终修复回合触及 10 次请求上限，随后按相同失败测试名称停止。
+
+- Playwright 的 `error` 可能只有整条测试超时，具体定位器在 `errors` 后续项。现在优先保留带调用日志或定位器的错误及其位置。
+- 超时摘要不再推断页面或请求未结束，提示检查具体操作以及缺失/隐藏元素。
+- 最终修复停滞依据文件、测试名、状态、位置、错误和步骤；忽略毫秒数、重试次数噪声。同一测试从按钮错误推进到弹窗错误时允许继续，已有轮次、时间、费用上限仍生效。
+- 通用性：只读运行时 Playwright 报告；不按赛道名、题号、页面文本写分支；适用于所有有 UI 验收的任务。仅 Python 默认路径，Rust 后续需要同步。
+- 验证：3 个诊断回归用例改前失败；改后适配层 unittest 107/107，通过同名测试失败步骤变化后继续到全通过的流程测试。无模型调用。云端改后分数与费用：未评测。
+- 尚未解决：大量失败共用一个 10 请求修复回合的问题，及生成应用中的具体缺失交互；此修改不能作为 66/66 的证据。

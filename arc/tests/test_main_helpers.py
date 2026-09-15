@@ -434,6 +434,26 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         self.assertEqual(flow.restored, ["sha0"])
         self.assertTrue(flow.test_verdict["REQ-1"]); self.assertFalse(flow.test_verdict["REQ-2"])
 
+    def test_should_continue_when_same_test_reaches_a_new_failed_operation(self):
+        from unittest.mock import patch
+        flow = self._flow([1, 1, 2])
+        original = flow.run_specs
+        observations = iter(["waiting for button", "waiting for dialog", ""])
+        calls = []
+        def run_specs(*args, **kwargs):
+            summary = original(*args, **kwargs)
+            message = next(observations)
+            for result in summary.results:
+                if not result.ok:
+                    result.message = message
+            calls.append(message)
+            return summary
+        flow.run_specs = run_specs
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+            flow.final_acceptance()
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(flow.test_verdict.values()))
+
     def test_should_not_restore_when_last_round_is_best(self):
         import os
         os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "1"
