@@ -69,6 +69,9 @@ pub struct RunCommand {
     /// arc-policy.toml; built-in defaults when omitted.
     #[arg(long, value_name = "FILE")]
     pub policy: Option<PathBuf>,
+    /// Ordered per-request model rules (also OCTOS_ARC_MODEL_ROUTES).
+    #[arg(long, value_name = "JSON")]
+    pub model_routes_json: Option<String>,
     /// Walk the whole flow without calling the model (also OCTOS_ARC_DRYRUN=1).
     #[arg(long)]
     pub dry_run: bool,
@@ -106,6 +109,11 @@ pub fn prompts_dir(policy_path: Option<&Path>, policy: &Policy) -> Option<PathBu
 
 pub fn execute_run(command: RunCommand) -> Result<i32> {
     let spec = RunnerSpec::read(&command.spec)?;
+    let raw_routes = command
+        .model_routes_json
+        .clone()
+        .unwrap_or_else(|| std::env::var("OCTOS_ARC_MODEL_ROUTES").unwrap_or_default());
+    let routes = crate::routing::parse(&raw_routes)?;
     let (mut policy, applied) = resolve_policy(command.policy.as_deref(), &command.overrides)?;
     if command.dry_run {
         policy.debug.dry_run = true;
@@ -114,7 +122,7 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
     let tree = tree::load(&spec.requirement_path)?;
     std::fs::create_dir_all(&spec.output_dir)?;
     let output_dir = spec.output_dir.canonicalize()?;
-    let spec = RunnerSpec { output_dir, ..spec };
+    let mut spec = RunnerSpec { output_dir, ..spec };
     let arc_dir = spec.output_dir.join(".arc");
     let mut events = Events::open(&arc_dir)?;
     events.log(format!(
@@ -138,6 +146,18 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
     }
     let ledger = UsageLedger::shared(&arc_dir, &spec.model.model, &spec.model.provider);
     let dry_run = policy.debug.dry_run;
+    let relay = if routes.is_empty() || dry_run {
+        None
+    } else {
+        let relay = crate::routing::Relay::start(&spec.model.base_url, routes, &arc_dir)?;
+        spec.model.base_url = relay.base_url.clone();
+        ledger
+            .lock()
+            .expect("usage ledger")
+            .disable_single_model_pricing();
+        events.log("[routing] per-request model selection enabled; actual models recorded in model-routes.jsonl");
+        Some(relay)
+    };
     let llm: Box<dyn Completer> = if dry_run {
         events.log("[llm] dry run: no model calls");
         Box::new(DryRunCompleter { calls: 0 })
@@ -166,6 +186,7 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
         events,
         executable,
         dry_run,
+        routing: relay.as_ref().map(|r| r.control.clone()),
     };
     let mut flow = Flow::new(&spec, inputs)?;
     let outcome = flow.run();

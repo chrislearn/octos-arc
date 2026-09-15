@@ -202,6 +202,7 @@ pub struct UsageLedger {
     reasoning_tokens: u64,
     cache_hit_tokens: u64,
     cost: f64,
+    single_model_pricing: bool,
 }
 
 impl UsageLedger {
@@ -218,6 +219,7 @@ impl UsageLedger {
             reasoning_tokens: 0,
             cache_hit_tokens: 0,
             cost: 0.0,
+            single_model_pricing: true,
         }
     }
 
@@ -234,7 +236,15 @@ impl UsageLedger {
         std::sync::Arc::new(std::sync::Mutex::new(Self::new(arc_dir, model, provider)))
     }
 
+    /// Routed turns may contain multiple models; the default model's price is invalid.
+    pub fn disable_single_model_pricing(&mut self) {
+        self.single_model_pricing = false;
+    }
+
     fn price(&mut self, usage: &TokenUsage) {
+        if !self.single_model_pricing {
+            return;
+        }
         let pricing_provider = if self.model.to_lowercase().contains("deepseek") {
             "deepseek"
         } else {
@@ -355,7 +365,7 @@ impl UsageLedger {
             "reasoning_tokens": self.reasoning_tokens,
             "prompt_cache_hit_tokens": self.cache_hit_tokens,
             "total_tokens": self.prompt_tokens + self.completion_tokens,
-            "estimated_cost": self.cost,
+            "estimated_cost": if self.single_model_pricing { Some(self.cost) } else { None },
         })
     }
 }
@@ -656,6 +666,14 @@ impl Completer for DryRunCompleter {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn routed_usage_does_not_claim_the_default_models_price() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ledger = super::UsageLedger::new(dir.path(), "default-model", "openai");
+        ledger.disable_single_model_pricing();
+        assert!(ledger.totals()["estimated_cost"].is_null());
+    }
+
     use super::*;
 
     #[test]

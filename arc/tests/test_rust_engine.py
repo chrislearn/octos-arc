@@ -97,3 +97,19 @@ class RunnerSpecTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelRouteCommandTests(unittest.TestCase):
+    def test_routes_are_explicit_kernel_argument(self):
+        from pathlib import Path
+        from unittest.mock import patch, MagicMock
+        from rust_engine import run_kernel
+        proc = MagicMock()
+        proc.stdout = []
+        proc.wait.return_value = 0
+        rules = '[{"model":"small","phases":["implement"]}]'
+        with patch('rust_engine.subprocess.Popen', return_value=proc) as launch:
+            run_kernel('octos', Path('spec.json'), Path('policy.toml'), None,
+                       lambda _: None, {'OCTOS_ARC_MODEL_ROUTES': rules})
+        args = launch.call_args.args[0]
+        self.assertEqual(args[args.index('--model-routes-json') + 1], rules)
