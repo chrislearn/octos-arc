@@ -41,6 +41,25 @@ class TransientTests(unittest.TestCase):
         self.assertFalse(OctosDriver._transient("octos turn timed out"))
         self.assertFalse(OctosDriver._transient("octos timed out after 900s"))
 
+    def test_should_not_retry_account_errors_or_numbers_in_request_ids(self):
+        for text in (
+            'HTTP 402 insufficient_balance request id 503429401',
+            'HTTP 401 authentication failed',
+            'HTTP 403 forbidden: request timed out',
+            'provider quota exhausted rate limit',
+            'bad input request id 502',
+        ):
+            self.assertFalse(OctosDriver._transient(text), text)
+
+    def test_should_abort_flow_before_falling_back_to_another_generation(self):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=3000), Path("."), Path("."))
+        flow.driver = SimpleNamespace(run=lambda *args: (False, "HTTP 402 insufficient_balance"))
+        with self.assertRaises(m.PermanentProviderError):
+            flow.turn("implement", 60, "node implement")
+
     def test_should_retry_provider_errors(self):
         self.assertTrue(OctosDriver._transient("HTTP 503 Service Temporarily Unavailable"))
         self.assertTrue(OctosDriver._transient("failed to send streaming request"))

@@ -122,11 +122,39 @@ pub fn is_transient(text: &str) -> bool {
     if lowered.contains("octos turn timed out") || lowered.contains("turn timed out after") {
         return false;
     }
+    static HTTP_STATUS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"\bhttp(?:/\d(?:\.\d)?)?\s+(\d{3})\b").unwrap()
+    });
+    let codes: Vec<_> = HTTP_STATUS
+        .captures_iter(&lowered)
+        .map(|c| c[1].to_string())
+        .collect();
+    if codes
+        .iter()
+        .any(|c| matches!(c.as_str(), "401" | "402" | "403"))
+        || [
+            "insufficient_balance",
+            "quota exhausted",
+            "balance is exhausted",
+            "invalid_api_key",
+            "authentication failed",
+            "unauthorized",
+        ]
+        .iter()
+        .any(|term| lowered.contains(term))
+    {
+        return false;
+    }
+    if !codes.is_empty() {
+        return codes.iter().any(|c| {
+            matches!(
+                c.as_str(),
+                "408" | "425" | "429" | "500" | "502" | "503" | "504"
+            )
+        });
+    }
     [
         "temporarily unavailable",
-        "503",
-        "502",
-        "429",
         "rate limit",
         "timeout",
         "timed out",
@@ -134,10 +162,6 @@ pub fn is_transient(text: &str) -> bool {
         "overloaded",
         "failed to send",
         "streaming request",
-        "403",
-        "authentication failed",
-        "401",
-        "unauthorized",
     ]
     .iter()
     .any(|needle| lowered.contains(needle))
@@ -653,6 +677,12 @@ mod tests {
         assert!(is_transient("HTTP 503 Service Temporarily Unavailable"));
         assert!(is_transient("failed to send streaming request"));
         assert!(!is_transient("codegen reply contained no blocks"));
+        assert!(!is_transient(
+            "HTTP 402 insufficient_balance request id 503429401"
+        ));
+        assert!(!is_transient("HTTP 401 authentication failed"));
+        assert!(!is_transient("HTTP 403 forbidden: request timed out"));
+        assert!(!is_transient("bad input request id 502"));
     }
 
     #[test]

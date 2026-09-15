@@ -700,6 +700,18 @@ class DryRunDriver:
         pass
 
 
+class PermanentProviderError(RuntimeError):
+    """Account failures require external action, not another generation attempt."""
+
+
+def permanent_provider_error(text: str) -> bool:
+    lowered = text.lower()
+    codes = re.findall(r"\bhttp(?:/\d(?:\.\d)?)?\s+(\d{3})\b", lowered)
+    return any(code in {"401", "402", "403"} for code in codes) or any(term in lowered for term in (
+        "insufficient_balance", "quota exhausted", "balance is exhausted", "invalid_api_key",
+        "authentication failed", "unauthorized"))
+
+
 class OctosDriver:
     """stdio UI-protocol session (default) or one-shot chat turns.
 
@@ -803,10 +815,14 @@ class OctosDriver:
         lowered = text.lower()
         if "octos turn timed out" in lowered or "octos timed out after" in lowered:
             return False  # our own wall-clock cap, not a provider hiccup: never replay the turn
+        if permanent_provider_error(text):
+            return False
+        codes = re.findall(r"\bhttp(?:/\d(?:\.\d)?)?\s+(\d{3})\b", lowered)
+        if codes:
+            return any(code in {"408", "425", "429", "500", "502", "503", "504"} for code in codes)
         return any(k in lowered for k in (
-            "temporarily unavailable", "503", "502", "429", "rate limit", "timeout", "timed out",
-            "connection reset", "overloaded", "failed to send", "streaming request",
-            "403", "authentication failed", "401", "unauthorized"))
+            "temporarily unavailable", "rate limit", "timeout", "timed out",
+            "connection reset", "overloaded", "failed to send", "streaming request"))
 
     def _run_with_retries(self, fn, attempts: int = 3) -> tuple[bool, str]:
         ok, text = fn()
@@ -1275,6 +1291,8 @@ class Flow:
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
+        if not ok and permanent_provider_error(text):
+            raise PermanentProviderError(text[:1000])
         if proxy is not None and proxy.turn_budget and proxy.turn_requests > proxy.turn_budget:
             log(f"[guard] {label}: request budget {proxy.turn_budget} hit; turn forced to finish")
         for c in monitor.corrections():
@@ -2335,7 +2353,7 @@ class Flow:
             _postflight_structure_check(self.output_dir)
             _free_web_port(self.web_port)
             self.events.mark_run_failed(str(exc)[:1000])
-            return 0
+            return 1 if isinstance(exc, PermanentProviderError) else 0
 
     def mark_folders(self) -> None:
         """The platform counts FOLDER nodes as requirements too ("45 requirements
