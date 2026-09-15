@@ -13,10 +13,8 @@ Session sources, first one that works wins:
                            cookie is kept in memory only
 Without a session the leaderboards still print; the "our runs" table says so.
 
-Pre-generated entries: the boards contain uploads of finished apps that
-never ran an agent (cost ~0, runtime 1-2 s). They are flagged when
-total_token_cost < PREGEN_COST_CNY and avg_runtime_seconds < PREGEN_SECONDS,
-and a second rank ("real-agent rank") is computed excluding them.
+Ranks follow the official leaderboard response order without excluding entries.
+Cost and runtime alone do not establish how an application was generated.
 
 usage:
   python3 arc/scoreboard.py                       # print
@@ -37,8 +35,6 @@ import urllib.request
 
 BASE = "https://arc-bench.com/api"
 TRACKS = ["smoke", "smoke-evolution", "ticket-booking", "arc-bench-web"]
-PREGEN_COST_CNY = 0.001
-PREGEN_SECONDS = 5
 NOTES_MARKER = "<!-- notes: everything below this line is kept across regenerations -->"
 
 
@@ -123,15 +119,6 @@ def fetch_runs(c: Client, limit: int = 200) -> list[dict]:
     return runs
 
 
-def is_pregen(entry: dict) -> bool:
-    """Coordinator ruling (2026-09-14): an uploaded app is anything under
-    PREGEN_COST_CNY *and* PREGEN_SECONDS — that magnitude cannot contain a
-    single app-generating model call. Every other paid entry is a rival."""
-    cost = entry.get("total_token_cost") or 0.0
-    secs = entry.get("avg_runtime_seconds") or 0
-    return cost < PREGEN_COST_CNY and secs < PREGEN_SECONDS
-
-
 # ------------------------------------------------------------------ format
 
 def pct(v) -> str:
@@ -139,7 +126,7 @@ def pct(v) -> str:
 
 
 def cny(v) -> str:
-    return "—" if v is None else f"¥{v:.2f}" if v >= 0.01 else f"¥{v:.4f}"
+    return "—" if v is None else f"¥{v:.2f}" if v >= 0.01 else f"¥{v:.6f}".rstrip("0").rstrip(".")
 
 
 def secs(v) -> str:
@@ -159,21 +146,18 @@ def summary_table(boards: dict[str, list[dict]], runs: list[dict], me: str | Non
     rows = []
     for t in TRACKS:
         board = boards.get(t) or []
-        real = [e for e in board if not is_pregen(e)]
-        pre = len(board) - len(real)
         ours_all = [(i + 1, e) for i, e in enumerate(board) if me and e.get("username") in me]
         if not ours_all:
-            rows.append([t, f"未上榜（榜共 {len(board)} 条，其中预生成 {pre}）", "—", "—", "—", "—", "—"])
+            rows.append([t, f"未上榜（榜共 {len(board)} 条）", "—", "—", "—", "—", "—"])
             continue
         rank, e = ours_all[0]  # best-ranked of our accounts
-        real_rank = next((i + 1 for i, x in enumerate(real) if x is e), None)
         run_ids = ", ".join(
             r["id"] for r in runs
             if r.get("competition_id") == t and r.get("status") in ("PASSED", "FAILED")
             and (r.get("passed_count") or 0) > 0)
         rows.append([
             t,
-            f"{rank}/{len(board)}（真实 agent 内 {real_rank}/{len(real)}，预生成 {pre}）",
+            f"{rank}/{len(board)}",
             pct(e.get("avg_pass_rate")), pct(e.get("avg_feature_implementation_rate")),
             cny(e.get("total_token_cost")), secs(e.get("avg_runtime_seconds")),
             run_ids or "—",
@@ -200,29 +184,25 @@ def runs_table(runs: list[dict]) -> str:
 
 def board_table(track: str, board: list[dict], me: str | None, top: int) -> str:
     rows = []
-    real_rank = 0
     for i, e in enumerate(board):
-        pre = is_pregen(e)
-        if not pre:
-            real_rank += 1
         if i >= top and not (me and e.get("username") in me):
             continue
         name = e.get("username") or ""
-        if me and name == me:
+        if me and name in me:
             name = f"**{name}**"
         rows.append([
-            i + 1, "—" if pre else real_rank, name + (" ⚠预生成" if pre else ""),
+            i + 1, name,
             pct(e.get("avg_pass_rate")), pct(e.get("avg_feature_implementation_rate")),
             cny(e.get("total_token_cost")), secs(e.get("avg_runtime_seconds")),
             e.get("seniority_label") or "",
         ])
-    return md_table(["#", "真实#", "队伍", "通过率", "功能率", "费用", "耗时", "级别"], rows)
+    return md_table(["官方排名", "队伍", "通过率", "功能率", "费用", "耗时", "级别"], rows)
 
 
 def render(boards, runs, me, top) -> str:
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     parts = [f"# ARC-Bench 成绩看板\n\n生成时间：{now}；账号：{', '.join(me) if me else '未登录'}；"
-             f"预置判定：费用 < ¥{PREGEN_COST_CNY} 且耗时 < {PREGEN_SECONDS}s；其余费用 > 0 的一律算对手。\n",
+             "排名按官方榜单顺序，不排除任何参赛条目。\n",
              "## 各赛道我们的位置\n", summary_table(boards, runs, me), ""]
     if runs:
         parts += ["## 我们的全部运行\n", runs_table(runs), ""]
@@ -230,8 +210,7 @@ def render(boards, runs, me, top) -> str:
         parts += ["## 我们的全部运行\n\n（未登录，无法读取运行列表）\n"]
     for t in TRACKS:
         board = boards.get(t) or []
-        pre = sum(1 for e in board if is_pregen(e))
-        parts += [f"## 榜单 · {t}（{len(board)} 条，预生成 {pre} 条，显示前 {top} 名与我们）\n",
+        parts += [f"## 榜单 · {t}（{len(board)} 条，显示前 {top} 名与我们）\n",
                   board_table(t, board, me, top), ""]
     return "\n".join(parts)
 
