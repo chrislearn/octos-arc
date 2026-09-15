@@ -185,3 +185,47 @@ class BestRepairStateTests(unittest.TestCase):
         self.assertFalse(flow.acceptance_loop('node', ['example.spec.ts'], time.time()+1000))
         flow.turn.assert_called_once()
         flow.restore_app.assert_called_once_with('same-commit')
+
+
+class RepairModeTransitionTests(unittest.TestCase):
+    def test_should_try_tool_repair_before_stopping_at_codegen_plateau(self):
+        import main
+        import time
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        for tools_succeed, rounds in ((True, 5), (False, 5), (False, 2)):
+            with self.subTest(tools_succeed=tools_succeed, rounds=rounds):
+                flow = object.__new__(main.Flow)
+                flow.runner = object()
+                flow.repair_rounds = rounds
+                flow.min_repair_seconds = 0
+                flow.node_timeout = 60
+                flow.smoke_port = 43219
+                flow.web_port = 3000
+                flow.tests_dir = None
+                flow.pending_corrections = []
+                flow.head = lambda: 'same-commit'
+                flow.codegen_mode = lambda: not flow.codegen_blocked
+                flow.wound_down = lambda: False
+                flow.time_up = lambda: False
+                flow.record_tests = Mock()
+                flow.snapshot_sources = Mock()
+                flow.sources_text = lambda: ''
+                flow.corrections_text = lambda: ''
+                flow.codegen_turn = Mock()
+                flow.turn = Mock()
+                flow.commit = Mock()
+                flow.restore_app = Mock()
+                summaries = [RunSummary(passed=0, total=1, results=[
+                    TestOutcome('behavior', False, 'failed', 1, message=f'missing control {i}')])
+                    for i in range(3)]
+                summaries.append(RunSummary(passed=int(tools_succeed), total=1, results=[
+                    TestOutcome('behavior', tools_succeed, 'passed' if tools_succeed else 'failed',
+                                1, message='' if tools_succeed else 'still missing control')]))
+                flow.run_specs = Mock(side_effect=summaries)
+                with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_REPAIRS': '2'}):
+                    self.assertEqual(flow.acceptance_loop('node', ['generic.spec.ts'], time.time()+1000),
+                                     tools_succeed)
+                self.assertEqual(flow.codegen_turn.call_count, 2)
+                self.assertEqual(flow.turn.call_count, int(rounds > 2))
+                self.assertEqual(flow.run_specs.call_count, 4 if rounds > 2 else 3)

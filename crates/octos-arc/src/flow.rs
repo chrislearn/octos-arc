@@ -1654,6 +1654,7 @@ impl Flow {
                 "[acceptance] {node_id} round {attempt}: {passed}/{}",
                 summary.total
             ));
+            let was_codegen = self.codegen_mode();
             let normalized = if summary.results.is_empty() {
                 BTreeSet::from([vec![failures.clone()]])
             } else {
@@ -1698,7 +1699,10 @@ impl Flow {
                 stalls = 0;
             } else if passed_i == best_passed && attempt > 0 {
                 stalls += 1;
-                if stalls >= self.policy.repair.stall_limit {
+                // A newly selected strategy gets one attempt within the existing budgets.
+                if stalls >= self.policy.repair.stall_limit
+                    && !(was_codegen && self.codegen_blocked)
+                {
                     self.log(format!(
                         "[flow] {node_id}: no improvement for two repairs; keeping the best state"
                     ));
