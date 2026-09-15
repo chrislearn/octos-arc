@@ -337,7 +337,7 @@ def inline_sources(output_dir: Path, max_chars: int = 40000, exts: tuple = (".js
         if base.is_dir():
             for path in sorted(base.rglob("*")):
                 rel = path.relative_to(output_dir)
-                if any(seg in ("node_modules", "dist", ".git", "data") for seg in rel.parts):
+                if any(seg in ("node_modules", "dist", ".git") for seg in rel.parts):
                     continue
                 if path.is_file() and path.suffix in exts:
                     files.append(path)
@@ -355,7 +355,7 @@ def inline_sources(output_dir: Path, max_chars: int = 40000, exts: tuple = (".js
     return ("Current source files (quoted; edit them directly, no need to read):\n" + "".join(parts)) if parts else ""
 
 
-SOURCE_EXTS = (".html", ".js", ".mjs", ".cjs", ".css")  # visibility and layout failures may originate in CSS
+SOURCE_EXTS = (".html", ".js", ".mjs", ".cjs", ".css", ".json")  # visibility and layout failures may originate in CSS
 
 
 def app_source_files(output_dir: Path, exts: tuple = SOURCE_EXTS) -> list[Path]:
@@ -366,7 +366,7 @@ def app_source_files(output_dir: Path, exts: tuple = SOURCE_EXTS) -> list[Path]:
             continue
         for path in sorted(base.rglob("*")):
             rel = path.relative_to(output_dir)
-            if any(seg in ("node_modules", "dist", ".git", "data") for seg in rel.parts):
+            if any(seg in ("node_modules", "dist", ".git") for seg in rel.parts):
                 continue
             if path.is_file() and path.suffix in exts:
                 files.append(path)
@@ -388,7 +388,8 @@ def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
     """Quote the existing sources a node most likely touches: every backend entry
     file first (the router every node extends), then pages ranked by how many
     of the spec's terms (locators, texts, routes) they contain, until the budget
-    is spent; the rest are listed by name so the model knows they exist."""
+    is spent. JSON state follows code; the rest are listed by name so the
+    model knows they exist. The budget counts file contents, not headings."""
     files = app_source_files(output_dir)
     if not files:
         return ""
@@ -403,11 +404,12 @@ def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
         hits = sum(1 for t in terms if t in low)
         rel = path.relative_to(output_dir)
         is_backend = rel.parts[0] == "backend"
-        scored.append((0 if is_backend else 1, -hits, len(text), rel, text))
+        priority = 2 if path.suffix == ".json" else (0 if is_backend else 1)
+        scored.append((priority, -hits, len(text), rel, text))
     scored.sort(key=lambda x: (x[0], x[1], x[2]))
     parts, omitted, total = [], [], 0
     for _, neg_hits, size, rel, text in scored:
-        if total + size > max_chars and parts:
+        if total + size > max_chars:
             omitted.append(f"{rel} ({size} chars, {-neg_hits} spec terms)")
             continue
         total += size
