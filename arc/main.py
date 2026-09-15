@@ -890,7 +890,7 @@ CODEGEN_SIZE_FULL = 'Keep the implementation concise while preserving all requir
 # Tiny-spec tier (OCTOS_ARC_TINY_SPEC_CHARS, default 1500; OCTOS_ARC_TINY=0 disables): the prompt is the
 # spec's own statements only, the reply is one HTML file, the server is a fixed harness scaffold (no task
 # logic), thinking is off. First-pass failure falls back to the compact codegen tier for the same node.
-TINY_SYSTEM = "Reply with HTML only."
+TINY_SYSTEM = 'Reply with HTML only. Honor supplied selectors and accessible names. getByTestId targets data-testid; it does not target id.'
 
 TINY_PROMPT = """\
 Task and public acceptance example (implement general behavior):
@@ -1402,6 +1402,8 @@ class Flow:
         passed = (not summary.error) and summary.total and summary.passed == summary.total
         log(f"[flow] {node_id}: tiny tier {'passed' if passed else 'failed'} its specs"
             f" ({summary.passed}/{summary.total})" if not summary.error else f"[flow] {node_id}: tiny tier could not run specs")
+        if not passed:
+            log(f"[acceptance] {node_id} first-attempt failure: {summary.error or failure_summaries(summary)}")
         return bool(passed)
 
     def codegen_reasoning(self, spec_chars: int) -> str | None:

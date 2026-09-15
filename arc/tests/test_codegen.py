@@ -115,3 +115,29 @@ class PreserveFileSemanticsTests(unittest.TestCase):
             write_files(root, {"backend/server.js": js, "backend/sample.json": data})
             self.assertEqual((root / "backend/server.js").read_text(), js)
             self.assertEqual((root / "backend/sample.json").read_text(), data)
+
+
+class TinyFailureEvidenceTests(unittest.TestCase):
+    def test_failed_selector_is_logged_before_compact_fallback(self):
+        import main
+        from acceptance import RunSummary, TestOutcome
+        from unittest.mock import patch
+        flow = object.__new__(main.Flow)
+        with tempfile.TemporaryDirectory() as tmp:
+            flow.output_dir = Path(tmp)
+            flow.tests_dir = Path(tmp)
+            flow.web_port = 43219
+            flow.runner = object()
+            flow.spec_bodies = lambda _: 'public contract'
+            def generated(*args, **kwargs):
+                page = flow.output_dir / 'frontend/src/index.html'
+                page.parent.mkdir(parents=True, exist_ok=True)
+                page.write_text('<p>ready</p>')
+                return True, 'generated'
+            flow.codegen_turn = generated
+            flow.run_specs = lambda _: RunSummary(total=1, results=[TestOutcome(
+                title='status display', ok=False, status='failed', duration_ms=5000,
+                message="getByTestId('status-output'): element not found")])
+            with patch('main.log') as log:
+                self.assertFalse(flow.tiny_turn('node', ['public.spec.ts'], 60, {'description': 'show status'}))
+                self.assertIn("getByTestId('status-output')", '\n'.join(str(c.args[0]) for c in log.call_args_list))

@@ -1355,7 +1355,10 @@ impl Flow {
         }
         let summary = self.run_specs(specs, None, false);
         if summary.error.is_some() {
-            self.log(format!("[flow] {node_id}: tiny tier could not run specs"));
+            self.log(format!(
+                "[flow] {node_id}: tiny tier could not run specs: {}",
+                summary.error.as_deref().unwrap_or("unknown error")
+            ));
             return false;
         }
         let passed = summary.total > 0 && summary.passed == summary.total;
@@ -1365,6 +1368,12 @@ impl Flow {
             summary.passed,
             summary.total
         ));
+        if !passed {
+            self.log(format!(
+                "[acceptance] {node_id} first-attempt failure: {}",
+                self.failures_of(&summary)
+            ));
+        }
         passed
     }
 
