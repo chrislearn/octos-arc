@@ -186,11 +186,11 @@ pub fn write_files(root: &Path, files: &BTreeMap<String, String>) -> Result<Vec<
 }
 
 /// Codegen turns never emit package.json: the harness writes the two fixed
-/// manifests. The build copies src/* to dist and also emits extensionless
-/// page copies (so `/register` → `dist/register` resolves); the backend pins
+/// manifests. The build preserves the source tree without inventing route aliases;
+/// application routing resolves clean URLs. The backend pins
 /// the CommonJS loader so Node's module detection never loads a `require`
 /// server as ESM.
-pub const FRONTEND_MANIFEST: &str = "{\n  \"name\": \"f\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"node -e \\\"const f=require('fs');f.mkdirSync('dist',{recursive:true});for(const n of f.readdirSync('src')){f.copyFileSync('src/'+n,'dist/'+n);if(n.endsWith('.html')&&n!=='index.html')f.copyFileSync('src/'+n,'dist/'+n.slice(0,-5))}\\\"\"\n  }\n}\n";
+pub const FRONTEND_MANIFEST: &str = "{\n  \"name\": \"f\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"node -e \\\"const f=require('fs');f.rmSync('dist',{recursive:true,force:true});f.cpSync('src','dist',{recursive:true})\\\"\"\n  }\n}\n";
 pub const BACKEND_MANIFEST: &str = "{\n  \"name\": \"b\",\n  \"private\": true,\n  \"type\": \"commonjs\",\n  \"scripts\": {\n    \"start\": \"node server.js\"\n  }\n}\n";
 
 /// Write the manifests that are missing; returns the ones written.
@@ -850,7 +850,7 @@ mod tests {
             frontend["scripts"]["build"]
                 .as_str()
                 .unwrap()
-                .contains("n.slice(0,-5)")
+                .contains("cpSync")
         );
     }
 
