@@ -1723,9 +1723,7 @@ class Flow:
                 # Cloud 91aaecaf31af: three codegen rounds, identical observation.
                 self.codegen_blocked = True
                 self.pending_corrections.append(
-                    "Your last two attempts produced EXACTLY the same failure. The same logic will fail again: read the "
-                    "Expected/Received values in the observation, change the approach (e.g. render the initial state in "
-                    "the served HTML instead of after a fetch), and check the spec's locator against your markup.")
+                    'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
                 log(f"[flow] {node_id}: identical failure twice; switching repairs to tool mode")
             previous_failures = normalized
             if attempt >= int(os.environ.get("OCTOS_ARC_CODEGEN_REPAIRS", "2")) and passed < summary.total \
