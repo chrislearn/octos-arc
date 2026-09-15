@@ -1720,6 +1720,7 @@ class Flow:
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
+            was_codegen = self.codegen_mode()
             normalized = failure_signature(summary) if summary.results else failures
             if normalized and normalized == previous_failures:
                 # Cloud 91aaecaf31af: three codegen rounds, identical observation.
@@ -1746,7 +1747,8 @@ class Flow:
                 best_passed, best_sha, regressions, stalls = passed, self.head(), 0, 0
             elif passed == best_passed and attempt > 0:
                 stalls += 1
-                if stalls >= 2:
+                if stalls >= 2 and not (was_codegen and self.codegen_blocked):
+                    # Let a newly selected repair strategy run once, within existing budgets.
                     # Cloud f9f0026819f1: six rounds oscillating 4/6 <-> 3/6.
                     log(f"[flow] {node_id}: no improvement for two repairs; keeping the best state")
                     break
