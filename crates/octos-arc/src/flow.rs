@@ -747,10 +747,42 @@ impl Flow {
         let corrections = format!("{}{extra_corrections}", self.corrections_text());
         let sources = self.sources_text();
         let port_rules = self.port_rules();
-        let test_location = self.tests_dir.as_ref().map(|path| {
+        let mut test_location = self.tests_dir.as_ref().map(|path| {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
-            format!("Read-only acceptance directory: {}. Relative spec paths in failure reports refer to this directory. Read relevant specs and helpers here when needed.\n", path.display())
+            format!("Application directory: {}. Read-only acceptance directory: {}. Relative spec paths in failure reports refer to this directory. Read relevant specs and helpers here when needed.\n", self.output_dir.display(), path.display())
         }).unwrap_or_default();
+        if let Some(runner) = &self.runner {
+            let config = runner.work_dir.join("playwright.config.ts");
+            let binary = runner.root.join("node_modules/.bin/playwright");
+            if config.is_file() && binary.is_file() {
+                let quote = |text: &str| format!("'{}'", text.replace('\'', "'\"'\"'"));
+                let mut args = vec![
+                    "env".to_string(),
+                    format!("E2E_BASE_URL=http://127.0.0.1:{}", self.smoke_port),
+                    format!("NODE_PATH={}", runner.root.join("node_modules").display()),
+                ];
+                for (key, value) in &runner.env_extra {
+                    if key == "PLAYWRIGHT_BROWSERS_PATH" {
+                        args.push(format!("{key}={value}"));
+                    }
+                }
+                args.extend([
+                    binary.display().to_string(),
+                    "test".into(),
+                    "-c".into(),
+                    config.display().to_string(),
+                ]);
+                let command = format!(
+                    "cd {} && {}",
+                    quote(&runner.work_dir.display().to_string()),
+                    args.iter()
+                        .map(|arg| quote(arg))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
+                test_location.push_str(&format!("Prepared acceptance entry (after building and starting the app):\n```sh\n{command}\n```\nAppend a relevant spec path under this configuration's tests/ directory to run a subset. Keep the prepared tests and configuration unchanged. The harness re-runs acceptance after your edits.\n"));
+            }
+        }
         let failures_text = if failures.is_empty() {
             "(no detail)"
         } else {
@@ -3089,6 +3121,68 @@ mod tests {
         flow.codegen_turn("build", Duration::from_secs(60), "implement");
         flow.codegen_turn("fix", Duration::from_secs(60), "repair");
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn repair_entry_executes_with_spaces_and_quotes_in_paths() {
+        use std::os::unix::fs::PermissionsExt;
+        let (mut flow, _, dir) = rejected_flow("unused");
+        let root = dir.path().join("runner space ' quote");
+        let work = root.join("prepared");
+        std::fs::create_dir_all(&work).unwrap();
+        let config = work.join("playwright.config.ts");
+        std::fs::write(&config, "// prepared").unwrap();
+        let binary = root.join("node_modules/.bin/playwright");
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nprintf '%s\\n' \"$E2E_BASE_URL\" \"$@\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        flow.tests_dir = Some(dir.path().join("original tests"));
+        flow.runner = Some(AcceptanceRunner {
+            root,
+            tests_dir: flow.tests_dir.clone().unwrap(),
+            work_dir: work,
+            timeout_ms: 10000,
+            workers: 1,
+            fully_parallel: false,
+            env_extra: vec![],
+            wall_timeout: Duration::from_secs(60),
+        });
+        let prompt = flow.repair_prompt("node", 0, 1, "failed", "", "");
+        let command = prompt
+            .split("```sh\n")
+            .nth(1)
+            .unwrap()
+            .split("\n```")
+            .next()
+            .unwrap();
+        let output = std::process::Command::new("sh")
+            .args(["-c", command])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            vec![
+                format!("http://127.0.0.1:{}", flow.smoke_port),
+                "test".into(),
+                "-c".into(),
+                config.display().to_string()
+            ]
+        );
+        std::fs::remove_file(config).unwrap();
+        assert!(
+            !flow
+                .repair_prompt("node", 0, 1, "failed", "", "")
+                .contains("```sh")
+        );
     }
 
     #[test]

@@ -62,6 +62,7 @@ import json
 import os
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -1482,9 +1483,27 @@ class Flow:
     def repair_test_location(self) -> str:
         if not self.tests_dir:
             return ""
-        return (f"Read-only acceptance directory: {self.tests_dir.resolve()}. "
-                "Relative spec paths in failure reports refer to this directory. "
-                "Read relevant specs and helpers here when needed.\n")
+        context = (f"Application directory: {self.output_dir.resolve()}. "
+                   f"Read-only acceptance directory: {self.tests_dir.resolve()}. "
+                   "Relative spec paths in failure reports refer to this directory. "
+                   "Read relevant specs and helpers here when needed.\n")
+        runner = getattr(self, "runner", None)
+        if runner:
+            config = runner.work_dir / "playwright.config.ts"
+            binary = runner.root / "node_modules" / ".bin" / "playwright"
+            if config.is_file() and binary.is_file():
+                env_args = [f"E2E_BASE_URL=http://127.0.0.1:{self.smoke_port}",
+                            f"NODE_PATH={runner.root / 'node_modules'}"]
+                browsers = getattr(runner, "env_extra", {}).get("PLAYWRIGHT_BROWSERS_PATH")
+                if browsers is not None:
+                    env_args.append(f"PLAYWRIGHT_BROWSERS_PATH={browsers}")
+                command = (f"cd {shlex.quote(str(runner.work_dir))} && "
+                           + shlex.join(["env", *env_args, str(binary), "test", "-c", str(config)]))
+                context += ("Prepared acceptance entry (after building and starting the app):\n"
+                            f"```sh\n{command}\n```\n"
+                            "Append a relevant spec path under this configuration's tests/ directory to run a subset. "
+                            "Keep the prepared tests and configuration unchanged. The harness re-runs acceptance after your edits.\n")
+        return context
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         if not self.tests_dir:

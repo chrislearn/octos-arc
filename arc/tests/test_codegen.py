@@ -229,3 +229,34 @@ class RepairModeTransitionTests(unittest.TestCase):
                 self.assertEqual(flow.codegen_turn.call_count, 2)
                 self.assertEqual(flow.turn.call_count, int(rounds > 2))
                 self.assertEqual(flow.run_specs.call_count, 4 if rounds > 2 else 3)
+
+
+class RepairEntryTests(unittest.TestCase):
+    def test_should_supply_executable_test_entry_with_quoted_paths(self):
+        import main
+        import json
+        import subprocess
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory(prefix="runner space ' ") as tmp:
+            root = Path(tmp).resolve()
+            work = root / 'prepared'
+            work.mkdir()
+            config = work / 'playwright.config.ts'
+            config.write_text('// prepared')
+            binary = root / 'node_modules/.bin/playwright'
+            binary.parent.mkdir(parents=True)
+            binary.write_text('#!/usr/bin/env python3\nimport os,sys,json\nprint(json.dumps([os.getcwd(), os.environ["E2E_BASE_URL"], sys.argv[1:]]))\n')
+            binary.chmod(0o755)
+            flow = object.__new__(main.Flow)
+            flow.tests_dir = root / 'original tests'
+            flow.output_dir = root / 'application'
+            flow.smoke_port = 43219
+            flow.runner = SimpleNamespace(root=root, work_dir=work)
+            context = flow.repair_test_location()
+            self.assertIn(str(flow.output_dir), context)
+            command = context.split('```sh\n')[1].split('\n```')[0]
+            out = subprocess.check_output(['sh', '-c', command], text=True)
+            self.assertEqual(json.loads(out), [str(work), 'http://127.0.0.1:43219',
+                                               ['test', '-c', str(config)]])
+            config.unlink()
+            self.assertNotIn('```sh', flow.repair_test_location())
