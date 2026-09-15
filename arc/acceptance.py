@@ -723,6 +723,12 @@ class AppServer:
                 os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError, OSError):
                 pass
+            # Collect the owned child's exit status instead of leaving it for PID 1
+            # in containers whose init process does not reap orphaned children.
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
             self.proc = None
         free_port(self.port)
         if self.grader_like:
