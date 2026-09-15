@@ -26,11 +26,6 @@ static META_CHARSET: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)<meta[^>]+charset").unwrap());
 static HEAD_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<head[^>]*>").unwrap());
 static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<html[^>]*>").unwrap());
-/// Absolute hrefs the server renders (`codegen.HREF`): the links it fills the
-/// NAV placeholder with, derived from its own source rather than a fixed list.
-static HREF: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?i)href=["'](/[^"'#?]*)["']"#).unwrap());
-
 pub const CHARSET_META: &str = "<meta charset=\"utf-8\">";
 pub const NAV_PLACEHOLDER: &str = "<!--NAV-->";
 
@@ -158,61 +153,10 @@ pub fn repair_flattened_js(path: &Path) -> bool {
     false
 }
 
-/// The multi-node prompt mandates one navigation mechanism: pages carry the
-/// NAV placeholder, the server fills it. Models keep adding static copies of
-/// the same links next to it (strict-mode violation). When the server
-/// implements the placeholder, drop the static duplicates from pages that
-/// carry it. Returns the page names that changed.
-pub fn dedupe_nav_links(root: &Path) -> Vec<String> {
-    let server = root.join("backend/server.js");
-    let Ok(server_text) = std::fs::read_to_string(&server) else {
-        return vec![];
-    };
-    if !server_text.contains(NAV_PLACEHOLDER) {
-        return vec![];
-    }
-    let mut nav_hrefs: Vec<String> = HREF
-        .captures_iter(&server_text)
-        .map(|c| c[1].to_string())
-        .collect();
-    nav_hrefs.sort();
-    nav_hrefs.dedup();
-    if nav_hrefs.is_empty() {
-        return vec![];
-    }
-    let alternatives = nav_hrefs
-        .iter()
-        .map(|h| regex::escape(h))
-        .collect::<Vec<_>>()
-        .join("|");
-    let Ok(nav_link) = Regex::new(&format!(
-        r#"(?is)<a\b[^>]*href=["'](?:{alternatives})["'][^>]*>.*?</a>\s*"#
-    )) else {
-        return vec![];
-    };
-    let mut changed = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root.join("frontend/src")) else {
-        return vec![];
-    };
-    let mut pages: Vec<PathBuf> = entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "html"))
-        .collect();
-    pages.sort();
-    for page in pages {
-        let Ok(text) = std::fs::read_to_string(&page) else {
-            continue;
-        };
-        if !text.contains(NAV_PLACEHOLDER) {
-            continue;
-        }
-        let cleaned = nav_link.replace_all(&text, "");
-        if cleaned != text && std::fs::write(&page, cleaned.as_bytes()).is_ok() {
-            changed.push(page.file_name().unwrap().to_string_lossy().into_owned());
-        }
-    }
-    changed
+/// Compatibility hook: matching hrefs does not prove redundant navigation.
+/// Preserve application semantics; actual acceptance failures drive repairs.
+pub fn dedupe_nav_links(_root: &Path) -> Vec<String> {
+    vec![]
 }
 
 /// Write the parsed blocks under `root`, applying the deterministic repairs.
@@ -223,7 +167,7 @@ pub fn write_files(root: &Path, files: &BTreeMap<String, String>) -> Result<Vec<
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut text = unescape_flattened(body);
+        let mut text = body.clone();
         let ext = dest
             .extension()
             .and_then(|e| e.to_str())
@@ -414,7 +358,7 @@ pub fn relevant_sources(
     spec_text: &str,
     max_chars: usize,
 ) -> String {
-    let files = source_paths(root, &[".html", ".js", ".mjs", ".cjs"]);
+    let files = source_paths(root, &[".html", ".js", ".mjs", ".cjs", ".css"]);
     if files.is_empty() {
         return String::new();
     }
@@ -676,6 +620,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn should_preserve_escape_heavy_valid_source_and_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = "line\n".repeat(20);
+        let js = format!("const text = {};\n", serde_json::to_string(&value).unwrap());
+        let data = serde_json::json!({"text": value}).to_string();
+        let files = BTreeMap::from([
+            ("backend/server.js".to_string(), js.clone()),
+            ("backend/sample.json".to_string(), data.clone()),
+        ]);
+        write_files(dir.path(), &files).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("backend/server.js")).unwrap(),
+            js
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("backend/sample.json")).unwrap(),
+            data
+        );
+    }
+
+    #[test]
     fn should_rank_sources_by_spec_terms_with_backend_first_and_list_the_rest() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -710,7 +675,10 @@ mod tests {
             server < index && index < login,
             "backend first, then by spec-term hits"
         );
-        assert!(!text.contains("style.css"), "stylesheets are never quoted");
+        assert!(
+            text.contains("style.css"),
+            "visibility failures can originate in CSS"
+        );
         let tight = relevant_sources(&Prompts::builtin(), root, spec, 60);
         assert!(tight.contains("Other files, unchanged unless the requirement needs them: "));
         assert!(tight.contains("login.html (") && tight.contains("spec terms)"));
@@ -751,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn should_derive_the_nav_hrefs_to_strip_from_the_server_source() {
+    fn should_preserve_conditional_navigation_links() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::create_dir_all(root.join("backend")).unwrap();
@@ -767,9 +735,9 @@ mod tests {
         )
         .unwrap();
         let changed = dedupe_nav_links(root);
-        assert_eq!(changed, vec!["index.html".to_string()]);
+        assert!(changed.is_empty());
         let page = std::fs::read_to_string(root.join("frontend/src/index.html")).unwrap();
-        assert!(!page.contains("/login"), "server-rendered link removed");
+        assert!(page.contains("/login"), "legitimate entry point preserved");
         assert!(
             page.contains("/about"),
             "links the server does not render stay"
@@ -887,7 +855,7 @@ mod tests {
     }
 
     #[test]
-    fn should_drop_static_nav_links_only_when_the_server_fills_the_placeholder() {
+    fn should_preserve_links_even_when_server_has_a_placeholder() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("frontend/src")).unwrap();
         std::fs::create_dir_all(dir.path().join("backend")).unwrap();
@@ -902,10 +870,10 @@ mod tests {
             "const nav = '<a href=\"/login\">L</a>'; html.replace('<!--NAV-->', nav)",
         )
         .unwrap();
-        assert_eq!(dedupe_nav_links(dir.path()), ["index.html"]);
+        assert!(dedupe_nav_links(dir.path()).is_empty());
         assert_eq!(
             std::fs::read_to_string(dir.path().join("frontend/src/index.html")).unwrap(),
-            "<body><!--NAV--><a href=\"/about\">About</a></body>"
+            page
         );
     }
 
@@ -944,7 +912,7 @@ mod tests {
         assert!(prompt.starts_with("Requirement REQ-1: The home page shows a count.\n"));
         assert!(prompt.contains("process.env.PORT||3000"));
         assert!(prompt.contains("ALSO listen on 3301"));
-        assert!(prompt.contains("index.html <= 20 lines"));
+        assert!(prompt.contains(prompts.get("codegen-size-small")));
         assert!(prompt.contains("\nFiles: frontend/src/index.html"));
         let user = with_format(&prompts, &prompt);
         assert!(user.ends_with("<<<END FILE>>>"));

@@ -131,7 +131,13 @@ def summarize_report(report: dict) -> RunSummary:
                 results = [r for t in tests for r in t.get("results", [])]
                 last = results[-1] if results else {}
                 ok = bool(tests) and all(t.get("status") == "expected" or t.get("ok") for t in tests)
-                err = last.get("error") or (last.get("errors") or [{}])[0] or {}
+                errors = [e for e in [last.get("error"), *(last.get("errors") or [])] if isinstance(e, dict)]
+                # A test-level timeout may precede the actionable locator error.
+                # Prefer its call log and source location over the generic deadline.
+                err = max(errors, key=lambda e: (
+                    "Call log:" in str(e.get("message", "")),
+                    "Locator:" in str(e.get("message", "")),
+                    bool(e.get("location"))), default={})
                 loc = err.get("location") or {}
                 steps = [s.get("title", "") for s in last.get("steps", []) if s.get("title")]
                 loc_file = Path(loc.get("file") or "").name
@@ -194,8 +200,8 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
             continue
         observation = r.message.strip() or f"status {r.status}"
         if r.status == "timedOut" or "timeout" in observation.lower()[:120]:
-            observation = (f"TIMED OUT after {r.duration_ms} ms (the grader kills a test at 10 s; the "
-                           f"page or a request never settled). " + observation)
+            observation = (f"TIMED OUT after {r.duration_ms} ms. Inspect the failed operation below; "
+                           f"a missing or hidden element can also cause a timeout. " + observation)
         observation = observation[:max_observation]
         where = r.location or r.file or "?"
         if r.location and r.file and not r.location.startswith(r.file):
@@ -204,6 +210,23 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")
     return "\n".join(blocks)
+
+
+def failure_signature(summary: RunSummary) -> frozenset[tuple[str, ...]]:
+    """Detect a stalled repair by the observation, not just the test name.
+
+    Ignore elapsed milliseconds and retry counts, which vary without a code
+    change, but retain locator text and source location to detect progress.
+    """
+    def normalize(text: str) -> str:
+        text = _ANSI.sub("", text)
+        text = re.sub(r"\b\d+(?:\.\d+)?\s*ms\b", "<time>", text)
+        text = re.sub(r"\b\d+\s*×", "<repeats>", text)
+        return " ".join(text.split())
+
+    return frozenset((r.file, r.title, r.status, r.location,
+                      normalize(r.message), normalize(" | ".join(r.steps)))
+                     for r in summary.results if not r.ok)
 
 
 # ---------------------------------------------------------------- processes

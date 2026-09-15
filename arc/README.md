@@ -75,3 +75,37 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 | `OCTOS_ARC_TEST_TIMEOUT_MS` / `OCTOS_ARC_SLOW_MS` | 10000 / 3000 | 本地验收单测试超时；超过 SLOW 阈值即提醒模型 |
 
 Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Bench Web 六题的建议参数」。
+
+### 同题内按步骤选择模型（Python 默认路径）
+
+`OCTOS_ARC_MODEL_ROUTES` 接受有序 JSON 规则。同一题的不同节点、首轮与修复可以使用不同模型；匹配依据只有阶段、完整消息与工具定义的字符数、工具/图片能力，不按题名分支。第一条匹配的规则生效，无匹配则保留原请求模型；不配置时保持原行为。
+
+下面仅是配置示例，不是经过费用/质量验证的默认值。模型 ID 来自 2026-09-15 ARC provider 的 `/v1/models`；该端点没有提供参数量和价格，也没有列出 `qwen3.8-27b`。应以使用时 provider 返回的目录和参数能力为准。
+
+```json
+[
+  {
+    "model": "qwen3.6-flash",
+    "phases": ["implement"],
+    "max_input_chars": 8000,
+    "tools": false,
+    "images": false,
+    "parameters": {"max_tokens": 4096}
+  },
+  {
+    "model": "qwen3.8-max",
+    "phases": ["repair"],
+    "tools": true,
+    "images": false,
+    "parameters": {"max_tokens": 8192}
+  }
+]
+```
+
+- 允许阶段：`implement`、`repair`、`verify`、`design`。修复含重写；阶段由流程设置。小模型失败后，现有验收/修复流程进入 `repair`，使用该阶段的匹配规则。
+- `max_input_chars` 是字符预算，不是 token 上下文容量或模型能力的保证；用实际任务对比校准，给输出与协议开销留余量。
+- `tools` / `images` 表示能力声明，默认 false；含工具历史也要求工具能力。声明应先验证，路由不会虚构 provider 能力。
+- `parameters` 可覆盖 `temperature`、`top_p`、`max_tokens`、`max_completion_tokens`、`thinking`、`reasoning_effort`。切换模型会去掉原请求的供应商推理字段，再应用该规则的参数，避免跨模型照搬。
+- 模型偏好由规则顺序明确表达；不根据未验证价格自动排序。不存在的模型或不支持的参数由 provider 报错，不偷偷更换并重复计费。
+- 用量 JSONL 记录每次请求选中的 `model`、`phase`、耗时和 provider 返回的 token 用量。模型价格未提供时不编造成本。
+- 当前仅 Python 引擎支持；配置路由并选择 Rust 会明确报错。Rust 路由与跨模型效果仍待实现/评测。多个模型请求仍遵守同 key 串行的费用计量约束。

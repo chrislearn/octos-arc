@@ -1,2 +1,1 @@
-Also, these tests took over 3 s on this fast machine and will exceed the grader's 10 s budget: {slow}. Remove the latency.
-{performance}
+These tests exceeded the configured slow-test threshold: {slow}. Inspect their operations and measured timings; distinguish functional waits from computational latency. Optimize the cause while preserving behavior and security.

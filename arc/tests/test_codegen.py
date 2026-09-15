@@ -84,7 +84,7 @@ class RepairFlattenedJsTests(unittest.TestCase):
 
 
 class DedupeNavLinksTests(unittest.TestCase):
-    def test_should_strip_static_nav_links_only_when_server_fills_placeholder(self):
+    def test_should_preserve_legitimate_links_with_shared_destinations(self):
         import tempfile
         from pathlib import Path
         from codegen import dedupe_nav_links
@@ -95,10 +95,23 @@ class DedupeNavLinksTests(unittest.TestCase):
         (root / "backend/server.js").write_text("x")
         self.assertEqual(dedupe_nav_links(root), [])
         (root / "backend/server.js").write_text("""const nav = '<a href="/register">R</a> <a href="/about">A</a>'; html.replace('<!--NAV-->', nav)""")
-        self.assertEqual(dedupe_nav_links(root), ["index.html"])
+        self.assertEqual(dedupe_nav_links(root), [])
         out = (root / "frontend/src/index.html").read_text()
-        self.assertNotIn('href="/register"', out)
-        self.assertNotIn('href="/about"', out)
+        self.assertIn('href="/register"', out)
+        self.assertIn('href="/about"', out)
         self.assertIn('href="/help"', out)  # not rendered by the server: kept
         self.assertIn("<!--NAV-->", out)
         self.assertIn("<!--NAV-->", out)
+
+
+class PreserveFileSemanticsTests(unittest.TestCase):
+    def test_should_preserve_escape_heavy_valid_javascript_and_json(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            value = "line\n" * 20
+            js = "const text = " + json.dumps(value) + ";\n"
+            data = json.dumps({"text": value})
+            write_files(root, {"backend/server.js": js, "backend/sample.json": data})
+            self.assertEqual((root / "backend/server.js").read_text(), js)
+            self.assertEqual((root / "backend/sample.json").read_text(), data)
