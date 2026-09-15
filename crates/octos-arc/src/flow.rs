@@ -1086,6 +1086,8 @@ impl Flow {
         if let Some(error) = &self.permanent_provider_error {
             return (false, error.clone());
         }
+        // A model turn may invalidate every cached pre-generation verdict.
+        self.probe_summaries.clear();
         if self.dry_run {
             self.note_turn();
             let writes = self.policy.debug.dry_run_tool_files
@@ -1401,6 +1403,8 @@ impl Flow {
         if let Some(error) = &self.permanent_provider_error {
             return (false, error.clone());
         }
+        // A model turn may invalidate every cached pre-generation verdict.
+        self.probe_summaries.clear();
         let user = if options.format {
             codegen::with_format(&self.prompts, prompt)
         } else {
@@ -3016,6 +3020,43 @@ mod tests {
         )
         .unwrap();
         (flow, calls, dir)
+    }
+
+    #[test]
+    fn codegen_and_tool_turns_discard_pre_generation_verdicts() {
+        let (mut flow, _, _dir) = rejected_flow("HTTP 402 insufficient_balance");
+        flow.probe_summaries.insert(
+            "unchanged".into(),
+            RunSummary {
+                passed: 1,
+                total: 1,
+                ..Default::default()
+            },
+        );
+        flow.codegen_turn(
+            "modify shared component",
+            Duration::from_secs(1),
+            "changed implement",
+        );
+        assert!(flow.probe_summaries.is_empty());
+        let (mut flow, _, _dir) = rejected_flow("unused");
+        flow.dry_run = true;
+        flow.probe_summaries.insert(
+            "unchanged".into(),
+            RunSummary {
+                passed: 1,
+                total: 1,
+                ..Default::default()
+            },
+        );
+        flow.turn(
+            "modify shared component",
+            Duration::from_secs(1),
+            "changed implement",
+            false,
+            None,
+        );
+        assert!(flow.probe_summaries.is_empty());
     }
 
     #[test]
