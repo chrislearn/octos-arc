@@ -929,7 +929,11 @@ impl Flow {
     }
 
     fn failures_of(&self, summary: &RunSummary) -> String {
-        acceptance::failure_summaries(summary, 8, 900, self.policy.acceptance.test_timeout_ms)
+        format!(
+            "{}{}",
+            acceptance::failure_summaries(summary, 8, 900, self.policy.acceptance.test_timeout_ms),
+            acceptance::failure_source_context(summary, self.tests_dir.as_deref(), 4000)
+        )
     }
 
     fn startup_failure_digest(&self, error: &str, grader: bool) -> String {

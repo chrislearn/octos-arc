@@ -77,7 +77,7 @@ from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     workers_for_memory,
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, container_memory_limit, ensure_playwright,
-    failure_signature, failure_summaries, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
+    failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
@@ -1715,7 +1715,7 @@ class Flow:
                 passed = 0
             else:
                 passed = summary.passed
-                failures = failure_summaries(summary)
+                failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
             normalized = failure_signature(summary) if summary.results else failures
@@ -2111,7 +2111,7 @@ class Flow:
                 summary = RunSummary(passed=0, total=len(all_specs))
             else:
                 grouped = nodes_for_failures(summary.results, self.spec_map)
-                failures = failure_summaries(RunSummary(results=[r for rs in grouped.values() for r in rs]))
+                failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             self.record_full_suite(summary, grouped)
