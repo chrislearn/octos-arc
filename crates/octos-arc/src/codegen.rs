@@ -226,7 +226,7 @@ fn source_paths(root: &Path, exts: &[&str]) -> Vec<PathBuf> {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if matches!(name.as_str(), "node_modules" | "dist" | ".git" | "data") {
+            if matches!(name.as_str(), "node_modules" | "dist" | ".git") {
                 continue;
             }
             if path.is_dir() {
@@ -358,7 +358,7 @@ pub fn relevant_sources(
     spec_text: &str,
     max_chars: usize,
 ) -> String {
-    let files = source_paths(root, &[".html", ".js", ".mjs", ".cjs", ".css"]);
+    let files = source_paths(root, &[".html", ".js", ".mjs", ".cjs", ".css", ".json"]);
     if files.is_empty() {
         return String::new();
     }
@@ -377,7 +377,11 @@ pub fn relevant_sources(
             .replace('\\', "/");
         let is_backend = rel.starts_with("backend/");
         scored.push((
-            u8::from(!is_backend),
+            if rel.ends_with(".json") {
+                2
+            } else {
+                u8::from(!is_backend)
+            },
             -hits,
             text.chars().count(),
             rel,
@@ -389,7 +393,7 @@ pub fn relevant_sources(
     let mut omitted: Vec<String> = Vec::new();
     let mut total = 0usize;
     for (_, neg_hits, size, rel, text) in scored {
-        if total + size > max_chars && !parts.is_empty() {
+        if total + size > max_chars {
             omitted.push(format!("{rel} ({size} chars, {} spec terms)", -neg_hits));
             continue;
         }
@@ -682,6 +686,28 @@ mod tests {
         let tight = relevant_sources(&Prompts::builtin(), root, spec, 60);
         assert!(tight.contains("Other files, unchanged unless the requirement needs them: "));
         assert!(tight.contains("login.html (") && tight.contains("spec terms)"));
+    }
+
+    #[test]
+    fn json_context_does_not_displace_code_or_overflow_first_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("backend/data")).unwrap();
+        std::fs::create_dir_all(root.join("frontend")).unwrap();
+        std::fs::write(root.join("backend/server.js"), "server").unwrap();
+        std::fs::write(root.join("frontend/index.html"), "page").unwrap();
+        std::fs::write(root.join("backend/data/state.json"), r#"{"count":17}"#).unwrap();
+        let full = relevant_sources(&Prompts::builtin(), root, "count", 100);
+        assert!(full.contains("--- backend/data/state.json ---"));
+        assert!(full.contains(r#""count":17"#));
+        let tight = relevant_sources(&Prompts::builtin(), root, "count", 10);
+        assert!(tight.contains("--- backend/server.js ---"));
+        assert!(tight.contains("--- frontend/index.html ---"));
+        assert!(!tight.contains("--- backend/data/state.json ---"));
+        std::fs::write(root.join("backend/server.js"), "x".repeat(101)).unwrap();
+        let tight = relevant_sources(&Prompts::builtin(), root, "count", 100);
+        assert!(!tight.contains("--- backend/server.js ---"));
+        assert!(tight.contains("--- backend/data/state.json ---"));
     }
 
     #[test]

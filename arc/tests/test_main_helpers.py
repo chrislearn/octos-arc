@@ -411,6 +411,28 @@ class RelevantSourcesTests(unittest.TestCase):
         self.assertIn("settings.html", out)  # listed as omitted
         self.assertNotIn("--- frontend/src/settings.html ---", out)
 
+    def test_should_include_json_without_displacing_code_or_overflowing_first_file(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'backend/data').mkdir(parents=True)
+            (root / 'frontend').mkdir()
+            (root / 'backend/server.js').write_text('server')
+            (root / 'frontend/index.html').write_text('page')
+            (root / 'backend/data/state.json').write_text('{"count":17}')
+            full = m.relevant_sources(root, 'count', 100)
+            self.assertIn('--- backend/data/state.json ---', full)
+            self.assertIn('"count":17', full)
+            tight = m.relevant_sources(root, 'count', 10)
+            self.assertIn('--- backend/server.js ---', tight)
+            self.assertIn('--- frontend/index.html ---', tight)
+            self.assertNotIn('--- backend/data/state.json ---', tight)
+            (root / 'backend/server.js').write_text('x' * 101)
+            tight = m.relevant_sources(root, 'count', 100)
+            self.assertNotIn('--- backend/server.js ---', tight)
+            self.assertIn('--- backend/data/state.json ---', tight)
+
     def test_codegen_applies_to_big_trees_unless_capped(self):
         import argparse, os
         from pathlib import Path
