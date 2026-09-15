@@ -54,6 +54,18 @@ def model_routes(raw: str) -> list[dict]:
     return rules
 
 
+def configured_model_routes(env=None, bundle_dir: Path | None = None) -> str:
+    """Environment wins (including empty); otherwise use optional bundle policy."""
+    env = os.environ if env is None else env
+    if "OCTOS_ARC_MODEL_ROUTES" in env:
+        raw = env["OCTOS_ARC_MODEL_ROUTES"]
+    else:
+        path = (bundle_dir or Path(__file__).resolve().parent) / "model-routes.json"
+        raw = path.read_text(encoding="utf-8") if path.exists() else ""
+    model_routes(raw)  # Reject invalid configuration before any provider request.
+    return raw
+
+
 def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
     """Choose per request from phase, complete input size and tool/image needs.
 
@@ -386,7 +398,7 @@ class LlmProxy:
                  extra_drop_tools: set[str] | None = None, min_max_tokens: int = 32768) -> None:
         self.upstream = upstream_base.rstrip("/")
         self.mode = mode
-        self.routes = model_routes(os.environ.get("OCTOS_ARC_MODEL_ROUTES", ""))
+        self.routes = model_routes(configured_model_routes())
         self.phase = "implement"
         self.min_max_tokens = min_max_tokens
         self.destream = destream

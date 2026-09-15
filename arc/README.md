@@ -82,6 +82,8 @@ Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Be
 
 Python 和支持 `--model-routes-json` 的新版 Rust 内核使用同一规则格式；旧版 Rust 会明确报不支持参数，需换用新构建。Rust 的代码生成和工具请求共用本机转发层，实际模型记录在 `.arc/model-routes.jsonl`；分档开启后单模型费用估算为空，费用以 provider 账单为准。尚未完成云端对等验证，默认引擎仍为 Python。
 
+云端提交也可携带同一规则：保存为任意 JSON 文件，然后运行 `sh arc/pack.sh /path/to/routes.json`，包内会增加 `model-routes.json`。打包和运行都会校验规则。环境变量 `OCTOS_ARC_MODEL_ROUTES` 优先于包内配置，显式设置为空可禁用分档；不传配置文件时，打包结果不包含任何默认模型规则。
+
 本地验证真实 CLI 与内核请求链路（不调用付费 provider）：
 
 ```sh
