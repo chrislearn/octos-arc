@@ -748,6 +748,10 @@ impl Flow {
         let corrections = format!("{}{extra_corrections}", self.corrections_text());
         let sources = self.sources_text();
         let port_rules = self.port_rules();
+        let test_location = self.tests_dir.as_ref().map(|path| {
+            let path = path.canonicalize().unwrap_or_else(|_| path.clone());
+            format!("Read-only acceptance directory: {}. Relative spec paths in failure reports refer to this directory. Read relevant specs and helpers here when needed.\n", path.display())
+        }).unwrap_or_default();
         let failures_text = if failures.is_empty() {
             "(no detail)"
         } else {
@@ -761,6 +765,7 @@ impl Flow {
                     ("passed", &passed.to_string()),
                     ("total", &total.to_string()),
                     ("failures", failures_text),
+                    ("test_location", &test_location),
                     ("corrections", &corrections),
                     ("slow", slow),
                     ("sources", &sources),
@@ -1798,9 +1803,9 @@ impl Flow {
                 self.turn(&prompt, turn_timeout, &label, true, None);
             }
         }
+        // A failed repair can change files without changing HEAD.
         if best_passed > 0
             && let Some(sha) = best_sha
-            && self.git.head().as_deref() != Some(sha.as_str())
         {
             self.restore_app(&sha);
             self.commit(&format!(
@@ -3034,6 +3039,15 @@ mod tests {
         flow.codegen_turn("build", Duration::from_secs(60), "implement");
         flow.codegen_turn("fix", Duration::from_secs(60), "repair");
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn repair_prompt_identifies_tests_outside_the_application() {
+        let (mut flow, _, _dir) = rejected_flow("unused");
+        let tests = tempfile::tempdir().unwrap();
+        flow.tests_dir = Some(tests.path().to_path_buf());
+        let prompt = flow.repair_prompt("node", 0, 1, "example.spec.ts: missing element", "", "");
+        assert!(prompt.contains(&tests.path().canonicalize().unwrap().display().to_string()));
     }
 
     #[test]

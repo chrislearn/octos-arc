@@ -1046,6 +1046,7 @@ Read the files you need before changing them, keep every existing route, label a
 REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
+{test_location}
 {corrections}{slow}{sources}
 Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
 """ + PORT_RULES
@@ -1476,6 +1477,13 @@ class Flow:
             parts.append(text if len(files) == 1 else f"--- {rel} ---\n{text}")
         return "\n".join(parts) or "(none)"
 
+    def repair_test_location(self) -> str:
+        if not self.tests_dir:
+            return ""
+        return (f"Read-only acceptance directory: {self.tests_dir.resolve()}. "
+                "Relative spec paths in failure reports refer to this directory. "
+                "Read relevant specs and helpers here when needed.\n")
+
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         if not self.tests_dir:
             return ""
@@ -1776,7 +1784,8 @@ class Flow:
                               request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
                 continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
-                                          failures=failures or "(no detail)", corrections=self.corrections_text(),
+                                          failures=failures or "(no detail)", test_location=self.repair_test_location(),
+                                          corrections=self.corrections_text(),
                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
                                           sources=self.sources_text())
             if self.codegen_mode():
@@ -1785,7 +1794,9 @@ class Flow:
                                   spec_chars=getattr(self, "current_spec_chars", 0))
             else:
                 self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
-        if best_passed > 0 and best_sha and self.head() != best_sha:
+        # Failed repairs can leave dirty files without changing HEAD. Restore the files,
+        # even when the current commit already equals the best recorded commit.
+        if best_passed > 0 and best_sha:
             self.restore_app(best_sha)
             self.commit(f"{node_id}: keep best acceptance state {best_passed}")
         return False
@@ -2122,6 +2133,7 @@ class Flow:
             failing = sorted(k for k in grouped if k) or ["all nodes"]
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
+                test_location=self.repair_test_location(),
                 sources=self.sources_text(),
                 corrections=self.corrections_text() + "The grader runs all spec files IN PARALLEL against one "
                 "server; tests from different files must not interfere through shared server state "
@@ -2132,7 +2144,7 @@ class Flow:
                       f"full-suite repair {attempt + 1}/{rounds}")
             self.commit(f"fix: full-suite repair {attempt + 1}")
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
-        if best is not None and best["sha"] and last_passed < best["passed"] and self.head() != best["sha"]:
+        if best is not None and best["sha"] and last_passed < best["passed"]:
             log(f"[acceptance] full suite: last round {last_passed} < best {best['passed']}; restoring the best state")
             self.restore_app(best["sha"])
             self.record_full_suite(best["summary"], best["grouped"])
