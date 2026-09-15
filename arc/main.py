@@ -1433,6 +1433,16 @@ class Flow:
         spec = self.spec_bodies(node_id)
         if not spec or spec == "(none)":
             return None
+        # Tool-free repairs must see the source instead of instructions to read it.
+        # Requote using the total context allowance, then check the complete prompt
+        # (including requirements, acceptance, headings and format instructions).
+        current_sources = self.sources_text()
+        if current_sources.strip() and current_sources in prompt:
+            sources = inline_sources(self.output_dir, self.codegen_context_chars()) + "\n"
+            if any(line.startswith("--- ") and " --- (omitted," in line
+                   for line in sources.splitlines()):
+                return None
+            prompt = prompt.replace(current_sources, sources, 1)
         full = prompt + CODEGEN_REPAIR_SUFFIX.format(spec=spec)
         if len(full) + len(FORMAT_INSTRUCTIONS) > self.codegen_context_chars():
             return None

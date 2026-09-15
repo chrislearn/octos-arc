@@ -394,6 +394,7 @@ class CodegenRepairEvidenceTests(unittest.TestCase):
         from unittest.mock import patch
         flow = object.__new__(main.Flow)
         flow.spec_bodies = lambda _: 'complete acceptance helper'
+        flow.sources_text = lambda: ''
         with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_CONTEXT_CHARS': '10'}):
             self.assertIsNone(flow.codegen_repair_prompt('node', 'failure and sources'))
         flow.spec_bodies = lambda _: '(none)'
