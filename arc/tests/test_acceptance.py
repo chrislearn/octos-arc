@@ -260,3 +260,10 @@ class ActionableFailureTests(unittest.TestCase):
             return RunSummary(results=[TestOutcome(title='open', ok=False, status='timedOut', duration_ms=duration, file='x.spec.ts', message=f"Timeout {duration}ms exceeded.\nCall log:\n  - waiting for {locator}")])
         self.assertEqual(failure_signature(sample('button', 4000)), failure_signature(sample('button', 4100)))
         self.assertNotEqual(failure_signature(sample('button', 4000)), failure_signature(sample('link', 4000)))
+
+    def test_stalled_repair_preserves_numeric_behavior(self):
+        from acceptance import failure_signature, RunSummary, TestOutcome
+        def sample(message, location='spec.ts:10'):
+            return RunSummary(results=[TestOutcome(title='same test', ok=False, status='failed', duration_ms=1, location=location, message=message)])
+        self.assertNotEqual(failure_signature(sample('Expected 200, received 404')), failure_signature(sample('Expected 200, received 500')))
+        self.assertNotEqual(failure_signature(sample('missing', 'spec.ts:10')), failure_signature(sample('missing', 'spec.ts:20')))

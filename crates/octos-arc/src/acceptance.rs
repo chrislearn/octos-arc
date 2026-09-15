@@ -7,7 +7,7 @@
 //! pure functions; process handling lives in [`AppServer`] and
 //! [`AcceptanceRunner`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -461,6 +461,36 @@ fn call_log_steps(message: &str) -> Vec<String> {
         }
     }
     steps
+}
+
+/// Keep behavioral evidence while ignoring timing and repeated polling noise.
+pub fn failure_signature(summary: &RunSummary) -> BTreeSet<Vec<String>> {
+    static TIME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d+(?:\.\d+)?\s*ms\b").unwrap());
+    static REPEATS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d+\s*×").unwrap());
+    fn normalize(text: &str) -> String {
+        let text = ANSI.replace_all(text, "");
+        let text = TIME.replace_all(&text, "<time>");
+        REPEATS
+            .replace_all(&text, "<repeats>")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+    summary
+        .results
+        .iter()
+        .filter(|r| !r.ok)
+        .map(|r| {
+            vec![
+                r.file.clone(),
+                r.title.clone(),
+                r.status.clone(),
+                r.location.clone(),
+                normalize(&r.message),
+                normalize(&r.steps.join(" | ")),
+            ]
+        })
+        .collect()
 }
 
 /// Four-field digest of every failed test — the only thing the model sees.
@@ -1380,6 +1410,30 @@ mod tests {
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn stalled_repair_preserves_numeric_behavior_and_location() {
+        let sample = |message: &str, location: &str| {
+            RunSummary::from_results(vec![TestOutcome {
+                title: "same test".into(),
+                message: message.into(),
+                location: location.into(),
+                ..Default::default()
+            }])
+        };
+        assert_eq!(
+            failure_signature(&sample("Timeout 4000ms 2 × retry", "a:10")),
+            failure_signature(&sample("Timeout 4100ms 3 × retry", "a:10"))
+        );
+        assert_ne!(
+            failure_signature(&sample("Expected 200 received 404", "a:10")),
+            failure_signature(&sample("Expected 200 received 500", "a:10"))
+        );
+        assert_ne!(
+            failure_signature(&sample("missing", "a:10")),
+            failure_signature(&sample("missing", "a:20"))
+        );
     }
 
     #[test]

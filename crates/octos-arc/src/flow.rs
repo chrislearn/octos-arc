@@ -53,7 +53,6 @@ impl Default for CodegenOptions<'_> {
 use crate::run::RunnerSpec;
 use crate::tree;
 
-static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").unwrap());
 static TEST_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^A-Za-z0-9._-]+").unwrap());
 static JSON_FENCE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)```json\s*(\{.*?\})\s*```").unwrap());
@@ -1616,7 +1615,7 @@ impl Flow {
         let mut regressions = 0u32;
         let mut stalls = 0u32;
         let mut rewrite_used = false;
-        let mut previous_failures: Option<String> = None;
+        let mut previous_failures = None;
         self.codegen_blocked = false;
         for attempt in 0..=repair_rounds {
             let mut summary = self.run_specs(specs, None, false);
@@ -1647,8 +1646,12 @@ impl Flow {
                 "[acceptance] {node_id} round {attempt}: {passed}/{}",
                 summary.total
             ));
-            let normalized = DIGITS.replace_all(&failures, "#").into_owned();
-            if !normalized.is_empty() && previous_failures.as_deref() == Some(normalized.as_str()) {
+            let normalized = if summary.results.is_empty() {
+                BTreeSet::from([vec![failures.clone()]])
+            } else {
+                acceptance::failure_signature(&summary)
+            };
+            if !normalized.is_empty() && previous_failures.as_ref() == Some(&normalized) {
                 self.codegen_blocked = true;
                 let correction = self.correction("identical_failure", &[]);
                 self.pending_corrections.push(correction);
@@ -2255,7 +2258,7 @@ impl Flow {
             self.policy.acceptance.final_workers,
             self.policy.acceptance.final_memory_per_worker_mib,
         );
-        let mut previous_failing: Option<BTreeSet<String>> = None;
+        let mut previous_failing = None;
         // Best full-suite state seen so far: (passed, commit, results). A repair
         // turn that loses tests is rolled back to it when the loop ends, exactly
         // like the per-node loop keeps its best snapshot.
@@ -2361,16 +2364,14 @@ impl Flow {
                 }
             }
             self.log_failure_lines(&failures);
-            let failing_titles: BTreeSet<String> = grouped
-                .values()
-                .flatten()
-                .map(|r| r.title.clone())
-                .collect();
-            if previous_failing.as_ref() == Some(&failing_titles) {
+            let failing_evidence = acceptance::failure_signature(&RunSummary::from_results(
+                grouped.values().flatten().cloned().collect(),
+            ));
+            if previous_failing.as_ref() == Some(&failing_evidence) {
                 self.log("[acceptance] full suite: same failures as the previous round; stopping repairs");
                 break;
             }
-            previous_failing = Some(failing_titles);
+            previous_failing = Some(failing_evidence);
             if attempt == rounds || self.remaining() < 240.0 {
                 break;
             }

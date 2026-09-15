@@ -1718,7 +1718,7 @@ class Flow:
                 failures = failure_summaries(summary)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
-            normalized = re.sub(r"\d+", "#", failures or "")
+            normalized = failure_signature(summary) if summary.results else failures
             if normalized and normalized == previous_failures:
                 # Cloud 91aaecaf31af: three codegen rounds, identical observation.
                 self.codegen_blocked = True
