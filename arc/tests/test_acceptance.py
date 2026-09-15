@@ -409,3 +409,32 @@ for (const fail of [false,true]) test('page exception '+fail,async({page})=>{
             self.assertIn('missingGenericHandler is not defined',failure_summaries(result))
             failed=[r for r in result.results if not r.ok]
             self.assertEqual(len(failed),1)
+
+    def test_should_report_failed_navigation_without_changing_verdict(self):
+        from acceptance import AcceptanceRunner
+        import os
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('requires installed Playwright')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='navigation-error-', dir=root) as folder:
+            base = Path(folder); specs = base/'source'; specs.mkdir()
+            source = """import {test,expect} from '@playwright/test';
+for (const fail of [false,true]) test('navigation status '+fail,async({page})=>{
+ await page.route('http://example.test/**', route=>route.fulfill({status:404,contentType:'text/html',body:'missing page'}));
+ await page.goto('http://example.test/missing-route?secret=private-value');
+ expect(fail).toBe(false);
+});
+"""
+            spec = specs/'navigation.spec.ts'; spec.write_text(source)
+            runner = AcceptanceRunner(root,specs,base/'prepared',lambda _:None,workers=1)
+            result = runner.run(['navigation.spec.ts'],'http://127.0.0.1:1')
+            self.assertEqual((result.passed,result.total),(1,2),result.error)
+            self.assertEqual(spec.read_text(),source)
+            summary = failure_summaries(result)
+            self.assertIn('HTTP 404',summary)
+            self.assertIn('http://example.test/missing-route',summary)
+            # Check only the observer message: original assertions may themselves
+            # contain URLs and must remain unchanged.
+            diagnostics = summary.split('Browser diagnostics',1)[-1]
+            self.assertNotIn('private-value',diagnostics)
