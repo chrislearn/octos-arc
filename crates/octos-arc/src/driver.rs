@@ -347,18 +347,22 @@ impl StdioSession {
             cache_hit: 0,
             tool_calls: 0,
         };
+        if timeout.is_zero() {
+            outcome.text = "octos turn timed out".into();
+            return outcome;
+        }
+        let started = Instant::now();
         if let Err(error) = self.send(
             "turn/start",
             Some(json!({"session_id": self.session_id, "turn_id": turn_id, "input": [{"kind": "text", "text": text}]})),
             true,
-            Duration::from_secs(60),
+            Duration::from_secs(60).min(timeout),
         ) {
             outcome.text = format!("{error:#}");
             return outcome;
         }
         let mut chunks = String::new();
         let mut persisted: Option<String> = None;
-        let started = Instant::now();
         let mut last_heartbeat = Instant::now();
         loop {
             let remaining = timeout.saturating_sub(started.elapsed());
@@ -571,11 +575,16 @@ impl Driver {
         settings: &TurnSettings,
         observer: &mut dyn FnMut(&str, &Value),
     ) -> TurnOutcome {
+        let deadline = Instant::now() + timeout;
         let mut attempt = 0;
         loop {
             attempt += 1;
             let outcome = match self.get_session(settings) {
-                Ok(session) => session.run_turn(prompt, timeout, observer),
+                Ok(session) => session.run_turn(
+                    prompt,
+                    deadline.saturating_duration_since(Instant::now()),
+                    observer,
+                ),
                 Err(error) => TurnOutcome {
                     ok: false,
                     text: format!("stdio driver error: {error:#}"),
@@ -593,6 +602,12 @@ impl Driver {
                 return outcome;
             }
             let wait = self.backoff * attempt;
+            if wait >= deadline.saturating_duration_since(Instant::now()) {
+                if self.scope == "turn" {
+                    self.close();
+                }
+                return outcome;
+            }
             observer(
                 "harness/retry",
                 &json!({"attempt": attempt + 1, "of": self.retries, "wait_s": wait.as_secs(), "error": outcome.text.chars().take(200).collect::<String>()}),
@@ -778,6 +793,40 @@ for line in sys.stdin:
         );
         assert!(seen.iter().any(|m| m == "approval/requested"));
         session.close();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_backoff_cannot_outlive_turn_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let Some(config) = fake_config(dir.path()) else {
+            return;
+        };
+        let script = FAKE_KERNEL.replace(
+            "notify(\"turn/completed\", {\"turn_id\": t, \"tokens_in\": 10, \"tokens_out\": 4, \"cache_hit\": 2})",
+            "notify(\"turn/error\", {\"turn_id\": t, \"message\": \"HTTP 503 temporarily unavailable\"})");
+        std::fs::write(dir.path().join("fake_kernel.py"), script).unwrap();
+        let settings = TurnSettings {
+            reasoning: ReasoningMode::Low,
+            max_iterations: Some(7),
+            tools: None,
+        };
+        let mut driver = Driver::new(config, "turn", 3, Duration::from_secs(2));
+        let started = Instant::now();
+        let mut retries = 0;
+        let outcome = driver.run(
+            "generic task",
+            Duration::from_millis(500),
+            &settings,
+            &mut |method, _| {
+                if method == "harness/retry" {
+                    retries += 1;
+                }
+            },
+        );
+        assert!(!outcome.ok);
+        assert_eq!(retries, 0);
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[test]

@@ -806,7 +806,9 @@ class ToolFreeExecutionTests(unittest.TestCase):
         driver._run_stdio = Mock(return_value=(True, 'generated'))
         with patch('main.run_octos') as chat:
             self.assertEqual(driver.run('generate', 60), (True, 'generated'))
-        driver._run_stdio.assert_called_once_with('generate', 60)
+        driver._run_stdio.assert_called_once()
+        self.assertEqual(driver._run_stdio.call_args.args[0], 'generate')
+        self.assertTrue(0 < driver._run_stdio.call_args.args[1] <= 60)
         chat.assert_not_called()
 
 
@@ -833,3 +835,25 @@ class RepairSourceBudgetTests(unittest.TestCase):
             (root / "frontend/index.html").write_text("x" * 100000)
             prompt = "failure evidence\n" + flow.sources_text()
             self.assertIsNone(flow.codegen_repair_prompt("feature", prompt))
+
+
+class RetryDeadlineTests(unittest.TestCase):
+    def test_retries_share_remaining_time_and_skip_unaffordable_backoff(self):
+        from unittest.mock import patch
+        for duration, expected_calls, expected_elapsed in [(60, [60], 40), (100, [100, 30], 100)]:
+            now = [0.0]
+            calls = []
+            driver = object.__new__(OctosDriver)
+            driver.mode = 'stdio'; driver.tools_disabled = False; driver.session_scope = 'run'
+            driver.close = lambda: None
+            driver._run_with_heartbeat = lambda fn: fn()
+            def attempt(prompt, timeout):
+                calls.append(timeout)
+                now[0] += min(40, timeout)
+                return False, 'HTTP 503 temporarily unavailable'
+            driver._run_stdio = attempt
+            with patch('main.time.monotonic', side_effect=lambda: now[0]), patch('main.time.sleep', side_effect=lambda seconds: now.__setitem__(0, now[0] + seconds)):
+                ok, text = driver.run('generic request', duration)
+            self.assertFalse(ok)
+            self.assertEqual(calls, expected_calls)
+            self.assertEqual(now[0], expected_elapsed)
