@@ -169,11 +169,13 @@ pub fn execute_run(command: RunCommand) -> Result<i32> {
     };
     let mut flow = Flow::new(&spec, inputs)?;
     let outcome = flow.run();
-    // The platform judges by events, not by the exit code: a completed or
-    // aborted run still exits 0 (its verdicts are in the event stream); only
-    // a setup error before the run starts is non-zero.
+    // Keep the historical exit status for application verdicts, but surface
+    // provider account rejection as an operational failure to the caller.
     if let Some(reason) = outcome.aborted {
         eprintln!("octos arc run aborted: {reason}");
+        if crate::llm::is_permanent_provider_error(&reason) {
+            return Ok(1);
+        }
     }
     Ok(0)
 }
