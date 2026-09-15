@@ -157,6 +157,7 @@ pub struct Flow {
     watchdog: Option<crate::reap::PortWatchdog>,
     /// Size of the spec text the current node must satisfy (codegen effort by spec size).
     current_spec_chars: usize,
+    permanent_provider_error: Option<String>,
 }
 
 /// How a node is rebuilt when round 0 passes nothing.
@@ -301,6 +302,7 @@ impl Flow {
             guard_abs,
             watchdog: None,
             current_spec_chars: 0,
+            permanent_provider_error: None,
         })
     }
 
@@ -366,7 +368,23 @@ impl Flow {
     }
 
     fn time_up(&self) -> bool {
-        self.budget.time_up()
+        self.permanent_provider_error.is_some() || self.budget.time_up()
+    }
+
+    fn check_provider(&self) -> Result<()> {
+        if let Some(error) = &self.permanent_provider_error {
+            bail!("{error}");
+        }
+        Ok(())
+    }
+
+    fn record_provider_failure(&mut self, text: &str) {
+        if crate::llm::is_permanent_provider_error(text) && self.permanent_provider_error.is_none()
+        {
+            self.permanent_provider_error = Some(text.to_owned());
+            self.events
+                .emit("provider_rejected", json!({"message": text}));
+        }
     }
 
     fn corrections_text(&mut self) -> String {
@@ -1053,6 +1071,9 @@ impl Flow {
         expect_verification: bool,
         request_budget: Option<u32>,
     ) -> (bool, String) {
+        if let Some(error) = &self.permanent_provider_error {
+            return (false, error.clone());
+        }
         if self.dry_run {
             self.note_turn();
             let writes = self.policy.debug.dry_run_tool_files
@@ -1154,6 +1175,9 @@ impl Flow {
         };
         let mut ok = outcome.ok;
         let text = outcome.text;
+        if !ok {
+            self.record_provider_failure(&text);
+        }
         monitor.finish(&text);
         let elapsed_ms = started.elapsed().as_millis() as u64;
         if outcome.requests > 0 || outcome.tokens_in > 0 {
@@ -1174,7 +1198,11 @@ impl Flow {
             );
         }
         // The request cap ends the turn with an error; the files written so far are what count.
-        if !ok && budget > 0 && (text.contains("budget") || text.contains("iteration")) {
+        if !ok
+            && self.permanent_provider_error.is_none()
+            && budget > 0
+            && (text.contains("budget") || text.contains("iteration"))
+        {
             self.log(format!(
                 "[guard] {label}: request budget {budget} hit; turn forced to finish"
             ));
@@ -1346,6 +1374,9 @@ impl Flow {
         label: &str,
         options: CodegenOptions<'_>,
     ) -> (bool, String) {
+        if let Some(error) = &self.permanent_provider_error {
+            return (false, error.clone());
+        }
         let user = if options.format {
             codegen::with_format(&self.prompts, prompt)
         } else {
@@ -1427,7 +1458,11 @@ impl Flow {
                     }
                 }
             }
-            Err(error) => (false, format!("{error:#}")),
+            Err(error) => {
+                let text = format!("{error:#}");
+                self.record_provider_failure(&text);
+                (false, text)
+            }
         };
         self.log(format!(
             "[flow] {label} {} in {}s: {:?}",
@@ -2662,6 +2697,7 @@ impl Flow {
     }
 
     fn run_inner(&mut self) -> Result<()> {
+        self.check_provider()?;
         let ids = self.node_ids.clone();
         self.log(format!(
             "[flow] {} atomic nodes in dependency order: {ids:?}; time budget {}s",
@@ -2751,6 +2787,7 @@ impl Flow {
             ));
             if self.plan.wants_skeleton {
                 self.skeleton()?;
+                self.check_provider()?;
                 self.end_scope("node");
             }
         }
@@ -2783,6 +2820,7 @@ impl Flow {
         }
         if self.plan.wants_skeleton {
             self.skeleton()?;
+            self.check_provider()?;
             self.end_scope("node");
         } else if !self.plan.evolution && self.plan.codegen {
             self.log(format!(
@@ -2798,6 +2836,7 @@ impl Flow {
         let total = self.ordered.len();
         let ordered = self.ordered.clone();
         for (index, node) in ordered.iter().enumerate() {
+            self.check_provider()?;
             let node_id = tree::node_id(node);
             if self.time_up() {
                 self.log(format!("[flow] time budget exhausted; skipping {node_id}"));
@@ -2815,10 +2854,12 @@ impl Flow {
             } else {
                 self.node_cycle(node, index + 1, total);
             }
+            self.check_provider()?;
             self.end_scope("node");
         }
         if !self.time_up() {
             self.final_acceptance();
+            self.check_provider()?;
             self.end_scope("node");
         }
         let undecided: Vec<String> = ids
@@ -2852,6 +2893,7 @@ impl Flow {
                 true,
                 None,
             );
+            self.check_provider()?;
             final_ok = Some(ok);
             self.commit("chore: final verification pass");
         }
@@ -2906,6 +2948,73 @@ fn previous_requirement_records(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct RejectedProvider(Arc<AtomicUsize>, &'static str);
+    impl Completer for RejectedProvider {
+        fn complete(&mut self, _: &CompletionRequest<'_>) -> Result<crate::llm::Completion> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            bail!(self.1)
+        }
+    }
+
+    fn rejected_flow(error: &'static str) -> (Flow, Arc<AtomicUsize>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let spec: crate::run::RunnerSpec = serde_json::from_value(json!({
+            "requirement_path": dir.path(), "output_dir": dir.path(), "web_port": 43219,
+            "model": {"model": "test-model", "base_url": "http://127.0.0.1:1/v1"}
+        }))
+        .unwrap();
+        let arc_dir = dir.path().join(".arc");
+        let flow = Flow::new(
+            &spec,
+            FlowInputs {
+                policy: Policy::default(),
+                prompts: Prompts::builtin(),
+                tree: json!({"id":"generic-node", "type":"ATOMIC", "description":"Build an app"}),
+                llm: Box::new(RejectedProvider(calls.clone(), error)),
+                ledger: crate::llm::UsageLedger::shared(&arc_dir, "test-model", "openai"),
+                events: Events::open(&arc_dir).unwrap().quiet(),
+                executable: dir.path().join("must-not-start"),
+                dry_run: false,
+            },
+        )
+        .unwrap();
+        (flow, calls, dir)
+    }
+
+    #[test]
+    fn permanent_provider_failure_stops_codegen_repair_and_tool_fallback() {
+        let (mut flow, calls, _dir) = rejected_flow("HTTP 402 insufficient_balance");
+        let timeout = Duration::from_secs(60);
+        let first = flow.codegen_turn("build", timeout, "implement");
+        assert!(!first.0);
+        let second = flow.codegen_turn("fix", timeout, "repair");
+        assert_eq!(second, first);
+        let fallback = flow.turn("build", timeout, "implement", false, None);
+        assert_eq!(fallback, first);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(flow.driver.is_none());
+        assert!(
+            flow.run_inner()
+                .unwrap_err()
+                .to_string()
+                .contains("insufficient_balance")
+        );
+    }
+
+    #[test]
+    fn temporary_provider_failure_allows_later_phase_attempts() {
+        let (mut flow, calls, _dir) = rejected_flow("HTTP 503 temporarily unavailable");
+        flow.codegen_turn("build", Duration::from_secs(60), "implement");
+        flow.codegen_turn("fix", Duration::from_secs(60), "repair");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
     #[test]
     fn should_prefer_the_previous_requirement_snapshot_over_the_traceability_table() {
         let dir = tempfile::tempdir().unwrap();

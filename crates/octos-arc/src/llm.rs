@@ -115,21 +115,20 @@ pub trait Completer {
 /// driver so `[usage] provider totals` covers both turn shapes.
 pub type SharedLedger = std::sync::Arc<std::sync::Mutex<UsageLedger>>;
 
-/// Provider hiccups worth a retry (`OctosDriver._transient`); the harness's
-/// own turn timeouts are never replayed.
-pub fn is_transient(text: &str) -> bool {
-    let lowered = text.to_lowercase();
-    if lowered.contains("octos turn timed out") || lowered.contains("turn timed out after") {
-        return false;
-    }
+fn http_statuses(text: &str) -> Vec<String> {
     static HTTP_STATUS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"\bhttp(?:/\d(?:\.\d)?)?\s+(\d{3})\b").unwrap()
     });
-    let codes: Vec<_> = HTTP_STATUS
-        .captures_iter(&lowered)
+    HTTP_STATUS
+        .captures_iter(text)
         .map(|c| c[1].to_string())
-        .collect();
-    if codes
+        .collect()
+}
+
+/// Account rejection cannot be repaired by generating different application code.
+pub fn is_permanent_provider_error(text: &str) -> bool {
+    let lowered = text.to_lowercase();
+    http_statuses(&lowered)
         .iter()
         .any(|c| matches!(c.as_str(), "401" | "402" | "403"))
         || [
@@ -142,9 +141,18 @@ pub fn is_transient(text: &str) -> bool {
         ]
         .iter()
         .any(|term| lowered.contains(term))
+}
+
+/// Provider hiccups worth a retry; the harness's own timeouts are not replayed.
+pub fn is_transient(text: &str) -> bool {
+    let lowered = text.to_lowercase();
+    if lowered.contains("octos turn timed out")
+        || lowered.contains("turn timed out after")
+        || is_permanent_provider_error(text)
     {
         return false;
     }
+    let codes = http_statuses(&lowered);
     if !codes.is_empty() {
         return codes.iter().any(|c| {
             matches!(
