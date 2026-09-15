@@ -433,6 +433,21 @@ class RelevantSourcesTests(unittest.TestCase):
             self.assertNotIn('--- backend/server.js ---', tight)
             self.assertIn('--- backend/data/state.json ---', tight)
 
+    def test_codegen_requires_existing_sources_to_fit(self):
+        from pathlib import Path
+        import argparse, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+            self.assertTrue(flow.codegen_context_fits("x" * 12000))
+            (root / "backend").mkdir()
+            (root / "frontend").mkdir()
+            (root / "backend/server.js").write_text("b" * 26000)
+            (root / "frontend/index.html").write_text("p" * 55000)
+            self.assertFalse(flow.codegen_context_fits("x" * 12000))
+            (root / "frontend/index.html").write_text("p" * 50000)
+            self.assertTrue(flow.codegen_context_fits("x" * 12000))
+
     def test_codegen_applies_to_big_trees_unless_capped(self):
         import argparse, os
         from pathlib import Path

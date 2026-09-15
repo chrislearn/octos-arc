@@ -347,6 +347,22 @@ pub fn spec_terms(spec_text: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// Complete-file generation must not proceed with omitted existing source bodies.
+pub fn sources_fit(root: &Path, budget: usize) -> bool {
+    let mut remaining = budget;
+    for path in source_paths(root, SOURCE_EXTS_ALL) {
+        let Ok(text) = std::fs::read(&path) else {
+            return false;
+        };
+        let size = String::from_utf8_lossy(&text).chars().count();
+        let Some(rest) = remaining.checked_sub(size) else {
+            return false;
+        };
+        remaining = rest;
+    }
+    true
+}
+
 /// `main.relevant_sources` (round 35): quote the existing sources a node most
 /// likely touches — every backend entry file first (the router every node
 /// extends), then pages ranked by how many of the spec's terms (locators,
