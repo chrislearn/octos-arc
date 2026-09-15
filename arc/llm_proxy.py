@@ -19,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -420,6 +421,7 @@ class LlmProxy:
         self.dump_limit = dump_limit
         self._dumped = 0
         self._lock = threading.Lock()
+        self._inflight: dict[tuple, Future] = {}
         proxy = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -457,25 +459,18 @@ class LlmProxy:
                 path = self.path
                 if path.startswith("/v1") and proxy.upstream.endswith("/v1"):
                     path = path[3:]
-                req = urllib.request.Request(proxy.upstream + path, data=body if body else None,
-                                             headers=headers, method=method)
-                t0 = time.time()
-                try:
-                    with urllib.request.urlopen(req, timeout=600) as resp:
-                        status, payload, resp_headers = resp.status, resp.read(), resp.headers
-                except urllib.error.HTTPError as exc:
-                    status, payload, resp_headers = exc.code, exc.read(), exc.headers
-                except Exception as exc:  # noqa: BLE001
-                    status, payload, resp_headers = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
-                proxy._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload))
+                status, payload, resp_headers = proxy._request_upstream(method, path, body, headers)
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 if was_streaming and status == 200:
                     payload, ctype = to_sse(payload), "text/event-stream; charset=utf-8"
-                self.send_response(status)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # A timed-out client may have retried while upstream was pending.
 
             def do_POST(self):
                 self._forward("POST")
@@ -488,6 +483,43 @@ class LlmProxy:
         self.port = self.server.server_address[1]
         self.base_url = f"http://{host}:{self.port}/v1"
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def _request_upstream(self, method: str, path: str, body: bytes, headers: dict) -> tuple:
+        # Only pending identical completions are shared. Include credentials and
+        # all forwarded headers; never share across distinct requests or phases.
+        key = (method, path, body, tuple(sorted((k.lower(), v) for k, v in headers.items())), self.phase) \
+            if method == "POST" and path.rstrip("/").endswith("/chat/completions") else None
+        with self._lock:
+            future = self._inflight.get(key) if key is not None else None
+            owner = future is None
+            if owner:
+                future = Future()
+                if key is not None:
+                    self._inflight[key] = future
+        if not owner:
+            return future.result()
+        try:
+            req = urllib.request.Request(self.upstream + path, data=body if body else None,
+                                         headers=headers, method=method)
+            t0 = time.time()
+            try:
+                with urllib.request.urlopen(req, timeout=600) as resp:
+                    result = resp.status, resp.read(), resp.headers
+            except urllib.error.HTTPError as exc:
+                result = exc.code, exc.read(), exc.headers
+            except Exception as exc:  # noqa: BLE001
+                result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
+            _, payload, _ = result
+            self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload))
+            future.set_result(result)
+            return result
+        except BaseException as exc:
+            future.set_exception(exc)
+            raise
+        finally:
+            if key is not None:
+                with self._lock:
+                    self._inflight.pop(key, None)
 
     def begin_turn(self, budget: int) -> None:
         with self._lock:
