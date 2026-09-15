@@ -1270,6 +1270,7 @@ class Flow:
         self.runner: AcceptanceRunner | None = None
         self.designs: dict[str, dict] = {}
         self.test_verdict: dict[str, bool | None] = {}
+        self.checkpoint_regressions: set[str] = set()
         self.impl_failed: list[str] = []
         self.pending_corrections: list[str] = []
         self.evolution = False
@@ -2206,8 +2207,10 @@ class Flow:
         if (not regression_checkpoint_due(index, total, start) or self.runner is None
                 or not self.tests_dir or self.remaining() < self.min_repair_seconds):
             return
+        tracked = getattr(self, "checkpoint_regressions", set())
+        self.checkpoint_regressions = tracked
         verified = {node: self.spec_map.get(node, []) for node, verdict in self.test_verdict.items()
-                    if verdict is True}
+                    if verdict is True or node in tracked}
         specs = sorted({spec for paths in verified.values() for spec in paths})
         if len(specs) < 2:
             return
@@ -2222,8 +2225,17 @@ class Flow:
             f"regressed nodes {sorted(node for node in grouped if node)}")
         for node in grouped:
             if node in verified:
+                tracked.add(node)
                 self.test_verdict[node] = False
                 self.mark("test_failed", node, "previously passing behavior failed a regression checkpoint")
+        for node in list(tracked):
+            paths = verified.get(node, [])
+            observed = [[r for r in summary.results if Path(r.file or "").name == Path(path).name]
+                        for path in paths]
+            if observed and all(rows and all(r.ok for r in rows) for rows in observed):
+                tracked.remove(node)
+                self.test_verdict[node] = True
+                self.mark("test_passed", node, "previously regressed behavior passed its checkpoint specs")
         if grouped:
             evidence = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
             self.pending_corrections.append(

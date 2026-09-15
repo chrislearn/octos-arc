@@ -145,6 +145,7 @@ pub struct Flow {
     protected: Option<ProtectedTrees>,
     designs: BTreeMap<String, Value>,
     test_verdict: BTreeMap<String, Option<bool>>,
+    checkpoint_regressions: BTreeSet<String>,
     impl_failed: Vec<String>,
     pending_corrections: Vec<String>,
     codegen_blocked: bool,
@@ -299,6 +300,7 @@ impl Flow {
             protected: None,
             designs: BTreeMap::new(),
             test_verdict: BTreeMap::new(),
+            checkpoint_regressions: BTreeSet::new(),
             impl_failed: Vec::new(),
             pending_corrections: Vec::new(),
             codegen_blocked: false,
@@ -2376,7 +2378,9 @@ impl Flow {
         let mut specs: Vec<String> = self
             .test_verdict
             .iter()
-            .filter(|(_, verdict)| **verdict == Some(true))
+            .filter(|(node, verdict)| {
+                **verdict == Some(true) || self.checkpoint_regressions.contains(*node)
+            })
             .flat_map(|(node, _)| self.spec_map.specs_for(node))
             .cloned()
             .collect();
@@ -2394,9 +2398,10 @@ impl Flow {
             return;
         }
         let mut verified = self.spec_map.clone();
-        verified
-            .by_node
-            .retain(|node, _| self.test_verdict.get(node) == Some(&Some(true)));
+        verified.by_node.retain(|node, _| {
+            self.test_verdict.get(node) == Some(&Some(true))
+                || self.checkpoint_regressions.contains(node)
+        });
         let grouped = acceptance::nodes_for_failures(&summary.results, &verified);
         self.log(format!(
             "[acceptance] checkpoint {index}: {}/{}; regressed nodes {:?}",
@@ -2405,7 +2410,8 @@ impl Flow {
             grouped.keys().collect::<Vec<_>>()
         ));
         for node in grouped.keys().flatten() {
-            if self.test_verdict.get(node) == Some(&Some(true)) {
+            if verified.by_node.contains_key(node) {
+                self.checkpoint_regressions.insert(node.clone());
                 self.test_verdict.insert(node.clone(), Some(false));
                 self.mark(
                     "test_failed",
@@ -2413,6 +2419,34 @@ impl Flow {
                     Some("previously passing behavior failed a regression checkpoint"),
                 );
             }
+        }
+        let recovered: Vec<String> = self
+            .checkpoint_regressions
+            .iter()
+            .filter(|node| {
+                let paths = verified.specs_for(node);
+                !paths.is_empty()
+                    && paths.iter().all(|path| {
+                        let rows: Vec<_> = summary
+                            .results
+                            .iter()
+                            .filter(|r| {
+                                Path::new(&r.file).file_name() == Path::new(path).file_name()
+                            })
+                            .collect();
+                        !rows.is_empty() && rows.iter().all(|r| r.ok)
+                    })
+            })
+            .cloned()
+            .collect();
+        for node in recovered {
+            self.checkpoint_regressions.remove(&node);
+            self.test_verdict.insert(node.clone(), Some(true));
+            self.mark(
+                "test_passed",
+                &node,
+                Some("previously regressed behavior passed its checkpoint specs"),
+            );
         }
         if !grouped.is_empty() {
             self.pending_corrections.push(format!(
@@ -3298,6 +3332,23 @@ mod tests {
         assert_eq!(flow.test_verdict.get("new"), Some(&Some(true)));
         assert_eq!(flow.test_verdict.get("future"), Some(&None));
         assert!(flow.corrections_text().contains("handler undefined"));
+        assert!(flow.checkpoint_specs().contains(&"old.spec.ts".to_string()));
+        summary.results.clear();
+        flow.record_checkpoint(8, &summary);
+        assert_eq!(flow.test_verdict.get("old"), Some(&Some(false)));
+        summary.results.push(acceptance::TestOutcome {
+            file: "old.spec.ts".into(),
+            ok: true,
+            status: "passed".into(),
+            ..Default::default()
+        });
+        flow.record_checkpoint(16, &summary);
+        assert_eq!(flow.test_verdict.get("old"), Some(&Some(true)));
+        assert!(
+            !flow
+                .checkpoint_specs()
+                .contains(&"broken.spec.ts".to_string())
+        );
     }
 
     #[test]

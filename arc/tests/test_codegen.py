@@ -360,6 +360,18 @@ class RegressionCheckpointTests(unittest.TestCase):
             self.assertIs(flow.test_verdict['new'],True)
             self.assertIsNone(flow.test_verdict['future'])
             self.assertIn('handler undefined',' '.join(flow.pending_corrections))
+            flow.run_specs.reset_mock()
+            flow.run_specs.return_value = RunSummary(passed=1,total=1,results=[
+                TestOutcome('new behavior',True,'passed',1,file='new.spec.ts')])
+            flow.regression_checkpoint(8,32)
+            self.assertIn('old.spec.ts', flow.run_specs.call_args.args[0])
+            self.assertIs(flow.test_verdict['old'],False)  # absent results cannot prove recovery
+            flow.run_specs.return_value = RunSummary(passed=2,total=2,results=[
+                TestOutcome('old behavior',True,'passed',1,file='old.spec.ts'),
+                TestOutcome('new behavior',True,'passed',1,file='new.spec.ts')])
+            flow.regression_checkpoint(16,32)
+            self.assertIs(flow.test_verdict['old'],True)
+            self.assertNotIn('broken.spec.ts', flow.run_specs.call_args.args[0])
 
     def test_should_preserve_verdicts_when_runner_cannot_report(self):
         import main, tempfile
