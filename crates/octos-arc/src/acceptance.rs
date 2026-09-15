@@ -396,8 +396,20 @@ pub fn summarize_report(report: &Value) -> RunSummary {
                         _ => loc_file.clone(),
                     },
                     message: ANSI
-                        .replace_all(&text_of(err.get("message")), "")
-                        .into_owned(),
+                        .replace_all(
+                            &format!(
+                                "{}\n{}",
+                                text_of(err.get("message")),
+                                text_of(err.get("stack"))
+                                    .lines()
+                                    .filter(|line| line.trim().starts_with("at "))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            ),
+                            "",
+                        )
+                        .trim()
+                        .to_string(),
                     steps,
                 });
             }
@@ -493,7 +505,20 @@ pub fn failure_source_context(
     collect(&root, &mut files);
     let mut out = String::new();
     let mut seen = BTreeSet::new();
-    for r in summary.results.iter().filter(|r| !r.ok) {
+    static FRAME: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?m)^\s*at (?:[^ (][^(]*\()?([^\n()]+\.ts):(\d+):\d+\)?\s*$").unwrap()
+    });
+    let mut locations = Vec::new();
+    for result in &summary.results {
+        locations.push(result.clone());
+        for captures in FRAME.captures_iter(&result.message) {
+            let mut frame = result.clone();
+            frame.location = format!("{}:{}", &captures[1], &captures[2]);
+            frame.line = captures[2].parse().ok();
+            locations.push(frame);
+        }
+    }
+    for r in locations.iter().filter(|r| !r.ok) {
         let Some(line) = r
             .line
             .and_then(|n| usize::try_from(n).ok())
@@ -1497,6 +1522,29 @@ mod tests {
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn report_preserves_caller_source_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("helper.ts"), "assert_matches(expected);").unwrap();
+        std::fs::write(
+            dir.path().join("caller.spec.ts"),
+            "const expected = /status ready/;\nawait check(expected);",
+        )
+        .unwrap();
+        let report = serde_json::json!({"suites": [{"specs": [{"file": "caller.spec.ts", "title": "state", "tests": [{"results": [{"status": "failed", "error": {
+            "message": "No matches", "location": {"file": "/tests/helper.ts", "line": 1},
+            "stack": "Error: No matches\n    at check (/tests/helper.ts:1:1)\n    at /tests/caller.spec.ts:2:1"
+        }}]}]}]}]});
+        let summary = summarize_report(&report);
+        let text = failure_source_context(&summary, Some(dir.path()), 4000);
+        assert!(text.contains("assert_matches(expected)"));
+        assert!(text.contains("const expected = /status ready/"));
+        assert_eq!(
+            text.matches("Read-only failure source: helper.ts").count(),
+            1
+        );
     }
 
     #[test]

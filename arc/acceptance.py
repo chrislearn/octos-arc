@@ -19,7 +19,7 @@ import socket
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -149,7 +149,8 @@ def summarize_report(report: dict) -> RunSummary:
                     file=Path(spec.get("file") or file or loc_file or "").name,
                     line=loc.get("line"),
                     location=f"{loc_file}:{loc.get('line')}" if loc_file and loc.get("line") else loc_file,
-                    message=_ANSI.sub("", str(err.get("message") or "")),
+                    message=_ANSI.sub("", str(err.get("message") or "") + "\n" + "\n".join(
+                        line for line in str(err.get("stack") or "").splitlines() if line.strip().startswith("at "))).strip(),
                     steps=steps))
             walk(suite.get("suites", []), file)
 
@@ -222,7 +223,12 @@ def failure_source_context(summary: RunSummary, tests_dir: Path | None, max_char
         dirs[:] = [d for d in dirs if d not in ("node_modules", ".git") and not (Path(directory)/d).is_symlink()]
         files.extend(Path(directory)/n for n in names if n.endswith('.ts'))
     blocks, seen = [], set()
-    for r in summary.results:
+    locations = []
+    for result in summary.results:
+        locations.append(result)
+        for match in re.finditer(r"(?m)^\s*at (?:[^ (][^(]*\()?([^\n()]+\.ts):(\d+):\d+\)?\s*$", result.message):
+            locations.append(replace(result, location=f"{match[1]}:{match[2]}", line=int(match[2])))
+    for r in locations:
         if r.ok or not r.line or r.line < 1:
             continue
         name = (r.location.rsplit(':', 1)[0] if r.location else r.file)
