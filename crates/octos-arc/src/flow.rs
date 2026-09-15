@@ -1252,7 +1252,13 @@ impl Flow {
     /// fixed static server, the model returns one index.html for the spec's
     /// statements. True only when the node's specs pass right away; otherwise
     /// the caller falls back to the compact tier.
-    fn tiny_turn(&mut self, node_id: &str, specs: &[String], timeout: Duration) -> bool {
+    fn tiny_turn(
+        &mut self,
+        node_id: &str,
+        specs: &[String],
+        timeout: Duration,
+        requirement: &Value,
+    ) -> bool {
         match codegen::write_manifests(&self.output_dir) {
             Ok(written) if !written.is_empty() => {
                 self.log(format!("[codegen] wrote manifests {written:?}"))
@@ -1274,7 +1280,10 @@ impl Flow {
                 Err(error) => self.log(format!("[codegen] tiny server template: {error}")),
             }
         }
-        let spec = codegen::compact_spec_lines(&self.spec_bodies(node_id));
+        let spec = format!(
+            "Requirement: {requirement}\nPublic example:\n{}",
+            self.spec_bodies(node_id)
+        );
         let page = self.output_dir.join("frontend/src/index.html");
         let prompt = if page.is_file() {
             let current = std::fs::read_to_string(&page).unwrap_or_default();
@@ -1878,7 +1887,7 @@ impl Flow {
         let spec_chars = spec_text.chars().count();
         let mut tiny_ok = false;
         if self.codegen_mode() && self.tiny_mode(spec_chars) {
-            tiny_ok = self.tiny_turn(&node_id, &specs, implement_timeout);
+            tiny_ok = self.tiny_turn(&node_id, &specs, implement_timeout, node);
             self.current_spec_chars = spec_chars;
         }
         let (mut ok, mut text) = if tiny_ok {

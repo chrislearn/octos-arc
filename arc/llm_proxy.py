@@ -14,6 +14,7 @@ server is stdlib `http.server` on 127.0.0.1 and forwards headers verbatim.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -22,6 +23,75 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOP_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding"}
+
+
+def model_routes(raw: str) -> list[dict]:
+    """Ordered, opt-in model policies. No model names or task IDs are defaults."""
+    rules = json.loads(raw or "[]")
+    if not isinstance(rules, list):
+        raise ValueError("model routes must be a JSON array")
+    phases = {"implement", "repair", "verify", "design"}
+    parameters = {"temperature", "top_p", "max_tokens", "max_completion_tokens", "thinking", "reasoning_effort"}
+    for rule in rules:
+        if not isinstance(rule, dict) or set(rule) - {"model", "phases", "max_input_chars", "tools", "images", "parameters"}:
+            raise ValueError("invalid model route fields")
+        if not isinstance(rule.get("model"), str) or not rule["model"].strip():
+            raise ValueError("model route requires a provider model ID")
+        selected = rule.get("phases", list(phases))
+        if not isinstance(selected, list) or not selected or any(p not in phases for p in selected):
+            raise ValueError("invalid model route phases")
+        limit = rule.get("max_input_chars")
+        if limit is not None and (type(limit) is not int or limit <= 0):
+            raise ValueError("max_input_chars must be positive")
+        for name in ("tools", "images"):
+            if name in rule and type(rule[name]) is not bool:
+                raise ValueError(f"{name} must be boolean")
+        opts = rule.get("parameters", {})
+        if not isinstance(opts, dict) or set(opts) - parameters:
+            raise ValueError("model route parameters cannot replace messages, tools or routing")
+    return rules
+
+
+def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
+    """Choose per request from phase, complete input size and tool/image needs.
+
+    Configuration order expresses preference; provider catalogs need not expose
+    trustworthy prices. A repair can select a different model in the same task.
+    Unmatched requests preserve the caller's model and parameters exactly.
+    """
+    if not rules:
+        return body
+    data = json.loads(body)
+    if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+        return body
+    messages = data["messages"]
+    has_images = any(isinstance(m.get("content"), list) and any(
+        isinstance(c, dict) and c.get("type") in {"image_url", "input_image"}
+        for c in m["content"]) for m in messages)
+    needs_tools = bool(data.get("tools")) or any(m.get("tool_calls") or m.get("role") == "tool" for m in messages)
+    chars = len(json.dumps({"messages": messages, "tools": data.get("tools", [])}, ensure_ascii=False))
+    for rule in rules:
+        if phase not in rule.get("phases", ["implement", "repair", "verify", "design"]):
+            continue
+        if rule.get("max_input_chars") is not None and chars > rule["max_input_chars"]:
+            continue
+        if needs_tools and not rule.get("tools", False):
+            continue
+        if has_images and not rule.get("images", False):
+            continue
+        data["model"] = rule["model"]
+        # Do not carry vendor reasoning fields into a different model. The route
+        # supplies supported fields explicitly; there is no name-based guess.
+        data.pop("thinking", None)
+        data.pop("reasoning_effort", None)
+        opts = rule.get("parameters", {})
+        if "max_completion_tokens" in opts:
+            data.pop("max_tokens", None)
+        if "max_tokens" in opts:
+            data.pop("max_completion_tokens", None)
+        data.update(opts)
+        return json.dumps(data, ensure_ascii=False).encode()
+    return body
 
 
 def inject_reasoning(body: bytes, mode: str) -> bytes:
@@ -314,6 +384,8 @@ class LlmProxy:
                  extra_drop_tools: set[str] | None = None, min_max_tokens: int = 32768) -> None:
         self.upstream = upstream_base.rstrip("/")
         self.mode = mode
+        self.routes = model_routes(os.environ.get("OCTOS_ARC_MODEL_ROUTES", ""))
+        self.phase = "implement"
         self.min_max_tokens = min_max_tokens
         self.destream = destream
         self.trim = trim
@@ -364,6 +436,7 @@ class LlmProxy:
                         body = replace_system_prompt(body, proxy.system_override)
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
+                    body = route_request(body, proxy.routes, proxy.phase)
                     proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
@@ -431,6 +504,8 @@ class LlmProxy:
         shape = request_shape(request_body)
         if shape:
             rec["request"] = shape
+            rec["model"] = json.loads(request_body).get("model")
+            rec["phase"] = self.phase
         with self._lock:
             try:
                 with self.log_path.open("a", encoding="utf-8") as fh:

@@ -106,38 +106,13 @@ def repair_flattened_js(path: Path) -> bool:
     return False
 
 
-NAV_PLACEHOLDER = "<!--NAV-->"
-HREF = re.compile(r"""href=["'](/[^"'#?]*)["']""", re.IGNORECASE)
-
-
 def dedupe_nav_links(root: Path) -> list[str]:
-    """The multi-node prompt mandates one navigation mechanism: pages carry the
-    NAV placeholder, the server fills it. Models keep adding static copies of the
-    same links next to it (strict-mode violation). When the server implements the
-    placeholder, drop static anchors whose href the server also renders."""
-    server = root / "backend" / "server.js"
-    try:
-        server_text = server.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    if NAV_PLACEHOLDER not in server_text:
-        return []
-    # The links the server itself renders into the placeholder (derived, not a fixed list).
-    nav_hrefs = {h for h in HREF.findall(server_text)}
-    if not nav_hrefs:
-        return []
-    pattern = re.compile(r"""<a\b[^>]*href=["'](?:%s)["'][^>]*>.*?</a>\s*""" % "|".join(re.escape(h) for h in sorted(nav_hrefs)),
-                         re.IGNORECASE | re.DOTALL)
-    changed = []
-    for page in sorted((root / "frontend" / "src").glob("*.html")):
-        text = page.read_text(encoding="utf-8", errors="replace")
-        if NAV_PLACEHOLDER not in text:
-            continue
-        cleaned = pattern.sub("", text)
-        if cleaned != text:
-            page.write_text(cleaned, encoding="utf-8")
-            changed.append(page.name)
-    return changed
+    """Compatibility hook: source-level href matching cannot prove redundancy.
+
+    Repeated destinations may be required navigation, calls to action, or
+    conditional content. Let acceptance failures drive explicit app repairs.
+    """
+    return []
 
 
 def write_files(root: Path, files: dict[str, str]) -> list[str]:
@@ -145,7 +120,6 @@ def write_files(root: Path, files: dict[str, str]) -> list[str]:
     for rel, body in files.items():
         dest = root / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        body = unescape_flattened(body)
         if dest.suffix.lower() in (".html", ".htm"):
             body = ensure_charset(body)
         dest.write_text(body, encoding="utf-8")

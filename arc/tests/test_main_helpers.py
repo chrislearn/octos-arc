@@ -128,7 +128,7 @@ class CodegenPromptTests(unittest.TestCase):
     def test_should_format_without_placeholder_errors_and_keep_build_command(self):
         import main as m
         text = m.CODEGEN_PROMPT.format(node_id="REQ-1", description="S", spec="T", port=3000, ports=" P", size_rule="R")
-        self.assertIn("do not output them", text)
+        self.assertIn("update manifests when required", text)
         self.assertIn("REQ-1", text)
 
 
@@ -267,6 +267,23 @@ test('REQ-1: roll a dice', async ({ page }) => {
             self.assertFalse(flow.tiny_mode(600))
         finally:
             del os.environ["OCTOS_ARC_TINY"]
+
+    def test_should_pass_unabridged_requirements_and_spec_to_tiny_generation(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.tests_dir = root
+            flow.runner = object()
+            spec = "test('example', async () => {\n  await check();\n});"
+            flow.spec_bodies = lambda _: spec
+            captured = []
+            flow.codegen_turn = lambda prompt, *args, **kwargs: (captured.append(prompt) or False, "")
+            flow.tiny_turn("item", ["example.spec.ts"], 20, {"description": "Allow arbitrary search terms and style the result list"})
+            self.assertIn("Allow arbitrary search terms", captured[0])
+            self.assertIn(spec, captured[0])
 
     def test_tiny_server_should_format_and_parse(self):
         import shutil, subprocess, tempfile

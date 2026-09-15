@@ -1,1 +1,1 @@
-index.html <= 20 lines, server.js <= 20 lines.
+Prefer a small implementation, but do not omit required behavior, accessibility, styling or validation to meet an arbitrary line count.

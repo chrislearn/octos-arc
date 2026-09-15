@@ -1,5 +1,5 @@
 Current index.html:
 {page}
-Additional Playwright test it must also pass (keep existing behaviour):
+Task and additional acceptance example (preserve existing behavior):
 {spec}
-Reply with the complete updated page markup only: minimal elements + one inline <script>; no doctype, head, CSS, comments or blank lines.
+Reply with the complete updated page markup only: a concise self-contained page implementing the full task, including required styling, controls and state. Do not hardcode test outputs.

@@ -359,7 +359,7 @@ def inline_sources(output_dir: Path, max_chars: int = 40000, exts: tuple = (".js
     return ("Current source files (quoted; edit them directly, no need to read):\n" + "".join(parts)) if parts else ""
 
 
-SOURCE_EXTS = (".html", ".js", ".mjs", ".cjs")  # stylesheets never decide a spec; not quoted
+SOURCE_EXTS = (".html", ".js", ".mjs", ".cjs", ".css")  # visibility and layout failures may originate in CSS
 
 
 def app_source_files(output_dir: Path, exts: tuple = SOURCE_EXTS) -> list[Path]:
@@ -849,14 +849,12 @@ class OctosDriver:
 # that identical turns share the provider's prefix cache.
 
 UI_CONTRACT_CORE = """\
-UI contract (the hidden Playwright tests depend on these; a violation scores 0):
-- Buttons are real <button> elements, links are <a href>, every form control has a visible <label for=id>; their texts are copied VERBATIM from the requirement/spec (anchored regexes like /^name$/i reject "Full Name"). Use plain text/password/email inputs, native <select>/checkbox/radio; NEVER type="date"/"number". All controls exist in the served HTML itself and stay visible, enabled and editable at all times; no CSS transitions/animations and no JavaScript that re-renders or re-creates form controls after load (Playwright waits for elements to be "stable" — cloud run 954a231a3d23 timed out on a checkbox that kept changing).
-- No native HTML5 validation attributes; validate in JavaScript and show ONE inline error element (role="alert") naming the problem (required / invalid / match / terms / duplicate). On error stay on the page and create no record.
-- Strict mode: every echoed value (an entered name, a chosen option, a date) appears in EXACTLY ONE element per page; every link target appears in EXACTLY ONE <a> per page (never a nav link plus a call-to-action to the same href: a spec that clicks `a[href=...]` fails on two matches); never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
-- State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server. The initial state must already be in the served HTML (e.g. the element contains `0` in the markup); never leave it empty until a fetch completes — the tests assert immediately after load.
-- Zero external requests (no CDN, fonts, analytics); assets small and same-origin.
-- Live indicators (any element the spec reads back after typing) update their OWN element's text/attributes synchronously in the `input` event handler — never on change/blur, never debounced, never only a wrapper's class (specs compare the element's outerHTML before and after typing).
-- Text only: never OCR reference images. Write files in your first actions.
+UI behavior follows the requirement and the current application:
+- Use semantic controls, accessible names and labels appropriate to each action. Preserve required routes, text, visibility, enabled states and interactions. Choose input types and validation behavior from the requirements; hidden views, dialogs and dynamic rendering are allowed when needed.
+- Keep IDs unique and label associations correct. Repeated text and links can be valid. If an actual locator is ambiguous, inspect its scope and the intended interaction instead of deleting unrelated content.
+- Derive state ownership and persistence from requirements: distinguish per-view, per-session and shared data. Do not reset persisted user data on startup. Provide a loading state when initialization is asynchronous.
+- Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
+- Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
 """
 
 CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with file blocks in the requested format."
@@ -864,22 +862,14 @@ CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with file blo
 CODEGEN_PROMPT = """\
 Requirement {node_id}: {description}
 
-Acceptance test (ground truth):
+Public acceptance example (implement the full requirement):
 {spec}
-Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) plus any API routes the requirement needs (in-memory state), 404 for anything else, wrapped in try/catch and process.on('uncaughtException').{ports} Both package.json files already exist (build copies src/* to dist; start runs server.js): do not output them.
-Rules: texts, button names, labels and test ids exactly as in the test; the initial state is literally in the HTML; state lives in the page script unless the requirement says it is persisted; no external resources, no CSS, no comments, no notes; Playwright strict mode: every locator in the test must match exactly one element on the served page (no duplicate links, labels, texts or ids; each label's for= resolves to its own control). {size_rule}
+Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) plus any API routes and persistence the requirement needs, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
+Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks. {size_rule}
 """
 
-CODEGEN_SIZE_SMALL = "index.html <= 20 lines, server.js <= 20 lines."
-CODEGEN_SIZE_FULL = ("As short as the tests allow; one page file per route. Mechanisms (follow exactly): "
-                     "(1) every page contains the literal `<!--NAV-->` and no other navigation links; before sending, the server "
-                     "replaces it with the signed-out links or the signed-in header (the exact link texts and labels the tests "
-                     "expect, each exactly once), decided from the session cookie. "
-                     "(2) Session cookie exactly `session=TOKEN; Path=/; HttpOnly; SameSite=Lax`; sign-out clears it and redirects to /. "
-                     "(3) Validation: every value the test helpers generate is valid input and MUST be accepted; do not invent "
-                     "stricter rules than the requirement states; reject only the cases the tests assert are rejected; each message is the FIRST alternative of the test's regex copied verbatim, shown in one persistent `role=alert` element. "
-                     "(4) Elements the test expects visible have a non-empty box (never an empty div/span). "
-                     "(5) No HTML5 validation attributes (required/pattern/type=email): the server validates.")
+CODEGEN_SIZE_SMALL = 'Prefer a small implementation, but do not omit required behavior, accessibility, styling or validation to meet an arbitrary line count.'
+CODEGEN_SIZE_FULL = 'Keep the implementation concise while preserving all required behavior and the existing architecture. Derive navigation, authentication, storage and validation from the requirements. Public tests illustrate contracts; handle other valid inputs too. Do not force a navigation placeholder, cookie name, redirect, validation message or rendering strategy. Fix actual ambiguous controls in their intended scope without deleting legitimate repeated links or text.'
 
 # Tiny-spec tier (OCTOS_ARC_TINY_SPEC_CHARS, default 1500; OCTOS_ARC_TINY=0 disables): the prompt is the
 # spec's own statements only, the reply is one HTML file, the server is a fixed harness scaffold (no task
@@ -887,17 +877,17 @@ CODEGEN_SIZE_FULL = ("As short as the tests allow; one page file per route. Mech
 TINY_SYSTEM = "Reply with HTML only."
 
 TINY_PROMPT = """\
-Playwright test the page at / must pass:
+Task and public acceptance example (implement general behavior):
 {spec}
-Reply with the page markup only: minimal elements + one inline <script>; no doctype, head, CSS, comments or blank lines.
+Reply with the page markup only: a concise self-contained page implementing the full task, including required styling, controls and state. Do not hardcode test outputs.
 """
 
 TINY_PROMPT_EVOLUTION = """\
 Current index.html:
 {page}
-Additional Playwright test it must also pass (keep existing behaviour):
+Task and additional acceptance example (preserve existing behavior):
 {spec}
-Reply with the complete updated page markup only: minimal elements + one inline <script>; no doctype, head, CSS, comments or blank lines.
+Reply with the complete updated page markup only: a concise self-contained page implementing the full task, including required styling, controls and state. Do not hardcode test outputs.
 """
 
 TINY_SERVER_JS = """\
@@ -944,28 +934,27 @@ def compact_spec_lines(text: str) -> str:
 
 
 UI_CONTRACT_DATA = """\
-- Concrete example values in the requirement (seed records, option labels, sample accounts, nationalities, seat classes) are FIXTURE DATA: they must exist verbatim as <option>s / seed rows. When a control's values are described but not listed, offer a broad standard set.
+- Treat examples as examples unless the requirement explicitly identifies initial records or enumerated values. Implement general handling for other valid inputs. Preserve required initial data without overwriting existing user data; do not invent broad lists or fixed sample accounts.
 """
 
 UI_CONTRACT_SESSION = """\
-- Sessions: after register/login navigate to `/`, show the exact username in one element and a "Sign out" link; the session survives reload. Failed login/registration shows one generic error, keeps the anonymous header, creates nothing.
+- Derive authentication routes, redirects, labels and session lifetime from the requirements and existing app. Keep authentication state isolated between users; preserve sessions only as required. Failed authentication must not create a session or mutate protected data. Choose error disclosure appropriate to the security requirements.
 """
 
 UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full set (multi-node tasks)
 
 PERFORMANCE_CONTRACT = """\
-Performance & robustness (the grader is a slow container, tests run in parallel, EACH TEST HAS A 10 s BUDGET including reloads):
-- The grader CPU is 5–10x slower than a laptop and runs 4 browsers at once, so budget CPU per request at 30 ms: any password hashing must cost a few milliseconds per call (a low-cost KDF parameter or a single digest), never a default-cost KDF or a native hashing module; keep the JSON store small and rewrite it only on mutation.
-- Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). Render every page server-side from the cookie (signed-in header, username) so a page needs NO XHR after load; keep pages tiny (one small inline script, no separate JS bundles) — the grader's browsers are slow and memory-starved.
-- Persistence: the in-memory store is the single source of truth; never re-read the JSON file per request. Mutations update memory first and then write the whole file synchronously (writeFileSync to a temp file, then rename) — never an async read-modify-write, because the grader runs 2–4 test files in parallel against ONE backend and a concurrent register/login pair must never lose a user. No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes.
+Performance and robustness:
+- Measure slow operations using observed timings and the configured runtime budgets; do not assume a fixed CPU slowdown or browser count. A timeout can reflect a missing element, incorrect state or an unresolved request; inspect the actual failure before changing performance settings.
+- Keep request handlers responsive and avoid unnecessary work. When password authentication is required, keep the work factor configurable. In benchmark/demo deployments, lower it according to measured CPU cost and the configured budget; retain salts and a password KDF rather than a plain digest. Keep production security settings separate.
+- Set cookie flags, scope and lifetime from the deployment protocol and session requirements. Use HttpOnly for session cookies and Secure on HTTPS; do not hardcode a host or lifetime. Preserve required client-side interactions and persistent storage semantics.
 """
 
 ARCHITECTURE_CONTRACT = """\
-Architecture (the runner depends on this EXACT layout; violation = 0 score):
-- frontend/ — package.json with a working `npm run build` that produces frontend/dist/ (a plain HTML/CSS/JS app plus a tiny Node copy script is ideal; no TypeScript, no framework needed).
-- backend/  — Node.js, package.json with `npm run start`, ZERO npm dependencies: `http.createServer` + a hand-written router, `fs`, `path`, `url`, `crypto` only. It reads PORT (default {port}), serves frontend/dist/ at `/` and JSON APIs under /api/. Persistence is a JSON file (backend/data/db.json) loaded at startup and rewritten on every mutation. Never better-sqlite3/sqlite3/bcrypt or any native module.
-- Crash safety: the process must never exit on a request. Wrap every request handler in try/catch (respond 500 JSON), return 404 for unknown paths and missing static files (browsers request /favicon.ico — an unhandled ENOENT there kills the server and fails every test), and register process.on('uncaughtException') / process.on('unhandledRejection') handlers that log and keep serving.
-- If a package is truly unavoidable, install it only with `npm install --registry=https://registry.npmmirror.com <pkg>` and write `registry=https://registry.npmmirror.com` into that folder's .npmrc.
+Runtime integration:
+- Preserve the platform contract: frontend/ has npm run build producing frontend/dist/; backend/ has npm start and reads PORT (default {port}). Within that contract, preserve the existing application architecture and choose libraries or storage appropriate to the requirements and available environment.
+- Prefer existing dependencies and avoid unnecessary installation. Do not prohibit frameworks, native modules or durable storage when the task requires them. Use the configured package registry.
+- Handle expected request errors with appropriate responses, including 404 for missing resources. Log unexpected failures; do not suppress uncaught exceptions and continue serving potentially corrupt state. Preserve data integrity and use the runtime's recovery mechanism.
 """
 
 VERIFY_FULL = """\
@@ -1042,14 +1031,14 @@ REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
 {corrections}{slow}{sources}
-Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. You have about 10 requests: in the FIRST response read at most two files (only the ones you will change), in the SECOND response emit every edit_file/write_file call together, then finish — do not read more files afterwards. No shell commands. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
+Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
 """ + PORT_RULES
 
 FINAL_CHECK_PROMPT = """\
 Final end-to-end check of the web application in the current directory:
 1. `npm run build` in frontend/ — fix any error.
 2. Kill leftover servers, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, confirm `curl http://127.0.0.1:{smoke}/` serves the app and every API endpoint answers (success and error cases).
-3. Audit every page against the contracts below and fix violations; run a mechanical strict-mode check: for each value the pages echo, count the elements containing it (`curl -s <page> | grep -o '<value>' | wc -l` for server-rendered pages, or read the render code) — the count must be 1.
+3. Audit required flows and states against the contracts below. Check accessible names, unique IDs and correct label associations. Resolve observed locator ambiguity in its intended scope; repeated text and destinations can be legitimate.
 {tests}
 {ui}{performance}
 """ + PORT_RULES
@@ -1064,7 +1053,7 @@ Fix the project so this sequence works (typical causes: a require() path that do
 """
 
 ACCEPTANCE_TESTS_PROMPT = """\
-OFFICIAL ACCEPTANCE TESTS (ground truth; when prose and spec disagree, the spec wins) live under {tests_dir}. Files: {files}. They define routes, hrefs, accessible names, option labels, exact texts, error wording and action order. Never modify, copy or delete them.
+PUBLIC ACCEPTANCE TESTS (examples to validate the full requirement; report conflicts instead of silently discarding requirements) live under {tests_dir}. Files: {files}. They define routes, hrefs, accessible names, option labels, exact texts, error wording and action order. Never modify, copy or delete them.
 """
 
 INLINE_SPEC_HEADER = """\
@@ -1277,6 +1266,9 @@ class Flow:
             if request_budget is None:
                 request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", "10")) if "repair" in label else \
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"))
+            proxy.phase = ("repair" if any(word in label for word in ("repair", "rewrite")) else
+                           "verify" if "final check" in label else
+                           "design" if "design" in label else "implement")
             proxy.begin_turn(request_budget)
         t0 = time.time()
         self.turn_count += 1
@@ -1367,7 +1359,7 @@ class Flow:
         threshold = int(os.environ.get("OCTOS_ARC_TINY_SPEC_CHARS", "1500"))
         return os.environ.get("OCTOS_ARC_TINY", "1") != "0" and 0 < spec_chars < threshold
 
-    def tiny_turn(self, node_id: str, specs: list[str], timeout: int) -> bool:
+    def tiny_turn(self, node_id: str, specs: list[str], timeout: int, requirement: dict) -> bool:
         """Tiny-spec tier: harness writes the manifests and a fixed static server, the
         model returns one index.html for the spec's statements. Returns True only when
         the node's specs pass right away; otherwise the caller falls back to the compact tier."""
@@ -1377,7 +1369,7 @@ class Flow:
             server.parent.mkdir(parents=True, exist_ok=True)
             extra = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
             server.write_text(TINY_SERVER_JS.format(port=self.web_port, extra_ports=json.dumps(extra)), encoding="utf-8")
-        spec = compact_spec_lines(self.spec_bodies(node_id))
+        spec = "Requirement: " + json.dumps(requirement, ensure_ascii=False) + "\nPublic example:\n" + self.spec_bodies(node_id)
         page = self.output_dir / "frontend" / "src" / "index.html"
         if page.is_file():
             prompt = TINY_PROMPT_EVOLUTION.format(page=page.read_text(encoding="utf-8", errors="replace").strip(), spec=spec)
@@ -1742,8 +1734,8 @@ class Flow:
                 break
             self.snapshot_sources(node_id, attempt)
             slow = summary.slow(int(os.environ.get("OCTOS_ARC_SLOW_MS", "3000")))
-            slow_text = ("Also, these tests took over 3 s on this fast machine and will exceed the grader's "
-                         "10 s budget: " + "; ".join(slow) + ". Remove the latency.\n" + self.perf_text()) if slow else ""
+            slow_text = ("These tests exceeded the configured slow-test threshold: " + "; ".join(slow) +
+                         ". Inspect the failed operations and measured timings before optimizing.\n" + self.perf_text()) if slow else ""
             if passed == 0 and rebuild_prompt is not None and not rewrite_used \
                     and os.environ.get("OCTOS_ARC_REWRITE_ON_ZERO", "1") != "0":
                 rewrite_used = True
@@ -1860,7 +1852,7 @@ class Flow:
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
         tiny_ok = False
         if self.codegen_mode() and self.tiny_mode(len(self.spec_bodies(node_id))):
-            tiny_ok = self.tiny_turn(node_id, specs, implement_timeout)
+            tiny_ok = self.tiny_turn(node_id, specs, implement_timeout, node)
             self.current_spec_chars = len(self.spec_bodies(node_id))
         if tiny_ok:
             ok, text = True, "tiny tier: specs pass"
