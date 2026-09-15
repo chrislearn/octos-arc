@@ -24,6 +24,7 @@ pub mod policy;
 mod process;
 pub mod prompts;
 pub mod reap;
+pub mod routing;
 pub mod run;
 mod runner;
 pub mod spec;

@@ -49,6 +49,8 @@ def model_routes(raw: str) -> list[dict]:
         opts = rule.get("parameters", {})
         if not isinstance(opts, dict) or set(opts) - parameters:
             raise ValueError("model route parameters cannot replace messages, tools or routing")
+        if "max_tokens" in opts and "max_completion_tokens" in opts:
+            raise ValueError("choose one output token limit")
     return rules
 
 
@@ -69,7 +71,7 @@ def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
         isinstance(c, dict) and c.get("type") in {"image_url", "input_image"}
         for c in m["content"]) for m in messages)
     needs_tools = bool(data.get("tools")) or any(m.get("tool_calls") or m.get("role") == "tool" for m in messages)
-    chars = len(json.dumps({"messages": messages, "tools": data.get("tools", [])}, ensure_ascii=False))
+    chars = len(json.dumps({"messages": messages, "tools": data.get("tools", [])}, ensure_ascii=False, separators=(",", ":")))
     for rule in rules:
         if phase not in rule.get("phases", ["implement", "repair", "verify", "design"]):
             continue

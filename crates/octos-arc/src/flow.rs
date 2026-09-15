@@ -158,6 +158,7 @@ pub struct Flow {
     /// Size of the spec text the current node must satisfy (codegen effort by spec size).
     current_spec_chars: usize,
     permanent_provider_error: Option<String>,
+    routing: Option<crate::routing::Control>,
 }
 
 /// How a node is rebuilt when round 0 passes nothing.
@@ -182,6 +183,7 @@ pub struct FlowInputs {
     pub events: Events,
     pub executable: PathBuf,
     pub dry_run: bool,
+    pub routing: Option<crate::routing::Control>,
 }
 
 impl Flow {
@@ -195,6 +197,7 @@ impl Flow {
             events,
             executable,
             dry_run,
+            routing,
         } = inputs;
         let ordered = tree::topo_order(&tree);
         if ordered.is_empty() {
@@ -303,6 +306,7 @@ impl Flow {
             watchdog: None,
             current_spec_chars: 0,
             permanent_provider_error: None,
+            routing,
         })
     }
 
@@ -1101,6 +1105,9 @@ impl Flow {
             self.log(format!("[flow] {label}: dry run, tool turn skipped"));
             return (true, format!("dry run: {label}"));
         }
+        if let Some(routing) = &self.routing {
+            routing.set_label(label);
+        }
         self.note_turn();
         let mode = self.plan.reasoning_for(label);
         let budget = request_budget.unwrap_or_else(|| {
@@ -1394,6 +1401,9 @@ impl Flow {
             mode,
             timeout: timeout.max(Duration::from_secs(60)),
         };
+        if let Some(routing) = &self.routing {
+            routing.set_label(label);
+        }
         let result = self.llm.complete(&request);
         let (ok, text) = match result {
             Ok(completion) => {
@@ -2982,6 +2992,7 @@ mod tests {
                 events: Events::open(&arc_dir).unwrap().quiet(),
                 executable: dir.path().join("must-not-start"),
                 dry_run: false,
+                routing: None,
             },
         )
         .unwrap();
@@ -3014,6 +3025,21 @@ mod tests {
         flow.codegen_turn("build", Duration::from_secs(60), "implement");
         flow.codegen_turn("fix", Duration::from_secs(60), "repair");
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn both_codegen_and_tool_turns_set_the_shared_routing_phase() {
+        let (mut flow, _, dir) = rejected_flow("HTTP 503 temporarily unavailable");
+        let relay =
+            crate::routing::Relay::start("http://127.0.0.1:1/v1", vec![], dir.path()).unwrap();
+        flow.routing = Some(relay.control.clone());
+        flow.codegen_turn("fix", Duration::from_secs(60), "repair");
+        assert_eq!(relay.control.phase(), crate::routing::Phase::Repair);
+        // The missing test executable fails locally, after turn selects its phase.
+        flow.turn("check", Duration::from_secs(60), "final check", true, None);
+        assert_eq!(relay.control.phase(), crate::routing::Phase::Verify);
+        flow.codegen_turn("plan", Duration::from_secs(60), "design");
+        assert_eq!(relay.control.phase(), crate::routing::Phase::Design);
     }
     #[test]
     fn should_prefer_the_previous_requirement_snapshot_over_the_traceability_table() {

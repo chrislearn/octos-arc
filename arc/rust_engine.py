@@ -164,6 +164,9 @@ def kernel_env() -> dict:
 
 def run_kernel(octos_bin: str, spec_path: Path, policy_path: Path, translator: Translator, log, env: dict) -> int:
     cmd = [octos_bin, "arc", "run", "--spec", str(spec_path), "--policy", str(policy_path)]
+    if env.get("OCTOS_ARC_MODEL_ROUTES"):
+        # Explicit option makes unsupported older kernels fail instead of ignoring routes.
+        cmd.extend(["--model-routes-json", env["OCTOS_ARC_MODEL_ROUTES"]])
     if os.environ.get("OCTOS_ARC_DRYRUN") == "1":
         cmd.append("--dry-run")
     log(f"[engine] {' '.join(cmd)}")
@@ -186,9 +189,6 @@ def run_kernel(octos_bin: str, spec_path: Path, policy_path: Path, translator: T
 
 def main(args) -> int:
     import main as legacy  # the Python adapter: reused for platform plumbing only
-
-    if os.environ.get("OCTOS_ARC_MODEL_ROUTES"):
-        raise ValueError("OCTOS_ARC_MODEL_ROUTES currently requires OCTOS_ARC_ENGINE=python; Rust routing is not implemented")
 
     log = log_factory()
     from arcbench_agent_runtime import AgentRuntime

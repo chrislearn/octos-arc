@@ -4,6 +4,17 @@ from llm_proxy import model_routes, route_request
 
 
 class RoutingTests(unittest.TestCase):
+    def test_shared_python_rust_contract(self):
+        from pathlib import Path
+        cases = json.loads((Path(__file__).parent / 'fixtures/model-routing.json').read_text())
+        for case in cases:
+            with self.subTest(case=case['name']):
+                body = json.dumps(case['body'], ensure_ascii=False).encode()
+                result = route_request(body, model_routes(json.dumps(case['rules'])), case['phase'])
+                self.assertEqual(json.loads(result)['model'], case['model'])
+                if case['model'] == 'original':
+                    self.assertEqual(result, body)
+
     def setUp(self):
         self.rules = model_routes(json.dumps([
             {'model': 'small-model', 'phases': ['implement'], 'max_input_chars': 1000, 'tools': False},
