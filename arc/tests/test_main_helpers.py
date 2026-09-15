@@ -438,7 +438,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             (root / "t" / f"{n}.spec.ts").write_text("x")
         flow = m.Flow(argparse.Namespace(web_port=1), root, root)
         flow.tests_dir = root / "t"; flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
-        flow.runner = object(); flow.test_verdict = {"REQ-1": False}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "prepared"); flow.test_verdict = {"REQ-1": False}
         flow.heads = iter(["sha0", "sha1", "sha2"]); flow.restored = []; flow.commits = []
         it = iter(rounds_results)
         def run_specs(specs, workers=None, grader_like=False):
