@@ -141,3 +141,47 @@ class TinyFailureEvidenceTests(unittest.TestCase):
             with patch('main.log') as log:
                 self.assertFalse(flow.tiny_turn('node', ['public.spec.ts'], 60, {'description': 'show status'}))
                 self.assertIn("getByTestId('status-output')", '\n'.join(str(c.args[0]) for c in log.call_args_list))
+
+
+class RepairLocationTests(unittest.TestCase):
+    def test_repair_prompt_identifies_external_readonly_tests(self):
+        import main
+        location = '/external/acceptance specs'
+        prompt = main.REPAIR_PROMPT.format(node_id='node', passed=0, total=1,
+            failures='example.spec.ts: missing element', corrections='', slow='', sources='',
+            smoke=1234, port=3000, test_location=location)
+        self.assertIn(location, prompt)
+
+
+class BestRepairStateTests(unittest.TestCase):
+    def test_restores_uncommitted_regression_even_when_commit_id_is_unchanged(self):
+        import main
+        import time
+        from unittest.mock import Mock
+        from acceptance import RunSummary, TestOutcome
+        flow = object.__new__(main.Flow)
+        flow.runner = object()
+        flow.repair_rounds = 1
+        flow.min_repair_seconds = 0
+        flow.node_timeout = 60
+        flow.smoke_port = 43219
+        flow.web_port = 3000
+        flow.tests_dir = None
+        flow.pending_corrections = []
+        flow.head = lambda: 'same-commit'
+        flow.codegen_mode = lambda: False
+        flow.wound_down = lambda: False
+        flow.time_up = lambda: False
+        flow.record_tests = Mock()
+        flow.snapshot_sources = Mock()
+        flow.sources_text = lambda: ''
+        flow.corrections_text = lambda: ''
+        flow.turn = Mock()  # failed repair leaves uncommitted edits; HEAD remains unchanged
+        flow.commit = Mock()
+        flow.restore_app = Mock()
+        failure = TestOutcome('behavior', False, 'failed', 1, message='missing control')
+        flow.run_specs = Mock(side_effect=[RunSummary(passed=1, total=2, results=[failure]),
+                                          RunSummary(passed=0, total=2, results=[failure])])
+        self.assertFalse(flow.acceptance_loop('node', ['example.spec.ts'], time.time()+1000))
+        flow.turn.assert_called_once()
+        flow.restore_app.assert_called_once_with('same-commit')
