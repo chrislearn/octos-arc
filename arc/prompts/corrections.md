@@ -1,5 +1,5 @@
 ## identical_failure
-Your last two attempts produced EXACTLY the same failure. The same logic will fail again: read the Expected/Received values in the observation, change the approach (e.g. render the initial state in the served HTML instead of after a fetch), and check the spec's locator against your markup.
+Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.
 ## regressions_restored
 Your last two repairs made the tests worse; the harness restored frontend/ and backend/ to the best state ({best}/{total}). Start from that code.
 ## protected_restored
