@@ -212,6 +212,40 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
     return "\n".join(blocks)
 
 
+def failure_source_context(summary: RunSummary, tests_dir: Path | None, max_chars: int = 4000) -> str:
+    """Quote bounded, read-only source around actual failure lines; never guess ambiguous files."""
+    if not tests_dir or max_chars <= 0:
+        return ""
+    root = tests_dir.resolve()
+    files = []
+    for directory, dirs, names in os.walk(root, followlinks=False):
+        dirs[:] = [d for d in dirs if d not in ("node_modules", ".git") and not (Path(directory)/d).is_symlink()]
+        files.extend(Path(directory)/n for n in names if n.endswith('.ts'))
+    blocks, seen = [], set()
+    for r in summary.results:
+        if r.ok or not r.line or r.line < 1:
+            continue
+        name = (r.location.rsplit(':', 1)[0] if r.location else r.file)
+        candidates = [p for p in files if p.name == Path(name).name]
+        if len(candidates) != 1:
+            continue
+        path = candidates[0]
+        if not path.resolve().is_relative_to(root) or (path, r.line) in seen:
+            continue
+        seen.add((path, r.line))
+        try:
+            if path.stat().st_size > 1_000_000:
+                continue
+            lines = path.read_text(encoding='utf-8').splitlines()
+        except (OSError, UnicodeError):
+            continue
+        if r.line > len(lines):
+            continue
+        excerpt = '\n'.join(f"{'>' if n+1 == r.line else ' '} {n+1}: {lines[n][:400]}" for n in range(max(0, r.line-5), min(len(lines), r.line+4)))
+        blocks.append(f"Read-only failure source: {path.relative_to(root)}\n{excerpt}")
+    return ('\n\n' + '\n\n'.join(blocks))[:max_chars] if blocks else ''
+
+
 def failure_signature(summary: RunSummary) -> frozenset[tuple[str, ...]]:
     """Detect a stalled repair by the observation, not just the test name.
 

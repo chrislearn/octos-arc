@@ -463,6 +463,93 @@ fn call_log_steps(message: &str) -> Vec<String> {
     steps
 }
 
+/// Bounded source evidence from the read-only acceptance tree.
+pub fn failure_source_context(
+    summary: &RunSummary,
+    tests_dir: Option<&Path>,
+    max_chars: usize,
+) -> String {
+    let Some(root) = tests_dir.and_then(|p| p.canonicalize().ok()) else {
+        return String::new();
+    };
+    let mut files = Vec::new();
+    fn collect(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() && !matches!(entry.file_name().to_str(), Some("node_modules" | ".git"))
+            {
+                collect(&path, files);
+            } else if kind.is_file() && path.extension().is_some_and(|x| x == "ts") {
+                files.push(path);
+            }
+        }
+    }
+    collect(&root, &mut files);
+    let mut out = String::new();
+    let mut seen = BTreeSet::new();
+    for r in summary.results.iter().filter(|r| !r.ok) {
+        let Some(line) = r
+            .line
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|n| *n > 0)
+        else {
+            continue;
+        };
+        let name = r
+            .location
+            .rsplit_once(':')
+            .map(|(p, _)| p)
+            .unwrap_or(&r.file);
+        let matches: Vec<_> = files
+            .iter()
+            .filter(|p| p.file_name() == Path::new(name).file_name())
+            .collect();
+        if matches.len() != 1 {
+            continue;
+        }
+        let path = matches[0];
+        if !seen.insert((path.clone(), line))
+            || std::fs::metadata(path).map_or(true, |m| m.len() > 1_000_000)
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let lines: Vec<_> = text.lines().collect();
+        if line > lines.len() {
+            continue;
+        }
+        out.push_str(&format!(
+            "\n\nRead-only failure source: {}\n",
+            path.strip_prefix(&root).unwrap().display()
+        ));
+        for (n, text) in lines
+            .iter()
+            .enumerate()
+            .take(line.saturating_add(4))
+            .skip(line.saturating_sub(5))
+        {
+            out.push_str(&format!(
+                "{} {}: {}\n",
+                if n + 1 == line { ">" } else { " " },
+                n + 1,
+                text.chars().take(400).collect::<String>()
+            ));
+        }
+        if out.chars().count() >= max_chars {
+            break;
+        }
+    }
+    out.chars().take(max_chars).collect()
+}
+
 /// Keep behavioral evidence while ignoring timing and repeated polling noise.
 pub fn failure_signature(summary: &RunSummary) -> BTreeSet<Vec<String>> {
     static TIME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b\d+(?:\.\d+)?\s*ms\b").unwrap());
@@ -1410,6 +1497,35 @@ mod tests {
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn failure_source_uses_helper_line_and_skips_ambiguous_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("support")).unwrap();
+        let source = (1..=20)
+            .map(|n| format!("operation_{n}();"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(dir.path().join("support/helper.ts"), &source).unwrap();
+        let summary = RunSummary::from_results(vec![TestOutcome {
+            title: "submit later".into(),
+            location: "helper.ts:10".into(),
+            line: Some(10),
+            ..Default::default()
+        }]);
+        let text = failure_source_context(&summary, Some(dir.path()), 4000);
+        assert!(text.contains("support/helper.ts"));
+        assert!(text.contains("> 10: operation_10();"));
+        assert!(!text.contains("operation_1();"));
+        assert!(
+            failure_source_context(&summary, Some(dir.path()), 50)
+                .chars()
+                .count()
+                <= 50
+        );
+        std::fs::write(dir.path().join("helper.ts"), source).unwrap();
+        assert!(failure_source_context(&summary, Some(dir.path()), 4000).is_empty());
     }
 
     #[test]
