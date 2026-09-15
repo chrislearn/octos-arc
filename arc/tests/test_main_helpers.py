@@ -499,3 +499,20 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             del os.environ["OCTOS_FINAL_REPAIR_ROUNDS"]
         self.assertEqual(flow.restored, [])
         self.assertTrue(flow.test_verdict["REQ-1"])
+
+class ProbeInvalidationTests(unittest.TestCase):
+    def test_failed_model_turn_discards_pre_generation_verdicts(self):
+        from unittest.mock import Mock
+        from acceptance import RunSummary
+        from pathlib import Path
+        flow = object.__new__(m.Flow)
+        flow.probe_summaries = {'unchanged': RunSummary(passed=1, total=1)}
+        flow.protected_prefixes = lambda: []
+        flow.output_dir = Path('/tmp/unused-application')
+        flow.turn_count = 0
+        flow.guard_enabled = False
+        flow.restore_protected = lambda: []
+        flow.driver = Mock()
+        flow.driver.run.return_value = (False, 'partial implementation failed')
+        flow.turn('modify shared component', 60, 'changed implement', expect_verification=False)
+        self.assertEqual(flow.probe_summaries, {})

@@ -1287,6 +1287,8 @@ class Flow:
                            "verify" if "final check" in label else
                            "design" if "design" in label else "implement")
             proxy.begin_turn(request_budget)
+        # A model turn may change application files, even when it later fails.
+        getattr(self, "probe_summaries", {}).clear()
         t0 = time.time()
         self.turn_count += 1
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
