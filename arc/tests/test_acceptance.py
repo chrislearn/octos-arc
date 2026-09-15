@@ -267,3 +267,33 @@ class ActionableFailureTests(unittest.TestCase):
             return RunSummary(results=[TestOutcome(title='same test', ok=False, status='failed', duration_ms=1, location=location, message=message)])
         self.assertNotEqual(failure_signature(sample('Expected 200, received 404')), failure_signature(sample('Expected 200, received 500')))
         self.assertNotEqual(failure_signature(sample('missing', 'spec.ts:10')), failure_signature(sample('missing', 'spec.ts:20')))
+
+
+class ServerCleanupTests(unittest.TestCase):
+    @unittest.skipUnless(__import__('os').name == 'posix', 'process-group cleanup uses POSIX')
+    def test_should_reap_owned_server_before_returning_from_stop(self):
+        import os
+        import sys
+        from unittest.mock import patch
+        from acceptance import AppServer
+        child = subprocess.Popen([sys.executable, '-c',
+            "import os; print('ready', flush=True); os.read(0, 1)"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True)
+        try:
+            self.assertEqual(child.stdout.readline(), b'ready\n')
+            server = object.__new__(AppServer)
+            server.proc = child
+            server.port = 0
+            server.grader_like = False
+            server.log_file = None
+            with patch('acceptance.free_port'):
+                server.stop()
+                server.stop()  # cleanup remains safe when called again
+            self.assertIsNotNone(child.returncode, 'stop must collect the child exit status')
+            with self.assertRaises(ChildProcessError):
+                os.waitpid(child.pid, os.WNOHANG)
+        finally:
+            child.kill()
+            child.wait(timeout=5)
+            child.stdin.close()
+            child.stdout.close()
