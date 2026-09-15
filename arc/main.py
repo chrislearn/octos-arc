@@ -82,7 +82,7 @@ from acceptance import (  # noqa: E402
     restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
-from llm_proxy import LlmProxy  # noqa: E402
+from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
 
 BUNDLE_DIR = Path(__file__).resolve().parent
@@ -1596,7 +1596,12 @@ class Flow:
             # but TB repairs without thinking looped 22 calls with no write.
             mode = "none" if getattr(self, "nodes_to_implement", 2) <= 1 else "low"
         upstream = os.environ.get("OPENAI_BASE_URL", "")
-        if mode == "passthrough" or not upstream.startswith("http"):
+        routes_configured = bool(json.loads(configured_model_routes() or "[]"))
+        if mode == "passthrough" and not routes_configured:
+            return
+        if not upstream.startswith("http"):
+            if routes_configured:
+                raise ValueError("model routing requires an HTTP provider endpoint")
             return
         try:
             dump = (self.output_dir / ".arc" / "llm-requests") if os.environ.get("OCTOS_ARC_PROXY_DUMP") == "1" else None
@@ -1605,6 +1610,8 @@ class Flow:
                                       trim=os.environ.get("OCTOS_ARC_TRIM_PROMPT", "1") != "0",
                                       min_max_tokens=int(os.environ.get("OCTOS_ARC_MAX_TOKENS", "32768"))).start()
         except OSError as exc:
+            if routes_configured:
+                raise
             log(f"[proxy] could not start local LLM proxy ({exc}); using the endpoint directly")
             return
         self.base_reasoning_mode = mode

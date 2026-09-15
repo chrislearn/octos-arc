@@ -98,3 +98,51 @@ class RoutingTests(unittest.TestCase):
             upstream.shutdown()
             upstream.server_close()
             worker.join()
+
+
+class BundledRoutingTests(unittest.TestCase):
+    def test_bundle_config_and_explicit_environment_override(self):
+        import tempfile
+        from pathlib import Path
+        from llm_proxy import configured_model_routes
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(configured_model_routes({}, root), '')
+            root.joinpath('model-routes.json').write_text('[{"model":"bundled"}]')
+            self.assertEqual(json.loads(configured_model_routes({}, root))[0]['model'], 'bundled')
+            self.assertEqual(configured_model_routes({'OCTOS_ARC_MODEL_ROUTES': ''}, root), '')
+            explicit = '[{"model":"override"}]'
+            self.assertEqual(configured_model_routes({'OCTOS_ARC_MODEL_ROUTES': explicit}, root), explicit)
+            root.joinpath('model-routes.json').write_text('[{"model":"m","parameters":{"messages":[]}}]')
+            with self.assertRaises(ValueError):
+                configured_model_routes({}, root)
+
+
+class RoutingStartupTests(unittest.TestCase):
+    def test_passthrough_reasoning_does_not_disable_configured_routing(self):
+        import main
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        flow = object.__new__(main.Flow)
+        with tempfile.TemporaryDirectory() as tmp:
+            flow.output_dir = Path(tmp)
+            env = {'OPENAI_BASE_URL': 'http://localhost/v1', 'OCTOS_ARC_REASONING': 'passthrough',
+                   'OCTOS_ARC_MODEL_ROUTES': '[{"model":"configured"}]'}
+            with patch.dict('os.environ', env), patch('main.LlmProxy') as proxy:
+                proxy.return_value.start.return_value.base_url = 'http://localhost:1234/v1'
+                flow.start_llm_proxy()
+                proxy.assert_called_once()
+
+    def test_configured_routes_do_not_silently_fall_back_after_proxy_failure(self):
+        import main
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        flow = object.__new__(main.Flow)
+        with tempfile.TemporaryDirectory() as tmp:
+            flow.output_dir = Path(tmp)
+            env = {'OPENAI_BASE_URL': 'http://localhost/v1', 'OCTOS_ARC_MODEL_ROUTES': '[{"model":"configured"}]'}
+            with patch.dict('os.environ', env), patch('main.LlmProxy', side_effect=OSError('bind failed')):
+                with self.assertRaises(OSError):
+                    flow.start_llm_proxy()

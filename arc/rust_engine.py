@@ -164,9 +164,11 @@ def kernel_env() -> dict:
 
 def run_kernel(octos_bin: str, spec_path: Path, policy_path: Path, translator: Translator, log, env: dict) -> int:
     cmd = [octos_bin, "arc", "run", "--spec", str(spec_path), "--policy", str(policy_path)]
-    if env.get("OCTOS_ARC_MODEL_ROUTES"):
+    from llm_proxy import configured_model_routes
+    routes = configured_model_routes(env)
+    if routes:
         # Explicit option makes unsupported older kernels fail instead of ignoring routes.
-        cmd.extend(["--model-routes-json", env["OCTOS_ARC_MODEL_ROUTES"]])
+        cmd.extend(["--model-routes-json", routes])
     if os.environ.get("OCTOS_ARC_DRYRUN") == "1":
         cmd.append("--dry-run")
     log(f"[engine] {' '.join(cmd)}")
