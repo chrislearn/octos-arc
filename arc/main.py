@@ -1442,10 +1442,22 @@ class Flow:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
     def codegen_context_fits(self, spec_text: str) -> bool:
-        """Spec + (trimmed) sources must fit the codegen prompt budget; the source
-        quote is bounded to the budget minus the spec, so this only fails when
-        the spec alone (with helpers) is too large for one request."""
-        return len(spec_text) < self.codegen_context_chars() * 0.6
+        """Do not request complete file replacements with omitted source bodies.
+        Large existing applications use tool mode so the model can read and edit
+        their files without fitting every source into one request.
+        """
+        limit = self.codegen_context_chars()
+        if len(spec_text) >= limit * 0.6:
+            return False
+        remaining = max(8000, limit - len(spec_text))
+        for path in app_source_files(self.output_dir):
+            try:
+                remaining -= len(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                return False
+            if remaining < 0:
+                return False
+        return True
 
     def codegen_repair_prompt(self, node_id: str, prompt: str) -> str | None:
         spec = self.spec_bodies(node_id)
@@ -2050,7 +2062,7 @@ class Flow:
             ok, text = self.codegen_turn(compact, implement_timeout, f"{node_id} implement", spec_chars=self.current_spec_chars)
         else:
             if self.codegen_mode():
-                log(f"[flow] {node_id}: spec too large for one request ({len(self.spec_bodies(node_id))} chars); tool mode")
+                log(f"[flow] {node_id}: spec or existing source exceeds one-request allowance ({len(self.spec_bodies(node_id))} spec chars); tool mode")
             ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
             # Cloud 76fb32a69d81: output cut by max_tokens, nothing written. Retry

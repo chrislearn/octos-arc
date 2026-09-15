@@ -1337,9 +1337,6 @@ impl Flow {
             .then_some(ReasoningMode::Disabled)
     }
 
-    /// `main.codegen_context_fits`: spec + (trimmed) sources must fit the codegen
-    /// prompt budget; the source quote is bounded to the budget minus the spec,
-    /// so this only fails when the spec alone (with helpers) is too large.
     fn codegen_repair_prompt(&self, node_id: &str, prompt: &str) -> Option<String> {
         let spec = self.spec_bodies(node_id);
         if spec.is_empty() || spec == "(none)" {
@@ -1376,7 +1373,9 @@ impl Flow {
     }
 
     fn codegen_context_fits(&self, spec_chars: usize) -> bool {
-        (spec_chars as f64) < self.policy.prompts.codegen_context_chars as f64 * 0.6
+        let limit = self.policy.prompts.codegen_context_chars;
+        (spec_chars as f64) < limit as f64 * 0.6
+            && codegen::sources_fit(&self.output_dir, limit.saturating_sub(spec_chars).max(8000))
     }
 
     /// `main.all_specs_tiny`: every node that has specs falls in the tiny tier (and at least one does).
@@ -2154,7 +2153,7 @@ impl Flow {
         } else {
             if self.codegen_mode() {
                 self.log(format!(
-                    "[flow] {node_id}: spec too large for one request ({spec_chars} chars); tool mode"
+                    "[flow] {node_id}: spec or existing source exceeds one-request allowance ({spec_chars} spec chars); tool mode"
                 ));
             }
             self.turn(
@@ -3349,6 +3348,21 @@ mod tests {
                 .checkpoint_specs()
                 .contains(&"broken.spec.ts".to_string())
         );
+    }
+
+    #[test]
+    fn codegen_requires_existing_sources_to_fit() {
+        let (flow, _, _dir) = rejected_flow("unused");
+        assert!(flow.codegen_context_fits(12000));
+        let backend = flow.output_dir.join("backend");
+        let frontend = flow.output_dir.join("frontend");
+        std::fs::create_dir_all(&backend).unwrap();
+        std::fs::create_dir_all(&frontend).unwrap();
+        std::fs::write(backend.join("server.js"), "b".repeat(26000)).unwrap();
+        std::fs::write(frontend.join("index.html"), "p".repeat(55000)).unwrap();
+        assert!(!flow.codegen_context_fits(12000));
+        std::fs::write(frontend.join("index.html"), "p".repeat(50000)).unwrap();
+        assert!(flow.codegen_context_fits(12000));
     }
 
     #[test]
