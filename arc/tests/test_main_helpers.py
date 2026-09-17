@@ -2183,3 +2183,81 @@ class CodegenBeyondBudgetTests(unittest.TestCase):
                                       format_instructions="", raw_target="frontend/src/index.html")
             self.assertTrue(ok)
             self.assertIn("<main>v2</main>", (root / "frontend/src/index.html").read_text())
+
+
+class HelperTrimTests(unittest.TestCase):
+    """spec_bodies appended every non-spec .ts file whole to every node. On
+    arc-bench-web--12306 that is a 25,240-char helpers.ts on top of a ~460-char
+    spec, 117 times: the reasoning-off rule (< 5000 chars) never fired and ~7k
+    tokens of unrelated helper code rode along in every request. A spec uses a
+    median of 4 of the 54 exports. Quote the declarations the spec references,
+    transitively, and nothing else."""
+
+    HELPER = (
+        "import { Page, expect } from '@playwright/test';\n"
+        "\n"
+        "const BASE = 'http://localhost:3000';\n"
+        "\n"
+        "export async function wait(page: Page) {\n"
+        "  await page.waitForTimeout(10);\n"
+        "}\n"
+        "\n"
+        "export async function openHome(page: Page) {\n"
+        "  await page.goto(BASE + '/');\n"
+        "  await wait(page);\n"
+        "}\n"
+        "\n"
+        "export const FIXTURES = { user: 'u', pass: 'p' };\n"
+        "\n"
+        "export async function unrelated(page: Page) {\n"
+        "  await page.goto(BASE + '/never');\n"
+        "}\n"
+    )
+
+    def _flow(self, folder, spec_text, helper_text=None):
+        import argparse
+        from pathlib import Path
+        root = Path(folder)
+        tests = root / "tests"; tests.mkdir()
+        (tests / "REQ-1.spec.ts").write_text(spec_text)
+        (tests / "helpers.ts").write_text(self.HELPER if helper_text is None else helper_text)
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = tests
+        flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], None: []}
+        return flow
+
+    def test_should_quote_only_the_helper_declarations_the_spec_reaches(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            flow = self._flow(folder, "import { openHome } from './helpers';\n"
+                                      "test('home', async ({ page }) => { await openHome(page); });\n")
+            body = flow.spec_bodies("REQ-1")
+            self.assertIn("openHome", body)
+            self.assertIn("async function wait", body)      # reached through openHome
+            self.assertIn("const BASE", body)               # non-exported, reached
+            self.assertIn("import { Page, expect }", body)  # header kept
+            self.assertNotIn("unrelated", body)
+            self.assertNotIn("FIXTURES", body)
+            self.assertLess(len(m.trim_helper_to_references(self.HELPER, {"openHome"})), len(self.HELPER))
+
+    def test_should_omit_a_helper_the_spec_never_references(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            flow = self._flow(folder, "test('plain', async ({ page }) => { await page.goto('/'); });\n")
+            body = flow.spec_bodies("REQ-1")
+            self.assertNotIn("openHome", body)
+            self.assertNotIn("--- helpers.ts ---", body)
+
+    def test_should_fall_back_to_the_whole_helper_when_it_has_no_recognisable_declarations(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            odd = "// generated\nmodule.exports = { openHome: async (p) => p.goto('/') };\n"
+            flow = self._flow(folder, "const { openHome } = require('./helpers');\n", helper_text=odd)
+            self.assertIn("module.exports", flow.spec_bodies("REQ-1"))
+
+    def test_trim_is_a_pure_function_over_identifiers(self):
+        out = m.trim_helper_to_references(self.HELPER, {"FIXTURES"})
+        self.assertIn("export const FIXTURES", out)
+        self.assertNotIn("openHome", out)
+        self.assertNotIn("BASE", out)
+        self.assertEqual(m.trim_helper_to_references(self.HELPER, set()), "")

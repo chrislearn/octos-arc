@@ -404,6 +404,42 @@ def spec_terms(spec_text: str) -> set[str]:
     return {t.lower() for t in terms if t not in stop}
 
 
+_HELPER_DECL = re.compile(
+    r"^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function\*?|const|let|var|class|type|interface|enum)\s+"
+    r"([A-Za-z_$][\w$]*)", re.M)
+_IDENT = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def trim_helper_to_references(helper: str, referenced: set[str]) -> str:
+    """The top-level declarations of a test helper file that `referenced`
+    identifiers reach, transitively, plus its import lines; "" when none do.
+
+    A shared helpers.ts is written for the whole suite (12306: 54 exports,
+    25k chars) while one spec uses a handful (median 4). Quoting the file
+    whole into every node's prompt made every spec look 25k chars long: the
+    reasoning-off rule never fired and ~7k tokens of unrelated code rode
+    along in each request. A file with no recognisable top-level
+    declarations is returned whole -- better too much than a broken quote."""
+    decls = list(_HELPER_DECL.finditer(helper))
+    if not decls:
+        return helper
+    starts = [d.start() for d in decls] + [len(helper)]
+    spans = {d.group(1): helper[starts[i]:starts[i + 1]] for i, d in enumerate(decls)}
+    include: set[str] = set()
+    frontier = set(spans) & referenced
+    while frontier:
+        include |= frontier
+        reached = set()
+        for name in frontier:
+            reached |= set(_IDENT.findall(spans[name])) & set(spans)
+        frontier = reached - include
+    if not include:
+        return ""
+    header = [line for line in helper[:starts[0]].splitlines() if line.startswith("import ")]
+    kept = [spans[d.group(1)].rstrip() for d in decls if d.group(1) in include]
+    return "\n".join(header + [""] + kept).strip() + "\n"
+
+
 def quoted_paths(prompt: str) -> set[str]:
     """Files a codegen prompt shows whole: `--- path ---` headers with nothing
     after them. A header annotated `(omitted, ...)` or `(too large to quote
@@ -1763,19 +1799,29 @@ class Flow:
                 f"separate http.createServer(handler) (same handler) unless process.env.ARC_EXTRA_PORTS === '0'.")
 
     def spec_bodies(self, node_id: str | None) -> str:
-        """Just the spec file contents for a node (codegen prompts)."""
+        """The node's spec files, plus the parts of the shared helper files
+        those specs reach (see trim_helper_to_references). Without spec files
+        for the node -- a suite-wide repair -- the helpers are quoted whole."""
         if not self.tests_dir:
             return "(none)"
-        files = list(self.spec_map.get(node_id) or [])
-        files += sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
-                        if not p.name.endswith(".spec.ts") and str(p.relative_to(self.tests_dir)) not in files)
-        parts = []
-        for rel in files:
+        specs = list(self.spec_map.get(node_id) or [])
+        helpers = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
+                         if not p.name.endswith(".spec.ts") and str(p.relative_to(self.tests_dir)) not in specs)
+        texts: dict[str, str] = {}
+        for rel in specs + helpers:
             try:
-                text = (self.tests_dir / rel).read_text(encoding="utf-8", errors="replace").strip()
+                texts[rel] = (self.tests_dir / rel).read_text(encoding="utf-8", errors="replace").strip()
             except OSError:
                 continue
-            parts.append(text if len(files) == 1 else f"--- {rel} ---\n{text}")
+        if specs:
+            referenced = set()
+            for rel in specs:
+                referenced |= set(_IDENT.findall(texts.get(rel, "")))
+            for rel in helpers:
+                if rel in texts:
+                    texts[rel] = trim_helper_to_references(texts[rel], referenced).strip()
+        files = [rel for rel in specs + helpers if texts.get(rel)]
+        parts = [texts[rel] if len(files) == 1 else f"--- {rel} ---\n{texts[rel]}" for rel in files]
         return "\n".join(parts) or "(none)"
 
     def repair_requirements(self, node_id: str | None = None) -> str:
