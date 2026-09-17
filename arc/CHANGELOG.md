@@ -779,3 +779,39 @@ codegen 的契约是「每个改动的文件完整返回」，而架构契约把
 体积：`target/release/octos` 125M，`strip` 后 94M，`zip -9` 后约 35M。**平台的上传体积上限未知**，
 超限就仍旧走 `OCTOS_RELEASE_URL` 下载。自带的好处是省掉线上那段要 12 次重试、轮换 gh-proxy 镜像的下载。
 自带的二进制必须是 Linux x86_64，且 glibc 不高于平台容器（本机构建产物 `for GNU/Linux 3.2.0`，动态链接）。
+
+## 2026-09-17：P1b —— codegen 不再要求整个应用放进一次请求；未被完整引用的文件写保护
+
+背景见 `dev-docs/token-reduction-plan.md` §3.1：`codegen_context_fits` 要求整个应用放进
+`OCTOS_ARC_CODEGEN_CONTEXT_CHARS`（90,000）减 spec 之后的预算，否则整个节点退回 tool 模式（keep 实测 36
+请求/节点）。keep 云端产物 86k 字符，其后段节点早就在走 tool 模式；Round 35「每节点单请求」对任何长过
+~82k 的应用都不成立。三处改动，缺一不可：
+
+1. **门槛**：改为「spec ≤ 预算 60%，且后端入口（每个节点都要扩展的那个文件）放得进剩余预算」。其余文件
+   由 `relevant_sources` 在预算内引用、预算外按名列出（这条分支此前在 implement 路径上取不到）。
+2. **写保护**（让省略在构造上安全）：`codegen_turn` 对回复里的每个 FILE 块，若目标文件**已存在于磁盘**且
+   提示词**没有把它完整引用**（`quoted_paths()`：只认没有后缀标注的 `--- path ---` 头；`(omitted, …)` 和
+   `(too large to quote whole, …)` 都不算），拒绝落盘、保留磁盘版本、记一条 correction 给下一轮。新文件与
+   完整引用的文件照常写入；tiny 层的 `raw_target` 不受影响。全部块都被拒时该轮判失败（不再是「成功但
+   什么都没写」）。靠提示词请求模型「别改没看到的文件」不算保护。
+3. **修复轮** `codegen_repair_prompt`：去掉「有省略/裁剪就回 tool 模式」的拒绝（写保护覆盖了那个风险）；
+   源码按「预算 − 提示词其余部分 − 后缀 − 格式块 − 2,000 余量」的房间重新引用，结果按构造放得下。
+   不改这条，第一次失败就把节点送回 36 请求，收益蒸发。
+
+盈亏（推算）：节点 codegen 失败最多多花 1 次 implement + 2 次 codegen 修复（≈3 × ~26k token）再进入和
+今天一样的 tool 模式，代价 <10%；成功则从 ≈864k 降到 24–72k。成功率 ≥ ~9% 即回本。
+
+验证：适配层 unittest 307 项通过（新增 4 项，改写 3 项：原「整个应用必须放得下」「有裁剪就拒绝修复」
+两条断言按新契约反转）。两个 dry run（无模型）：
+
+- **回归**：keep 32 节点、默认预算，全程 codegen，0 abort、0 次「exceeds one-request allowance」回退。
+- **写保护实跑**：以 `arc-output/try1` 的可用计数器为模板，把 index.html 用注释填到 29,005 字符，
+  `OCTOS_ARC_CODEGEN_CONTEXT_CHARS=10000`、`OCTOS_ARC_TINY=0` 跑 smoke-evolution--counter。探测后 REQ-1 判为
+  unchanged（填充页仍通过它的 spec），REQ-2 走 codegen 而不是 tool 模式（改前必回退：29k > 10k）；提示词省略
+  了 index.html，dry run 的占位回复照旧带着它的 FILE 块，日志
+  `[codegen] REQ-2 implement: refused frontend/src/index.html: the file exists and the prompt did not show it whole`、
+  `wrote 1 file(s): ['backend/server.js']`，磁盘上的 index.html 仍是 29,005 字符的原页。
+  第一次做这个实验用的是不通过任何 spec 的模板，被 Round 30 的「模板不满足任何 spec → 重建」规则丢掉了，
+  guard 没有机会触发 —— 那是夹具错，不是 guard 错，记在这里免得重蹈。
+
+**真实模型对比未做**（额度）；做之前不宣称数字。

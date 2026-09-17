@@ -434,7 +434,10 @@ class RelevantSourcesTests(unittest.TestCase):
             self.assertNotIn('--- backend/server.js ---', tight)
             self.assertIn('--- backend/data/state.json ---', tight)
 
-    def test_codegen_requires_existing_sources_to_fit(self):
+    def test_codegen_requires_the_spec_and_the_backend_entry_to_fit(self):
+        """The whole app no longer has to fit: relevant_sources quotes what fits and
+        lists the rest, and the write guard keeps unquoted files safe. What must
+        fit is the spec (60% of the budget) and the backend entry every node extends."""
         from pathlib import Path
         import argparse, tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -444,10 +447,11 @@ class RelevantSourcesTests(unittest.TestCase):
             (root / "backend").mkdir()
             (root / "frontend").mkdir()
             (root / "backend/server.js").write_text("b" * 26000)
-            (root / "frontend/index.html").write_text("p" * 55000)
-            self.assertFalse(flow.codegen_context_fits("x" * 12000))
-            (root / "frontend/index.html").write_text("p" * 50000)
+            (root / "frontend/index.html").write_text("p" * 200000)   # far over budget
             self.assertTrue(flow.codegen_context_fits("x" * 12000))
+            self.assertFalse(flow.codegen_context_fits("x" * 60000))  # spec alone too big
+            (root / "backend/server.js").write_text("b" * 85000)       # entry cannot be quoted
+            self.assertFalse(flow.codegen_context_fits("x" * 12000))
 
     def test_codegen_applies_to_big_trees_unless_capped(self):
         import argparse, os
@@ -1090,7 +1094,11 @@ class RepairSourceBudgetTests(unittest.TestCase):
             self.assertNotIn("(omitted,", full)
             (root / "frontend/index.html").write_text("x" * 100000)
             prompt = "failure evidence\n" + flow.sources_text()
-            self.assertIsNone(flow.codegen_repair_prompt("feature", prompt))
+            # Over budget: the file is quoted as far as the room allows and the
+            # prompt still fits; the write guard is what keeps the rest safe.
+            full = flow.codegen_repair_prompt("feature", prompt)
+            self.assertIsNotNone(full)
+            self.assertLessEqual(len(full) + len(m.FORMAT_INSTRUCTIONS), flow.codegen_context_chars())
 
 
 class RetryDeadlineTests(unittest.TestCase):
@@ -1560,9 +1568,10 @@ class InlineSourceBudgetTests(unittest.TestCase):
         self.assertNotIn("server.js", omitted)            # one file cannot take it all
         self.assertLessEqual(len(text), 90000 + 2000)
 
-    def test_should_refuse_a_tool_free_repair_when_the_source_is_only_clipped(self):
-        """A codegen repair has no tools and must re-emit the file whole, so a
-        clipped view is as disqualifying as an omitted one."""
+    def test_should_still_repair_without_tools_when_the_source_is_only_clipped(self):
+        """A clipped view used to disqualify a tool-free repair (it must re-emit
+        files whole). The write guard now refuses a block for a clipped file
+        instead, so the repair can still fix what it was shown."""
         import argparse, tempfile
         from pathlib import Path
         root = Path(tempfile.mkdtemp())
@@ -1573,7 +1582,9 @@ class InlineSourceBudgetTests(unittest.TestCase):
         flow.tests_dir = root / "tests"; flow.spec_map = {"feature": ["feature.spec.ts"]}
         sources = flow.sources_text()
         self.assertIn("too large to quote whole", sources)   # clipped, not omitted
-        self.assertIsNone(flow.codegen_repair_prompt("feature", "evidence\n" + sources))
+        full = flow.codegen_repair_prompt("feature", "evidence\n" + sources)
+        self.assertIsNotNone(full)
+        self.assertNotIn("frontend/index.html", m.quoted_paths(full))  # guard will refuse it
 
     def test_should_still_omit_a_file_when_the_room_left_is_too_small_to_help(self):
         # 25 chars of a 100-char file teaches nothing; say it was omitted instead.
@@ -2091,3 +2102,84 @@ class BundledBinaryTests(unittest.TestCase):
                  patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("OCTOS_BIN", None)
                 self.assertEqual(m.find_octos(), str(other))
+
+
+class CodegenBeyondBudgetTests(unittest.TestCase):
+    """P1b (dev-docs/token-reduction-plan.md §5). Every app over ~82k chars used
+    to leave codegen for tool mode wholesale (36 requests a node on keep). Now
+    the request quotes what fits and lists the rest, and a block for an existing
+    file the model was not shown whole is refused rather than written blind."""
+
+    def test_should_read_quoted_paths_from_both_source_headers(self):
+        prompt = ("Existing app below. Files: ...\n"
+                  "--- backend/server.js ---\nconst x = 1;\n"
+                  "--- frontend/src/index.html ---\n<main></main>\n"
+                  "--- frontend/src/big.html --- (too large to quote whole, 220000 chars; ...)\n<p>part</p>\n"
+                  "--- backend/routes/old.js --- (omitted, 9000 chars; read it if you must change it)\n"
+                  "Other files, unchanged unless the requirement needs them: frontend/src/other.html (300 chars, 0 spec terms)\n")
+        self.assertEqual(m.quoted_paths(prompt), {"backend/server.js", "frontend/src/index.html"})
+
+    def _flow(self, root, reply):
+        from unittest.mock import Mock
+        flow = object.__new__(m.Flow)
+        flow.output_dir = root
+        flow.llm_proxy = Mock(mode="low")
+        flow.driver = object.__new__(m.OctosDriver)
+        flow.driver.tools_disabled = False; flow.driver._session = None
+        flow.codegen_reasoning = lambda _: None
+        flow.pending_corrections = []
+        flow.turn = lambda *a, **k: (True, reply)
+        return flow
+
+    def _block(self, rel, body):
+        return f"<<<FILE {rel}>>>\n{body}\n<<<END FILE>>>\n"
+
+    def test_should_refuse_a_block_for_an_existing_file_that_was_not_quoted(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "backend/routes").mkdir(parents=True); (root / "frontend/src").mkdir(parents=True)
+            (root / "backend/server.js").write_text("entry v1")
+            (root / "backend/routes/hidden.js").write_text("hidden v1")
+            (root / "frontend/src/index.html").write_text("<main>v1</main>")
+            reply = (self._block("backend/server.js", "entry v2")
+                     + self._block("backend/routes/hidden.js", "rewritten blind")
+                     + self._block("backend/routes/new.js", "brand new"))
+            flow = self._flow(root, reply)
+            prompt = ("Requirement REQ-9\n--- backend/server.js ---\nentry v1\n"
+                      "--- backend/routes/hidden.js --- (omitted, 9 chars; read it if you must change it)\n")
+            ok, _ = flow.codegen_turn(prompt, 60, "REQ-9 implement")
+            self.assertTrue(ok)
+            self.assertEqual((root / "backend/server.js").read_text().rstrip("\n"), "entry v2")   # quoted: written
+            self.assertEqual((root / "backend/routes/hidden.js").read_text(), "hidden v1")   # unquoted: kept
+            self.assertEqual((root / "backend/routes/new.js").read_text().rstrip("\n"), "brand new")  # new: written
+            self.assertTrue(any("backend/routes/hidden.js" in c for c in flow.pending_corrections))
+
+    def test_should_fail_the_turn_when_every_block_was_refused(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "frontend/src").mkdir(parents=True)
+            (root / "frontend/src/index.html").write_text("<main>v1</main>")
+            flow = self._flow(root, self._block("frontend/src/index.html", "<main>blind</main>"))
+            ok, text = flow.codegen_turn("Requirement REQ-9\nOther files, unchanged: frontend/src/index.html (15 chars)\n",
+                                         60, "REQ-9 implement")
+            self.assertFalse(ok)
+            self.assertIn("not shown", text)
+            self.assertEqual((root / "frontend/src/index.html").read_text(), "<main>v1</main>")
+
+    def test_should_let_the_tiny_tier_rewrite_its_own_page(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "frontend/src").mkdir(parents=True)
+            (root / "frontend/src/index.html").write_text("<main>v1</main>")
+            flow = self._flow(root, "<main>v2</main><script>1</script>")
+            ok, _ = flow.codegen_turn("Current index.html:\n<main>v1</main>\nReply with the page markup only",
+                                      60, "REQ-2 implement (tiny)", system=m.TINY_SYSTEM,
+                                      format_instructions="", raw_target="frontend/src/index.html")
+            self.assertTrue(ok)
+            self.assertIn("<main>v2</main>", (root / "frontend/src/index.html").read_text())

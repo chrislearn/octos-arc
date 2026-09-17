@@ -4,3 +4,5 @@ __pycache__/
 .octos-acceptance/
 # 自带内核：125M 的构建产物不进版本库，打包时由 pack.sh 现放
 bin/
+# 根 .gitignore 忽略所有 *.md（agent 产出）；dev-docs/ 是要进版本库的设计文档
+!dev-docs/*.md

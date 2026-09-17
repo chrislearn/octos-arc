@@ -404,6 +404,14 @@ def spec_terms(spec_text: str) -> set[str]:
     return {t.lower() for t in terms if t not in stop}
 
 
+def quoted_paths(prompt: str) -> set[str]:
+    """Files a codegen prompt shows whole: `--- path ---` headers with nothing
+    after them. A header annotated `(omitted, ...)` or `(too large to quote
+    whole, ...)` shows nothing or only a part, and the name-only listing at the
+    end of relevant_sources shows nothing; none of those count."""
+    return {match.group(1) for match in re.finditer(r"^--- (\S+) ---[ \t]*$", prompt, re.M)}
+
+
 def backend_entry(output_dir: Path) -> Path | None:
     """The backend file `npm start` runs: the one module every node's request has
     to see, because it is what mounts everything else. Read from the start script
@@ -1603,43 +1611,48 @@ class Flow:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
     def codegen_context_fits(self, spec_text: str) -> bool:
-        """Do not request complete file replacements with omitted source bodies.
-        Large existing applications use tool mode so the model can read and edit
-        their files without fitting every source into one request.
-        """
+        """The spec may take at most 60% of the budget, and the backend entry --
+        the file every node extends -- must fit in what is left. Nothing else has
+        to: relevant_sources quotes the best-ranked sources within the budget and
+        lists the rest by name, and codegen_turn refuses a block for an existing
+        file the model was not shown whole, so an omitted file is kept rather than
+        rewritten blind.
+
+        Until 2026-09-17 the whole app had to fit. That sent every app over ~82k
+        chars -- every Web task, keep's own 86k included -- to tool mode
+        wholesale, 36 requests a node, while the relevant_sources omission branch
+        stayed unreachable (dev-docs/token-reduction-plan.md §3.1)."""
         limit = self.codegen_context_chars()
         if len(spec_text) >= limit * 0.6:
             return False
-        remaining = max(8000, limit - len(spec_text))
-        for path in app_source_files(self.output_dir):
-            try:
-                remaining -= len(path.read_text(encoding="utf-8", errors="replace"))
-            except OSError:
-                return False
-            if remaining < 0:
-                return False
-        return True
+        entry = backend_entry(self.output_dir)
+        if entry is None:
+            return True
+        try:
+            return len(entry.read_text(encoding="utf-8", errors="replace")) <= max(8000, limit - len(spec_text))
+        except OSError:
+            return False
 
     def codegen_repair_prompt(self, node_id: str, prompt: str) -> str | None:
         spec = self.spec_bodies(node_id)
         if not spec or spec == "(none)":
             return None
         # Tool-free repairs must see the source instead of instructions to read it.
-        # Requote using the total context allowance, then check the complete prompt
-        # (including requirements, acceptance, headings and format instructions).
+        # Requote within the room the rest of the prompt leaves (evidence,
+        # requirements, the repair suffix, the format block), so the result fits
+        # by construction. A clipped or omitted file no longer sends the repair to
+        # tool mode: codegen_turn refuses a block for any existing file not shown
+        # whole, so the model can only fix what it was shown -- which is the point.
+        suffix = CODEGEN_REPAIR_SUFFIX.format(spec=spec)
+        limit = self.codegen_context_chars()
         current_sources = self.sources_text()
         if current_sources.strip() and current_sources in prompt:
-            sources = inline_sources(self.output_dir, self.codegen_context_chars()) + "\n"
-            # A clipped file is no safer here than an omitted one: this turn has
-            # no tools, so it cannot read the part it was not shown, and it is
-            # asked to re-emit the file whole. Fall back to a tool-based repair.
-            if any(line.startswith("--- ") and (" --- (omitted," in line
-                                                or " --- (too large to quote whole," in line)
-                   for line in sources.splitlines()):
+            room = limit - (len(prompt) - len(current_sources)) - len(suffix) - len(FORMAT_INSTRUCTIONS) - 2000
+            if room < 8000:
                 return None
-            prompt = prompt.replace(current_sources, sources, 1)
-        full = prompt + CODEGEN_REPAIR_SUFFIX.format(spec=spec)
-        if len(full) + len(FORMAT_INSTRUCTIONS) > self.codegen_context_chars():
+            prompt = prompt.replace(current_sources, inline_sources(self.output_dir, room) + "\n", 1)
+        full = prompt + suffix
+        if len(full) + len(FORMAT_INSTRUCTIONS) > limit:
             return None
         return full
 
@@ -1712,6 +1725,24 @@ class Flow:
             if looks_like_markup(html):
                 files = {raw_target: html}
         if files:
+            # A block for an existing file the prompt did not show whole is a blind
+            # rewrite: the model cannot preserve what it never saw. Keep the file on
+            # disk, tell the next turn, and let the specs decide what is still
+            # missing. New files and files quoted whole are written as before; the
+            # tiny tier's page is quoted in its own format, hence raw_target.
+            shown = quoted_paths(prompt)
+            refused = [rel for rel in files
+                       if rel != raw_target and rel not in shown and (self.output_dir / rel).exists()]
+            for rel in refused:
+                files.pop(rel)
+                log(f"[codegen] {label}: refused {rel}: the file exists and the prompt did not show it whole")
+            if refused:
+                self.pending_corrections.append(
+                    f"Your previous reply rewrote {', '.join(refused)} without having been shown the file whole; "
+                    "the block was discarded and the file kept as it was. Change only files quoted whole in the "
+                    "prompt, or add new files.")
+            if not files:
+                return False, f"codegen reply only rewrote files it was not shown: {', '.join(refused)}"
             written = write_files(self.output_dir, files)
             log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
             deduped = dedupe_nav_links(self.output_dir)
