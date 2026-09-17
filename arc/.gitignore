@@ -2,3 +2,5 @@ local-grader/
 arc-output/
 __pycache__/
 .octos-acceptance/
+# 自带内核：125M 的构建产物不进版本库，打包时由 pack.sh 现放
+bin/

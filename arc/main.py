@@ -404,16 +404,39 @@ def spec_terms(spec_text: str) -> set[str]:
     return {t.lower() for t in terms if t not in stop}
 
 
+def backend_entry(output_dir: Path) -> Path | None:
+    """The backend file `npm start` runs: the one module every node's request has
+    to see, because it is what mounts everything else. Read from the start script
+    so a renamed entry still ranks first; fall back to the contract's server.js."""
+    name = "server.js"
+    try:
+        start = json.loads((output_dir / "backend" / "package.json").read_text(encoding="utf-8"))
+        match = re.search(r"([\w./-]+\.[cm]?js)", str(start.get("scripts", {}).get("start", "")))
+        if match:
+            name = match.group(1)
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    path = output_dir / "backend" / name
+    return path if path.is_file() else None
+
+
 def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
-    """Quote the existing sources a node most likely touches: every backend entry
-    file first (the router every node extends), then pages ranked by how many
-    of the spec's terms (locators, texts, routes) they contain, until the budget
-    is spent. JSON state follows code; the rest are listed by name so the
-    model knows they exist. The budget counts file contents, not headings."""
+    """Quote the existing sources a node most likely touches: the backend entry
+    file first (what every node extends), then the remaining sources -- pages and
+    backend modules alike -- ranked by how many of the spec's terms (locators,
+    texts, routes) they contain, until the budget is spent. JSON state follows
+    code; the rest are listed by name so the model knows they exist. The budget
+    counts file contents, not headings.
+
+    Ranking every backend file ahead of the pages was right while the backend was
+    one server.js. Once feature code sits in backend/routes/<area>.js, quoting all
+    of them first would push out the page the spec actually names, so only the
+    entry keeps its place and the modules compete on overlap like the pages."""
     files = app_source_files(output_dir)
     if not files:
         return ""
     terms = spec_terms(spec_text)
+    entry = backend_entry(output_dir)
     scored = []
     for path in files:
         try:
@@ -423,8 +446,7 @@ def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
         low = text.lower()
         hits = sum(1 for t in terms if t in low)
         rel = path.relative_to(output_dir)
-        is_backend = rel.parts[0] == "backend"
-        priority = 2 if path.suffix == ".json" else (0 if is_backend else 1)
+        priority = 2 if path.suffix == ".json" else (0 if path == entry else 1)
         scored.append((priority, -hits, len(text), rel, text))
     scored.sort(key=lambda x: (x[0], x[1], x[2]))
     parts, omitted, total = [], [], 0
@@ -536,12 +558,30 @@ def _download_octos(dest_dir: Path) -> str:
     return str(binary)
 
 
+def executable_or_none(path: Path) -> Path | None:
+    """A binary shipped inside the bundle only counts if it can actually be spawned.
+    Python's zipfile drops the Unix mode on extract, so `bin/octos` can be present
+    and still not executable; restore the bit. A bundle we cannot chmod (read-only
+    mount) has to fall through to the download rather than hand back a path the OS
+    refuses."""
+    if not path.is_file():
+        return None
+    try:
+        if not os.access(path, os.X_OK):
+            path.chmod(path.stat().st_mode | 0o755)
+    except OSError:
+        return None
+    return path if os.access(path, os.X_OK) else None
+
+
 def find_octos() -> str:
     env_bin = os.environ.get("OCTOS_BIN")
     if env_bin and Path(env_bin).exists():
         return env_bin
-    bundled = BUNDLE_DIR / "bin" / "octos"
-    if bundled.exists():
+    bundled = executable_or_none(BUNDLE_DIR / "bin" / "octos")
+    if bundled:
+        executable_or_none(BUNDLE_DIR / "bin" / "octos-sandbox")  # optional helper
+        log(f"[octos] using the binary shipped in the bundle: {bundled}")
         return str(bundled)
     found = shutil.which("octos")
     if found:
@@ -728,6 +768,12 @@ class DryRunDriver:
         if "page markup only" in prompt:
             return True, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><main>dry run</main></body></html>"
         return True, "dry run: no model call; nothing written."
+
+    @contextmanager
+    def without_tools(self):
+        """codegen_turn runs inside this scope; without it every codegen tree
+        aborted on its first node and the walk never reached the codegen path."""
+        yield
 
     def end_scope(self, *args, **kwargs) -> None:
         pass
@@ -961,7 +1007,7 @@ Requirement {node_id}: {description}
 
 Public acceptance example (implement the full requirement):
 {spec}
-Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) plus any API routes and persistence the requirement needs, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
+Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) and dispatching API requests to the route modules it requires, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Keep server.js a small, stable entry point: new API routes go in backend/routes/<area>.js and shared persistence in backend/store.js, so implementing a requirement adds or edits one small module instead of re-emitting the entry. Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks. {size_rule}
 """

@@ -36,9 +36,22 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 ## 改了内核怎么让平台用上
 
-平台运行时按 `main.py` 里 `OCTOS_RELEASE_URL` 现场下载 Octos。改了 `crates/` 之后必须：
-编译 Linux x86_64 版 → 在本仓库发一个 Release 挂上 tar.gz → 把 `OCTOS_RELEASE_URL` 改成那个地址 → 重新 `pack.sh` 上传。
-否则平台跑的仍是官方版，改了等于没改。
+**本地的环境变量不会跟到平台上。** 平台在自己的容器里跑 zip 里的 `main.py`，`OCTOS_BIN`、`OCTOS_ARC_*`
+这些只在本机 `run-task-local.py` 有效；`main.py` 也不读任何配置文件（`arc-policy.toml` 只有 Rust 引擎读）。
+要在线上生效，改动必须落在 `main.py` 的默认值里，或按下面两条之一带进包。
+
+两条路，二选一：
+
+1. **发 Release 让平台现场下载**（默认）：编译 Linux x86_64 版 → 在本仓库发一个 Release 挂上 tar.gz →
+   把 `main.py` 里 `OCTOS_RELEASE_URL` 这个**常量**改成那个地址（不是环境变量）→ 重新 `pack.sh` 上传。
+2. **把内核放进 zip**（`pack.sh` 默认就这么做）：`cargo build --release` 之后 `sh arc/pack.sh` 会自动把
+   本机构建的内核 `strip` 后打成包内的 `bin/octos`，`main.py` 优先用它，省掉线上那段很慢的下载。
+   来源按 `ARC_KERNEL_BIN` → `arc/bin/octos` → `target/x86_64-unknown-linux-gnu/release/octos` →
+   `target/release/octos` 取第一个**是 Linux x86_64 ELF** 的（macOS / aarch64 的构建会被跳过，因为
+   自带的二进制排在下载前面，装错了平台会直接 spawn 失败且不会回落）。压缩后约 36M，先确认平台的
+   上传体积上限；`ARC_PACK_KERNEL=0 sh arc/pack.sh` 回到不自带内核的小包。
+
+两条都不做，平台跑的仍是 `OCTOS_RELEASE_URL` 常量指向的那个版本，改了等于没改。
 
 ## 目录
 

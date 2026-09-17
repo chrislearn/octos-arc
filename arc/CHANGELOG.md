@@ -715,3 +715,67 @@ Cloud: 未评测 (needs a TB gap). Unit tests 105 OK.
 看板移除未经证实的“预生成”判定和排除排名，只显示官方响应顺序；小额费用保留到六位小数，¥0.000024 不再显示为零。
 
 验证：账户错误、请求 ID 混入状态码、默认流程余额错误中止、完整看板渲染均有回归测试。Python 119 项通过；Rust 99 单元与 1 集成通过，1 既有忽略；clippy/fmt 通过。真实成绩未提升，当前 provider 额度不足，未创建新的云端运行。
+
+## 2026-09-17：后端按区域拆模块（P1），以及 codegen 单请求路径的真实生效范围
+
+codegen 的契约是「每个改动的文件完整返回」，而架构契约把所有 API 路由钉在一个 `backend/server.js` 里。
+于是第 k 个节点要把前 k−1 个节点写进这个文件的东西原样再吐一遍，输出规模随树大小二次增长。
+
+- 架构契约改为：`server.js` 只做静态文件与路由分发，保持小而稳定；新增 API 路由放
+  `backend/routes/<area>.js`，共享持久化放 `backend/store.js`。措辞只约束**新增**代码，既有单文件后端不会被
+  要求重构（一次性重写的风险大于收益）。`main.py` 的 `CODEGEN_PROMPT` 与 `prompts/codegen-prompt.md` 同步。
+- `relevant_sources` 的排序从「所有 backend 文件优先」改为「只有后端入口优先，其余后端模块与页面一起按
+  spec 词命中排序」。入口名从 `backend/package.json` 的 start 脚本读取（`node app.js` → `app.js`），
+  读不到时回落到契约里的 `server.js`。拆模块后若继续把所有路由文件排在前面，会把 spec 真正点名的页面挤出预算。
+- `DryRunDriver` 补上 `without_tools()`。`codegen_turn` 在这个作用域里运行，dry run 缺这个方法，
+  于是**任何走 codegen 的树在第一个节点就 abort**——Round 35 记的「keep 32 节点 dry run 每节点一次 codegen
+  请求、跑到终检」在当前代码上复现不出来。补上后 keep 的 32 节点 dry run 可以逐节点走完 codegen 路径。
+
+数据：适配层 unittest 290 项通过（新增 7 项）。本机/云端模型运行**未评测**——省下多少输出 token 取决于模型
+是否照契约拆文件，必须用一次真实 keep 运行对比，不能由本条改动自证。
+
+### 同轮测到的事实：`codegen_context_fits` 的悬崖
+
+`codegen_context_fits` 要求**整个应用**塞进 `OCTOS_ARC_CODEGEN_CONTEXT_CHARS`（90,000）减去 spec 之后的预算，
+否则整个节点退回 tool 模式（keep 实测 36 请求/节点）。实测（spec 8,000 字符）：
+
+| 应用总字符 | codegen_context_fits | 实际路径 |
+|---:|---|---|
+| 60,000 | True | codegen 单请求 |
+| 85,000 | False | tool 模式 |
+| 200,000 | False | tool 模式 |
+
+推论两条：
+1. keep 云端产物实测 86k 字符 —— 它的后段节点其实早就在走 tool 模式，Round 35 的「每节点单请求」对任何
+   会长过 ~82k 字符的应用都不成立，而 Web 六题都会长过。
+2. 因为这个门槛通过时整个应用必然已经放得下，`relevant_sources` 的省略分支在 implement 路径上**取不到**，
+   本轮的排序改动在今天是行为等价的；它是放宽门槛的前置条件，不能记为省 token。
+
+放宽方向（未实施，风险在通过率）：门槛从「整个应用放得下」改成「spec + 入口 + spec 点名的文件放得下」，
+其余按文件名列出；并加一道确定性防护——回复里出现**未被引用**的既有文件的 FILE 块时拒绝落盘，
+保留磁盘上的版本，使省略在构造上安全。
+
+## 2026-09-17：zip 里自带内核（`bin/octos`），修掉解压丢失可执行位
+
+`find_octos()` 的第 2 顺位本来就是 `<包根>/bin/octos`，但 `pack.sh` 的清单里没有 `bin`，这条路一直取不到。
+补上之后发现它光靠 `pack.sh` 还不能用：
+
+- 实测 `zipfile.extractall()` **会丢掉 Unix 权限位**（压缩前 755，解压后不可执行）。旧的
+  `find_octos()` 只判断 `.exists()`，于是会把一个 OS 拒绝 spawn 的路径交出去，而且不会回落到下载 —— 整次运行直接失败。
+- 新增 `executable_or_none()`：补回可执行位；补不回来（只读挂载）就返回 None，让 `find_octos()` 继续往下
+  找 PATH / 下载。`bin/octos-sandbox` 存在时一并处理。
+- `pack.sh` 默认把本机构建的内核打成包内 `bin/octos`（新增 `pack_kernel.py`）：来源按 `ARC_KERNEL_BIN` →
+  `arc/bin/octos` → 交叉编译 target → `target/release/octos`，逐个校验 **ELF 头是 Linux x86_64**
+  （读 e_ident/e_machine，不依赖 `file`）。macOS / aarch64 的构建会被跳过：自带的二进制排在下载前面，
+  装错了平台会直接 spawn 失败，比不自带更糟。打包时 `strip`（原件保留符号），zip 条目标 0755。
+  `ARC_PACK_KERNEL=0` 回到不自带内核的小包。
+- `arc/.gitignore` 加 `bin/`：125M 的构建产物不进版本库。
+
+验证：真二进制走完整链路 —— `cargo build --release` → `pack.sh`（36M 包，`bin/octos` 97M）→
+`zipfile.extractall`（**实测权限位丢失**）→ `find_octos()` 返回该路径且已可执行 → `--version` 跑出
+`octos 2.0.3-rc.11 (05273416)`；`ARC_PACK_KERNEL=0` 打出 404K 无 `bin/` 的包。
+适配层 unittest 303 项通过（本条新增 13 项）。
+
+体积：`target/release/octos` 125M，`strip` 后 94M，`zip -9` 后约 35M。**平台的上传体积上限未知**，
+超限就仍旧走 `OCTOS_RELEASE_URL` 下载。自带的好处是省掉线上那段要 12 次重试、轮换 gh-proxy 镜像的下载。
+自带的二进制必须是 Linux x86_64，且 glibc 不高于平台容器（本机构建产物 `for GNU/Linux 3.2.0`，动态链接）。

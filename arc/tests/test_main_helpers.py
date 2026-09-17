@@ -1948,3 +1948,146 @@ class UnfinishedRepairNoteTests(unittest.TestCase):
         # The escalation is queued as a correction; corrections_text() renders it.
         self.assertTrue(any("Recheck the assumptions" in c for c in flow.pending_corrections))
 
+
+
+class ModularBackendTests(unittest.TestCase):
+    """A node's codegen reply returns every file it changes, complete. With all
+    API routes in one backend/server.js that file is re-emitted by every node
+    that touches the backend, so output grows with the tree: on a 32-node app
+    the last nodes re-send what the first 31 wrote. Feature code in small
+    per-area modules keeps a node's reply the size of its own change."""
+
+    def _app(self, folder):
+        from pathlib import Path
+        root = Path(folder)
+        (root / "backend/routes").mkdir(parents=True)
+        (root / "frontend/src").mkdir(parents=True)
+        return root
+
+    def test_should_ask_for_route_modules_instead_of_growing_the_entry(self):
+        text = m.CODEGEN_PROMPT.format(node_id="REQ-1", description="S", spec="T",
+                                       port=3000, ports=" P", size_rule="R")
+        self.assertIn("backend/routes/", text)
+        self.assertIn("update manifests when required", text)  # unchanged contract
+
+    def test_should_ship_the_modular_contract_to_the_rust_engine_too(self):
+        from pathlib import Path
+        shipped = (Path(m.__file__).parent / "prompts/codegen-prompt.md").read_text()
+        self.assertIn("backend/routes/", shipped)
+
+    def test_should_rank_the_backend_entry_first_and_modules_by_spec_overlap(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = self._app(folder)
+            (root / "backend/server.js").write_text("require('./routes/notes');" + "e" * 200)
+            (root / "backend/routes/notes.js").write_text("// note-list handler\n" + "n" * 200)
+            (root / "backend/routes/billing.js").write_text("// invoices\n" + "b" * 200)
+            (root / "frontend/src/notes.html").write_text("<ul data-testid='note-list'></ul>" + "p" * 200)
+            spec = "await expect(page.getByTestId('note-list')).toBeVisible();"
+            out = m.relevant_sources(root, spec, max_chars=700)
+            self.assertIn("--- backend/server.js ---", out)
+            self.assertLess(out.index("backend/server.js"), out.index("backend/routes/notes.js"))
+            # An unrelated route module must not displace the page the spec names.
+            self.assertIn("--- frontend/src/notes.html ---", out)
+            self.assertNotIn("--- backend/routes/billing.js ---", out)
+            self.assertIn("backend/routes/billing.js (", out)  # listed as omitted
+
+    def test_should_take_the_entry_name_from_the_backend_start_script(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = self._app(folder)
+            (root / "backend/package.json").write_text(
+                '{"scripts": {"start": "node app.js"}}')
+            (root / "backend/app.js").write_text("entry" + "a" * 200)
+            (root / "backend/routes/notes.js").write_text("note-list" + "n" * 200)
+            self.assertEqual(m.backend_entry(root), root / "backend/app.js")
+            out = m.relevant_sources(root, "note-list", max_chars=700)
+            self.assertLess(out.index("backend/app.js"), out.index("backend/routes/notes.js"))
+
+    def test_should_fall_back_to_server_js_when_no_start_script_names_a_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = self._app(folder)
+            (root / "backend/server.js").write_text("entry")
+            self.assertEqual(m.backend_entry(root), root / "backend/server.js")
+            (root / "backend/package.json").write_text("{ not json")
+            self.assertEqual(m.backend_entry(root), root / "backend/server.js")
+
+    def test_should_report_no_entry_for_an_app_without_a_backend(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = self._app(folder)
+            self.assertIsNone(m.backend_entry(root))
+
+
+class DryRunCodegenTests(unittest.TestCase):
+    """The dry run exists to walk the real flow without a model. codegen_turn
+    enters driver.without_tools(), which DryRunDriver did not have, so every
+    codegen tree aborted on the first node and the structural walk never
+    reached the codegen path it was meant to check."""
+
+    def test_should_enter_a_tool_free_scope_like_the_real_driver(self):
+        driver = m.DryRunDriver()
+        with driver.without_tools():
+            ok, text = driver.run("<<<FILE x>>>", 1)
+        self.assertTrue(ok)
+        self.assertIn("<<<FILE", text)
+
+
+class BundledBinaryTests(unittest.TestCase):
+    """A binary shipped inside the zip is only usable if it comes out executable.
+    Python's zipfile drops the Unix mode on extract, so `bin/octos` can exist and
+    still be unrunnable; find_octos() checked existence only and would hand back
+    a path the OS refuses to spawn, with no fall-through to the download."""
+
+    def _bundle(self, folder, mode=0o644):
+        from pathlib import Path
+        root = Path(folder)
+        (root / "bin").mkdir()
+        binary = root / "bin" / "octos"
+        binary.write_text("#!/bin/sh\n")
+        binary.chmod(mode)
+        return root, binary
+
+    def test_should_restore_the_exec_bit_a_zip_extract_dropped(self):
+        import os, tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            _, binary = self._bundle(folder)
+            self.assertFalse(os.access(binary, os.X_OK))
+            self.assertEqual(m.executable_or_none(binary), binary)
+            self.assertTrue(os.access(binary, os.X_OK))
+
+    def test_should_report_nothing_for_a_missing_or_unfixable_binary(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(m.executable_or_none(Path(folder) / "bin" / "octos"))
+            _, binary = self._bundle(folder)
+            with patch.object(Path, "chmod", side_effect=OSError("read-only")):
+                self.assertIsNone(m.executable_or_none(binary))
+
+    def test_should_prefer_the_bundled_binary_and_hand_it_back_executable(self):
+        import os, tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root, binary = self._bundle(folder)
+            with patch.object(m, "BUNDLE_DIR", root), patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("OCTOS_BIN", None)
+                self.assertEqual(m.find_octos(), str(binary))
+            self.assertTrue(os.access(binary, os.X_OK))
+
+    def test_should_fall_through_when_the_bundled_binary_cannot_be_made_executable(self):
+        import os, tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root, _ = self._bundle(folder)
+            other = Path(folder) / "elsewhere-octos"
+            other.write_text("#!/bin/sh\n"); other.chmod(0o755)
+            with patch.object(m, "BUNDLE_DIR", root), \
+                 patch.object(Path, "chmod", side_effect=OSError("read-only")), \
+                 patch.object(m.shutil, "which", return_value=str(other)), \
+                 patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("OCTOS_BIN", None)
+                self.assertEqual(m.find_octos(), str(other))

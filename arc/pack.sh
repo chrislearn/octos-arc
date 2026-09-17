@@ -15,5 +15,10 @@ zip -qr ../octos-arc-bundle.zip main.py rust_engine.py arc-policy.toml prompts o
 if [ -n "$ROUTES" ]; then
     python3 -c 'import sys; from zipfile import ZipFile; z=ZipFile("../octos-arc-bundle.zip", "a"); z.write(sys.argv[1], "model-routes.json"); z.close()' "$ROUTES"
 fi
-echo "打包完成：$(cd .. && pwd)/octos-arc-bundle.zip"
+# Ship the locally built kernel as bin/octos when one exists for Linux x86_64
+# (arc/bin/octos, a cross target, or target/release/octos -- see pack_kernel.py).
+# main.py then runs it instead of downloading OCTOS_RELEASE_URL.
+# ARC_PACK_KERNEL=0 forces the small, download-based bundle.
+python3 pack_kernel.py ../octos-arc-bundle.zip
+echo "打包完成：$(cd .. && pwd)/octos-arc-bundle.zip（$(du -h ../octos-arc-bundle.zip | cut -f1)）"
 shasum -a 256 ../octos-arc-bundle.zip
