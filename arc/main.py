@@ -423,6 +423,11 @@ def trim_helper_to_references(helper: str, referenced: set[str]) -> str:
     decls = list(_HELPER_DECL.finditer(helper))
     if not decls:
         return helper
+    # An export the parser cannot name -- `export { a, b }`, a destructuring
+    # `export const { x } = ...`, `export default { ... }` -- would be dropped
+    # silently by the closure below. Quote the whole file instead.
+    if any(not _HELPER_DECL.match(line) for line in re.findall(r"^export\b.*$", helper, re.M)):
+        return helper
     starts = [d.start() for d in decls] + [len(helper)]
     spans = {d.group(1): helper[starts[i]:starts[i + 1]] for i, d in enumerate(decls)}
     include: set[str] = set()

@@ -879,3 +879,11 @@ musl / zigbuild 都不保证一次过。装了 `docker.io`（Ubuntu 26.04 仓库
 适配层 unittest 311 项通过（新增 4 项，先红后绿）。真实模型效果：**未评测**。
 
 同时确认：117 个节点没有一个超过 60% 门槛（P1b 之前也不会因 spec 过大回退），无 tiny 层节点，spec 不写死端口。
+
+### 同日：helper 裁剪的兜底 —— 解析不出名字的 export 一律整文件引用
+
+改前核对：六道 Web 题的 `helpers.ts`（12306 / bookstack / ctrip / keep / prestashop / stackoverflow）每一行 `export`
+都能被声明解析器命名；12306 全部 117 个 spec 裁剪后没有一个可达声明被漏掉。唯一的空洞是假设性的：
+`export { a, b }`、`export const { x } = …`、`export default { … }` 这类解析不出名字的形式，闭包会**静默丢掉**。
+现在只要 helper 里有一行 `export` 解析器命名不了，就整文件引用（宁多勿断）。公开六题没有这种写法，改后
+12306 / keep 的度量与改前逐字相同（中位数 11,323 / 6,382）。unittest 313 项通过（新增 2 项，先红后绿）。

@@ -2261,3 +2261,26 @@ class HelperTrimTests(unittest.TestCase):
         self.assertNotIn("openHome", out)
         self.assertNotIn("BASE", out)
         self.assertEqual(m.trim_helper_to_references(self.HELPER, set()), "")
+
+
+class HelperTrimFallbackTests(unittest.TestCase):
+    """An export form the declaration parser cannot name (re-export list,
+    destructuring, default object) must make the trimmer quote the whole
+    file: silently dropping a helper the spec imports would leave the model
+    guessing at behaviour the test depends on. None of the six public web
+    tasks use such forms (checked 2026-09-17); this pins the fallback for the
+    hidden ones."""
+
+    def test_should_quote_the_whole_helper_when_an_export_cannot_be_named(self):
+        for helper in (
+            "const a = 1;\nconst b = 2;\nexport { a, b };\n",
+            "export const { x, y } = require('./cfg');\nexport function z() {}\n",
+            "export default { open: async (p) => p.goto('/') };\nexport function z() {}\n",
+        ):
+            with self.subTest(helper=helper.splitlines()[0]):
+                self.assertEqual(m.trim_helper_to_references(helper, {"a", "x", "open"}), helper)
+                self.assertEqual(m.trim_helper_to_references(helper, set()), helper)
+
+    def test_should_still_trim_a_helper_whose_exports_are_all_named(self):
+        helper = "export function a() {}\nexport function b() { a(); }\n"
+        self.assertNotIn("function b", m.trim_helper_to_references(helper, {"a"}))
