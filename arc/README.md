@@ -50,9 +50,16 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
    `target/release/octos` 取第一个**是 Linux x86_64 ELF、且要求的 glibc 不高于平台**的（自带的二进制
    排在下载前面，装错了平台会直接加载失败且不会回落 —— 云端 `e70711133d37` 就是这样卡死的：本机 glibc
    2.43 编出的内核要求 GLIBC_2.43，官方 release 在 `ubuntu-latest` 上编、只要求 2.39，平台介于两者之间）。
-   **在本机 `cargo build` 出来的内核多半会被拒绝**，`pack.sh` 会打印原因并退回下载路径；要发改过的内核，
-   走路 1 的 CI release 才是 glibc 安全的，或用 `cargo zigbuild --target x86_64-unknown-linux-gnu.2.39`
-   之类固定 glibc 的方式编。压缩后约 36M，先确认平台的上传体积上限；`ARC_PACK_KERNEL=0 sh arc/pack.sh`
+   **在本机 `cargo build` 出来的内核多半会被拒绝**，`pack.sh` 会打印原因并退回下载路径。要在本机编出能自带
+   的内核，用和 CI 同一个底座的容器（实测 5 分半）：
+
+   ```sh
+   sh arc/build-kernel-docker.sh          # ubuntu:24.04 + rustup 1.98.0，产物 -> arc/bin/octos，末尾打印 glibc 校验结果
+   sudo -g docker sh arc/build-kernel-docker.sh   # 刚加入 docker 组、还没重新登录时
+   sh arc/pack.sh                          # 通过 2.39 校验，打进包
+   ```
+
+   没有 docker 就走路 1 的 CI release，或 `cargo zigbuild --target x86_64-unknown-linux-gnu.2.39`。压缩后约 36M，先确认平台的上传体积上限；`ARC_PACK_KERNEL=0 sh arc/pack.sh`
    强制不自带内核；`ARC_KERNEL_MAX_GLIBC=2.4x` 只在确认平台镜像更新后才放宽。
 
 两条都不做，平台跑的仍是 `OCTOS_RELEASE_URL` 常量指向的那个版本，改了等于没改。

@@ -45,6 +45,7 @@ spec 文件都发了（1,836 字符）；输出 1,444 字符含 doctype/head/`<s
   **云端第一次用它就卡死**（`e70711133d37`）：本机 glibc 2.43 编的内核要求 GLIBC_2.43，平台加载不了。
   现在 `pack_kernel.py` 按官方 release 的上限（GLIBC_2.39）拒绝这类构建、退回下载路径；本机构建的内核
   要上云得走 CI release 或固定 glibc 目标。见 CHANGELOG 同日条目。
+  后续：`arc/build-kernel-docker.sh` 在 ubuntu:24.04 容器里编（5 分半），产物恰好 glibc 2.39，可自带。
 - `DryRunDriver.without_tools()`：修好之后 codegen 树的 dry run 才能走完（之前第一个节点就 abort）。
 
 ## 3. 核查：调查过程中说错或需要修正的

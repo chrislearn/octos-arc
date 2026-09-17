@@ -835,3 +835,17 @@ strip 不掉；纯字节扫描不依赖 objdump），高于 `PLATFORM_MAX_GLIBC 
 验证：`test_pack_kernel.py` 新增 4 项（先红后绿），共 13 项；本机 `pack.sh` 打出 404K 无 `bin/` 的包。
 教训写进 README：本机 `cargo build` 的内核多半不能直接自带；要发改过的内核走 CI release，或固定 glibc
 目标（`cargo zigbuild --target x86_64-unknown-linux-gnu.2.39`）。
+
+### 同日：在本机编出平台能加载的内核（`arc/build-kernel-docker.sh`）
+
+本机没有 docker/podman/zig/cross，且依赖里有 `aws-lc-sys`（cmake）、`ring`、`zstd-sys`、`libsqlite3-sys` 等 C 库，
+musl / zigbuild 都不保证一次过。装了 `docker.io`（Ubuntu 26.04 仓库，29.1.3）后，用和 CI 同一个底座的容器编：
+`arc/docker/kernel-builder.Dockerfile` = `ubuntu:24.04` + rustup 1.98.0 + build-essential/cmake/pkg-config；
+`arc/build-kernel-docker.sh` 建镜像、以本机 uid 在容器里 `cargo build --locked --release -p octos-cli
+--no-default-features --features api`（产物目录 `target/docker/`，与本机 2.43 的 `target/` 隔开）、拷到
+`arc/bin/octos`、末尾用 `pack_kernel.py` 自己的规则打印校验结果。
+
+实测：全量 release 编译 5 分 31 秒；产物 `octos 2.0.3-rc.11 (37a9551d)` 需要的最高 glibc **2.39** = 平台上限；
+`pack.sh` 通过校验打出 36M 包；`zipfile` 解压 → `find_octos()` 选中包内内核并补回可执行位 → `--version` 正常。
+本机 shell 拿不到新加的 docker 组（26.04 没有 `sg`/`newgrp`），用 `sudo -g docker` 以本人身份跑脚本绕过。
+云端用这个包是否正常结束：**未评测**（等下一次提交）。
