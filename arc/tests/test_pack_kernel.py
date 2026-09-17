@@ -111,3 +111,58 @@ class AddKernelTests(unittest.TestCase):
             with zipfile.ZipFile(bundle) as z:
                 mode = z.getinfo("bin/octos").external_attr >> 16
             self.assertTrue(mode & 0o111, f"mode {mode:o} has no exec bit")
+
+
+class GlibcCeilingTests(unittest.TestCase):
+    """Run e70711133d37 hung on the platform: the bundled kernel was built on a
+    host with glibc 2.43 and needed GLIBC_2.43, while the official release
+    (built on ubuntu-latest) needs at most GLIBC_2.39 and runs there. The loader
+    refused ours, the stdio driver waited on a handshake that never came. A
+    candidate needing a newer glibc than the platform's must not be packed."""
+
+    def _write(self, folder, tail, name="octos"):
+        path = Path(folder) / name
+        path.write_bytes(elf() + tail)
+        path.chmod(0o755)
+        return path
+
+    def test_should_read_the_highest_glibc_version_a_binary_needs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(pk.max_glibc(self._write(folder, b"GLIBC_2.38\0GLIBC_2.43\0GLIBC_2.39\0")), (2, 43))
+            self.assertIsNone(pk.max_glibc(self._write(folder, b"no versioned symbols", "static")))
+
+    def test_should_refuse_a_build_that_needs_a_newer_glibc_than_the_platform(self):
+        import os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "target/release").mkdir(parents=True)
+            self._write(root / "target/release", b"GLIBC_2.43\0")
+            reasons = []
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("ARC_KERNEL_MAX_GLIBC", None)
+                self.assertIsNone(pk.find_kernel(root, reasons=reasons))
+            self.assertTrue(any("GLIBC_2.43" in r and "2.39" in r for r in reasons), reasons)
+
+    def test_should_accept_a_build_within_the_ceiling_or_without_glibc_symbols(self):
+        import os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "target/release").mkdir(parents=True)
+            binary = self._write(root / "target/release", b"GLIBC_2.39\0GLIBC_2.34\0")
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("ARC_KERNEL_MAX_GLIBC", None)
+                self.assertEqual(pk.find_kernel(root), binary)
+            binary.write_bytes(elf())  # static / musl: no GLIBC_ strings at all
+            self.assertEqual(pk.find_kernel(root), binary)
+
+    def test_should_let_a_known_newer_platform_raise_the_ceiling(self):
+        import os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "target/release").mkdir(parents=True)
+            binary = self._write(root / "target/release", b"GLIBC_2.43\0")
+            with patch.dict(os.environ, {"ARC_KERNEL_MAX_GLIBC": "2.43"}):
+                self.assertEqual(pk.find_kernel(root), binary)

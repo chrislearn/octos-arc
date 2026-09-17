@@ -42,6 +42,9 @@ spec 文件都发了（1,836 字符）；输出 1,444 字符含 doctype/head/`<s
   把每节点「完整返回改动文件」的输出从 O(N²) 变成 O(N)。**未用模型评测**。
 - **自带内核**：`pack.sh` 把 `target/release/octos` strip 后打成包内 `bin/octos`，校验 ELF 是 Linux
   x86_64；`find_octos()` 补回 `zipfile` 解压丢掉的可执行位。36M 包，上传上限未确认。
+  **云端第一次用它就卡死**（`e70711133d37`）：本机 glibc 2.43 编的内核要求 GLIBC_2.43，平台加载不了。
+  现在 `pack_kernel.py` 按官方 release 的上限（GLIBC_2.39）拒绝这类构建、退回下载路径；本机构建的内核
+  要上云得走 CI release 或固定 glibc 目标。见 CHANGELOG 同日条目。
 - `DryRunDriver.without_tools()`：修好之后 codegen 树的 dry run 才能走完（之前第一个节点就 abort）。
 
 ## 3. 核查：调查过程中说错或需要修正的

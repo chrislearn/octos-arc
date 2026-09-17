@@ -47,9 +47,13 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 2. **把内核放进 zip**（`pack.sh` 默认就这么做）：`cargo build --release` 之后 `sh arc/pack.sh` 会自动把
    本机构建的内核 `strip` 后打成包内的 `bin/octos`，`main.py` 优先用它，省掉线上那段很慢的下载。
    来源按 `ARC_KERNEL_BIN` → `arc/bin/octos` → `target/x86_64-unknown-linux-gnu/release/octos` →
-   `target/release/octos` 取第一个**是 Linux x86_64 ELF** 的（macOS / aarch64 的构建会被跳过，因为
-   自带的二进制排在下载前面，装错了平台会直接 spawn 失败且不会回落）。压缩后约 36M，先确认平台的
-   上传体积上限；`ARC_PACK_KERNEL=0 sh arc/pack.sh` 回到不自带内核的小包。
+   `target/release/octos` 取第一个**是 Linux x86_64 ELF、且要求的 glibc 不高于平台**的（自带的二进制
+   排在下载前面，装错了平台会直接加载失败且不会回落 —— 云端 `e70711133d37` 就是这样卡死的：本机 glibc
+   2.43 编出的内核要求 GLIBC_2.43，官方 release 在 `ubuntu-latest` 上编、只要求 2.39，平台介于两者之间）。
+   **在本机 `cargo build` 出来的内核多半会被拒绝**，`pack.sh` 会打印原因并退回下载路径；要发改过的内核，
+   走路 1 的 CI release 才是 glibc 安全的，或用 `cargo zigbuild --target x86_64-unknown-linux-gnu.2.39`
+   之类固定 glibc 的方式编。压缩后约 36M，先确认平台的上传体积上限；`ARC_PACK_KERNEL=0 sh arc/pack.sh`
+   强制不自带内核；`ARC_KERNEL_MAX_GLIBC=2.4x` 只在确认平台镜像更新后才放宽。
 
 两条都不做，平台跑的仍是 `OCTOS_RELEASE_URL` 常量指向的那个版本，改了等于没改。
 

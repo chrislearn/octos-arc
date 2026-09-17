@@ -815,3 +815,23 @@ codegen 的契约是「每个改动的文件完整返回」，而架构契约把
   guard 没有机会触发 —— 那是夹具错，不是 guard 错，记在这里免得重蹈。
 
 **真实模型对比未做**（额度）；做之前不宣称数字。
+
+## 2026-09-17：自带内核在云端卡死（`e70711133d37`）—— 原因与 glibc 上限校验
+
+用自带 `bin/octos` 的 36M 包提交 smoke，stdout 停在平台的「Waiting for container to exit without timeout」，
+`main.py` 自己一行日志都没有，2 分钟后仍在「Launching generation agent」（旧包 20–69 秒完成）。
+
+原因（实测）：本机 glibc 2.43，`target/release/octos` 要求的版本化符号最高 **GLIBC_2.43**；官方 release
+`v2.0.3-rc.11-arc.13`（CI `arc-linux-release.yml` 在 `ubuntu-latest` 上编）最高 **GLIBC_2.39**，能在平台跑。
+平台容器的 glibc 介于两者之间：加载官方的成功、加载本机的失败（`version 'GLIBC_2.43' not found`）。
+`octos_stdio.py` 没有握手，每步 60–120 秒超时，叠上 3 次瞬时重试，就是那个「一直 launching」。
+**这是自带内核那条改动引入的，不是平台问题。**
+
+修：`pack_kernel.py` 新增 glibc 上限校验 —— 扫描候选二进制里的 `GLIBC_x.y` 字符串取最大值（.dynstr 里的，
+strip 不掉；纯字节扫描不依赖 objdump），高于 `PLATFORM_MAX_GLIBC = (2, 39)` 就跳过并打印原因，包退回下载
+路径。musl/静态二进制没有这些字符串，放行。`ARC_KERNEL_MAX_GLIBC` 只在确认平台镜像更新后放宽。
+本机构建现在被拒：`跳过 …/target/release/octos: needs GLIBC_2.43, the platform has at most 2.39 …`。
+
+验证：`test_pack_kernel.py` 新增 4 项（先红后绿），共 13 项；本机 `pack.sh` 打出 404K 无 `bin/` 的包。
+教训写进 README：本机 `cargo build` 的内核多半不能直接自带；要发改过的内核走 CI release，或固定 glibc
+目标（`cargo zigbuild --target x86_64-unknown-linux-gnu.2.39`）。
