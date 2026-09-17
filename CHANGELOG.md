@@ -12,6 +12,10 @@ All notable changes to octos will be documented in this file.
 - Per-tenant frps tunnel authentication via `metadatas.token`. Each tenant now has its own `tunnel_token` (UUID generated at registration) validated by the octos frps server plugin; the previous shared FRPS auth token is no longer needed and `auth.token` is set to `""` on both frps and frpc. `scripts/install.sh` and `scripts/install.ps1` recover the per-tenant token from an existing `/etc/frp/frpc.toml` on rerun and have updated prompt wording to reflect the per-tenant model.
 - README "Quick Start" restructured into a three-step cloud-deployment walkthrough (VPS bootstrap → portal registration → tenant install) with explicit uninstall instructions for both cloud and tenant machines. The developer build flow moved under a new "Build from source" heading.
 
+### Fixed
+
+- `max_iterations` no longer ends a productive `serve` turn on a canned exhaustion message (#2359). The grace call past the cap is an action iteration; when the model spends it on a productive tool call (the observed `edit_file` case), the loop now grants up to `LoopRetryLimits::grace_extensions` (default 2) further action iterations while each stays productive, then exactly one tools-disabled synthesis call whose text becomes the turn's answer (task runs keep the `budget_exhausted` marker underneath it). A grace action that fails or does nothing still stops at the limit; the ~80% reminder, the FINAL-iteration notice and the structured budget events are unchanged. Retry-state JSON persisted before this change deserializes with the new defaults.
+
 ## [0.1.1] - 2026-04-07
 
 ### Highlights

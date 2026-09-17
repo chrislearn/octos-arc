@@ -45,6 +45,23 @@ const MAX_TOKENS_CONTINUATION_PROMPT: &str = "Your output was truncated at the t
 const MAX_TOKENS_EMPTY_RECOVERY_PROMPT: &str = "Your previous response reached the output token limit without producing any text or tool call. Respond concisely: take your single next action now — call one tool or give a brief answer. Do not repeat yourself.";
 /// Terminal message when empty-`MaxTokens` recovery is exhausted. Surfaced
 /// instead of an empty success so the turn never silently dead-ends (#2174).
+/// #2359: the tools-disabled final call after productive grace work. The
+/// model's reply to this replaces the canned exhaustion message.
+const BUDGET_SYNTHESIS_NOTICE: &str = "[budget notice] The iteration budget is exhausted and this is the \
+    final response of the run. Tools are disabled for it: do not call any tool. Summarize what you \
+    completed (name the files you changed), what remains undone, and what the next step would be.";
+
+/// What [`Agent::try_budget_grace_call`] grants at a hard budget stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BudgetGrace {
+    /// Hard stop: return the budget message.
+    Stop,
+    /// One more action iteration (tools on) — the M6.2 grace call.
+    Action,
+    /// One tools-disabled synthesis iteration (#2359).
+    Synthesis,
+}
+
 const MAX_TOKENS_EMPTY_EXHAUSTED_MESSAGE: &str = "[The model repeatedly reached the output token limit without producing any text or tool call — a degenerate or looping generation. Try a stronger model, reduce the context size, or configure an anti-repetition sampler (a non-zero temperature or a repeat penalty).]";
 const SHELL_RETRY_RECOVERY_THRESHOLD: usize = 4;
 
@@ -597,11 +614,12 @@ impl Agent {
                 );
                 LoopErrorAction::Bail
             }
-            LoopDecision::Grace => {
-                // Grace decisions come from observe_budget_exhaustion, not
-                // from observe(&HarnessError). Treat defensively as Retry
-                // so the grace path behaves consistently if it is ever
-                // reached via this code path (it isn't today).
+            LoopDecision::Grace | LoopDecision::Synthesize => {
+                // Grace/Synthesize decisions come from
+                // observe_budget_exhaustion, not from observe(&HarnessError).
+                // Treat defensively as Retry so the grace path behaves
+                // consistently if it is ever reached via this code path (it
+                // isn't today).
                 LoopErrorAction::Retry
             }
         }
@@ -655,19 +673,20 @@ impl Agent {
     /// `IdleProgressTimeout` are always hard stops so stalled loops and
     /// operator shutdowns terminate immediately.
     ///
-    /// Returns `true` iff a grace call was granted; the caller should skip
-    /// its budget-stop return path and proceed with one more iteration.
+    /// Returns what the loop may still do: nothing (hard stop), one more
+    /// ACTION iteration (tools on), or — #2359 — one tools-disabled
+    /// SYNTHESIS iteration whose text becomes the turn's answer.
     pub(super) fn try_budget_grace_call(
         &self,
         stop: &BudgetStop,
         retry_state: &mut LoopRetryState,
         iteration: u32,
-    ) -> bool {
+    ) -> BudgetGrace {
         if !matches!(
             stop,
             BudgetStop::MaxIterations { .. } | BudgetStop::MaxTokens { .. }
         ) {
-            return false;
+            return BudgetGrace::Stop;
         }
         let decision = retry_state.observe_budget_exhaustion();
         if let Some(sink) = self.harness_event_sink.as_deref() {
@@ -691,9 +710,16 @@ impl Agent {
                     iteration,
                     "budget exhausted; granting one grace call via LoopRetryState"
                 );
-                true
+                BudgetGrace::Action
             }
-            _ => false,
+            LoopDecision::Synthesize => {
+                tracing::warn!(
+                    iteration,
+                    "budget exhausted after productive grace work; granting one tools-disabled synthesis (#2359)"
+                );
+                BudgetGrace::Synthesis
+            }
+            _ => BudgetGrace::Stop,
         }
     }
 
@@ -1235,42 +1261,56 @@ impl Agent {
                     // back into the exhausted budget and end the turn without
                     // the deliverable the grace exists for).
                     let mut grace_iteration = false;
+                    // #2359: a tools-disabled final call after productive grace
+                    // work; its text is the turn's answer, `synthesis_fallback`
+                    // the budget message if the model says nothing.
+                    let mut synthesis_iteration = false;
+                    let mut synthesis_fallback: Option<String> = None;
                     if let Some(stop) = turn.check_budget(self, activity.as_ref()) {
                         let stop_iteration = turn.iteration();
-                        if !self.try_budget_grace_call(
-                            &stop,
-                            &mut retry_state,
-                            stop_iteration,
-                        ) {
-                            turn.record_budget_stop(&stop);
-                            // Skip system prompt + history; return only new messages
-                            return Ok(ConversationResponse {
-                                content: stop.message(),
-                                reasoning_content: None,
-                                provider_metadata: None,
-                                token_usage: turn.total_usage().clone(),
-                                estimated_spend_usd: turn.priced_spend(),
-                                files_modified,
-                                files_to_send,
-                                streamed: false,
-                                assistant_segments: turn_output_log.provenance.clone(),
-                                messages: turn_output_log.messages.clone(),
-                                tool_results: tool_structured_metadata.clone(),
-                                synthesized_from_spawn_only: false,
-                                pending_approval: None,
-                            });
+                        match self.try_budget_grace_call(&stop, &mut retry_state, stop_iteration) {
+                            BudgetGrace::Stop => {
+                                turn.record_budget_stop(&stop);
+                                // Skip system prompt + history; return only new messages
+                                return Ok(ConversationResponse {
+                                    content: stop.message(),
+                                    reasoning_content: None,
+                                    provider_metadata: None,
+                                    token_usage: turn.total_usage().clone(),
+                                    estimated_spend_usd: turn.priced_spend(),
+                                    files_modified,
+                                    files_to_send,
+                                    streamed: false,
+                                    assistant_segments: turn_output_log.provenance.clone(),
+                                    messages: turn_output_log.messages.clone(),
+                                    tool_results: tool_structured_metadata.clone(),
+                                    synthesized_from_spawn_only: false,
+                                    pending_approval: None,
+                                });
+                            }
+                            BudgetGrace::Action => {
+                                // #1691: grace was granted (we did not return) — this is
+                                // the FINAL iteration. Tell the model to deliver now
+                                // rather than start new work, so a grace call is not
+                                // wasted on more exploration (the mini4 failure mode).
+                                messages.push(Message::user(
+                                    "[budget notice] This is your FINAL iteration — the run stops \
+                                     immediately after it. Do NOT start new exploration; write your \
+                                     deliverable (write_file / edit_file) or give your final answer \
+                                     in THIS response.",
+                                ));
+                                grace_iteration = true;
+                            }
+                            BudgetGrace::Synthesis => {
+                                // The budget stop is still recorded as the turn's
+                                // terminal reason (structured metadata stays); only
+                                // the user-visible text changes.
+                                turn.record_budget_stop(&stop);
+                                messages.push(Message::user(BUDGET_SYNTHESIS_NOTICE));
+                                synthesis_fallback = Some(stop.message());
+                                synthesis_iteration = true;
+                            }
                         }
-                        // #1691: grace was granted (we did not return) — this is
-                        // the FINAL iteration. Tell the model to deliver now
-                        // rather than start new work, so a grace call is not
-                        // wasted on more exploration (the mini4 failure mode).
-                        messages.push(Message::user(
-                            "[budget notice] This is your FINAL iteration — the run stops \
-                             immediately after it. Do NOT start new exploration; write your \
-                             deliverable (write_file / edit_file) or give your final answer \
-                             in THIS response.",
-                        ));
-                        grace_iteration = true;
                     }
 
                     let iteration = turn.advance_iteration();
@@ -1308,7 +1348,11 @@ impl Agent {
 
                     // RFC-0 (#1289): LRU tool deferral removed — every enabled
                     // tool is emitted every turn (full schema).
-                    let tools_spec = self.tools.specs();
+                    let tools_spec = if synthesis_iteration {
+                        Vec::new() // #2359: the synthesis call offers no tools
+                    } else {
+                        self.tools.specs()
+                    };
                     // Harness M6.3: run preflight compaction before the first
                     // LLM call when a compaction policy is wired and the
                     // context already exceeds the declared threshold.
@@ -1395,7 +1439,7 @@ impl Agent {
                     // then continue the same user turn with normal tools. A
                     // budget-grace iteration is exempt: its single remaining
                     // call belongs to the model's deliverable.
-                    let checkpoint_due = if grace_iteration {
+                    let checkpoint_due = if grace_iteration || synthesis_iteration {
                         None
                     } else {
                         convergence.due(&total_usage)
@@ -1728,6 +1772,35 @@ impl Agent {
                     // threshold counts these, never the pre-call iteration
                     // index and never the checkpoint's own reflection call.
                     convergence.record_action_call();
+
+                    if synthesis_iteration {
+                        // #2359: whatever the model said with tools disabled is
+                        // the answer; a tool call it hallucinated anyway is not
+                        // executed. Empty text falls back to the budget message.
+                        let content = response
+                            .content
+                            .clone()
+                            .filter(|c| !c.trim().is_empty())
+                            .unwrap_or_else(|| synthesis_fallback.clone().unwrap_or_default());
+                        self.emit_cost_update(&turn, &response, attributed_cost);
+                        return Ok(ConversationResponse {
+                            content,
+                            reasoning_content: response.reasoning_content.clone(),
+                            provider_metadata: Some(
+                                self.llm.provider_metadata_for_index(response.provider_index),
+                            ),
+                            token_usage: turn.total_usage().clone(),
+                            estimated_spend_usd: turn.priced_spend(),
+                            files_modified,
+                            files_to_send,
+                            streamed,
+                            assistant_segments: turn_output_log.provenance.clone(),
+                            messages: turn_output_log.messages,
+                            tool_results: tool_structured_metadata.clone(),
+                            synthesized_from_spawn_only: false,
+                            pending_approval: None,
+                        });
+                    }
 
                     match response.stop_reason {
                         StopReason::EndTurn | StopReason::StopSequence => {
@@ -2601,13 +2674,15 @@ impl Agent {
             let config = self.chat_config();
 
             loop {
+                // #2359: see the conversation loop; the task loop keeps the
+                // budget marker (#27e) under the model's own summary.
+                let mut synthesis_iteration = false;
+                let mut synthesis_fallback: Option<String> = None;
+                let mut synthesis_marker: Option<String> = None;
                 if let Some(stop) = turn.check_budget(self, activity.as_ref()) {
                     let stop_iteration = turn.iteration();
-                    if !self.try_budget_grace_call(
-                        &stop,
-                        &mut retry_state,
-                        stop_iteration,
-                    ) {
+                    let grace = self.try_budget_grace_call(&stop, &mut retry_state, stop_iteration);
+                    if grace != BudgetGrace::Action {
                         turn.record_budget_stop(&stop);
                         self.report_budget_stop(&stop, stop_iteration);
                         // #27e (R2) — checkpoint a DIRTY worktree before the
@@ -2615,6 +2690,8 @@ impl Agent {
                         // result.md (atomic), distinct budget_exhausted
                         // marker in the TaskResult output. Clean worktrees
                         // and non-git dirs are untouched (no empty commits).
+                        // A synthesis call runs with tools off, so the tree
+                        // cannot change after this point.
                         let workdir = self
                             .tools
                             .workspace_root()
@@ -2624,19 +2701,26 @@ impl Agent {
                             &stop,
                             stop_iteration,
                         );
-                        let output = match marker.as_deref() {
-                            Some(m) => format!("{}\n{}", stop.message(), m),
-                            None => stop.message(),
-                        };
-                        return Ok(TaskResult {
-                            schema_version: octos_core::TASK_RESULT_SCHEMA_VERSION,
-                            success: false,
-                            output,
-                            files_modified,
-                            files_to_send,
-                            subtasks: Vec::new(),
-                            token_usage: turn.total_usage().clone(),
-                        });
+                        if grace == BudgetGrace::Synthesis {
+                            messages.push(Message::user(BUDGET_SYNTHESIS_NOTICE));
+                            synthesis_fallback = Some(stop.message());
+                            synthesis_marker = marker;
+                            synthesis_iteration = true;
+                        } else {
+                            let output = match marker.as_deref() {
+                                Some(m) => format!("{}\n{}", stop.message(), m),
+                                None => stop.message(),
+                            };
+                            return Ok(TaskResult {
+                                schema_version: octos_core::TASK_RESULT_SCHEMA_VERSION,
+                                success: false,
+                                output,
+                                files_modified,
+                                files_to_send,
+                                subtasks: Vec::new(),
+                                token_usage: turn.total_usage().clone(),
+                            });
+                        }
                     }
                 }
 
@@ -2653,7 +2737,11 @@ impl Agent {
 
                 // RFC-0 (#1289): LRU tool deferral removed — every enabled
                 // tool is emitted every turn (full schema).
-                let tools_spec = self.tools.specs();
+                let tools_spec = if synthesis_iteration {
+                    Vec::new() // #2359: the synthesis call offers no tools
+                } else {
+                    self.tools.specs()
+                };
                 // M8.5 tier 1: also runs in task mode so background workers
                 // benefit from the same cheap shrinkage before their LLM call.
                 let protected_ids = collect_protected_tool_call_ids(&messages);
@@ -2742,6 +2830,30 @@ impl Agent {
                             iteration,
                         });
                     }
+                }
+
+                if synthesis_iteration {
+                    // #2359: the model's tools-disabled summary is the output;
+                    // the budget marker stays underneath it. The task still did
+                    // not finish within budget, so `success` stays false.
+                    let summary = response
+                        .content
+                        .clone()
+                        .filter(|c| !c.trim().is_empty())
+                        .unwrap_or_else(|| synthesis_fallback.clone().unwrap_or_default());
+                    let output = match synthesis_marker.as_deref() {
+                        Some(m) => format!("{summary}\n{m}"),
+                        None => summary,
+                    };
+                    return Ok(TaskResult {
+                        schema_version: octos_core::TASK_RESULT_SCHEMA_VERSION,
+                        success: false,
+                        output,
+                        files_modified,
+                        files_to_send,
+                        subtasks: Vec::new(),
+                        token_usage: turn.total_usage().clone(),
+                    });
                 }
 
                 match response.stop_reason {

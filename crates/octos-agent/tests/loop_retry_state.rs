@@ -121,18 +121,33 @@ fn should_not_fire_grace_call_without_productive_history() {
 
 #[test]
 fn should_require_fresh_productive_history_between_grace_calls() {
-    // A second budget-exhaustion after Grace was fired must escalate even
-    // when fresh productive tool calls are recorded. The grace call is a
-    // single global escape hatch per retry state, not a renewable allowance.
+    // A budget-exhaustion right after Grace, with nothing productive done in
+    // the grace action, escalates: the escape hatch is not a renewable
+    // allowance for a loop that is not moving.
     let mut state = LoopRetryState::new();
     state.record_productive_tool_call();
     state.record_productive_tool_call();
     assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace);
     assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
-
-    state.record_productive_tool_call();
-    assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
     assert_eq!(state.grace_calls_fired, 1);
+}
+
+#[test]
+fn should_extend_a_productive_grace_action_within_bound_and_then_synthesize() {
+    // #2359: a grace action that edits (productive) earns bounded extensions
+    // (limits.grace_extensions, default 2) and then ONE tools-disabled
+    // synthesis instead of the canned exhaustion message.
+    let mut state = LoopRetryState::new();
+    state.record_productive_tool_call();
+    assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace);
+    for _ in 0..state.limits.grace_extensions {
+        state.record_productive_tool_call();
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace);
+    }
+    state.record_productive_tool_call();
+    assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Synthesize);
+    assert_eq!(state.grace_calls_fired, 1 + state.limits.grace_extensions);
+    assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

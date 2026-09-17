@@ -77,6 +77,19 @@ const DEFAULT_INTERNAL_LIMIT: u32 = 1;
 /// decision can never succeed (#2249).
 const DEFAULT_POLICY_LIMIT: u32 = 1;
 const DEFAULT_SHELL_SPIRAL_LIMIT: u32 = 1;
+/// #2359: how many extra ACTION iterations a loop may earn past the first
+/// grace call, one per grace action that itself produced a productive tool
+/// call. Bounded so an agent making productive edits after `max_iterations`
+/// cannot run on indefinitely; after the bound (or the first unproductive
+/// grace action) comes exactly one tools-disabled synthesis. 2 keeps the
+/// overrun at ≤ 4 iterations past a 50-iteration cap.
+pub const DEFAULT_GRACE_EXTENSIONS_LIMIT: u32 = 2;
+
+/// `#[serde(default = "...")]` helper for `LoopRetryLimits::grace_extensions`,
+/// so retry-state JSON persisted before #2359 keeps the canonical bound.
+fn default_grace_extensions_limit() -> u32 {
+    DEFAULT_GRACE_EXTENSIONS_LIMIT
+}
 
 /// `#[serde(default = "...")]` helper for `LoopRetryLimits::policy`. Lets
 /// legacy retry-state JSON (pre-policy field) deserialize cleanly with the
@@ -112,6 +125,10 @@ pub struct LoopRetryLimits {
     #[serde(default = "default_policy_limit")]
     pub policy: u32,
     pub shell_spiral: u32,
+    /// #2359: bounded extensions past the first grace call (see
+    /// [`DEFAULT_GRACE_EXTENSIONS_LIMIT`]).
+    #[serde(default = "default_grace_extensions_limit")]
+    pub grace_extensions: u32,
 }
 
 impl Default for LoopRetryLimits {
@@ -134,6 +151,7 @@ impl Default for LoopRetryLimits {
             internal: DEFAULT_INTERNAL_LIMIT,
             policy: DEFAULT_POLICY_LIMIT,
             shell_spiral: DEFAULT_SHELL_SPIRAL_LIMIT,
+            grace_extensions: DEFAULT_GRACE_EXTENSIONS_LIMIT,
         }
     }
 }
@@ -166,6 +184,11 @@ pub enum LoopDecision {
     /// produced at least one productive tool call since the last grace. Once
     /// fired, cannot fire again until another productive call is recorded.
     Grace,
+    /// #2359: the loop is past budget and its grace action(s) did productive
+    /// work. One final call with tools DISABLED so the model reports what it
+    /// completed and what remains, instead of the canned exhaustion message.
+    /// Fires at most once per retry state.
+    Synthesize,
 }
 
 impl LoopDecision {
@@ -179,6 +202,7 @@ impl LoopDecision {
             LoopDecision::Escalate => "escalate",
             LoopDecision::Exhausted => "exhausted",
             LoopDecision::Grace => "grace",
+            LoopDecision::Synthesize => "synthesize",
         }
     }
 }
@@ -320,6 +344,15 @@ pub struct LoopRetryState {
     /// the decision logic only cares about productive_tool_calls_since_last_grace.
     #[serde(default)]
     pub grace_calls_fired: u32,
+    /// #2359: number of grace/extension actions that produced at least one
+    /// productive tool call. ≥ 1 is what earns the tools-disabled synthesis;
+    /// a loop whose grace action failed or did nothing stops at the limit.
+    #[serde(default)]
+    pub grace_productive_actions: u32,
+    /// #2359: the single synthesis call has been granted; every later budget
+    /// hit escalates.
+    #[serde(default)]
+    pub grace_synthesis_fired: bool,
 }
 
 impl LoopRetryState {
@@ -336,6 +369,8 @@ impl LoopRetryState {
             limits,
             productive_tool_calls_since_last_grace: 0,
             grace_calls_fired: 0,
+            grace_productive_actions: 0,
+            grace_synthesis_fired: false,
         }
     }
 
@@ -385,25 +420,55 @@ impl LoopRetryState {
         decision
     }
 
-    /// Resolve the decision at hard-budget exhaustion. Returns
-    /// [`LoopDecision::Grace`] at most once for this retry state, and only
-    /// when there has been at least one productive tool call before the first
-    /// budget hit; otherwise returns [`LoopDecision::Escalate`].
+    /// Resolve the decision at hard-budget exhaustion.
     ///
-    /// The single grace call is deliberately global to the loop, not one per
-    /// productive tool call. Otherwise an agent that keeps making productive
-    /// reads after `max_iterations` can run indefinitely.
+    /// The first hit returns [`LoopDecision::Grace`] iff the loop made at
+    /// least one productive tool call before it; otherwise
+    /// [`LoopDecision::Escalate`]. That grace call is an ACTION iteration
+    /// (tools on). #2359 adds what happens when the model spends it on work
+    /// rather than an answer:
+    ///
+    /// - a grace action that was productive earns another grace action, up
+    ///   to `limits.grace_extensions` of them (bounded, so productive edits
+    ///   past `max_iterations` cannot run on indefinitely);
+    /// - once the bound is hit, or a grace action does nothing productive,
+    ///   a loop with any productive grace work gets exactly one
+    ///   [`LoopDecision::Synthesize`] — a tools-disabled call to report what
+    ///   was done and what remains — instead of the canned stop;
+    /// - a loop whose grace action(s) produced nothing stops at the limit
+    ///   (failing or no-op calls are not progress), and after the synthesis
+    ///   every hit escalates.
     pub fn observe_budget_exhaustion(&mut self) -> LoopDecision {
-        let decision =
-            if self.grace_calls_fired == 0 && self.productive_tool_calls_since_last_grace >= 1 {
-                self.productive_tool_calls_since_last_grace = 0;
-                self.grace_calls_fired = self.grace_calls_fired.saturating_add(1);
-                LoopDecision::Grace
+        let productive = self.productive_tool_calls_since_last_grace >= 1;
+        let decision = if self.grace_synthesis_fired {
+            LoopDecision::Escalate
+        } else if self.grace_calls_fired == 0 {
+            if productive {
+                self.fire_grace()
             } else {
                 LoopDecision::Escalate
-            };
+            }
+        } else {
+            if productive {
+                self.grace_productive_actions = self.grace_productive_actions.saturating_add(1);
+            }
+            if productive && self.grace_calls_fired <= self.limits.grace_extensions {
+                self.fire_grace()
+            } else if self.grace_productive_actions >= 1 {
+                self.grace_synthesis_fired = true;
+                LoopDecision::Synthesize
+            } else {
+                LoopDecision::Escalate
+            }
+        };
         Self::record_metric("budget_exhaustion", decision);
         decision
+    }
+
+    fn fire_grace(&mut self) -> LoopDecision {
+        self.productive_tool_calls_since_last_grace = 0;
+        self.grace_calls_fired = self.grace_calls_fired.saturating_add(1);
+        LoopDecision::Grace
     }
 
     /// Snapshot of the current counters — exposed for metrics export and
@@ -433,6 +498,12 @@ impl LoopRetryState {
             turn.grace_calls_fired
                 .saturating_sub(base.grace_calls_fired),
         );
+        self.grace_productive_actions = self.grace_productive_actions.saturating_add(
+            turn.grace_productive_actions
+                .saturating_sub(base.grace_productive_actions),
+        );
+        // A synthesis granted by either writer stays granted: it is single-use.
+        self.grace_synthesis_fired |= turn.grace_synthesis_fired && !base.grace_synthesis_fired;
         let productive_delta = i64::from(turn.productive_tool_calls_since_last_grace)
             - i64::from(base.productive_tool_calls_since_last_grace);
         self.productive_tool_calls_since_last_grace =
@@ -697,14 +768,95 @@ mod tests {
         assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
     }
 
+    // #2359: the grace call is an ACTION iteration. A model that spends it on
+    // a productive edit used to fall straight into the canned exhaustion
+    // message. Now productive grace actions earn bounded extensions, then
+    // exactly one tools-disabled synthesis; failing/no-op actions still stop.
     #[test]
-    fn grace_call_is_single_use_even_after_fresh_productive_tool_call() {
+    fn productive_grace_actions_extend_within_bound_then_synthesize_then_escalate() {
+        let mut state = LoopRetryState::with_limits(LoopRetryLimits {
+            grace_extensions: 2,
+            ..LoopRetryLimits::default()
+        });
+        state.record_productive_tool_call();
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace); // the grace action
+        state.record_productive_tool_call(); // it edited a file
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace); // extension 1
+        state.record_productive_tool_call();
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace); // extension 2
+        state.record_productive_tool_call();
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Synthesize); // bound hit: summarise
+        assert_eq!(state.grace_calls_fired, 3);
+        state.record_productive_tool_call(); // even fresh work cannot reopen the loop
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
+    }
+
+    #[test]
+    fn productive_grace_action_gets_a_synthesis_even_with_zero_extensions() {
+        let mut state = LoopRetryState::with_limits(LoopRetryLimits {
+            grace_extensions: 0,
+            ..LoopRetryLimits::default()
+        });
+        state.record_productive_tool_call();
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace);
+        state.record_productive_tool_call();
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Synthesize);
+        assert!(state.grace_synthesis_fired);
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
+    }
+
+    #[test]
+    fn failing_or_noop_grace_action_still_stops_at_the_limit() {
+        let mut state = LoopRetryState::new();
+        state.record_productive_tool_call();
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace);
+        // The grace action produced nothing productive: no extension, no synthesis.
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
+        assert!(!state.grace_synthesis_fired);
+    }
+
+    #[test]
+    fn an_unproductive_extension_after_productive_grace_work_still_gets_the_synthesis() {
+        // The synthesis exists to report the productive work already done; a
+        // last no-op step must not throw that report away.
         let mut state = LoopRetryState::new();
         state.record_productive_tool_call();
         assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace);
         state.record_productive_tool_call();
-        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Escalate);
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Grace); // extension, productive
+        assert_eq!(state.observe_budget_exhaustion(), LoopDecision::Synthesize); // this one was a no-op
+    }
+
+    #[test]
+    fn legacy_state_json_without_the_grace_synthesis_fields_deserializes_with_defaults() {
+        // A pre-#2359 sidecar: everything the state serialised then, minus the
+        // three fields this change added (counters and limits carry no serde
+        // defaults of their own, so start from a real serialisation).
+        let mut json = serde_json::to_value(LoopRetryState {
+            grace_calls_fired: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        let root = json.as_object_mut().unwrap();
+        root.remove("grace_productive_actions");
+        root.remove("grace_synthesis_fired");
+        root["limits"]
+            .as_object_mut()
+            .unwrap()
+            .remove("grace_extensions");
+        let state: LoopRetryState = serde_json::from_value(json).unwrap();
         assert_eq!(state.grace_calls_fired, 1);
+        assert!(!state.grace_synthesis_fired);
+        assert_eq!(state.grace_productive_actions, 0);
+        assert_eq!(
+            state.limits.grace_extensions,
+            DEFAULT_GRACE_EXTENSIONS_LIMIT
+        );
+    }
+
+    #[test]
+    fn synthesize_decision_has_a_stable_metric_label() {
+        assert_eq!(LoopDecision::Synthesize.as_str(), "synthesize");
     }
 
     #[test]
@@ -786,6 +938,7 @@ mod tests {
             internal: v,
             policy: v,
             shell_spiral: v,
+            grace_extensions: v,
         };
 
         let base = LoopRetryState {
@@ -793,18 +946,24 @@ mod tests {
             limits: uniform_limits(100),
             productive_tool_calls_since_last_grace: 1,
             grace_calls_fired: 1,
+            grace_productive_actions: 0,
+            grace_synthesis_fired: false,
         };
         let turn = LoopRetryState {
             counters: offset_counters(3),
             limits: uniform_limits(200),
             productive_tool_calls_since_last_grace: 4,
             grace_calls_fired: 2,
+            grace_productive_actions: 0,
+            grace_synthesis_fired: false,
         };
         let mut merged = LoopRetryState {
             counters: uniform_counters(10),
             limits: uniform_limits(300),
             productive_tool_calls_since_last_grace: 5,
             grace_calls_fired: 5,
+            grace_productive_actions: 0,
+            grace_synthesis_fired: false,
         };
         merged.merge_turn_delta(&base, &turn);
 
@@ -818,6 +977,8 @@ mod tests {
             productive_tool_calls_since_last_grace: 8,
             // 5 + (2 - 1): monotonic saturating delta.
             grace_calls_fired: 6,
+            grace_productive_actions: 0,
+            grace_synthesis_fired: false,
         };
         assert_eq!(merged, expected);
     }

@@ -8377,3 +8377,157 @@ async fn malformed_exhaustion_error_carries_marker() {
         "carries the limit/observed payload: {text}"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// #2359 — a productive grace action must end in a tools-disabled synthesis,
+// not the canned exhaustion message. `octos serve --stdio --solo` reaches
+// this loop through `process_message_tracked_with_attachments`
+// (octos-cli session_actor.rs), so the conversation loop is the path to pin.
+// ─────────────────────────────────────────────────────────────────────────
+
+fn edit_call(id: &str) -> ToolCall {
+    // Distinct arguments per call: the loop's repetition detector treats an
+    // identical call+result repeated back to back as no progress, and a
+    // no-progress result is not productive. Real grace edits touch
+    // different regions, so the fixture does too.
+    ToolCall {
+        id: id.into(),
+        name: "edit_notes".into(),
+        arguments: serde_json::json!({ "file": "notes.md", "section": id }),
+        metadata: None,
+    }
+}
+
+#[tokio::test]
+async fn should_give_one_tools_disabled_synthesis_after_productive_grace_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let requests = Arc::new(StdMutex::new(Vec::new()));
+    // Two in-budget edits, the grace edit, two extension edits (default
+    // grace_extensions = 2), then the synthesis answer. Every response after
+    // the cap is an edit: the failure mode from the issue, verbatim.
+    let mut responses: Vec<ChatResponse> = (1..=5)
+        .map(|i| tool_use(vec![edit_call(&format!("call_edit_{i}"))], 10, 20))
+        .collect();
+    responses.push(end_turn(
+        "Done: updated notes.md in five passes; remaining: none.",
+        10,
+        10,
+    ));
+    let provider = Arc::new(RequestRecordingProvider::new(responses, requests.clone()));
+    let mut tools = ToolRegistry::new();
+    tools.register(StaticResultTool::new(
+        "edit_notes",
+        "Edited notes.md: replaced the section body with the new text, kept headings,          normalised the list markers and left every other line as it was (productive result).",
+        true,
+        Arc::new(AtomicUsize::new(0)),
+    ));
+    let memory = Arc::new(EpisodeStore::open(dir.path().join("memory")).await.unwrap());
+    let agent = Agent::new(AgentId::new("grace-synthesis"), provider, tools, memory).with_config(
+        AgentConfig {
+            save_episodes: false,
+            max_iterations: 2,
+            ..Default::default()
+        },
+    );
+
+    let response = agent
+        .process_message("update the notes", &[], vec![])
+        .await
+        .expect("turn should complete");
+
+    let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+    assert_eq!(
+        requests.len(),
+        6,
+        "2 in-budget + grace + 2 extensions + 1 synthesis; got {}",
+        requests.len()
+    );
+    let (synthesis_messages, synthesis_tools) = &requests[5];
+    assert!(
+        synthesis_tools.is_empty(),
+        "the synthesis call must offer no tools"
+    );
+    assert!(
+        synthesis_messages
+            .iter()
+            .any(|m| m.content.contains("[budget notice]")
+                && m.content.contains("Tools are disabled")),
+        "the synthesis request must carry the tools-disabled notice"
+    );
+    assert!(
+        requests[..5].iter().all(|(_, tools)| !tools.is_empty()),
+        "every action call, including grace and extensions, keeps its tools"
+    );
+    assert_eq!(
+        response.content, "Done: updated notes.md in five passes; remaining: none.",
+        "the user sees the model's summary, not the exhaustion boilerplate"
+    );
+    assert!(
+        !response.content.contains("did not complete within"),
+        "no canned exhaustion message"
+    );
+}
+
+#[tokio::test]
+async fn should_stop_with_the_exhaustion_message_when_the_grace_action_is_a_noop() {
+    let dir = tempfile::tempdir().unwrap();
+    let requests = Arc::new(StdMutex::new(Vec::new()));
+    // Two productive edits earn the grace call; the grace action fails.
+    let provider = Arc::new(RequestRecordingProvider::new(
+        vec![
+            tool_use(vec![edit_call("call_edit_1")], 10, 20),
+            tool_use(vec![edit_call("call_edit_2")], 10, 20),
+            tool_use(
+                vec![ToolCall {
+                    id: "call_bad".into(),
+                    name: "broken_edit".into(),
+                    arguments: serde_json::json!({}),
+                    metadata: None,
+                }],
+                10,
+                20,
+            ),
+            end_turn("should never be requested", 10, 10),
+        ],
+        requests.clone(),
+    ));
+    let mut tools = ToolRegistry::new();
+    tools.register(StaticResultTool::new(
+        "edit_notes",
+        "Edited notes.md: replaced the section body with the new text, kept headings,          normalised the list markers and left every other line as it was (productive result).",
+        true,
+        Arc::new(AtomicUsize::new(0)),
+    ));
+    tools.register(StaticResultTool::new(
+        "broken_edit",
+        "Error: notes.md is locked",
+        false,
+        Arc::new(AtomicUsize::new(0)),
+    ));
+    let memory = Arc::new(EpisodeStore::open(dir.path().join("memory")).await.unwrap());
+    let agent =
+        Agent::new(AgentId::new("grace-noop"), provider, tools, memory).with_config(AgentConfig {
+            save_episodes: false,
+            max_iterations: 2,
+            ..Default::default()
+        });
+
+    let response = agent
+        .process_message("update the notes", &[], vec![])
+        .await
+        .expect("turn should complete");
+
+    let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+    assert_eq!(
+        requests.len(),
+        3,
+        "2 in-budget + the grace action, then a hard stop"
+    );
+    assert!(
+        response
+            .content
+            .contains("did not complete within 2 iterations"),
+        "a failing grace action keeps the unattended limit: {}",
+        response.content
+    );
+}
