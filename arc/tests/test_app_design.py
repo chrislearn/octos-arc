@@ -148,7 +148,7 @@ class AppDesignTurnTests(unittest.TestCase):
 class PromptPlacementTests(unittest.TestCase):
     def _flow(self, folder):
         root = Path(folder)
-        (root / "frontend/src").mkdir(parents=True); (root / "backend").mkdir()
+        (root / "frontend/src").mkdir(parents=True, exist_ok=True); (root / "backend").mkdir(exist_ok=True)
         (root / "frontend/package.json").write_text("{}"); (root / "backend/package.json").write_text("{}")
         (root / "backend/server.js").write_text("// entry\n" + "s" * 300)
         (root / "frontend/src/orders.html").write_text("<h1>orders</h1>" + "p" * 300)
@@ -188,3 +188,86 @@ class PromptPlacementTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DesignReviewFindingsTests(unittest.TestCase):
+    """Review of 77522b55 (three findings, each reproduced with a probe)."""
+
+    # [P1] a legal JSON reply with the wrong field types must degrade to "no design",
+    # not raise out of app_design() and abort the run before any node starts.
+    def test_should_degrade_a_design_whose_fields_have_the_wrong_types(self):
+        for bad in ({"data_model": {}, "routes": 1, "pages": []},
+                    {"data_model": [], "routes": [], "pages": []},
+                    {"data_model": {}, "routes": ["/api/x"], "pages": []},
+                    {"data_model": {}, "routes": [], "pages": [], "notes": {"n": 1}},
+                    {"notes": "only notes"}):
+            with self.subTest(bad=bad):
+                self.assertIsNone(m.valid_app_design(bad))
+        good = m.valid_app_design(DESIGN)
+        self.assertEqual(good, DESIGN)
+        self.assertEqual(m.valid_app_design({"data_model": {"a": {}}, "extra": 1}), {"data_model": {"a": {}}, "extra": 1})
+
+    def test_should_not_abort_the_run_on_a_badly_typed_design_reply(self):
+        with tempfile.TemporaryDirectory() as folder:
+            reply = "```json\n" + json.dumps({"data_model": {}, "routes": 1, "pages": []}) + "\n```"
+            flow, ordered = AppDesignTurnTests()._flow(folder, reply)
+            self.assertIsNone(flow.app_design(TREE, ordered))
+            self.assertIsNone(flow.app_design_doc)
+            self.assertFalse((Path(folder) / ".arc" / "design" / "app.json").exists())
+
+    # [P2] a design over the cap is filtered per node; that text must not sit in
+    # front of the sources, or two nodes stop sharing the source prefix.
+    def _prompt(self, folder, design, node_spec, cap):
+        import os
+        from unittest.mock import patch
+        flow = PromptPlacementTests()._flow(folder)
+        flow.app_design_doc = design
+        with patch.dict(os.environ, {"OCTOS_ARC_APP_DESIGN_CHARS": str(cap)}):
+            return flow.codegen_implement_prompt({"id": "REQ-9", "description": "d"}, node_spec)
+
+    def test_should_keep_the_prefix_through_the_sources_identical_when_the_design_is_over_cap(self):
+        with tempfile.TemporaryDirectory() as folder:
+            full = len(json.dumps(DESIGN, ensure_ascii=False))
+            a = self._prompt(folder, DESIGN, "await page.goto('/orders'); orders", full - 40)
+            b = self._prompt(folder, DESIGN, "await page.goto('/login'); login", full - 40)
+            end_a = a.index("--- frontend/src/orders.html ---")
+            end_b = b.index("--- frontend/src/orders.html ---")
+            self.assertEqual(a[:end_a], b[:end_b], "prefix up to the last source must be shared")
+            self.assertIn("/api/orders", a); self.assertNotIn("/api/login", a)
+            self.assertIn("/api/login", b); self.assertNotIn("/api/orders", b)
+            self.assertLess(a.index("--- frontend/src/orders.html ---"), a.index("Application design"))
+
+    def test_should_put_a_design_that_fits_before_the_sources_identically_for_every_node(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a = self._prompt(folder, DESIGN, "orders", 6000)
+            b = self._prompt(folder, DESIGN, "login", 6000)
+            self.assertEqual(a[:a.index("Requirement REQ-9")], b[:b.index("Requirement REQ-9")])
+            self.assertLess(a.index("Application design"), a.index("--- backend/server.js ---"))
+
+    # [P3] the tiny tier and the codegen repair build their own prompts.
+    def test_should_skip_the_tiny_tier_when_an_application_design_exists(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow = m.Flow(argparse.Namespace(web_port=1), Path(folder), Path(folder))
+            flow.app_design_doc = DESIGN
+            self.assertFalse(flow.tiny_mode(400))
+            flow.app_design_doc = None
+            self.assertTrue(flow.tiny_mode(400))
+
+    def test_should_carry_the_design_into_a_codegen_repair_within_the_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "frontend").mkdir(); (root / "tests").mkdir()
+            (root / "frontend/index.html").write_text("<p>page</p>" + "x" * 2000)
+            (root / "tests/feature.spec.ts").write_text("await page.goto('/orders'); orders")
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.tests_dir = root / "tests"
+            flow.spec_map = {"feature": ["feature.spec.ts"]}
+            flow.app_design_doc = DESIGN
+            prompt = "failure evidence\n" + flow.sources_text() + "preserve behavior"
+            full = flow.codegen_repair_prompt("feature", prompt)
+            self.assertIsNotNone(full)
+            self.assertIn("Application design", full)
+            self.assertIn("/api/orders", full)
+            self.assertLessEqual(len(full) + len(m.FORMAT_INSTRUCTIONS) + 1, flow.codegen_context_chars())
+            flow.app_design_doc = None
+            self.assertNotIn("Application design", flow.codegen_repair_prompt("feature", prompt))

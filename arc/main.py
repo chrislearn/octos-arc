@@ -272,34 +272,70 @@ def tree_outline(tree: dict, max_chars: int = 60000) -> str:
     return out
 
 
-def app_design_context(design: dict | None, spec_text: str, cap: int) -> str:
-    """The application design a node's codegen prompt carries: the data model
-    whole, and -- when the whole design does not fit `cap` -- only the routes
-    and pages whose text overlaps the node's spec terms. Never exceeds cap by
-    more than a marker line; "" without a design."""
+def valid_app_design(design) -> dict | None:
+    """The design if its fields have the shapes the consumers index: data_model a
+    dict, routes and pages lists of dicts, notes a string, and at least one of
+    the three structural fields present. Anything else -- legal JSON with the
+    wrong types -- is no design at all; raising later (len() on an int) would
+    abort the run before its first node."""
+    if not isinstance(design, dict):
+        return None
+    data_model, routes, pages, notes = (design.get(k) for k in ("data_model", "routes", "pages", "notes"))
+    if data_model is not None and not isinstance(data_model, dict):
+        return None
+    for items in (routes, pages):
+        if items is not None and (not isinstance(items, list) or not all(isinstance(i, dict) for i in items)):
+            return None
+    if notes is not None and not isinstance(notes, str):
+        return None
+    if not any(k in design for k in ("data_model", "routes", "pages")):
+        return None
+    return design
+
+
+def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[str, str]:
+    """(stable, node_slice): the design text a codegen prompt carries, split by
+    where it may sit. A design that fits `cap` whole is identical for every
+    node and goes BEFORE the sources, so the prefix every node shares stays
+    byte-identical for the provider's cache. One that does not fit is filtered
+    per node -- the data model whole, routes and pages that overlap the spec's
+    terms -- and that text differs between nodes, so it goes AFTER the sources.
+    Neither exceeds cap by more than a marker line; ("", "") without a design."""
     if not design:
-        return ""
+        return "", ""
     header = "Application design (one for the whole app; every requirement follows it):\n"
 
     def render(doc: dict) -> str:
         return header + json.dumps(doc, ensure_ascii=False, separators=(",", ":")) + "\n"
 
-    out = render(design)
-    if len(out) > cap:
-        terms = spec_terms(spec_text)
-        def related(item) -> bool:
-            low = json.dumps(item, ensure_ascii=False).lower()
-            return any(term in low for term in terms)
-        slim = {k: v for k, v in design.items() if k not in ("routes", "pages")}
-        for key in ("routes", "pages"):
-            items = design.get(key) or []
-            kept = [item for item in items if related(item)] if isinstance(items, list) else items
-            if kept:
-                slim[key] = kept
-        out = render(slim)
+    whole = render(design)
+    if len(whole) <= cap:
+        return whole, ""
+    terms = spec_terms(spec_text)
+
+    def related(item) -> bool:
+        low = json.dumps(item, ensure_ascii=False).lower()
+        return any(term in low for term in terms)
+
+    slim = {k: v for k, v in design.items() if k not in ("routes", "pages")}
+    for key in ("routes", "pages"):
+        items = design.get(key) or []
+        kept = [item for item in items if related(item)] if isinstance(items, list) else items
+        if kept:
+            slim[key] = kept
+    out = render(slim)
     if len(out) > cap:
         out = out[:cap].rstrip() + "\n[design truncated to the budget]\n"
-    return out
+    return "", out
+
+
+def app_design_context(design: dict | None, spec_text: str, cap: int) -> str:
+    """The application design a node's codegen prompt carries: the data model
+    whole, and -- when the whole design does not fit `cap` -- only the routes
+    and pages whose text overlaps the node's spec terms. Never exceeds cap by
+    more than a marker line; "" without a design."""
+    stable, node_slice = app_design_blocks(design, spec_text, cap)
+    return stable + node_slice
 
 
 def describe_node(node: dict) -> str:
@@ -1857,9 +1893,10 @@ class Flow:
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
         # getattr: tests build bare Flows without __init__, like base_reasoning_mode above.
-        design = app_design_context(getattr(self, "app_design_doc", None), spec,
-                                    int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
-        fixed = len(rules) + len(design) + len(task) + len(evidence) + len(FORMAT_INSTRUCTIONS) + 2
+        design_stable, design_slice = app_design_blocks(getattr(self, "app_design_doc", None), spec,
+                                                        int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
+        fixed = (len(rules) + len(design_stable) + len(design_slice) + len(task) + len(evidence)
+                 + len(FORMAT_INSTRUCTIONS) + 2)
         room = limit - fixed - len(corrections)
         self.codegen_budget = dict(spec=len(spec), entry=entry_size, room=room, limit=limit, reason="")
         if entry is not None and not entry_indexes:
@@ -1881,9 +1918,11 @@ class Flow:
         if sources is None or (entry is not None and str(entry.relative_to(self.output_dir)) not in quoted_paths(sources)):
             self.codegen_budget["reason"] = "serialized_sources_or_entry_exceed_budget"
             return None
-        # Rules, then the run-wide design, then the sources in stable order: the
-        # prefix every node shares stays byte-identical for the provider's cache.
-        return rules + design + sources + "\n" + corrections + evidence + task
+        # Rules, a design that fits whole (identical for every node), the sources in
+        # stable order -- that prefix is byte-identical across nodes for the
+        # provider's cache -- then the per-node design slice, if any, with the
+        # other node-specific text.
+        return rules + design_stable + sources + "\n" + design_slice + corrections + evidence + task
 
     def log_codegen_fallback(self, node_id: str) -> None:
         budget = self.codegen_budget
@@ -1902,6 +1941,11 @@ class Flow:
         # tool mode: codegen_turn refuses a block for any existing file not shown
         # whole, so the model can only fix what it was shown -- which is the point.
         suffix = CODEGEN_REPAIR_SUFFIX.format(spec=spec)
+        # Every turn is a fresh session, so the repair sees the run-wide design
+        # only if this prompt carries it; counted against the requote room.
+        design = app_design_context(getattr(self, "app_design_doc", None), spec,
+                                    int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
+        suffix = design + suffix
         limit = self.codegen_context_chars()
         current_sources = self.sources_text()
         if current_sources.strip() and current_sources in prompt:
@@ -1915,6 +1959,11 @@ class Flow:
         return full
 
     def tiny_mode(self, spec_chars: int) -> bool:
+        """Tiny tier by spec size -- never once an application design exists:
+        its fixed static server and design-free prompt would let that node pick
+        its own routes and records, which is what the design is there to stop."""
+        if getattr(self, "app_design_doc", None):
+            return False
         threshold = int(os.environ.get("OCTOS_ARC_TINY_SPEC_CHARS", "1500"))
         return os.environ.get("OCTOS_ARC_TINY", "1") != "0" and 0 < spec_chars < threshold
 
@@ -1999,8 +2048,9 @@ class Flow:
                 design = json.loads(found.group(1))
             except json.JSONDecodeError:
                 design = None
-        if not isinstance(design, dict) or not design:
-            log("[flow] application design: no JSON object in the reply; nodes proceed without one")
+        design = valid_app_design(design)
+        if not design:
+            log("[flow] application design: no usable JSON object in the reply; nodes proceed without one")
             return None
         self.app_design_doc = design
         design_dir = self.output_dir / ".arc" / "design"
@@ -2673,6 +2723,8 @@ class Flow:
                 self.log_codegen_fallback(node_id)
             return (prompt + "\nYOUR PREVIOUS ATTEMPT FAILED EVERY ACCEPTANCE TEST — the failures (Feature / where / "
                     "observation / steps):\n" + failures + "\n" + self.sources_text()
+                    + app_design_context(getattr(self, "app_design_doc", None), self.spec_bodies(node_id),
+                                         int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
                     + "Rewrite the files for this node completely (full write_file for each file, not edits), "
                     "fixing the root causes above.\n")
 

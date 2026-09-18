@@ -966,8 +966,8 @@ musl / zigbuild 都不保证一次过。装了 `docker.io`（Ubuntu 26.04 仓库
   已有应用本身就是设计，tool 模式节点会读代码。`OCTOS_ARC_APP_DESIGN=0` 关闭。
 - `app_design_context()`：每个节点带的设计切片，`OCTOS_ARC_APP_DESIGN_CHARS`（默认 6,000）内。放不下时
   data_model 整个保留，routes/pages 只留与该节点 spec 词重合的；仍放不下就截断并标注，绝不使提示词失败。
-- `codegen_implement_prompt`：设计块放在**规则之后、源码之前**——`c82797e5` 已把源码固定序放前面，这样所有
-  节点共享的前缀仍逐字节相同，provider 前缀缓存不受影响；并计入 `fixed` 预算（`room` 相应减少）。
+- `codegen_implement_prompt`：设计块的位置见下方「复核修正」——放得下的整份设计在规则之后、源码之前（每个节点
+  逐字节相同）；放不下时按节点过滤的切片放在**源码之后**。两者都计入 `fixed` 预算（`room` 相应减少）。
 - `prompts/app-design.md` 同步给 Rust 引擎。
 
 成本（离线实测）：
@@ -980,3 +980,19 @@ musl / zigbuild 都不保证一次过。装了 `docker.io`（Ubuntu 26.04 仓库
 
 每节点多带 ≤ 6,000 字符（≈1.5k token），且在稳定前缀里。unittest：`tests/test_app_design.py` 12 项（先红后绿）
 + 全套通过。真实模型下设计质量与对通过率的影响：**未评测**。
+
+### 同日：`77522b55` 复核修正（三条，均由本地探针复现）
+
+1. **字段类型错误会终止整次运行**（P1）。`app_design()` 只验证顶层是非空 dict；模型返回合法 JSON 如
+   `{"routes": 1}` 时，`len(design.get("routes"))` 抛 TypeError，外层捕获后整次 run 中止，一个节点都不开始。
+   新增 `valid_app_design()`：data_model 必须是 dict、routes/pages 必须是 dict 列表、notes 必须是字符串，且三个结构
+   字段至少出现一个；不合格按**无设计**降级，不持久化。
+2. **按节点过滤的切片放在源码前面，破坏跨节点前缀**（P2）。我之前写的「缓存不受影响」**不成立**：设计超过
+   6,000 字符时切片随节点变化，探针里 orders / login 两个提示词在第 1,715 字符就分歧，而源码从第 1,905 字符才开始。
+   现在 `app_design_blocks()` 分两段：放得下的整份设计（每节点相同）在源码前；放不下时按节点过滤的切片在源码
+   **后**。测试断言两个不同节点的提示词直到最后一个源码块为止逐字节相同。
+3. **tiny 层与修复/重写没有拿到设计**（P3）。`tiny_turn`、`codegen_repair_prompt`、node_cycle 的 rewrite 提示词各自
+   拼提示词，且每轮新 session 不继承。现在：有应用级设计时不进 tiny 层（它的固定静态服务器和无设计提示词正是
+   设计要防的）；codegen 修复提示词带节点切片并计入重引用房间；rewrite 提示词同样带上。
+
+`tests/test_app_design.py` 新增 6 项（先红后绿），全套通过。
