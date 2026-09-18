@@ -188,3 +188,11 @@ python3 -m unittest discover -s arc/tests -t arc
 源码读取改为一次快照，序列化超限时在内存中逐个移除最低优先级引用，最多文件数加一次呈现。
 回退日志包含 spec/入口/源码 room/limit/reason，区分 spec 门槛、不可读入口、固定提示词或操作约束超预算。
 修复提示词指代改为 "the failing tests listed below"。新增 7 项后续回归测试；本轮累计新增 23 项。
+
+## 7. 应用级设计（2026-09-19，已实现）
+
+流程原本是"整棵树加载 → 逐节点实现，无顶层设计"。现在运行开头一次请求（树的大纲，不带 scenarios）产出
+data_model / routes / pages，注入每个节点提示词的稳定前缀（规则之后、源码之前，≤ 6k 字符，按 spec 重合过滤）。
+subagent 不做：它省 token 的唯一机制是上下文隔离，`session_scope=turn` + 每节点一次 codegen 已经拿到了；再套
+一层只会多付每个 worker 的 system prompt + 工具 schema（实测 21k 字节/请求）。下一候选是同父叶子节点合并
+成一次请求（源码只引用一遍）。CHANGELOG 同日条目有度量。

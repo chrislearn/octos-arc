@@ -34,6 +34,8 @@ Environment (all optional):
     OCTOS_DESIGN_TURN         "0" disables the design turn
     OCTOS_DESIGN_MODE         inline (default) | separate (own read-only design turn)
     OCTOS_DESIGN_MIN_NODES    design only for trees with at least this many nodes (3)
+    OCTOS_ARC_APP_DESIGN      "0" skips the one application-level design request that every codegen node's prompt carries
+    OCTOS_ARC_APP_DESIGN_CHARS  budget of that design inside each node prompt (6000; routes/pages filtered by spec overlap)
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
@@ -243,6 +245,61 @@ def load_requirement_tree(req_dir: Path) -> dict:
     if not isinstance(data, dict) or "id" not in data:
         raise ValueError(f"invalid requirements.yaml in {req_dir}")
     return data
+
+
+def tree_outline(tree: dict, max_chars: int = 60000) -> str:
+    """The requirement tree as one indented outline: id, name, description and
+    dependencies per node, no scenarios (they duplicate the public specs and
+    triple the size: 12306's tree is 137k chars with them, 43k without)."""
+    lines: list[str] = []
+
+    def walk(node: dict, depth: int) -> None:
+        deps = [str(d) for d in (node.get("dependencies") or [])]
+        head = f"{'  ' * depth}{node.get('id')} [{node.get('type', '')}] {node.get('name', '')}".rstrip()
+        if deps:
+            head += f" (depends on {', '.join(deps)})"
+        lines.append(head)
+        desc = str(node.get("description") or "").strip()
+        if desc:
+            lines.append(f"{'  ' * depth}  {' '.join(desc.split())}")
+        for child in node.get("children") or []:
+            walk(child, depth + 1)
+
+    walk(tree, 0)
+    out = "\n".join(lines)
+    if len(out) > max_chars:
+        out = out[:max_chars].rsplit("\n", 1)[0] + "\n[outline truncated: the tree is larger than the design budget]"
+    return out
+
+
+def app_design_context(design: dict | None, spec_text: str, cap: int) -> str:
+    """The application design a node's codegen prompt carries: the data model
+    whole, and -- when the whole design does not fit `cap` -- only the routes
+    and pages whose text overlaps the node's spec terms. Never exceeds cap by
+    more than a marker line; "" without a design."""
+    if not design:
+        return ""
+    header = "Application design (one for the whole app; every requirement follows it):\n"
+
+    def render(doc: dict) -> str:
+        return header + json.dumps(doc, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+    out = render(design)
+    if len(out) > cap:
+        terms = spec_terms(spec_text)
+        def related(item) -> bool:
+            low = json.dumps(item, ensure_ascii=False).lower()
+            return any(term in low for term in terms)
+        slim = {k: v for k, v in design.items() if k not in ("routes", "pages")}
+        for key in ("routes", "pages"):
+            items = design.get(key) or []
+            kept = [item for item in items if related(item)] if isinstance(items, list) else items
+            if kept:
+                slim[key] = kept
+        out = render(slim)
+    if len(out) > cap:
+        out = out[:cap].rstrip() + "\n[design truncated to the budget]\n"
+    return out
 
 
 def describe_node(node: dict) -> str:
@@ -1133,6 +1190,23 @@ UI behavior follows the requirement and the current application:
 - Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
 """
 
+APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
+
+APP_DESIGN_PROMPT = """\
+Design the application that satisfies this whole requirement tree (do NOT implement anything):
+
+{outline}
+
+Architecture is fixed: frontend/src/index.html plus one html per route; backend/server.js as a small entry that \
+serves frontend/dist and requires backend/routes/<area>.js modules; shared persistence in backend/store.js.
+Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
+{{"data_model": {{"collection": {{"field": "type"}}}},
+ "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
+ "pages": [{{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
+ "notes": "session handling, seed data, validation conventions, naming conventions"}}
+Name every collection, field, route and page once and consistently; requirements that share data must share the record shape.
+"""
+
 CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with file blocks in the requested format."
 
 CODEGEN_RULES = """\
@@ -1511,6 +1585,8 @@ class Flow:
         self.aliases: dict[str, str] = {}
         self.runner: AcceptanceRunner | None = None
         self.designs: dict[str, dict] = {}
+        # One application-level design per run (app_design); None when skipped or unparsable.
+        self.app_design_doc: dict | None = None
         self.test_verdict: dict[str, bool | None] = {}
         self.checkpoint_regressions: set[str] = set()
         self.impl_failed: list[str] = []
@@ -1780,7 +1856,10 @@ class Flow:
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
-        fixed = len(rules) + len(task) + len(evidence) + len(FORMAT_INSTRUCTIONS) + 2
+        # getattr: tests build bare Flows without __init__, like base_reasoning_mode above.
+        design = app_design_context(getattr(self, "app_design_doc", None), spec,
+                                    int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
+        fixed = len(rules) + len(design) + len(task) + len(evidence) + len(FORMAT_INSTRUCTIONS) + 2
         room = limit - fixed - len(corrections)
         self.codegen_budget = dict(spec=len(spec), entry=entry_size, room=room, limit=limit, reason="")
         if entry is not None and not entry_indexes:
@@ -1802,7 +1881,9 @@ class Flow:
         if sources is None or (entry is not None and str(entry.relative_to(self.output_dir)) not in quoted_paths(sources)):
             self.codegen_budget["reason"] = "serialized_sources_or_entry_exceed_budget"
             return None
-        return rules + sources + "\n" + corrections + evidence + task
+        # Rules, then the run-wide design, then the sources in stable order: the
+        # prefix every node shares stays byte-identical for the provider's cache.
+        return rules + design + sources + "\n" + corrections + evidence + task
 
     def log_codegen_fallback(self, node_id: str) -> None:
         budget = self.codegen_budget
@@ -1875,11 +1956,12 @@ class Flow:
         threshold = int(os.environ.get("OCTOS_ARC_CODEGEN_REASONING_CHARS", "5000"))
         return "none" if spec_chars and spec_chars < threshold else None
 
-    def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
-                     system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
-                     raw_target: str | None = None) -> tuple[bool, str]:
-        """Run a tool-less turn; parse and write the file blocks from the reply.
-        `raw_target`: when the reply is a bare HTML document (tiny tier), write it there."""
+    def text_turn(self, prompt: str, timeout: int, label: str, *, system: str = CODEGEN_SYSTEM,
+                  spec_chars: int = 0) -> tuple[bool, str]:
+        """One tool-less request; the reply is returned as text. Tool policy and
+        the system prompt live on the proxy/driver for the duration and are
+        restored whatever happens. codegen_turn parses file blocks out of it;
+        app_design parses a JSON object."""
         proxy = self.llm_proxy
         proxy.no_tools = True
         proxy.system_override = system
@@ -1889,13 +1971,52 @@ class Flow:
             self.base_reasoning_mode = mode_override
         try:
             with self.driver.without_tools():
-                ok, text = self.turn((prompt + "\n" + format_instructions) if format_instructions else prompt, timeout, label,
-                                     expect_verification=False,
-                                     request_budget=int(os.environ.get("OCTOS_ARC_CODEGEN_REQUESTS", "3")))
+                return self.turn(prompt, timeout, label, expect_verification=False,
+                                 request_budget=int(os.environ.get("OCTOS_ARC_CODEGEN_REQUESTS", "3")))
         finally:
             proxy.no_tools = False
             proxy.system_override = None
             self.base_reasoning_mode = saved_base
+
+    def app_design(self, tree: dict, ordered: list[dict]) -> dict | None:
+        """One request over the tree's outline -> routes, pages and data model
+        the whole run implements against (OCTOS_ARC_APP_DESIGN=0 disables).
+        Only for a fresh codegen run of a tree at least design_min_nodes big:
+        an existing app IS its design, and tool-mode nodes read the code.
+        The document is kept on the flow and in .arc/design/app.json; a reply
+        without a JSON object just leaves the run without one."""
+        if os.environ.get("OCTOS_ARC_APP_DESIGN", "1") == "0" or self.evolution or not self.codegen_mode() \
+                or len(ordered) < self.design_min_nodes:
+            return None
+        outline = tree_outline(tree, int(os.environ.get("OCTOS_ARC_APP_DESIGN_OUTLINE_CHARS", "60000")))
+        prompt = APP_DESIGN_PROMPT.format(outline=outline)
+        ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
+                                  spec_chars=len(outline))
+        design = None
+        found = re.search(r"```json\s*(\{.*?\})\s*```", text or "", re.S) or re.search(r"(\{.*\})", text or "", re.S)
+        if ok and found:
+            try:
+                design = json.loads(found.group(1))
+            except json.JSONDecodeError:
+                design = None
+        if not isinstance(design, dict) or not design:
+            log("[flow] application design: no JSON object in the reply; nodes proceed without one")
+            return None
+        self.app_design_doc = design
+        design_dir = self.output_dir / ".arc" / "design"
+        design_dir.mkdir(parents=True, exist_ok=True)
+        (design_dir / "app.json").write_text(json.dumps(design, ensure_ascii=False, indent=2), encoding="utf-8")
+        log(f"[flow] application design: {len(design.get('routes') or [])} routes, {len(design.get('pages') or [])} pages, "
+            f"{len(design.get('data_model') or {})} collections ({len(json.dumps(design, ensure_ascii=False))} chars)")
+        return design
+
+    def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
+                     system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
+                     raw_target: str | None = None) -> tuple[bool, str]:
+        """Run a tool-less turn; parse and write the file blocks from the reply.
+        `raw_target`: when the reply is a bare HTML document (tiny tier), write it there."""
+        ok, text = self.text_turn((prompt + "\n" + format_instructions) if format_instructions else prompt,
+                                  timeout, label, system=system, spec_chars=spec_chars)
         files = parse_file_blocks(text) if ok else {}
         if ok and not files and raw_target:
             html = strip_code_fences(text)
@@ -3186,6 +3307,7 @@ class Flow:
             try:
                 if not self.evolution and self.codegen_mode() and os.environ.get("OCTOS_SKELETON_ALWAYS") != "1":
                     log(f"[flow] {len(ordered)}-node tree: codegen mode, harness manifests replace the skeleton turn")
+                    self.app_design(tree, ordered)
                 elif not self.evolution and (len(ordered) >= self.skeleton_min_nodes
                                              or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
                     self.skeleton(tree)

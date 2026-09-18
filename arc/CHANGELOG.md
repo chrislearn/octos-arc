@@ -947,3 +947,36 @@ musl / zigbuild 都不保证一次过。装了 `docker.io`（Ubuntu 26.04 仓库
 `export { a, b }`、`export const { x } = …`、`export default { … }` 这类解析不出名字的形式，闭包会**静默丢掉**。
 现在只要 helper 里有一行 `export` 解析器命名不了，就整文件引用（宁多勿断）。公开六题没有这种写法，改后
 12306 / keep 的度量与改前逐字相同（中位数 11,323 / 6,382）。unittest 313 项通过（新增 2 项，先红后绿）。
+
+## 2026-09-19：每次运行一次应用级设计，注入每个 codegen 节点的提示词
+
+复核前提：codegen 一个节点一个节点实现，每个节点的提示词只有自己的 description + spec，上游依赖是一行
+`implemented (see code)`（`ancestors_text`，inline 模式下 `self.designs` 为空）。没有任何一步告诉第 40 个节点
+前 39 个节点约定了哪些路由、页面和记录形状——只能从引用的源码里猜。改前核对了两点：
+- 之前我说 `2b6406557024` 的 46/66 来自"数据模型不一致"，**记录里没有这个证据**，记录说的是缺失按钮、隐藏元素、
+  定位器等待。全局设计对这类失败（节点之间页面/路由/元素命名不一致）是**可信但未测量**的收益，本条不宣称数字。
+- 消费侧早就在：`self.designs` → `ancestors_text` 的精简键（routes/pages/data_model）、`.arc/design/` 持久化。
+
+改动：
+- `tree_outline()`：整棵树的 id / name / description / dependencies 大纲，**不带 scenarios**（它们和公开 spec 重复，
+  体积是三倍）。`app_design()`：运行开头一次无工具请求（`text_turn`，从 `codegen_turn` 里抽出来的公共壳），
+  要一个 JSON：data_model / routes / pages / notes；存到 `self.app_design_doc` 和 `.arc/design/app.json`。
+  没有 JSON 就照旧跑（dry run 实测：`application design ok … 'dry run: no model call'` → `no JSON object in the
+  reply; nodes proceed without one` → 节点正常开始）。只在**新建 + codegen + 节点数 ≥ design_min_nodes** 时做：
+  已有应用本身就是设计，tool 模式节点会读代码。`OCTOS_ARC_APP_DESIGN=0` 关闭。
+- `app_design_context()`：每个节点带的设计切片，`OCTOS_ARC_APP_DESIGN_CHARS`（默认 6,000）内。放不下时
+  data_model 整个保留，routes/pages 只留与该节点 spec 词重合的；仍放不下就截断并标注，绝不使提示词失败。
+- `codegen_implement_prompt`：设计块放在**规则之后、源码之前**——`c82797e5` 已把源码固定序放前面，这样所有
+  节点共享的前缀仍逐字节相同，provider 前缀缓存不受影响；并计入 `fixed` 预算（`room` 相应减少）。
+- `prompts/app-design.md` 同步给 Rust 引擎。
+
+成本（离线实测）：
+
+| 题 | requirements.yaml | 大纲（无 scenarios） | 设计请求 | ≈ token（÷3.8） |
+|---|---:|---:|---:|---:|
+| 12306 | 137,828 字符 | 52,167 | 53,057 | ≈14.0k，**整次运行一次** |
+| ctrip | 117,631 | 44,560 | 45,450 | ≈12.0k |
+| keep | 27,287 | 9,835 | 10,725 | ≈2.8k |
+
+每节点多带 ≤ 6,000 字符（≈1.5k token），且在稳定前缀里。unittest：`tests/test_app_design.py` 12 项（先红后绿）
++ 全套通过。真实模型下设计质量与对通过率的影响：**未评测**。
