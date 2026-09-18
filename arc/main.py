@@ -448,8 +448,8 @@ def trim_helper_to_references(helper: str, referenced: set[str]) -> str:
 def quoted_paths(prompt: str) -> set[str]:
     """Files a codegen prompt shows whole: `--- path ---` headers with nothing
     after them. A header annotated `(omitted, ...)` or `(too large to quote
-    whole, ...)` shows nothing or only a part, and the name-only listing at the
-    end of relevant_sources shows nothing; none of those count."""
+    whole, ...)` shows nothing or only a part, and the name-only listing
+    render_source_selection puts last shows nothing; none of those count."""
     return {match.group(1) for match in re.finditer(r"^--- (\S+) ---[ \t]*$", prompt, re.M)}
 
 
@@ -470,7 +470,17 @@ def backend_entry(output_dir: Path) -> Path | None:
 
 
 def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None) -> list[tuple]:
-    """Read and rank a source snapshot once; rendering does not reread disk."""
+    """Read and rank a source snapshot once; rendering does not reread disk.
+
+    Rank: the backend entry (what every node extends) first, then the remaining
+    sources -- pages and backend modules alike -- by how many of the spec's terms
+    (locators, texts, routes) they contain, smaller files breaking ties; JSON
+    state follows code.
+
+    Ranking every backend file ahead of the pages was right while the backend was
+    one server.js. Once feature code sits in backend/routes/<area>.js, quoting all
+    of them first would push out the page the spec actually names, so only the
+    entry keeps its place and the modules compete on overlap like the pages."""
     terms = spec_terms(spec_text)
     entry = entry or backend_entry(output_dir)
     scored = []
@@ -508,8 +518,12 @@ def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order:
                            max_output_chars: int | None = None) -> str | None:
     """Select by relevance/content budget, then enforce the serialized budget.
 
-    Each overflow step removes one least-priority quoted file. There are at most
-    len(scored) + 1 renders, all using the same in-memory snapshot.
+    `max_chars` counts file contents; `max_output_chars` (when given) bounds the
+    rendered block, headings and omission list included. Each overflow step
+    removes one least-priority quoted file, so the entry -- ranked first -- is
+    the last to go. There are at most len(scored) + 1 renders, all using the same
+    in-memory snapshot. `stable_order` changes presentation only, keeping the same
+    relevance selection but quoting in path order for prefix reuse.
     """
     selected, total = [], 0
     for i, (_, _, size, _, _) in enumerate(scored):
@@ -523,16 +537,6 @@ def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order:
         if not selected:
             return None
         selected.pop()
-
-
-def relevant_sources(output_dir: Path, spec_text: str, max_chars: int, *, stable_order: bool = False) -> str:
-    """Quote entry first, then spec overlap/small files; JSON follows code.
-
-    max_chars counts contents. stable_order changes presentation only, keeping
-    the same relevance selection but quoting in path order for prefix reuse.
-    """
-    return select_source_snapshot(scored_sources(output_dir, spec_text), max_chars,
-                                  stable_order=stable_order)
 
 
 def source_listing(output_dir: Path, limit: int = 60) -> str:
@@ -1511,6 +1515,8 @@ class Flow:
         self.checkpoint_regressions: set[str] = set()
         self.impl_failed: list[str] = []
         self.pending_corrections: list[str] = []
+        # Why the last codegen prompt could not be built; read by log_codegen_fallback.
+        self.codegen_budget: dict = {}
         self.evolution = False
         self.folder_children: dict[str, list[str]] = {}
 
@@ -1714,8 +1720,8 @@ class Flow:
 
     def codegen_mode(self) -> bool:
         """One-request generation per node (OCTOS_ARC_CODEGEN=0 disables; OCTOS_ARC_CODEGEN_MAX_NODES caps the
-        tree size, default unlimited). Per node, `codegen_context_fits` decides whether the spec plus the
-        relevant sources fit the prompt budget; otherwise that node uses tool mode."""
+        tree size, default unlimited). Per node, `codegen_implement_prompt` decides it: a complete user
+        message it cannot build within the budget returns None and that node uses tool mode."""
         return (os.environ.get("OCTOS_ARC_CODEGEN", "1") != "0" and getattr(self, "llm_proxy", None) is not None
                 and not getattr(self, "codegen_blocked", False)
                 and getattr(self, "n_nodes", 99) <= int(os.environ.get("OCTOS_ARC_CODEGEN_MAX_NODES", "999")))
@@ -1739,37 +1745,27 @@ class Flow:
     def codegen_context_chars(self) -> int:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
-    def codegen_context_fits(self, spec_text: str) -> bool:
-        """Coarse estimate only; codegen_implement_prompt decides the actual path.
-
-        The spec may take at most 60% of the budget, and the backend entry --
-        the file every node extends -- must fit in what is left. Nothing else has
-        to: relevant_sources quotes the best-ranked sources within the budget and
-        lists the rest by name, and codegen_turn refuses a block for an existing
-        file the model was not shown whole, so an omitted file is kept rather than
-        rewritten blind.
-
-        Until 2026-09-17 the whole app had to fit. That sent every app over ~82k
-        chars -- every Web task, keep's own 86k included -- to tool mode
-        wholesale, 36 requests a node, while the relevant_sources omission branch
-        stayed unreachable (dev-docs/token-reduction-plan.md §3.1)."""
-        limit = self.codegen_context_chars()
-        if len(spec_text) >= limit * 0.6:
-            return False
-        entry = backend_entry(self.output_dir)
-        if entry is None:
-            return True
-        try:
-            return len(entry.read_text(encoding="utf-8", errors="replace")) <= max(8000, limit - len(spec_text))
-        except OSError:
-            return False
-
     def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "") -> str | None:
         """Budget a complete user message, preserving rules and critical corrections.
 
         Fixed rules/source order precede node-specific text and size rules. Only
         typed checkpoint observations can be clipped to keep the entry quoted.
+        The spec may take at most 60% of the budget; the backend entry -- the file
+        every node extends -- must still be quotable once everything else is
+        counted. Nothing else has to fit: the omitted files are listed by name,
+        and codegen_turn refuses a block for an existing file the model was not
+        shown whole, so an omitted file is kept rather than rewritten blind.
+
+        Until 2026-09-17 the whole app had to fit, which sent every app over ~82k
+        chars -- every Web task, keep's own 86k included -- to tool mode
+        wholesale, 36 requests a node (dev-docs/token-reduction-plan.md §3.1).
         """
+        limit = self.codegen_context_chars()
+        if len(spec) >= limit * 0.6:
+            # Cheapest refusal there is; decided before any source file is read.
+            self.codegen_budget = dict(spec=len(spec), entry=0, room=0, limit=limit,
+                                       reason="spec_at_or_above_60_percent")
+            return None
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         task = CODEGEN_TASK.format(node_id=str(node.get("id")),
@@ -1785,12 +1781,8 @@ class Flow:
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
         fixed = len(rules) + len(task) + len(evidence) + len(FORMAT_INSTRUCTIONS) + 2
-        limit = self.codegen_context_chars()
         room = limit - fixed - len(corrections)
         self.codegen_budget = dict(spec=len(spec), entry=entry_size, room=room, limit=limit, reason="")
-        if len(spec) >= limit * 0.6:
-            self.codegen_budget["reason"] = "spec_at_or_above_60_percent"
-            return None
         if entry is not None and not entry_indexes:
             self.codegen_budget["reason"] = "backend_entry_unreadable"
             return None
@@ -1815,8 +1807,8 @@ class Flow:
     def log_codegen_fallback(self, node_id: str) -> None:
         budget = self.codegen_budget
         log(f"[flow] {node_id}: codegen budget exceeded; tool mode "
-            f"spec={budget['spec']} entry={budget['entry']} room={budget['room']} "
-            f"limit={budget['limit']} reason={budget['reason']}")
+            f"spec={budget.get('spec', '?')} entry={budget.get('entry', '?')} room={budget.get('room', '?')} "
+            f"limit={budget.get('limit', '?')} reason={budget.get('reason') or 'unrecorded'}")
 
     def codegen_repair_prompt(self, node_id: str, prompt: str) -> str | None:
         spec = self.spec_bodies(node_id)

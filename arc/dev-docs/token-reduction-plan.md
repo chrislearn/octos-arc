@@ -180,6 +180,11 @@ python3 -m unittest discover -s arc/tests -t arc
 完整用户消息不超过 90k。一般操作约束不裁剪；预算充足时观察正文也逐字保留；原纠正文本不被修改，
 工具回退仍能使用它。一次输入字符下降不能证明整题通过率或费用改善。
 
+§5 设计里的 `codegen_context_fits` 与 §2/§3 提到的 `relevant_sources` 已并入
+`codegen_implement_prompt` 和 `scored_sources` + `select_source_snapshot`，函数本身删除（前者的两条规则
+在新函数里重新实现过，留着是会漂移的第二份真相）。上文历史段落保留当时的函数名，不追改。
+判定门槛与排序规则本身未变，离线测量六项数字与删除前逐字相同。
+
 源码读取改为一次快照，序列化超限时在内存中逐个移除最低优先级引用，最多文件数加一次呈现。
 回退日志包含 spec/入口/源码 room/limit/reason，区分 spec 门槛、不可读入口、固定提示词或操作约束超预算。
 修复提示词指代改为 "the failing tests listed below"。新增 7 项后续回归测试；本轮累计新增 23 项。

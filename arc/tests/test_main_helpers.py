@@ -406,7 +406,7 @@ class RelevantSourcesTests(unittest.TestCase):
         (root / "frontend/src/notes.html").write_text("<h1>Notes</h1><button>New note</button><ul data-testid='note-list'></ul>" + "y" * 300)
         (root / "frontend/src/settings.html").write_text("<h1>Settings</h1>" + "z" * 300)
         spec = "await page.goto('/notes'); await page.getByRole('button', { name: 'New note' }).click(); await expect(page.getByTestId('note-list')).toBeVisible();"
-        out = m.relevant_sources(root, spec, max_chars=800)
+        out = m.select_source_snapshot(m.scored_sources(root, spec), 800)
         self.assertLess(out.index("backend/server.js"), out.index("frontend/src/notes.html"))
         self.assertIn("--- frontend/src/notes.html ---", out)
         self.assertIn("settings.html", out)  # listed as omitted
@@ -422,36 +422,43 @@ class RelevantSourcesTests(unittest.TestCase):
             (root / 'backend/server.js').write_text('server')
             (root / 'frontend/index.html').write_text('page')
             (root / 'backend/data/state.json').write_text('{"count":17}')
-            full = m.relevant_sources(root, 'count', 100)
+            full = m.select_source_snapshot(m.scored_sources(root, 'count'), 100)
             self.assertIn('--- backend/data/state.json ---', full)
             self.assertIn('"count":17', full)
-            tight = m.relevant_sources(root, 'count', 10)
+            tight = m.select_source_snapshot(m.scored_sources(root, 'count'), 10)
             self.assertIn('--- backend/server.js ---', tight)
             self.assertIn('--- frontend/index.html ---', tight)
             self.assertNotIn('--- backend/data/state.json ---', tight)
             (root / 'backend/server.js').write_text('x' * 101)
-            tight = m.relevant_sources(root, 'count', 100)
+            tight = m.select_source_snapshot(m.scored_sources(root, 'count'), 100)
             self.assertNotIn('--- backend/server.js ---', tight)
             self.assertIn('--- backend/data/state.json ---', tight)
 
     def test_codegen_requires_the_spec_and_the_backend_entry_to_fit(self):
-        """The whole app no longer has to fit: relevant_sources quotes what fits and
-        lists the rest, and the write guard keeps unquoted files safe. What must
-        fit is the spec (60% of the budget) and the backend entry every node extends."""
+        """The whole app no longer has to fit: the quoted set is what fits and the
+        rest is listed by name, with the write guard keeping unquoted files safe.
+        What must fit is the spec (60% of the budget) and the backend entry every
+        node extends."""
         from pathlib import Path
         import argparse, tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             flow = m.Flow(argparse.Namespace(web_port=1), root, root)
-            self.assertTrue(flow.codegen_context_fits("x" * 12000))
-            (root / "backend").mkdir()
-            (root / "frontend").mkdir()
+            flow.codegen_reasoning = lambda _: None
+            node = {"id": "REQ-1", "description": "Add search"}
+            self.assertIsNotNone(flow.codegen_implement_prompt(node, "x" * 12000))
+            m.write_codegen_manifests(root)
+            (root / "frontend/src").mkdir(parents=True, exist_ok=True)
             (root / "backend/server.js").write_text("b" * 26000)
-            (root / "frontend/index.html").write_text("p" * 200000)   # far over budget
-            self.assertTrue(flow.codegen_context_fits("x" * 12000))
-            self.assertFalse(flow.codegen_context_fits("x" * 60000))  # spec alone too big
-            (root / "backend/server.js").write_text("b" * 85000)       # entry cannot be quoted
-            self.assertFalse(flow.codegen_context_fits("x" * 12000))
+            (root / "frontend/src/index.html").write_text("p" * 200000)  # far over budget
+            prompt = flow.codegen_implement_prompt(node, "x" * 12000)
+            self.assertIsNotNone(prompt)
+            self.assertIn("backend/server.js", m.quoted_paths(prompt))       # entry quoted
+            self.assertNotIn("frontend/src/index.html", m.quoted_paths(prompt))  # listed only
+            self.assertIsNone(flow.codegen_implement_prompt(node, "x" * 60000))  # spec too big
+            self.assertEqual(flow.codegen_budget["reason"], "spec_at_or_above_60_percent")
+            (root / "backend/server.js").write_text("b" * 85000)  # entry cannot be quoted
+            self.assertIsNone(flow.codegen_implement_prompt(node, "x" * 12000))
 
     def test_codegen_applies_to_big_trees_unless_capped(self):
         import argparse, os
@@ -465,7 +472,6 @@ class RelevantSourcesTests(unittest.TestCase):
             self.assertFalse(flow.codegen_mode())
         finally:
             del os.environ["OCTOS_ARC_CODEGEN_MAX_NODES"]
-        self.assertTrue(flow.codegen_context_fits("x" * 20000)); self.assertFalse(flow.codegen_context_fits("x" * 60000))
 
 
 class ProtectedSpecRestoreTests(unittest.TestCase):
@@ -989,12 +995,12 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
                 flow.tiny_mode.return_value = True
                 flow.tiny_turn.return_value = False
                 flow.spec_bodies.return_value = 'a generic acceptance spec'
-                flow.codegen_context_fits.return_value = True
                 flow.codegen_reasoning.return_value = 'none'
                 flow.codegen_context_chars.return_value = 20000
                 flow.codegen_ports_clause.return_value = ''
                 flow.codegen_turn.return_value = (True, 'generated')
-                flow.codegen_implement_prompt.side_effect = lambda *a: m.Flow.codegen_implement_prompt(flow, *a)
+                flow.codegen_implement_prompt.side_effect = \
+                    lambda *a, **kw: m.Flow.codegen_implement_prompt(flow, *a, **kw)
             flow.runtime = Mock()
             flow.runtime.traceability.list_interfaces.return_value = []
             m.Flow.node_cycle(flow, node('feature', 'Existing capability'), [], 1, 1)
@@ -1996,7 +2002,7 @@ class ModularBackendTests(unittest.TestCase):
             (root / "backend/routes/billing.js").write_text("// invoices\n" + "b" * 200)
             (root / "frontend/src/notes.html").write_text("<ul data-testid='note-list'></ul>" + "p" * 200)
             spec = "await expect(page.getByTestId('note-list')).toBeVisible();"
-            out = m.relevant_sources(root, spec, max_chars=700)
+            out = m.select_source_snapshot(m.scored_sources(root, spec), 700)
             self.assertIn("--- backend/server.js ---", out)
             self.assertLess(out.index("backend/server.js"), out.index("backend/routes/notes.js"))
             # An unrelated route module must not displace the page the spec names.
@@ -2013,7 +2019,7 @@ class ModularBackendTests(unittest.TestCase):
             (root / "backend/app.js").write_text("entry" + "a" * 200)
             (root / "backend/routes/notes.js").write_text("note-list" + "n" * 200)
             self.assertEqual(m.backend_entry(root), root / "backend/app.js")
-            out = m.relevant_sources(root, "note-list", max_chars=700)
+            out = m.select_source_snapshot(m.scored_sources(root, "note-list"), 700)
             self.assertLess(out.index("backend/app.js"), out.index("backend/routes/notes.js"))
 
     def test_should_fall_back_to_server_js_when_no_start_script_names_a_file(self):

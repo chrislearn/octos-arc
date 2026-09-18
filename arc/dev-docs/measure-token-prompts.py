@@ -87,7 +87,8 @@ def main():
                                   "every changed file complete. Files:", 1)
             task = current.CODEGEN_TASK.replace("{size_rule}\n", "").format(
                 node_id=node["id"], description=node["description"], spec=spec)
-            sources = current.relevant_sources(root, spec, 80000, stable_order=True)
+            sources = current.select_source_snapshot(
+                current.scored_sources(root, spec), 80000, stable_order=True)
             return rules + sources + "\n" + task
         preceding_cross = [preceding_layout(n, s) for n, s in zip(nodes, cross_specs)]
         report["codegen_cross_size_threshold_fixture"] = {

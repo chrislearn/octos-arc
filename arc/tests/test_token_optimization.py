@@ -44,8 +44,9 @@ class TokenOptimizationTests(unittest.TestCase):
         self.app(server="entry", page="note-list " + "n" * 300)
         (self.root / "frontend/src/settings.html").write_text("settings " + "s" * 300)
         spec = "await page.getByTestId('note-list');"
-        ranked = m.relevant_sources(self.root, spec, 400)
-        stable = m.relevant_sources(self.root, spec, 400, stable_order=True)
+        scored = m.scored_sources(self.root, spec)
+        ranked = m.select_source_snapshot(scored, 400)
+        stable = m.select_source_snapshot(scored, 400, stable_order=True)
         self.assertEqual(m.quoted_paths(ranked), m.quoted_paths(stable))
         self.assertIn("frontend/src/index.html", m.quoted_paths(stable))
         self.assertNotIn("frontend/src/settings.html", m.quoted_paths(stable))
@@ -63,10 +64,13 @@ class TokenOptimizationTests(unittest.TestCase):
         self.assertIn("frontend/src/index.html (", prompt)
 
     def test_backend_entry_must_fit_the_complete_prompt_not_only_content_budget(self):
+        # The entry fits the content budget on its own (4,500 < 6,000) and the spec
+        # is far below 60%; only the serialized message pushes this over.
         self.app(server="e" * 4500)
         self.flow.codegen_context_chars = lambda: 6000
-        self.assertTrue(self.flow.codegen_context_fits("search"))
         self.assertIsNone(self.flow.codegen_implement_prompt(helpers.node("REQ-1", "Search"), "search"))
+        self.assertEqual(self.flow.codegen_budget["reason"],
+                         "fixed_prompt_entry_or_critical_corrections_exceed_budget")
 
     def test_unabridged_evidence_that_exceeds_budget_uses_tools(self):
         self.flow.codegen_context_chars = lambda: 6000

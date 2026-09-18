@@ -805,6 +805,12 @@ codegen 的契约是「每个改动的文件完整返回」，而架构契约把
   不改样式措辞和推理规则。
 - **残留回归证据**：检查点修复会消费原先排队的 correction；现在将修复后仍失败的最新证据重新入队。
   修复中途预算不足仍保留最新证据，修复成功不保留过期证据；修复后测试不可靠时保留最后一次可靠失败。
+- **清掉重复与失效的判定**：`codegen_context_fits` 的 60% / 入口两条规则已经在 `codegen_implement_prompt`
+  里重新实现，留着就是会漂移的第二份真相，删除；spec 超 60% 的拒绝移到读盘之前，是最省的一次拒绝。
+  `relevant_sources` 只是 `scored_sources` + `select_source_snapshot` 的包装，生产路径不再调用，删除，
+  排序理由并入前者的 docstring。`codegen_mode` 的 docstring 改指真正做判定的函数；
+  `Flow.codegen_budget` 给出默认值，日志改用 `.get`，多一个调用点也不会 AttributeError。
+  行为不变：离线测量六项数字与删除前逐字相同。
 
 离线实测（**字符，不是 tokenizer / provider 用量**）：
 
