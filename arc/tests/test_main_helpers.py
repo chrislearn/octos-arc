@@ -994,6 +994,7 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
                 flow.codegen_context_chars.return_value = 20000
                 flow.codegen_ports_clause.return_value = ''
                 flow.codegen_turn.return_value = (True, 'generated')
+                flow.codegen_implement_prompt.side_effect = lambda *a: m.Flow.codegen_implement_prompt(flow, *a)
             flow.runtime = Mock()
             flow.runtime.traceability.list_interfaces.return_value = []
             m.Flow.node_cycle(flow, node('feature', 'Existing capability'), [], 1, 1)

@@ -43,9 +43,9 @@ Environment (all optional):
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
     OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
-    OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (20 for small tasks / 10; 0 = off)
+    OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (20 for small tasks; 0 for large tasks = off)
     OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
-    OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (40000; 0 = off)
+    OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (default codegen budget; 0 = off)
     OCTOS_ARC_MAX_TOKENS      minimum max_tokens the proxy enforces on chat requests (32768; kernel arc.11 sends 4096)
     OCTOS_ARC_CODEGEN         "0" disables one-request codegen turns for one-node tasks (default on)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
@@ -469,46 +469,70 @@ def backend_entry(output_dir: Path) -> Path | None:
     return path if path.is_file() else None
 
 
-def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
-    """Quote the existing sources a node most likely touches: the backend entry
-    file first (what every node extends), then the remaining sources -- pages and
-    backend modules alike -- ranked by how many of the spec's terms (locators,
-    texts, routes) they contain, until the budget is spent. JSON state follows
-    code; the rest are listed by name so the model knows they exist. The budget
-    counts file contents, not headings.
-
-    Ranking every backend file ahead of the pages was right while the backend was
-    one server.js. Once feature code sits in backend/routes/<area>.js, quoting all
-    of them first would push out the page the spec actually names, so only the
-    entry keeps its place and the modules compete on overlap like the pages."""
-    files = app_source_files(output_dir)
-    if not files:
-        return ""
+def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None) -> list[tuple]:
+    """Read and rank a source snapshot once; rendering does not reread disk."""
     terms = spec_terms(spec_text)
-    entry = backend_entry(output_dir)
+    entry = entry or backend_entry(output_dir)
     scored = []
-    for path in files:
+    for path in app_source_files(output_dir):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         low = text.lower()
-        hits = sum(1 for t in terms if t in low)
+        hits = sum(1 for term in terms if term in low)
         rel = path.relative_to(output_dir)
         priority = 2 if path.suffix == ".json" else (0 if path == entry else 1)
         scored.append((priority, -hits, len(text), rel, text))
-    scored.sort(key=lambda x: (x[0], x[1], x[2]))
-    parts, omitted, total = [], [], 0
-    for _, neg_hits, size, rel, text in scored:
-        if total + size > max_chars:
-            omitted.append(f"{rel} ({size} chars, {-neg_hits} spec terms)")
-            continue
-        total += size
-        parts.append(f"--- {rel} ---\n{text.rstrip()}\n")
-    out = "Current source files (quoted; return every file you change, complete):\n" + "".join(parts)
+    return sorted(scored, key=lambda item: item[:3])
+
+
+def render_source_selection(scored: list[tuple], selected: list[int], stable_order: bool) -> str:
+    if not scored:
+        return ""
+    chosen = set(selected)
+    quoted = [(rel, text) for i, (_, _, _, rel, text) in enumerate(scored) if i in chosen]
+    omitted = [f"{rel} ({size} chars, {-neg_hits} spec terms)"
+               for i, (_, neg_hits, size, rel, _) in enumerate(scored) if i not in chosen]
+    if stable_order:
+        quoted.sort(key=lambda item: str(item[0]))
+        omitted.sort()
+    out = "Current source files (quoted; return every file you change, complete):\n"
+    out += "".join(f"--- {rel} ---\n{text.rstrip()}\n" for rel, text in quoted)
     if omitted:
         out += "Other files, unchanged unless the requirement needs them: " + "; ".join(omitted) + "\n"
     return out
+
+
+def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order: bool = False,
+                           max_output_chars: int | None = None) -> str | None:
+    """Select by relevance/content budget, then enforce the serialized budget.
+
+    Each overflow step removes one least-priority quoted file. There are at most
+    len(scored) + 1 renders, all using the same in-memory snapshot.
+    """
+    selected, total = [], 0
+    for i, (_, _, size, _, _) in enumerate(scored):
+        if total + size <= max_chars:
+            selected.append(i)
+            total += size
+    while True:
+        out = render_source_selection(scored, selected, stable_order)
+        if max_output_chars is None or len(out) <= max_output_chars:
+            return out
+        if not selected:
+            return None
+        selected.pop()
+
+
+def relevant_sources(output_dir: Path, spec_text: str, max_chars: int, *, stable_order: bool = False) -> str:
+    """Quote entry first, then spec overlap/small files; JSON follows code.
+
+    max_chars counts contents. stable_order changes presentation only, keeping
+    the same relevance selection but quoting in path order for prefix reuse.
+    """
+    return select_source_snapshot(scored_sources(output_dir, spec_text), max_chars,
+                                  stable_order=stable_order)
 
 
 def source_listing(output_dir: Path, limit: int = 60) -> str:
@@ -528,6 +552,62 @@ def source_listing(output_dir: Path, limit: int = 60) -> str:
                 lines.append("...")
                 return "\n".join(lines)
     return "\n".join(lines)
+
+
+CHECKPOINT_NOTE = (
+    "Previously passing behavior failed when checked together after recent changes. "
+    "Repair the observed failures while preserving other working behavior. "
+    "Tests ran together against one server; use this evidence when implementing the next node.\n")
+CHECKPOINT_ELISION = "\n… checkpoint evidence elided to fit this request …\n"
+
+
+class CheckpointEvidence(str):
+    """Only the observation body is truncatable; node identities stay intact."""
+    def __new__(cls, evidence: str, failing_ids: list[str]):
+        prefix = CHECKPOINT_NOTE + "Failing requirements: " + ", ".join(failing_ids or ["unattributed"]) + "\n"
+        value = super().__new__(cls, prefix + evidence)
+        value.prefix = prefix
+        value.evidence = evidence
+        value.failing_ids = failing_ids
+        return value
+
+    def clipped(self, body_limit: int):
+        if len(self.evidence) <= body_limit:
+            return self
+        if body_limit < len(CHECKPOINT_ELISION):
+            return None
+        room = body_limit - len(CHECKPOINT_ELISION)
+        head = room * 2 // 3
+        tail = room - head
+        body = self.evidence[:head] + CHECKPOINT_ELISION + (self.evidence[-tail:] if tail else "")
+        return CheckpointEvidence(body, self.failing_ids)
+
+
+class HarnessCorrections(str):
+    """String-compatible corrections that retain the truncatable evidence type."""
+    def __new__(cls, entries: list[str]):
+        text = "Corrections from the harness:\n" + "\n".join(f"- {entry}" for entry in entries) + "\n"
+        value = super().__new__(cls, text)
+        value.entries = list(entries)
+        return value
+
+    def fit(self, max_chars: int):
+        if len(self) <= max_chars:
+            return self
+        entries = list(self.entries)
+        excess = len(self) - max_chars
+        for i in sorted(range(len(entries)), key=lambda index: len(entries[index]), reverse=True):
+            entry = entries[i]
+            if not isinstance(entry, CheckpointEvidence):
+                continue
+            body_limit = max(len(CHECKPOINT_ELISION), len(entry.evidence) - excess)
+            clipped = entry.clipped(body_limit)
+            if clipped is not None:
+                excess -= len(entry) - len(clipped)
+                entries[i] = clipped
+            if excess <= 0:
+                return HarnessCorrections(entries)
+        return None
 
 
 # ---------------------------------------------------------------- octos driver
@@ -1051,15 +1131,21 @@ UI behavior follows the requirement and the current application:
 
 CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with file blocks in the requested format."
 
-CODEGEN_PROMPT = """\
+CODEGEN_RULES = """\
+Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) and dispatching API requests to the route modules it requires, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Keep server.js a small, stable entry point: new API routes go in backend/routes/<area>.js and shared persistence in backend/store.js, so implementing a requirement adds or edits one small module instead of re-emitting the entry. Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
+For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
+Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks.
+"""
+
+CODEGEN_TASK = """\
 Requirement {node_id}: {description}
 
 Public acceptance example (implement the full requirement):
 {spec}
-Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) and dispatching API requests to the route modules it requires, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Keep server.js a small, stable entry point: new API routes go in backend/routes/<area>.js and shared persistence in backend/store.js, so implementing a requirement adds or edits one small module instead of re-emitting the entry. Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
-For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
-Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks. {size_rule}
+{size_rule}
 """
+
+CODEGEN_PROMPT = CODEGEN_RULES + "\n" + CODEGEN_TASK
 
 CODEGEN_SIZE_SMALL = 'Prefer a small implementation, but do not omit required behavior, accessibility, styling or validation to meet an arbitrary line count.'
 CODEGEN_SIZE_FULL = "Keep the implementation concise while preserving all required behavior and the existing architecture. Derive navigation, authentication, storage and validation from the requirements. Public tests illustrate contracts; handle other valid inputs too. Do not force a navigation placeholder, cookie name, redirect, validation message or rendering strategy. Fix actual ambiguous controls in their intended scope without deleting legitimate repeated links or text. Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input."
@@ -1232,13 +1318,15 @@ This request has no tools. Use the supplied acceptance specification and helpers
 """
 
 REPAIR_PROMPT = """\
+Fix frontend/ and/or backend/ so the failing tests listed below pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. For a failed post-action assertion, trace the preceding actions and identify the element and record actually acted on. With repeated controls, inspect locator scope, ordering, visibility, and hover/focus state before assuming a storage or rendering failure. Preserve keyboard access and the required interaction semantics when resolving ambiguity. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
+For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
+""" + PORT_RULES + """
+{sources}
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
 {test_location}
-{corrections}{slow}{sources}
-Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. For a failed post-action assertion, trace the preceding actions and identify the element and record actually acted on. With repeated controls, inspect locator scope, ordering, visibility, and hover/focus state before assuming a storage or rendering failure. Preserve keyboard access and the required interaction semantics when resolving ambiguity. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
-For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
-""" + PORT_RULES
+{corrections}{slow}
+"""
 
 FINAL_CHECK_PROMPT = """\
 Final end-to-end check of the web application in the current directory:
@@ -1516,7 +1604,7 @@ class Flow:
     def corrections_text(self) -> str:
         if not self.pending_corrections:
             return ""
-        text = "Corrections from the harness:\n" + "\n".join(f"- {c}" for c in self.pending_corrections) + "\n"
+        text = HarnessCorrections(self.pending_corrections)
         self.pending_corrections = []
         return text
 
@@ -1652,7 +1740,9 @@ class Flow:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
     def codegen_context_fits(self, spec_text: str) -> bool:
-        """The spec may take at most 60% of the budget, and the backend entry --
+        """Coarse estimate only; codegen_implement_prompt decides the actual path.
+
+        The spec may take at most 60% of the budget, and the backend entry --
         the file every node extends -- must fit in what is left. Nothing else has
         to: relevant_sources quotes the best-ranked sources within the budget and
         lists the rest by name, and codegen_turn refuses a block for an existing
@@ -1674,6 +1764,60 @@ class Flow:
         except OSError:
             return False
 
+    def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "") -> str | None:
+        """Budget a complete user message, preserving rules and critical corrections.
+
+        Fixed rules/source order precede node-specific text and size rules. Only
+        typed checkpoint observations can be clipped to keep the entry quoted.
+        """
+        small = self.codegen_reasoning(len(spec)) == "none"
+        rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
+        task = CODEGEN_TASK.format(node_id=str(node.get("id")),
+            description=str(node.get("description") or "").strip(), spec=spec,
+            size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
+        existing = self.has_app()
+        if existing:
+            rules = rules.replace("Files:", "Existing app below; keep everything that works and output "
+                                  "every changed file complete. Files:", 1)
+        entry = backend_entry(self.output_dir) if existing else None
+        scored = scored_sources(self.output_dir, spec, entry) if existing else []
+        entry_indexes = [i for i, row in enumerate(scored)
+                         if entry is not None and row[3] == entry.relative_to(self.output_dir)]
+        entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
+        fixed = len(rules) + len(task) + len(evidence) + len(FORMAT_INSTRUCTIONS) + 2
+        limit = self.codegen_context_chars()
+        room = limit - fixed - len(corrections)
+        self.codegen_budget = dict(spec=len(spec), entry=entry_size, room=room, limit=limit, reason="")
+        if len(spec) >= limit * 0.6:
+            self.codegen_budget["reason"] = "spec_at_or_above_60_percent"
+            return None
+        if entry is not None and not entry_indexes:
+            self.codegen_budget["reason"] = "backend_entry_unreadable"
+            return None
+        minimum_sources = render_source_selection(scored, entry_indexes, True)
+        correction_room = limit - fixed - len(minimum_sources)
+        if len(corrections) > correction_room:
+            fitted = corrections.fit(correction_room) if isinstance(corrections, HarnessCorrections) else None
+            if fitted is None:
+                self.codegen_budget["reason"] = "fixed_prompt_entry_or_critical_corrections_exceed_budget"
+                return None
+            log(f"[codegen] {node.get('id')}: checkpoint corrections clipped "
+                f"{len(corrections)} -> {len(fitted)} chars; critical corrections preserved")
+            corrections = fitted
+            room = limit - fixed - len(corrections)
+            self.codegen_budget["room"] = room
+        sources = select_source_snapshot(scored, room, stable_order=True, max_output_chars=room)
+        if sources is None or (entry is not None and str(entry.relative_to(self.output_dir)) not in quoted_paths(sources)):
+            self.codegen_budget["reason"] = "serialized_sources_or_entry_exceed_budget"
+            return None
+        return rules + sources + "\n" + corrections + evidence + task
+
+    def log_codegen_fallback(self, node_id: str) -> None:
+        budget = self.codegen_budget
+        log(f"[flow] {node_id}: codegen budget exceeded; tool mode "
+            f"spec={budget['spec']} entry={budget['entry']} room={budget['room']} "
+            f"limit={budget['limit']} reason={budget['reason']}")
+
     def codegen_repair_prompt(self, node_id: str, prompt: str) -> str | None:
         spec = self.spec_bodies(node_id)
         if not spec or spec == "(none)":
@@ -1693,7 +1837,7 @@ class Flow:
                 return None
             prompt = prompt.replace(current_sources, inline_sources(self.output_dir, room) + "\n", 1)
         full = prompt + suffix
-        if len(full) + len(FORMAT_INSTRUCTIONS) > limit:
+        if len(full) + len(FORMAT_INSTRUCTIONS) + 1 > limit:
             return None
         return full
 
@@ -1711,7 +1855,7 @@ class Flow:
             server.parent.mkdir(parents=True, exist_ok=True)
             extra = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
             server.write_text(TINY_SERVER_JS.format(port=self.web_port, extra_ports=json.dumps(extra)), encoding="utf-8")
-        spec = "Requirement: " + json.dumps(requirement, ensure_ascii=False) + "\nPublic example:\n" + self.spec_bodies(node_id)
+        spec = "Requirement:\n" + describe_node(requirement) + "\nPublic example:\n" + self.spec_bodies(node_id)
         page = self.output_dir / "frontend" / "src" / "index.html"
         if page.is_file():
             prompt = TINY_PROMPT_EVOLUTION.format(page=page.read_text(encoding="utf-8", errors="replace").strip(), spec=spec)
@@ -2342,28 +2486,19 @@ class Flow:
             self.current_spec_chars = len(self.spec_bodies(node_id))
         if tiny_ok:
             ok, text = True, "tiny tier: specs pass"
-        elif self.codegen_mode() and self.codegen_context_fits(self.spec_bodies(node_id)):
-            spec_text = self.spec_bodies(node_id)
-            self.current_spec_chars = len(spec_text)
-            # Small specs (by size, an input-derived measure) get the compact rule; the multi-page
-            # mechanisms only apply when the spec is large enough to need sessions/navigation.
-            small = self.codegen_reasoning(self.current_spec_chars) == "none"
-            compact = CODEGEN_PROMPT.format(node_id=node_id, description=str(node.get("description") or "").strip(),
-                                            spec=spec_text, port=self.web_port, ports=self.codegen_ports_clause(),
-                                            size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
-            if self.has_app():  # existing app (evolution or later nodes): quote the relevant sources
-                compact = (compact.replace("Files:", "Existing app below; keep everything that works and output "
-                                           "every changed file complete. Files:", 1)
-                           + relevant_sources(self.output_dir, spec_text,
-                                              max(8000, self.codegen_context_chars() - len(spec_text))))
-            compact = corrections + compact
-            codegen_prompt = compact
-            write_codegen_manifests(self.output_dir)
-            ok, text = self.codegen_turn(compact, implement_timeout, f"{node_id} implement", spec_chars=self.current_spec_chars)
         else:
+            spec_text = self.spec_bodies(node_id)
             if self.codegen_mode():
-                log(f"[flow] {node_id}: spec or existing source exceeds one-request allowance ({len(self.spec_bodies(node_id))} spec chars); tool mode")
-            ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
+                codegen_prompt = self.codegen_implement_prompt(node, spec_text, corrections)
+            if codegen_prompt is not None:
+                self.current_spec_chars = len(spec_text)
+                write_codegen_manifests(self.output_dir)
+                ok, text = self.codegen_turn(codegen_prompt, implement_timeout, f"{node_id} implement",
+                                            spec_chars=self.current_spec_chars)
+            else:
+                if self.codegen_mode():
+                    self.log_codegen_fallback(node_id)
+                ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
             # Cloud 76fb32a69d81: output cut by max_tokens, nothing written. Retry
             # once, one file per response (fresh session, same prompt).
@@ -2414,10 +2549,15 @@ class Flow:
 
         def rebuild_prompt(failures: str) -> str:
             if self.codegen_mode() and codegen_prompt:
-                return (codegen_prompt + "\nYour previous files (quoted below) failed every test. Failures:\n" + failures
-                        + "\n" + relevant_sources(self.output_dir, self.spec_bodies(node_id),
-                                                   max(8000, self.codegen_context_chars() - len(codegen_prompt)))
-                        + "Fix the root causes and return every file you change, complete.\n")
+                evidence = ("Your previous files failed every test. Failures:\n" + failures
+                            + "\nFix the root causes and return every file you change, complete.\n")
+                # Rebuild from current disk contents; never append a second,
+                # conflicting copy of the files quoted before implementation.
+                rebuilt = self.codegen_implement_prompt(node, self.spec_bodies(node_id), corrections, evidence=evidence)
+                if rebuilt is not None:
+                    return rebuilt
+                self.codegen_blocked = True
+                self.log_codegen_fallback(node_id)
             return (prompt + "\nYOUR PREVIOUS ATTEMPT FAILED EVERY ACCEPTANCE TEST — the failures (Feature / where / "
                     "observation / steps):\n" + failures + "\n" + self.sources_text()
                     + "Rewrite the files for this node completely (full write_file for each file, not edits), "
@@ -2566,18 +2706,17 @@ class Flow:
                 self.test_verdict[node] = True
                 self.mark("test_passed", node, "previously regressed behavior passed its checkpoint specs")
         if grouped:
-            # Build the evidence to fit the correction instead of cutting it to
-            # length afterwards: a head-only slice of richer evidence drops the
-            # last regressions entirely and always drops the source context.
-            budget = int(os.environ.get("OCTOS_ARC_CHECKPOINT_EVIDENCE", "12000"))
-            evidence = (failure_summaries(summary, max_snapshots=budget // 2)
-                        + failure_source_context(summary, self.tests_dir))
-            self.pending_corrections.append(
-                "Previously passing behavior failed when checked together after recent changes. "
-                "Repair the observed failures while preserving other working behavior. "
-                "Tests ran together against one server; use this evidence when implementing the next node.\n"
-                + clip_ends(evidence, budget))
+            self.queue_checkpoint_evidence(summary)
             self.repair_regressions(index, specs, verified, tracked, summary, grouped, workers)
+
+    def queue_checkpoint_evidence(self, summary: RunSummary) -> None:
+        """Bound checkpoint evidence, keeping both ends when source context is large."""
+        budget = int(os.environ.get("OCTOS_ARC_CHECKPOINT_EVIDENCE", "12000"))
+        evidence = (failure_summaries(summary, max_snapshots=budget // 2)
+                    + failure_source_context(summary, self.tests_dir))
+        grouped = nodes_for_failures(summary.results, self.spec_map)
+        failing_ids = sorted(node for node in grouped if node)
+        self.pending_corrections.append(CheckpointEvidence(clip_ends(evidence, budget), failing_ids))
 
     def repair_regressions(self, index: int, specs: list[str], verified: dict, tracked: set,
                            summary: RunSummary, grouped: dict, workers: int) -> None:
@@ -2591,11 +2730,13 @@ class Flow:
         four more had joined them, with no recovery recorded in between.
         """
         rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "1"))
+        repaired = False
         for attempt in range(rounds):
             if not grouped or self.remaining() < self.min_repair_seconds or self.wound_down():
-                return
+                break
             failing = sorted(node for node in grouped if node) or ["the regressed behaviours"]
             failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+            repaired = True
             self.turn(REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
@@ -2605,9 +2746,11 @@ class Flow:
                 min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
                 f"checkpoint {index} repair {attempt + 1}/{rounds}")
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
-            summary = self.run_specs(specs, workers=workers, grader_like=True)
-            if summary.error:
+            observed = self.run_specs(specs, workers=workers, grader_like=True)
+            if observed.error or observed.killed:
+                self.queue_checkpoint_evidence(summary)
                 return
+            summary = observed
             grouped = nodes_for_failures(summary.results, verified)
             log(f"[acceptance] checkpoint {index} after repair: {summary.passed}/{summary.total}; "
                 f"still regressed {sorted(node for node in grouped if node)}")
@@ -2618,6 +2761,11 @@ class Flow:
                 elif node:
                     tracked.add(node)
                     self.test_verdict[node] = False
+
+        if repaired and grouped:
+            # corrections_text consumed the initial checkpoint evidence. Keep
+            # the latest still-failing observations for the next implementation.
+            self.queue_checkpoint_evidence(summary)
 
     def final_acceptance(self) -> None:
         """Run EVERY spec file together against one server with the configured workers.
