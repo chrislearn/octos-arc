@@ -36,6 +36,8 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 ## 改了内核怎么让平台用上
 
+当前 v3 包在全新 codegen 任务开始前会安装跨任务通用的 `backend/server.js`、`backend/lib/store.js` 和 `backend/lib/collection.js`；它们只提供路由、静态文件与通用持久化，不包含任何题目数据或业务规则。已有应用不会被覆盖；设置 `OCTOS_ARC_GENERIC_TEMPLATE=0` 可关闭此行为。v2 包不包含这组模板。
+
 **本地的环境变量不会跟到平台上。** 平台在自己的容器里跑 zip 里的 `main.py`，`OCTOS_BIN`、`OCTOS_ARC_*`
 这些只在本机 `run-task-local.py` 有效；`main.py` 也不读任何配置文件（`arc-policy.toml` 只有 Rust 引擎读）。
 要在线上生效，改动必须落在 `main.py` 的默认值里，或按下面两条之一带进包。

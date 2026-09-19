@@ -1,5 +1,11 @@
 # arc/ 适配层改动记录（工作流 A，分支 `wf-adapter`）
 
+## v3：跨任务通用模板（云端未评测）
+
+分析 `arc/tasks/` 的 11 棵需求树及公开 Web 验收后，仅预置跨领域重复的基础设施：`backend/server.js`（静态页面 + 自动分发 `backend/routes/*.js`）、`backend/lib/store.js`（原子 JSON 读写）和 `backend/lib/collection.js`（可选的通用记录 list/get/create/patch/remove）。模板不含任何题目字段、演示账号、初始商品/便签/车次、可访问名称或预设测试结果；页面、路由行为、验证、会话和领域生命周期仍由模型按任务实现。初次生成时只安装缺失文件，既有应用和 evolution 不覆盖；`OCTOS_ARC_GENERIC_TEMPLATE=0` 可退回 v2 行为。提示词说明这些已存在的基础件，避免重复输出；写保护和逐节点验收继续生效。
+
+本地 Node 运行测试覆盖页面路由、API、错误 JSON、持久化与集合增删改；完整 Python 回归测试通过。真实 token、缓存、费用和通过率仍需云端同题对照。
+
 ## v2：非业务模板优化（云端未评测）
 
 - 同父叶子最多 3 个合并为一次 codegen 请求：只选拓扑序相邻、同父、无组内依赖的叶子；spec 与共享 helper 只引用一次。无法装入上下文、模式不适用或回复不完整时保留原逐节点路径；生成后仍逐叶子验收、修复与检查点，不合并判定。理论候选：Keep 8 批 / 16 叶；12306 32 批 / 85 叶；小型 Smoke/Ticket Booking 不触发。实际触发数还取决于 spec 大小和运行状态。

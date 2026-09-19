@@ -56,6 +56,7 @@ Environment (all optional):
     OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 2)
     OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 3; 0 disables)
     OCTOS_ARC_SOURCE_STABILITY_ORDER  "0" restores path order instead of low-churn-first quoted sources
+    OCTOS_ARC_GENERIC_TEMPLATE  "0" disables the task-neutral server/store scaffold (default on in v3)
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
     OCTOS_GUARD               "0" logs guard findings without injecting them
 """
@@ -90,6 +91,7 @@ from acceptance import (  # noqa: E402
     mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
+from generic_template import generic_template_active, install_generic_template  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
 
@@ -1348,7 +1350,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "1"
+APP_DESIGN_PROMPT_VERSION = "2"
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1358,7 +1360,7 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 {outline}
 
 Architecture is fixed: frontend/src/index.html plus one html per route; backend/server.js as a small entry that \
-serves frontend/dist and requires backend/routes/<area>.js modules; shared persistence in backend/store.js.
+serves frontend/dist and requires backend/routes/<area>.js modules; shared persistence in backend modules.
 Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
@@ -1370,9 +1372,13 @@ Name every collection, field, route and page once and consistently; requirements
 CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with file blocks in the requested format."
 
 CODEGEN_RULES = """\
-Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) and dispatching API requests to the route modules it requires, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Keep server.js a small, stable entry point: new API routes go in backend/routes/<area>.js and shared persistence in backend/store.js, so implementing a requirement adds or edits one small module instead of re-emitting the entry. Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
+Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) and dispatching API requests to the route modules it requires, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Keep server.js a small, stable entry point: new API routes go in backend/routes/<area>.js and shared persistence in backend modules, so implementing a requirement adds or edits one small module instead of re-emitting the entry. Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks.
+"""
+
+GENERIC_TEMPLATE_NOTE = """\
+Shared task-neutral files already exist: backend/server.js serves built frontend assets and dispatches every backend/routes/*.js module. Keep that entry unchanged unless the requirement truly needs a new transport. A route module exports an async function (req, res, tools), returns false for unrelated paths before reading the body, and returns true when handled; tools provides url, json(res, status, value), and readJson(req). From a backend/routes/ module, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove for task-defined records. Define all domain fields, validation, pages, session rules, lifecycle and seed data from this task, not from the scaffold. Do not re-emit unchanged shared files.
 """
 
 CODEGEN_TASK = """\
@@ -1751,6 +1757,7 @@ class Flow:
         self.designs: dict[str, dict] = {}
         # One application-level design per run (app_design); None when skipped or unparsable.
         self.app_design_doc: dict | None = None
+        self.generic_template_installed = False
         # Paths the write guard refused in this node: the model named the file it
         # needs; the next codegen prompt quotes it whole (must_include).
         self.refused_paths: set[str] = set()
@@ -1909,6 +1916,8 @@ class Flow:
             self.pending_corrections.append(
                 "You changed official test/requirement files; the harness restored them: "
                 + ", ".join(restored[:5]) + ". They are read-only ground truth — fix the app instead.")
+        if getattr(self, "generic_template_installed", False) and monitor.wrote_files:
+            self.generic_template_installed = generic_template_active(self.output_dir)
         return ok, text
 
     def slow_test_ms(self) -> int:
@@ -2015,6 +2024,27 @@ class Flow:
                 counts[path] = counts.get(path, 0) + 1
         return counts
 
+    def omit_unchanged_template_libraries(self, scored: list[tuple], must_include=()) -> list[tuple]:
+        """Keep shared helper implementations out of every node's token budget.
+
+        Their short public API is in GENERIC_TEMPLATE_NOTE. If a response names
+        one for editing, the write guard refuses it and the next prompt quotes
+        that entire file through must_include. Modified libraries are never
+        omitted, so application-specific changes remain visible.
+        """
+        if not getattr(self, "generic_template_installed", False):
+            return scored
+        required = set(must_include)
+        defaults = {}
+        for name in ("store", "collection"):
+            rel = f"backend/lib/{name}.js"
+            try:
+                defaults[rel] = (BUNDLE_DIR / "blueprints" / f"{name}.js").read_text(encoding="utf-8")
+            except OSError:
+                return scored
+        return [row for row in scored if str(row[3]) in required
+                or str(row[3]) not in defaults or row[4] != defaults[str(row[3])]]
+
     def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "",
                                  must_include: set[str] | None = None) -> str | None:
         """Budget a complete user message, preserving rules and critical corrections.
@@ -2039,6 +2069,8 @@ class Flow:
             return None
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
+        if getattr(self, "generic_template_installed", False):
+            rules += GENERIC_TEMPLATE_NOTE
         # The harness has already written package.json, which is enough for
         # has_app() but not for a runnable backend. Keep existing sources while
         # explicitly requiring the missing entry in this generation request.
@@ -2056,6 +2088,7 @@ class Flow:
         if must_include is None:
             must_include = set(getattr(self, "refused_paths", ()))
         scored = scored_sources(self.output_dir, spec, entry, must_include=must_include) if existing else []
+        scored = Flow.omit_unchanged_template_libraries(self, scored, must_include)
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
@@ -2138,6 +2171,7 @@ class Flow:
             if room < 8000:
                 return None
             ranked = scored_sources(self.output_dir, spec, must_include=getattr(self, "refused_paths", ()))
+            ranked = Flow.omit_unchanged_template_libraries(self, ranked, getattr(self, "refused_paths", ()))
             sources = select_source_snapshot(ranked, room, stable_order=True, max_output_chars=room,
                                              change_counts=self.source_change_counts())
             if sources is None:
@@ -2236,6 +2270,16 @@ class Flow:
             self.driver.end_scope("node")
         elif not self.evolution:
             log(f"[flow] {len(ordered)}-node tree: skeleton folded into the first node turn")
+        build_dir = getattr(self, "output_dir", None)
+        if (not self.evolution and build_dir is not None and not app_source_files(build_dir) and self.codegen_mode()
+                and os.environ.get("OCTOS_ARC_GENERIC_TEMPLATE", "1") != "0"):
+            write_codegen_manifests(build_dir)
+            extra_ports = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
+            written = install_generic_template(build_dir, BUNDLE_DIR, self.web_port, extra_ports)
+            if written:
+                self.commit("chore: install task-neutral web scaffold")
+                log(f"[flow] generic template: installed {written}")
+            self.generic_template_installed = generic_template_active(build_dir)
         # The tree before any node of this run: the first suite repair quotes
         # what changed since it.
         self.last_checkpoint_sha = self.head()
@@ -2439,6 +2483,8 @@ class Flow:
                 return False, f"codegen reply only rewrote files it was not shown: {', '.join(refused)}"
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
+            if "backend/server.js" in written:
+                self.generic_template_installed = "Generic web entry" in files["backend/server.js"][:200]
             log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
             deduped = dedupe_nav_links(self.output_dir)
             if deduped:
@@ -2450,6 +2496,10 @@ class Flow:
         return ok, text
 
     def codegen_ports_clause(self) -> str:
+        if getattr(self, "generic_template_installed", False):
+            # The scaffold already binds every discovered test port. Repeating
+            # the implementation instruction can provoke a needless server rewrite.
+            return ""
         extra = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
         if not extra:
             return ""
@@ -3096,6 +3146,10 @@ class Flow:
         elif self.has_app():
             design_text = ("Current application files (read only backend/server.js and the page you extend):\n"
                            + source_listing(self.output_dir) + "\n") + design_text
+        if getattr(self, "generic_template_installed", False):
+            design_text = GENERIC_TEMPLATE_NOTE + design_text
+            if not (self.output_dir / "frontend" / "src" / "index.html").is_file():
+                design_text += "Only shared infrastructure exists so far; create the required frontend page(s).\n"
         if self.has_app():
             preamble = NODE_PREAMBLE_EXTEND.format(node_id=node_id)
         else:  # single-node tree without a skeleton turn: create the app in this turn
