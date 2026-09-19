@@ -481,6 +481,15 @@ def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = (".js
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        rel = str(path.relative_to(output_dir))
+        shared = {"frontend/build.mjs": "frontend-build.mjs",
+                  "frontend/vite.config.mjs": "vite.config.mjs"}.get(rel)
+        if shared:
+            try:
+                if text == (BUNDLE_DIR / "blueprints" / shared).read_text(encoding="utf-8"):
+                    continue  # the public build contract is in the prompt; read this file only if needed
+            except OSError:
+                pass
         if total + len(text) > max_chars:
             # A task with a hundred nodes grows one dominant UI file past the
             # whole budget on its own. Dropping it left the prompt quoting the
@@ -1382,7 +1391,7 @@ Rules: implement the requirement for general valid inputs and preserve existing 
 """
 
 GENERIC_TEMPLATE_NOTE = """\
-Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Do not rewrite the entry for ordinary routes. From a backend/routes/ module, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove for task-defined records. Define domain fields, validation, pages, session rules, lifecycle and seed data from the task. Do not re-emit unchanged shared files.
+Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Do not rewrite the entry for ordinary routes. From a backend/routes/ module, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove for task-defined records. Optional frontend/build.mjs and vite.config.mjs also exist: set frontend/package.json build to "node build.mjs" when using npm frontend packages. It copies plain src, builds all src/**/*.html with Vite when vite is declared (and enables declared @vitejs/plugin-react or @tailwindcss/vite), compiles Tailwind CSS when @tailwindcss/cli is declared, and copies htmx.org to /vendor/htmx.min.js when declared. Define domain fields, validation, pages, session rules, lifecycle and seed data from the task. Do not re-emit unchanged shared files.
 """
 
 CODEGEN_TASK = """\
@@ -2029,7 +2038,7 @@ class Flow:
         return counts
 
     def omit_unchanged_template_libraries(self, scored: list[tuple], must_include=()) -> list[tuple]:
-        """Keep shared helper implementations out of every node's token budget.
+        """Keep unchanged shared helper/build implementations out of node prompts.
 
         Their short public API is in GENERIC_TEMPLATE_NOTE. If a response names
         one for editing, the write guard refuses it and the next prompt quotes
@@ -2040,10 +2049,12 @@ class Flow:
             return scored
         required = set(must_include)
         defaults = {}
-        for name in ("store", "collection"):
-            rel = f"backend/lib/{name}.js"
+        for rel, asset in (("backend/lib/store.js", "store.js"),
+                           ("backend/lib/collection.js", "collection.js"),
+                           ("frontend/build.mjs", "frontend-build.mjs"),
+                           ("frontend/vite.config.mjs", "vite.config.mjs")):
             try:
-                defaults[rel] = (BUNDLE_DIR / "blueprints" / f"{name}.js").read_text(encoding="utf-8")
+                defaults[rel] = (BUNDLE_DIR / "blueprints" / asset).read_text(encoding="utf-8")
             except OSError:
                 return scored
         return [row for row in scored if str(row[3]) in required

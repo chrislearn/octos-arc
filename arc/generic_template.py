@@ -20,7 +20,9 @@ def generic_template_active(output_dir: Path) -> bool:
 def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: int,
                              extra_ports: list[int]) -> list[str]:
     assets = {"backend/server.js": "server.js", "backend/lib/store.js": "store.js",
-              "backend/lib/collection.js": "collection.js"}
+              "backend/lib/collection.js": "collection.js",
+              "frontend/build.mjs": "frontend-build.mjs",
+              "frontend/vite.config.mjs": "vite.config.mjs"}
     written: list[str] = []
     for target, asset in assets.items():
         destination = output_dir / target

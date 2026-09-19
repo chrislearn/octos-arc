@@ -40,6 +40,8 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 前端默认用可直接复制的 HTML/CSS/JS，以免简单任务承担框架安装和输出成本。复杂客户端状态可以改用 React + Vite；服务器渲染的局部交互可用 htmx；大量工具类样式可用 Tailwind CLI。平台最终验收会在前端运行 `npm install` 和 `npm run build`，在后端运行 `npm install` 和 `npm start`；本地验收也会按 `dependencies`、`devDependencies` 和 `optionalDependencies` 的变化安装，再构建。引入前端包时必须更新 `frontend/package.json` 的构建脚本，使所有页面、JS、CSS、字体和媒体进入 `frontend/dist/`。页面不能依赖 CDN 或远程浏览器模块；构建前后都有静态检查。npm 安装时访问包仓库不等于页面运行时使用 CDN。
 
+v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend/vite.config.mjs`，默认构建脚本不变；需要前端包时将 `frontend/package.json` 的 `build` 改为 `node build.mjs`。声明 `vite` 时自动构建 `src/**/*.html` 的所有页面，可选 `@vitejs/plugin-react` 与 `@tailwindcss/vite`；纯 HTML 模式声明 `tailwindcss` + `@tailwindcss/cli` 并在 CSS 中写 `@import "tailwindcss";` 即编译本地 CSS；声明 `htmx.org` 则复制 npm 包的脚本到 `dist/vendor/htmx.min.js`，页面引用 `/vendor/htmx.min.js`。蓝图不预装这些包，也不预置任何业务页面或样式。
+
 **本地的环境变量不会跟到平台上。** 平台在自己的容器里跑 zip 里的 `main.py`，`OCTOS_BIN`、`OCTOS_ARC_*`
 这些只在本机 `run-task-local.py` 有效；`main.py` 也不读任何配置文件（`arc-policy.toml` 只有 Rust 引擎读）。
 要在线上生效，改动必须落在 `main.py` 的默认值里，或按下面两条之一带进包。

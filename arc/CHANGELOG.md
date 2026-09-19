@@ -1,5 +1,11 @@
 # arc/ 适配层改动记录（工作流 A，分支 `wf-adapter`）
 
+## v4.1：可选的前端构建蓝图（云端未评测）
+
+在 v4 的 Express/通用持久化蓝图上增加 `frontend/build.mjs` 和多页面 `vite.config.mjs`，只在全新 codegen 应用中预置；默认零依赖复制构建保持不变。声明并安装 `vite` 后可本地打包所有 `src/**/*.html`；声明 Tailwind CLI 且 CSS 引用 `tailwindcss` 时本地编译；声明 `htmx.org` 时将其脚本复制到本地 `/vendor/htmx.min.js`。React/Tailwind Vite 插件也可按需声明，无固定业务组件、路由或样式。未修改的构建蓝图不在后续节点提示里重复全文引用；若模型确需修改，原有写保护会要求重新完整引用。
+
+本地真实 npm 集成测试覆盖 Vite 多页面、React 插件、Tailwind CSS 与 htmx 的构建路径；实际 token、缓存与云端通过率仍需 A/B 测量。
+
 ## v4：按需前端依赖与本地资源（云端未评测）
 
 从 `temp-logs/2/keep.txt` 核实最终验收依次运行前端 `npm install`、`npm run build`、后端 `npm install` 和 `npm start`。新任务的通用后端入口改为 Express 5，路由模块只注册处理器，减少手写 URL、body 和响应分发。前端保持零依赖 HTML/CSS/JS 的轻量默认；仅复杂客户端状态、局部服务器交互或大规模工具类样式需要时，允许 React/Vite、htmx、Tailwind CLI 等本地 npm 构建。移除了工具模式的“零依赖/空 dependencies”矛盾提示。

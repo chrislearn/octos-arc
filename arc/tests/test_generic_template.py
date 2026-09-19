@@ -1,4 +1,4 @@
-"""The v3 scaffold is shared infrastructure, not a domain solution."""
+"""The shared scaffold is infrastructure, not a domain solution."""
 import argparse
 import json
 import os
@@ -25,7 +25,8 @@ class GenericTemplateTests(unittest.TestCase):
 
     def test_installs_only_missing_generic_files_and_fills_ports(self):
         files = install_generic_template(self.root, m.BUNDLE_DIR, 34123, [34124, 34125])
-        self.assertEqual(files, ["backend/server.js", "backend/lib/store.js", "backend/lib/collection.js"])
+        self.assertEqual(files, ["backend/server.js", "backend/lib/store.js", "backend/lib/collection.js",
+                                 "frontend/build.mjs", "frontend/vite.config.mjs"])
         server = (self.root / "backend/server.js").read_text()
         self.assertIn("process.env.PORT || 34123", server)
         self.assertIn("[34124, 34125]", server)
@@ -49,10 +50,13 @@ class GenericTemplateTests(unittest.TestCase):
         self.assertIn("backend/routes/*.js", prompt)
         self.assertIn("require('../lib/store')", prompt)
         self.assertIn("Express 5 entry", prompt)
+        self.assertIn('build to "node build.mjs"', prompt)
         self.assertEqual(flow.codegen_ports_clause(), "")  # installed server already binds 34124
         self.assertIn("backend/server.js", m.quoted_paths(prompt))
         self.assertNotIn("backend/lib/store.js", m.quoted_paths(prompt))
         self.assertNotIn("backend/lib/collection.js", m.quoted_paths(prompt))
+        self.assertNotIn("frontend/build.mjs", m.quoted_paths(prompt))
+        self.assertNotIn("frontend/vite.config.mjs", m.quoted_paths(prompt))
         requoted = flow.codegen_implement_prompt({"id": "A", "description": "Create a page"}, "page.goto('/')",
                                                   must_include={"backend/lib/store.js"})
         self.assertIn("backend/lib/store.js", m.quoted_paths(requoted))
@@ -60,6 +64,10 @@ class GenericTemplateTests(unittest.TestCase):
         store.write_text(store.read_text() + "\n// application-specific extension\n")
         changed = flow.codegen_implement_prompt({"id": "A", "description": "Create a page"}, "page.goto('/')")
         self.assertIn("backend/lib/store.js", m.quoted_paths(changed))
+        build = self.root / "frontend/build.mjs"
+        build.write_text(build.read_text() + "\n// application-specific build extension\n")
+        changed = flow.codegen_implement_prompt({"id": "A", "description": "Create a page"}, "page.goto('/')")
+        self.assertIn("frontend/build.mjs", m.quoted_paths(changed))
         flow.commit.assert_called_once()
 
     def test_prepare_build_leaves_partial_existing_application_alone(self):
@@ -74,6 +82,7 @@ class GenericTemplateTests(unittest.TestCase):
         self.assertFalse(flow.generic_template_installed)
         self.assertEqual((self.root / "backend/server.js").read_text(), "// user entry\n")
         self.assertFalse((self.root / "backend/lib").exists())
+        self.assertFalse((self.root / "frontend/build.mjs").exists())
 
     def _install_express(self):
         m.write_codegen_manifests(self.root)
