@@ -66,7 +66,25 @@ def _add(bucket: dict, rec: dict) -> None:
     bucket["prompt_chars"] += int((rec.get("request") or {}).get("user_chars") or 0)
 
 
-def summarize(records: list[dict]) -> dict:
+def load_records(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def node_states(output_dir: Path) -> dict[str, str]:
+    """Final per-node verdicts from .arc/traceability/node_states.json ({node: 'PASSED'|'FAILED'|...})."""
+    path = output_dir / ".arc" / "traceability" / "node_states.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {str(k): str(v.get("state")) for k, v in data.items() if isinstance(v, dict) and v.get("state")}
+
+
+def summarize(records: list[dict], states: dict[str, str] | None = None) -> dict:
+    """`no_node_repair`: the node's own turns were implement only (checkpoint and
+    full-suite repairs are run-level and do not count). `first_pass`: that, and the
+    node's final verdict is PASSED -- None without verdicts, because a node that
+    never got a repair may simply have failed."""
     nodes: dict[str, dict] = {}
     run: dict[str, dict] = {}
     totals = _bucket()
@@ -79,9 +97,10 @@ def summarize(records: list[dict]) -> dict:
         entry = nodes.setdefault(node, dict(_bucket(), by_phase={}))
         _add(entry, rec)
         _add(entry["by_phase"].setdefault(phase, _bucket()), rec)
-    for entry in nodes.values():
+    for node, entry in nodes.items():
         phases = entry["by_phase"]
-        entry["first_pass"] = "implement" in phases and not any(p in phases for p in ("repair", "rewrite"))
+        entry["no_node_repair"] = "implement" in phases and not any(p in phases for p in ("repair", "rewrite"))
+        entry["first_pass"] = (entry["no_node_repair"] and states.get(node) == "PASSED") if states else None
     return {"nodes": nodes, "run": run, "totals": totals}
 
 
@@ -91,20 +110,25 @@ def render(summary: dict) -> str:
         shared = f"{100 * b['prefix_shared_chars'] / b['prompt_chars']:.0f}%" if b["prompt_chars"] else "—"
         return (f"| {name} | {b['requests']} | {b['prompt_tokens']:,} | {miss:,} | {comp:,} | {reason:,} | "
                 f"{b['elapsed_ms'] / 1000:.0f}s | {shared} |{extra}")
-    lines = ["| node | req | prompt | cache-miss | completion | reasoning | wall | prefix reuse | first pass |",
-             "|---|---:|---:|---:|---:|---:|---:|---:|---|"]
+    def flag(value) -> str:
+        return " ? |" if value is None else (" ✓ |" if value else " ✗ |")
+    lines = ["| node | req | prompt | cache-miss | completion | reasoning | wall | prefix reuse | no node repair | first pass |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---|---|"]
     for node, b in summary["nodes"].items():
-        lines.append(row(node, b, " ✓ |" if b.get("first_pass") else " ✗ |"))
+        lines.append(row(node, b, flag(b.get("no_node_repair")) + flag(b.get("first_pass"))))
     for phase, b in summary["run"].items():
-        lines.append(row(f"_{phase}", b, " |"))
-    lines.append(row("TOTAL", summary["totals"], " |"))
+        lines.append(row(f"_{phase}", b, " | |"))
+    lines.append(row("TOTAL", summary["totals"], " | |"))
     if summary["totals"].get("no_usage"):
         lines.append(f"\nexchanges without a usage block (errors, timeouts, empty streams): "
                      f"{summary['totals']['no_usage']} -- the meter may still have billed them")
     nodes = summary["nodes"]
     if nodes:
+        no_repair = [n for n, b in nodes.items() if b.get("no_node_repair")]
+        known = any(b.get("first_pass") is not None for b in nodes.values())
         passed = [n for n, b in nodes.items() if b.get("first_pass")]
-        lines.append(f"\nnodes: {len(nodes)}; first pass: {len(passed)}; "
+        lines.append(f"\nnodes: {len(nodes)}; no node repair: {len(no_repair)}; "
+                     f"first pass: {len(passed) if known else 'unknown (no node_states.json)'}; "
                      f"cache-miss tokens per node: {summary['totals']['cache_miss_tokens'] // len(nodes):,}; "
                      f"requests per node: {summary['totals']['requests'] / len(nodes):.1f}")
     return "\n".join(lines)
@@ -116,8 +140,8 @@ def main(argv: list[str]) -> int:
     path = Path(argv[1])
     if path.is_dir():
         path = path / ".arc" / "llm-usage.jsonl"
-    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    summary = summarize(records)
+    records = load_records(path)
+    summary = summarize(records, node_states(path.parent.parent))
     print(json.dumps(summary, indent=1) if "--json" in argv else render(summary))
     return 0
 

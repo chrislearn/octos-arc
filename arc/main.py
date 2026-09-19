@@ -2117,6 +2117,29 @@ class Flow:
             proxy.system_override = None
             self.base_reasoning_mode = saved_base
 
+    def prepare_build(self, tree: dict, ordered: list[dict]) -> None:
+        """What happens before the first node: the application design (loaded
+        or, on a fresh build, generated) or the skeleton turn, and the tree the
+        first suite repair diffs against.
+
+        The design is looked up in evolution mode too. Until 2026-09-19 only a
+        fresh build called app_design, so a rerun over an existing app -- which
+        is every rerun -- could never reuse the design it had stored; app_design
+        itself only ever generates on a fresh build."""
+        if self.codegen_mode() and os.environ.get("OCTOS_SKELETON_ALWAYS") != "1":
+            if not self.evolution:
+                log(f"[flow] {len(ordered)}-node tree: codegen mode, harness manifests replace the skeleton turn")
+            self.app_design(tree, ordered)
+        elif not self.evolution and (len(ordered) >= self.skeleton_min_nodes
+                                     or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
+            self.skeleton(tree)
+            self.driver.end_scope("node")
+        elif not self.evolution:
+            log(f"[flow] {len(ordered)}-node tree: skeleton folded into the first node turn")
+        # The tree before any node of this run: the first suite repair quotes
+        # what changed since it.
+        self.last_checkpoint_sha = self.head()
+
     def app_design(self, tree: dict, ordered: list[dict]) -> dict | None:
         """One request over the tree's outline -> routes, pages and data model
         the whole run implements against (OCTOS_ARC_APP_DESIGN=0 disables).
@@ -2227,6 +2250,9 @@ class Flow:
             names.append(node_id)
         if not specs:
             return None
+        # Reasoning for the codegen turn is sized by these specs together, not by
+        # the last single node's (which could put a multi-node repair at none).
+        self.suite_spec_chars = sum(map(len, specs))
         omitted = [n for n in chosen if n not in names]
         description = ("Repair the regressions the acceptance suite found in these features: "
                        + "; ".join(f"{n}: {str(nodes[n].get('description') or '').strip()}" for n in names))
@@ -2234,9 +2260,22 @@ class Flow:
             description += f". Also failing, specs not shown: {', '.join(omitted)}"
         evidence = ("The current application fails these acceptance checks; fix them without breaking the "
                     "passing ones:\n" + (failures or "(no detail)")[:8000] + "\n")
-        must = self.changed_files_since(getattr(self, "last_checkpoint_sha", None)) | set(getattr(self, "refused_paths", ()))
+        changed = self.changed_files_since(getattr(self, "last_checkpoint_sha", None))
+        must = changed | set(getattr(self, "refused_paths", ()))
         node = {"id": ", ".join(names), "description": description}
-        return self.codegen_implement_prompt(node, "".join(specs), "", evidence=evidence, must_include=must)
+        prompt = self.codegen_implement_prompt(node, "".join(specs), "", evidence=evidence, must_include=must)
+        if prompt is None or not changed:
+            return prompt
+        # must_include only ranks the changed files first; a file too big for the
+        # room is still omitted, and the guard would refuse the rewrite the model
+        # then attempts. With none of them quoted the request is that refusal.
+        missing = sorted(changed - quoted_paths(prompt))
+        if len(missing) == len(changed):
+            log(f"[flow] suite repair: none of the changed files ({', '.join(missing)}) fit the codegen budget")
+            return None
+        if missing:
+            log(f"[flow] suite repair: changed files not quoted whole: {', '.join(missing)}")
+        return prompt
 
     def suite_repair_turn(self, label: str, failing_ids: list[str], failures: str, timeout: int, *,
                           tool_prompt: str, prefer_codegen: bool = True) -> tuple[str, str]:
@@ -2247,7 +2286,7 @@ class Flow:
         if prefer_codegen and self.codegen_mode(node_block=False):
             prompt = self.suite_repair_prompt(failing_ids, failures)
             if prompt is not None:
-                spec_chars = getattr(self, "current_spec_chars", 0)
+                spec_chars = getattr(self, "suite_spec_chars", 0)
                 before = set(getattr(self, "refused_paths", set()))
                 self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars)
                 refused = set(getattr(self, "refused_paths", set())) - before
@@ -3092,12 +3131,16 @@ class Flow:
                 tracked.remove(node)
                 self.test_verdict[node] = True
                 self.mark("test_passed", node, "previously regressed behavior passed its checkpoint specs")
+        regressed = bool(grouped)
         if grouped:
             self.queue_checkpoint_evidence(summary)
-            self.repair_regressions(index, specs, verified, tracked, summary, grouped, workers)
-        # The tree the suite last agreed with (or was repaired towards): the next
-        # suite repair quotes what changed since it first.
-        self.last_checkpoint_sha = self.head()
+            regressed = self.repair_regressions(index, specs, verified, tracked, summary, grouped, workers)
+        if not regressed:
+            # The tree the suite agreed with: the next suite repair quotes what
+            # changed since it first. A checkpoint still regressed keeps the
+            # previous baseline, so the files that introduced the regression
+            # stay in the diff until it is fixed.
+            self.last_checkpoint_sha = self.head()
 
     def queue_checkpoint_evidence(self, summary: RunSummary) -> None:
         """Bound checkpoint evidence, keeping both ends when source context is large."""
@@ -3109,8 +3152,9 @@ class Flow:
         self.pending_corrections.append(CheckpointEvidence(clip_ends(evidence, budget), failing_ids))
 
     def repair_regressions(self, index: int, specs: list[str], verified: dict, tracked: set,
-                           summary: RunSummary, grouped: dict, workers: int) -> None:
+                           summary: RunSummary, grouped: dict, workers: int) -> bool:
         """Fix what a checkpoint found before building anything else on top.
+        Returns whether a regression remains.
 
         Queueing the evidence for the next node's turn does not work: that turn
         is busy with its own node, and its acceptance run only covers its own
@@ -3149,7 +3193,7 @@ class Flow:
             observed = self.run_specs(specs, workers=workers, grader_like=True)
             if observed.error or observed.killed:
                 self.queue_checkpoint_evidence(summary)
-                return
+                return True
             summary = observed
             grouped = nodes_for_failures(summary.results, verified)
             log(f"[acceptance] checkpoint {index} after repair: {summary.passed}/{summary.total}; "
@@ -3166,6 +3210,7 @@ class Flow:
             # corrections_text consumed the initial checkpoint evidence. Keep
             # the latest still-failing observations for the next implementation.
             self.queue_checkpoint_evidence(summary)
+        return bool(grouped)
 
     def final_acceptance(self) -> None:
         """Run EVERY spec file together against one server with the configured workers.
@@ -3596,15 +3641,7 @@ class Flow:
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
             try:
-                if not self.evolution and self.codegen_mode() and os.environ.get("OCTOS_SKELETON_ALWAYS") != "1":
-                    log(f"[flow] {len(ordered)}-node tree: codegen mode, harness manifests replace the skeleton turn")
-                    self.app_design(tree, ordered)
-                elif not self.evolution and (len(ordered) >= self.skeleton_min_nodes
-                                             or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
-                    self.skeleton(tree)
-                    self.driver.end_scope("node")
-                elif not self.evolution:
-                    log(f"[flow] {len(ordered)}-node tree: skeleton folded into the first node turn")
+                self.prepare_build(tree, ordered)
                 for index, node in enumerate(ordered, 1):
                     node_id = str(node.get("id"))
                     if self.time_up():

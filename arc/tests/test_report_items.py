@@ -54,8 +54,8 @@ class UsageByNodeTests(unittest.TestCase):
         summary = usage_by_node.summarize(records)
         nodes = summary["nodes"]
         self.assertEqual(nodes["REQ-1"]["requests"], 1)
-        self.assertTrue(nodes["REQ-1"]["first_pass"])
-        self.assertFalse(nodes["REQ-2"]["first_pass"])
+        self.assertTrue(nodes["REQ-1"]["no_node_repair"])
+        self.assertFalse(nodes["REQ-2"]["no_node_repair"])
         self.assertEqual(nodes["REQ-2"]["requests"], 3)
         self.assertEqual(nodes["REQ-2"]["prompt_tokens"], 76000)
         self.assertEqual(nodes["REQ-2"]["cache_miss_tokens"], 76000 - 40000)

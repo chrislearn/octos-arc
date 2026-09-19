@@ -1089,3 +1089,25 @@ twice」→ tool 模式 30–86 次请求。**这不是模型的失败，是选�
   1.2–3.2 倍的那部分，此前代理根本没看见（代理 `urlopen(timeout=600)` 超时后上游可能照样生成、照样计费）。
 
 真实效果：**未评测**（本机无模型；下一跑看检查点 / 全套两段的 tool 调用与小时数）。
+
+## 2026-09-19：`41b6af80` / `d8365870` / `d4fd0cdf` 评审的 5 个 P2 + 1 个效率项
+
+`tests/test_review_fixes.py` 13 项先红后绿（全套 401 项通过，跳过 8）：
+
+- **evolution 模式复用设计不可达**：run() 只在 fresh build 调 `app_design`，而重跑有 frontend/backend 就是 evolution。
+  抽出 `prepare_build(tree, ordered)`：codegen 模式下总是调 `app_design`（它在 evolution 只加载兼容的 `app.json`、
+  不生成），骨架回合仍只在 fresh build。测试针对 `prepare_build`，不是完整 run()。
+- **suite repair 的推理规模**：`suite_repair_prompt` 记 `suite_spec_chars`（合并后的 spec 长度），
+  `suite_repair_turn` 用它而不是上一个单节点的 `current_spec_chars`。
+- **检查点差异基线**：`prepare_build` 结束时记 `last_checkpoint_sha = head()`（第一次 suite repair 就有基线）；
+  `repair_regressions` 返回"是否仍有回归"，**只有检查点变绿才推进基线**，引入回归的文件留在 diff 里直到修好。
+- **first-pass 指标**：`usage_by_node.summarize(records, states)` 拆成 `no_node_repair`（节点自己只有 implement）和
+  `first_pass`（前者且 `node_states.json` 里 PASSED；没有 verdict 时为 None，表格显示 `?`）。CLI 自动读输出目录的
+  `.arc/traceability/node_states.json`。
+- **超时请求归错节点**：`LlmProxy.request_meta(body)` 在**转发前**加锁取 label / phase / model / 提示词指纹并推进
+  `_last_prompt_text`，随请求传给 `_log`；晚回来的响应仍记在发出它的回合，`prefix_shared_chars` 按发出顺序算。
+- **must_include 不保证入选**：`suite_repair_prompt` 建完后核对：改动文件一个都没被完整引用 → 返回 None（直接工具，
+  省掉那次注定被写保护拒绝的请求）；部分没引用则记日志继续。
+
+仍未覆盖：evolution 的完整 run() 路径、连续失败检查点的端到端、代理延迟响应的并发测试（现在是对 `request_meta`
+/ `_log` 的顺序测试）。

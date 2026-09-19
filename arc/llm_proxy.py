@@ -536,6 +536,7 @@ class LlmProxy:
             req = urllib.request.Request(self.upstream + path, data=body if body else None,
                                          headers=headers, method=method)
             t0 = time.time()
+            meta = self.request_meta(body)   # attribution fixed at issue time, not at response time
             try:
                 with urllib.request.urlopen(req, timeout=600) as resp:
                     result = resp.status, resp.read(), resp.headers
@@ -544,7 +545,7 @@ class LlmProxy:
             except Exception as exc:  # noqa: BLE001
                 result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
             status, payload, _ = result
-            self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload), status=status)
+            self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload), status=status, meta=meta)
             future.set_result(result)
             return result
         except BaseException as exc:
@@ -570,8 +571,22 @@ class LlmProxy:
         except OSError:
             pass
 
+    def request_meta(self, request_body: bytes) -> dict:
+        """The turn a request belongs to, captured when it is issued. A request
+        that outlives its turn (client timeout, upstream still generating) used
+        to be attributed to whatever turn was current when its response ended,
+        and its prefix reuse measured against whichever prompt finished last."""
+        shape = request_shape(request_body)
+        if not shape:
+            return {}
+        with self._lock:
+            sha, shared, text = prompt_fingerprint(request_body, getattr(self, "_last_prompt_text", ""))
+            self._last_prompt_text = text
+            return {"request": shape, "model": json.loads(request_body).get("model"), "phase": self.phase,
+                    "label": getattr(self, "label", ""), "prompt_sha256": sha, "prefix_shared_chars": shared}
+
     def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"", req_bytes: int = 0,
-             resp_bytes: int = 0, status: int | None = None) -> None:
+             resp_bytes: int = 0, status: int | None = None, meta: dict | None = None) -> None:
         if not self.log_path:
             return
         rec = usage_record(payload, elapsed_ms, self.mode)
@@ -591,15 +606,7 @@ class LlmProxy:
             self.total_requests += 1
             self.total_tokens += int(rec.get("prompt_tokens") or 0) + int(rec.get("completion_tokens") or 0)
         rec["request_bytes"], rec["response_bytes"] = req_bytes, resp_bytes
-        shape = request_shape(request_body)
-        if shape:
-            rec["request"] = shape
-            rec["model"] = json.loads(request_body).get("model")
-            rec["phase"] = self.phase
-            rec["label"] = getattr(self, "label", "")   # turn label: node id + phase, for per-node attribution
-            sha, shared, text = prompt_fingerprint(request_body, getattr(self, "_last_prompt_text", ""))
-            self._last_prompt_text = text
-            rec["prompt_sha256"], rec["prefix_shared_chars"] = sha, shared
+        rec.update(meta if meta is not None else self.request_meta(request_body))
         with self._lock:
             try:
                 with self.log_path.open("a", encoding="utf-8") as fh:
