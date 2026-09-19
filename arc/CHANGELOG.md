@@ -996,3 +996,36 @@ musl / zigbuild 都不保证一次过。装了 `docker.io`（Ubuntu 26.04 仓库
    设计要防的）；codegen 修复提示词带节点切片并计入重引用房间；rewrite 提示词同样带上。
 
 `tests/test_app_design.py` 新增 6 项（先红后绿），全套通过。
+
+## 2026-09-19：云端 `fcec6ac02a95`（12306 真跑）的读数，以及被拒文件的重试
+
+第一次完整真跑：135/135、117/117 功能、PASSED 100 分，¥119.68，6 h 12 min（`main.py` 在 `77522b55` 之前两个
+commit：含 P1 / P1b / helper 裁剪，不含应用级设计）。日志逐行统计：
+
+| | 数值 |
+|---|---:|
+| 请求总数（代理） | 1,154 |
+| tool 模式回合 | 32 个，**1,077 次工具调用 ≈ 93% 的请求**，3.8 h / 6.2 h |
+| codegen 块被写保护拒绝的节点 | **28 / 117**，被拒的每次都是 spec 自己的目标页（ticket-orders / user-information / security / index） |
+| 修复因「evidence unavailable within codegen budget」直接进 tool 模式 | 15 次 |
+| 第一次拒绝 | 第 49 个节点，应用 16 个文件；结束时 44 个文件 |
+| 代理统计 | prompt 55.84M（**90% 缓存命中**）+ completion 2.10M（含推理 1.24M）= 57.94M |
+| 平台计量 | **185.29M token，¥119.68 → ¥0.646/M**；keep `2224a9013528` 是 28.8M = 代理总数、¥0.576/M |
+
+进 tool 模式的链条：44 个文件时 spec 词命中噪声大（导航栏文字每页都有），同分按体积升序 → 小文件先占满预算 →
+目标页被跳过 → 模型照样重写它 → 写保护拒绝（正确）→ spec 失败 → 修复轮同一份选择再被拒 → 「identical failure
+twice」→ tool 模式 30–86 次请求。**这不是模型的失败，是选择的失败**，而且被拒的路径就是答案。
+
+改动（`tests/test_target_quoting.py` 10 项先红后绿）：
+- `scored_sources(must_include=…)`：入口(0) → 上一次被拒的文件(1，模型说了要改它) → spec 点名的文件(2，
+  `spec_targets`：文件名词干 ≥5 字符出现在去掉分隔符和大小写的 spec 文本里，`openTicketOrders` ↔
+  `ticket-orders.html`；公开六题的页面都靠点击到达，`goto` 只有 `/`，所以只能靠 helper 名) → 其余按命中(3) → JSON(4)。
+- 写保护把被拒路径记进 `self.refused_paths`（每节点清零）。implement 被拒后**立刻**用重建的提示词重试一次
+  ——仅当新提示词确实把被拒文件完整引用了；放不下就记日志、照旧走验收。一次请求换掉 30–86 次。
+- 修复：`codegen_repair_prompt` 的补丁路线放不下时，不再直接进 tool 模式，改走 `codegen_implement_prompt`
+  （规则 → 设计 → 排序源码 → 失败证据 ≤6k）；连它也放不下才交给工具。
+- 用量记录多一个 `label`（`REQ-x implement` / `repair 2/3` / `application design`），按节点、阶段归因用。
+
+**平台计量 vs 代理差 3.2 倍**（185.3M vs 57.9M），keep 那次是 1.0 倍，但 ¥/M 一致。¥2/M×55.84M + ¥7.5/M×2.10M
+= ¥127.5，与 ¥119.68 相差 6%——**像是平台按全价计 prompt token、不打缓存折扣**，但 185M 这个数还解释不了。
+对账之前，缓存命中率对榜单费用的价值是未知数，任何按节点归因都要以平台数为准。真实效果：**未评测**。

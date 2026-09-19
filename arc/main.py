@@ -562,13 +562,36 @@ def backend_entry(output_dir: Path) -> Path | None:
     return path if path.is_file() else None
 
 
-def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None) -> list[tuple]:
+def spec_targets(spec_text: str, files) -> set[str]:
+    """Source files whose name the spec mentions: a file stem of five or more
+    alphanumerics (`ticket-orders` -> `ticketorders`) found inside the spec text
+    with separators and case removed (`openTicketOrders`, `/ticket-orders`,
+    "Ticket Orders"). The public web suites reach every page by clicking, so
+    route literals are not there to be matched; the helper names are."""
+    flat = re.sub(r"[^a-z0-9]", "", spec_text.lower())
+    targets = set()
+    for rel in files:
+        stem = re.sub(r"[^a-z0-9]", "", Path(str(rel)).stem.lower())
+        if len(stem) >= 5 and stem in flat:
+            targets.add(str(rel))
+    return targets
+
+
+def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None,
+                   must_include=()) -> list[tuple]:
     """Read and rank a source snapshot once; rendering does not reread disk.
 
-    Rank: the backend entry (what every node extends) first, then the remaining
-    sources -- pages and backend modules alike -- by how many of the spec's terms
-    (locators, texts, routes) they contain, smaller files breaking ties; JSON
-    state follows code.
+    Rank: the backend entry (what every node extends) first; then the files the
+    node is known to need -- `must_include` (a path the last reply was refused
+    for: the model told us which file it edits) and the spec's targets
+    (spec_targets); then the remaining sources -- pages and backend modules
+    alike -- by how many of the spec's terms (locators, texts, routes) they
+    contain, smaller files breaking ties; JSON state follows code.
+
+    Cloud fcec6ac02a95: with 44 files the term ranking is noisy (every page
+    carries the navigation words) and the size tie-break filled the budget with
+    small files, so the page a node was about was skipped, the guard refused
+    the rewrite, and 28 nodes went to tool mode -- 93% of the run's requests.
 
     Ranking every backend file ahead of the pages was right while the backend was
     one server.js. Once feature code sits in backend/routes/<area>.js, quoting all
@@ -576,8 +599,11 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None) 
     entry keeps its place and the modules compete on overlap like the pages."""
     terms = spec_terms(spec_text)
     entry = entry or backend_entry(output_dir)
+    files = app_source_files(output_dir)
+    certain = set(str(rel) for rel in must_include)          # the model named it: it edits this file
+    guessed = spec_targets(spec_text, [p.relative_to(output_dir) for p in files])   # the spec names it
     scored = []
-    for path in app_source_files(output_dir):
+    for path in files:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -585,7 +611,16 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None) 
         low = text.lower()
         hits = sum(1 for term in terms if term in low)
         rel = path.relative_to(output_dir)
-        priority = 2 if path.suffix == ".json" else (0 if path == entry else 1)
+        if path == entry:
+            priority = 0
+        elif str(rel) in certain:
+            priority = 1
+        elif str(rel) in guessed:
+            priority = 2
+        elif path.suffix == ".json":
+            priority = 4
+        else:
+            priority = 3
         scored.append((priority, -hits, len(text), rel, text))
     return sorted(scored, key=lambda item: item[:3])
 
@@ -1623,6 +1658,9 @@ class Flow:
         self.designs: dict[str, dict] = {}
         # One application-level design per run (app_design); None when skipped or unparsable.
         self.app_design_doc: dict | None = None
+        # Paths the write guard refused in this node: the model named the file it
+        # needs; the next codegen prompt quotes it whole (must_include).
+        self.refused_paths: set[str] = set()
         self.test_verdict: dict[str, bool | None] = {}
         self.checkpoint_regressions: set[str] = set()
         self.impl_failed: list[str] = []
@@ -1753,6 +1791,7 @@ class Flow:
                 default = "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"
                 request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", default)) if "repair" in label else \
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", default))
+            proxy.label = label
             proxy.phase = ("repair" if any(word in label for word in ("repair", "rewrite")) else
                            "verify" if "final check" in label else
                            "design" if "design" in label else "implement")
@@ -1888,7 +1927,8 @@ class Flow:
             rules = rules.replace("Files:", "Existing app below; keep everything that works and output "
                                   "every changed file complete. Files:", 1)
         entry = backend_entry(self.output_dir) if existing else None
-        scored = scored_sources(self.output_dir, spec, entry) if existing else []
+        scored = scored_sources(self.output_dir, spec, entry,
+                                must_include=getattr(self, "refused_paths", ())) if existing else []
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
@@ -1930,10 +1970,26 @@ class Flow:
             f"spec={budget.get('spec', '?')} entry={budget.get('entry', '?')} room={budget.get('room', '?')} "
             f"limit={budget.get('limit', '?')} reason={budget.get('reason') or 'unrecorded'}")
 
-    def codegen_repair_prompt(self, node_id: str, prompt: str) -> str | None:
+    def codegen_repair_prompt(self, node_id: str, prompt: str, failures: str = "") -> str | None:
         spec = self.spec_bodies(node_id)
         if not spec or spec == "(none)":
             return None
+        patched = self._patched_repair_prompt(node_id, spec, prompt)
+        if patched is not None:
+            return patched
+        # The tool-mode prompt could not be requoted within the budget (cloud
+        # fcec6ac02a95: 15 repairs went straight to tools this way). Build the
+        # repair the way an implement turn is built -- rules, design, ranked
+        # sources with the refused/target files first, then the failures as
+        # evidence -- before giving the node to tools.
+        node = getattr(self, "requirement_nodes", {}).get(node_id)
+        if node is None:
+            return None
+        evidence = ("The current application fails these acceptance checks; fix them without breaking the "
+                    "passing ones:\n" + (failures or "(no detail)")[:6000] + "\n")
+        return self.codegen_implement_prompt(node, spec, "", evidence=evidence)
+
+    def _patched_repair_prompt(self, node_id: str, spec: str, prompt: str) -> str | None:
         # Tool-free repairs must see the source instead of instructions to read it.
         # Requote within the room the rest of the prompt leaves (evidence,
         # requirements, the repair suffix, the format block), so the result fits
@@ -2084,6 +2140,8 @@ class Flow:
             for rel in refused:
                 files.pop(rel)
                 log(f"[codegen] {label}: refused {rel}: the file exists and the prompt did not show it whole")
+            if refused and hasattr(self, "refused_paths"):
+                self.refused_paths.update(refused)
             if refused:
                 self.pending_corrections.append(
                     f"Your previous reply rewrote {', '.join(refused)} without having been shown the file whole; "
@@ -2538,7 +2596,7 @@ class Flow:
                                           corrections=self.corrections_text(),
                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
                                           sources=self.repair_requirements(node_id) + self.sources_text())
-            compact = self.codegen_repair_prompt(node_id, prompt) if self.codegen_mode() else None
+            compact = self.codegen_repair_prompt(node_id, prompt, failures=failures) if self.codegen_mode() else None
             if compact is not None:
                 self.codegen_turn(compact,
                                   min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}",
@@ -2601,6 +2659,7 @@ class Flow:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
+        self.refused_paths = set()
         if index > 1:
             reap_workspace_processes(self.output_dir, log)
         nodes_left = total - index + 1
@@ -2656,8 +2715,24 @@ class Flow:
             if codegen_prompt is not None:
                 self.current_spec_chars = len(spec_text)
                 write_codegen_manifests(self.output_dir)
+                before = set(self.refused_paths)
                 ok, text = self.codegen_turn(codegen_prompt, implement_timeout, f"{node_id} implement",
                                             spec_chars=self.current_spec_chars)
+                # A refused block names the file the node needs. One retry with that
+                # file quoted whole costs one request; the alternative measured on
+                # cloud fcec6ac02a95 was a failing spec, a repair refused the same
+                # way, and 30-80 tool-mode requests.
+                refused = self.refused_paths - before
+                if refused and self.codegen_mode():
+                    retry_prompt = self.codegen_implement_prompt(node, spec_text, self.corrections_text())
+                    if retry_prompt is not None and refused <= quoted_paths(retry_prompt):
+                        names = ", ".join(sorted(refused))
+                        log(f"[flow] {node_id}: retrying codegen with {names} quoted whole")
+                        ok, text = self.codegen_turn(retry_prompt, min(implement_timeout, max(60, deadline - time.time())),
+                                                    f"{node_id} implement (retry with {names})",
+                                                    spec_chars=self.current_spec_chars)
+                    else:
+                        log(f"[flow] {node_id}: {', '.join(sorted(refused))} cannot be quoted whole within the budget; no retry")
             else:
                 if self.codegen_mode():
                     self.log_codegen_fallback(node_id)

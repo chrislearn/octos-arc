@@ -552,6 +552,7 @@ class LlmProxy:
             rec["request"] = shape
             rec["model"] = json.loads(request_body).get("model")
             rec["phase"] = self.phase
+            rec["label"] = getattr(self, "label", "")   # turn label: node id + phase, for per-node attribution
         with self._lock:
             try:
                 with self.log_path.open("a", encoding="utf-8") as fh:
