@@ -1,2 +1,2 @@
 {prompt}
-YOUR PREVIOUS RESPONSE WAS TRUNCATED BY THE OUTPUT LIMIT AND NOTHING WAS SAVED. Write exactly ONE file per response (one write_file call, complete file), starting with backend/server.js, then finish.
+YOUR PREVIOUS RESPONSE WAS TRUNCATED BY THE OUTPUT LIMIT. Inspect the current files before continuing; do not assume the previous response was applied. Use tools to make the smallest targeted edits needed for this requirement. Preserve existing behavior and avoid re-emitting large unchanged files. Create missing files only when needed, one file at a time. Verify the affected behavior and finish.

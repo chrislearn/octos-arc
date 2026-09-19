@@ -588,14 +588,61 @@ def backend_entry(output_dir: Path) -> Path | None:
     return path if path.is_file() else None
 
 
+def missing_backend_entry(output_dir: Path) -> str | None:
+    """Report a missing entry only for the known direct Node startup layout.
+
+    A framework/build command may create its entry later; do not invent a
+    server.js requirement for those applications.
+    """
+    manifest = output_dir / "backend/package.json"
+    if not manifest.exists():
+        script = "node server.js"  # the manifest the codegen harness will write
+    else:
+        try:
+            script = json.loads(manifest.read_text()).get("scripts", {}).get("start", "")
+        except (OSError, ValueError, AttributeError, TypeError):
+            return None
+    if not isinstance(script, str):
+        return None
+    match = re.fullmatch(r"\s*node\s+([\w./-]+\.[cm]?js)\s*", script)
+    if not match:
+        return None
+    relative = Path(match[1])
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    path = output_dir / "backend" / relative
+    return str(Path("backend") / relative) if not path.is_file() else None
+
+
+def navigation_targets(spec_text: str, files) -> set[str]:
+    """Map literal test navigation to pages in the codegen source layout.
+
+    Only the helpers reachable by the current spec are normally supplied here.
+    Dynamic URLs remain unknown; an arbitrary slash or navigation label is not
+    evidence that a particular page is involved.
+    """
+    candidates = set()
+    for match in re.finditer(r"\.goto\(\s*(['\"`])([^'\"`\r\n]*)\1\s*[,)]", spec_text):
+        url = match[2]
+        if not url.startswith("/") or url.startswith("//") or "${" in url:
+            continue
+        route = re.split(r"[?#]", url, maxsplit=1)[0].strip("/")
+        if ".." in Path(route).parts:
+            continue
+        pages = ["index.html"] if not route else ([route] if route.endswith(".html") else
+                                                   [f"{route}.html", f"{route}/index.html"])
+        candidates.update(f"{base}/{page}" for base in ("frontend/src", "frontend") for page in pages)
+    return candidates & {str(rel) for rel in files}
+
+
 def spec_targets(spec_text: str, files) -> set[str]:
     """Source files whose name the spec mentions: a file stem of five or more
     alphanumerics (`ticket-orders` -> `ticketorders`) found inside the spec text
     with separators and case removed (`openTicketOrders`, `/ticket-orders`,
-    "Ticket Orders"). The public web suites reach every page by clicking, so
-    route literals are not there to be matched; the helper names are."""
+    "Ticket Orders"). Helper names complement explicit navigation paths."""
+    files = list(files)
     flat = re.sub(r"[^a-z0-9]", "", spec_text.lower())
-    targets = set()
+    targets = navigation_targets(spec_text, files)
     for rel in files:
         stem = re.sub(r"[^a-z0-9]", "", Path(str(rel)).stem.lower())
         if len(stem) >= 5 and stem in flat:
@@ -609,8 +656,8 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None,
 
     Rank: the backend entry (what every node extends) first; then the files the
     node is known to need -- `must_include` (a path the last reply was refused
-    for: the model told us which file it edits) and the spec's targets
-    (spec_targets); then the remaining sources -- pages and backend modules
+    for: the model told us which file it edits), explicit navigation, then the
+    spec's name-based targets; then the remaining sources -- pages and backend modules
     alike -- by how many of the spec's terms (locators, texts, routes) they
     contain, smaller files breaking ties; JSON state follows code.
 
@@ -628,6 +675,7 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None,
     files = app_source_files(output_dir)
     certain = set(str(rel) for rel in must_include)          # the model named it: it edits this file
     guessed = spec_targets(spec_text, [p.relative_to(output_dir) for p in files])   # the spec names it
+    navigated = navigation_targets(spec_text, [p.relative_to(output_dir) for p in files])
     scored = []
     for path in files:
         try:
@@ -641,12 +689,14 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None,
             priority = 0
         elif str(rel) in certain:
             priority = 1
-        elif str(rel) in guessed:
+        elif str(rel) in navigated:
             priority = 2
-        elif path.suffix == ".json":
-            priority = 4
-        else:
+        elif str(rel) in guessed:
             priority = 3
+        elif path.suffix == ".json":
+            priority = 5
+        else:
+            priority = 4
         scored.append((priority, -hits, len(text), rel, text))
     return sorted(scored, key=lambda item: item[:3])
 
@@ -1329,6 +1379,10 @@ CODEGEN_PROMPT = CODEGEN_RULES + "\n" + CODEGEN_TASK
 CODEGEN_SIZE_SMALL = 'Prefer a small implementation, but do not omit required behavior, accessibility, styling or validation to meet an arbitrary line count.'
 CODEGEN_SIZE_FULL = "Keep the implementation concise while preserving all required behavior and the existing architecture. Derive navigation, authentication, storage and validation from the requirements. Public tests illustrate contracts; handle other valid inputs too. Do not force a navigation placeholder, cookie name, redirect, validation message or rendering strategy. Fix actual ambiguous controls in their intended scope without deleting legitimate repeated links or text. Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input."
 
+TRUNCATED_RETRY = """\
+YOUR PREVIOUS RESPONSE WAS TRUNCATED BY THE OUTPUT LIMIT. Inspect the current files before continuing; do not assume the previous response was applied. Use tools to make the smallest targeted edits needed for this requirement. Preserve existing behavior and avoid re-emitting large unchanged files. Create missing files only when needed, one file at a time. Verify the affected behavior and finish.
+"""
+
 # Tiny-spec tier (OCTOS_ARC_TINY_SPEC_CHARS, default 1500; OCTOS_ARC_TINY=0 disables): the prompt is the
 # spec's own statements only, the reply is one HTML file, the server is a fixed harness scaffold (no task
 # logic), thinking is off. First-pass failure falls back to the compact codegen tier for the same node.
@@ -1952,6 +2006,12 @@ class Flow:
             return None
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
+        # The harness has already written package.json, which is enough for
+        # has_app() but not for a runnable backend. Keep existing sources while
+        # explicitly requiring the missing entry in this generation request.
+        missing_entry = missing_backend_entry(self.output_dir)
+        if missing_entry:
+            rules += f"Startup prerequisite: {missing_entry} is missing. Create it in this response so the configured backend start command can run.\n"
         task = CODEGEN_TASK.format(node_id=str(node.get("id")),
             description=str(node.get("description") or "").strip(), spec=spec,
             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
@@ -2042,7 +2102,11 @@ class Flow:
             room = limit - (len(prompt) - len(current_sources)) - len(suffix) - len(FORMAT_INSTRUCTIONS) - 2000
             if room < 8000:
                 return None
-            prompt = prompt.replace(current_sources, inline_sources(self.output_dir, room) + "\n", 1)
+            ranked = scored_sources(self.output_dir, spec, must_include=getattr(self, "refused_paths", ()))
+            sources = select_source_snapshot(ranked, room, stable_order=True, max_output_chars=room)
+            if sources is None:
+                return None
+            prompt = prompt.replace(current_sources, sources + "\n", 1)
         full = prompt + suffix
         if len(full) + len(FORMAT_INSTRUCTIONS) + 1 > limit:
             return None
@@ -2306,6 +2370,8 @@ class Flow:
                      raw_target: str | None = None) -> tuple[bool, str]:
         """Run a tool-less turn; parse and write the file blocks from the reply.
         `raw_target`: when the reply is a bare HTML document (tiny tier), write it there."""
+        self.last_codegen_refused = set()
+        self.last_codegen_written = []
         ok, text = self.text_turn((prompt + "\n" + format_instructions) if format_instructions else prompt,
                                   timeout, label, system=system, spec_chars=spec_chars)
         files = parse_file_blocks(text) if ok else {}
@@ -2322,6 +2388,7 @@ class Flow:
             shown = quoted_paths(prompt)
             refused = [rel for rel in files
                        if rel != raw_target and rel not in shown and (self.output_dir / rel).exists()]
+            self.last_codegen_refused = set(refused)
             for rel in refused:
                 files.pop(rel)
                 log(f"[codegen] {label}: refused {rel}: the file exists and the prompt did not show it whole")
@@ -2335,6 +2402,7 @@ class Flow:
             if not files:
                 return False, f"codegen reply only rewrote files it was not shown: {', '.join(refused)}"
             written = write_files(self.output_dir, files)
+            self.last_codegen_written = written
             log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
             deduped = dedupe_nav_links(self.output_dir)
             if deduped:
@@ -2684,6 +2752,48 @@ class Flow:
         return not (any(v is True for v in getattr(self, "test_verdict", {}).values())
                     or any(r.passed > 0 for r in getattr(self, "probe_summaries", {}).values()))
 
+    def node_repair_turn(self, node_id: str, failures: str, timeout: float, label: str,
+                         build_prompt) -> bool:
+        """Apply a repair before charging another acceptance round.
+
+        A guard refusal is missing context, not an ineffective code change.
+        Requote once, then use tools if necessary, sharing one time allowance.
+        Rebuild from disk after partial writes so the retry never sees stale
+        sources. False means no repair was applied and the allowance is exhausted.
+        """
+        deadline = time.monotonic() + timeout
+        prompt = build_prompt()
+        compact = self.codegen_repair_prompt(node_id, prompt, failures=failures) if self.codegen_mode() else None
+        applied = False
+        if compact is not None:
+            for attempt in range(2):
+                left = deadline - time.monotonic()
+                if left <= 0 or self.wound_down():
+                    return applied
+                self.last_codegen_refused = set()
+                self.last_codegen_written = []
+                ok, _ = self.codegen_turn(compact, left, label if attempt == 0 else f"{label} (retry quoted files)",
+                                          spec_chars=getattr(self, "current_spec_chars", 0))
+                applied = applied or bool(self.last_codegen_written)
+                refused = self.last_codegen_refused
+                if ok and not refused:
+                    return True
+                if attempt or not refused:
+                    break
+                prompt = build_prompt()
+                compact = self.codegen_repair_prompt(node_id, prompt, failures=failures)
+                if compact is None or not refused <= quoted_paths(compact):
+                    break
+                log(f"[flow] {label}: retrying codegen with {', '.join(sorted(refused))} quoted whole")
+        left = deadline - time.monotonic()
+        if left <= 0 or self.wound_down():
+            return applied
+        if self.codegen_mode():
+            self.codegen_blocked = True
+            log(f"[flow] {label}: codegen repair unavailable or not fully applied; using tools before retesting")
+        self.turn(build_prompt(), left, label)
+        return True
+
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
                         rebuild_prompt=None) -> bool | None:
         """Returns True/False for a real verdict, None when no local run happened.
@@ -2777,21 +2887,18 @@ class Flow:
                     self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
                               request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
                 continue
-            prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
-                                          failures=failures or "(no detail)", test_location=self.repair_test_location(specs),
-                                          corrections=self.corrections_text(),
-                                          slow=slow_text, smoke=self.smoke_port, port=self.web_port,
-                                          sources=self.repair_requirements(node_id) + self.sources_text())
-            compact = self.codegen_repair_prompt(node_id, prompt, failures=failures) if self.codegen_mode() else None
-            if compact is not None:
-                self.codegen_turn(compact,
-                                  min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}",
-                                  spec_chars=getattr(self, "current_spec_chars", 0))
-            else:
-                if self.codegen_mode():
-                    self.codegen_blocked = True
-                    log(f"[flow] {node_id}: complete repair evidence unavailable within codegen budget; using tools")
-                self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
+            corrections = self.corrections_text()
+            def repair_prompt():
+                nonlocal corrections
+                corrections = str(corrections) + str(self.corrections_text())
+                return REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
+                                           failures=failures or "(no detail)", test_location=self.repair_test_location(specs),
+                                           corrections=corrections,
+                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
+                                           sources=self.repair_requirements(node_id) + self.sources_text())
+            if not self.node_repair_turn(node_id, failures, min(self.node_timeout, left),
+                                         f"{node_id} repair {attempt + 1}/{self.repair_rounds}", repair_prompt):
+                break
         # Failed repairs can leave dirty files without changing HEAD. Restore the files,
         # even when the current commit already equals the best recorded commit.
         if best_passed > 0 and best_sha:
@@ -2924,14 +3031,14 @@ class Flow:
                     self.log_codegen_fallback(node_id)
                 ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
-            # Cloud 76fb32a69d81: output cut by max_tokens, nothing written. Retry
-            # once, one file per response (fresh session, same prompt).
-            log(f"[flow] {node_id}: output truncated; retrying with one file per response")
+            # Use targeted tool edits after a truncated whole-file response.
+            # A frontend task must not restart by rewriting backend/server.js.
+            log(f"[flow] {node_id}: output truncated; retrying with targeted tool edits")
             self.driver.close()
-            retry = prompt + ("\nYOUR PREVIOUS RESPONSE WAS TRUNCATED BY THE OUTPUT LIMIT AND NOTHING WAS SAVED. "
-                              "Write exactly ONE file per response (one write_file call, complete file), "
-                              "starting with backend/server.js, then finish.\n")
-            ok, text = self.turn(retry, min(self.node_timeout, deadline - time.time()), f"{node_id} implement (retry)")
+            retry = prompt + "\n" + TRUNCATED_RETRY
+            retry_time = min(self.node_timeout, deadline - time.time())
+            if retry_time > 0:
+                ok, text = self.turn(retry, retry_time, f"{node_id} implement (retry)")
         timed_out = (not ok) and "timed out" in text.lower()
         if ok and not self.has_app():
             # v6-counter: one package.json missing after the turn. Do not give

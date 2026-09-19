@@ -263,7 +263,7 @@ class RepairModeTransitionTests(unittest.TestCase):
                 flow.sources_text = lambda: ''
                 flow.corrections_text = lambda: ''
                 flow.spec_bodies = lambda _: 'complete-spec-and-helper-evidence'
-                flow.codegen_turn = Mock()
+                flow.codegen_turn = Mock(return_value=(True, 'generated repair'))
                 flow.turn = Mock()
                 flow.commit = Mock()
                 flow.restore_app = Mock()

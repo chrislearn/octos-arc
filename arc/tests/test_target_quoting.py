@@ -34,7 +34,7 @@ class SpecTargetTests(unittest.TestCase):
 
     def test_should_not_match_short_or_absent_stems(self):
         files = ["frontend/src/index.html", "frontend/src/faq.html", "backend/routes/orders.js"]
-        self.assertEqual(m.spec_targets("await page.goto('/'); expect(orders)", files), {"backend/routes/orders.js"})
+        self.assertEqual(m.spec_targets("await page.goto('/orders'); expect(orders)", files), {"backend/routes/orders.js"})
 
 
 class MustIncludeRankingTests(unittest.TestCase):
