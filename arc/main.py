@@ -89,7 +89,8 @@ from acceptance import (  # noqa: E402
     failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
-from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
+from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
+                     prepare_edit_files, write_files)
 from guard import TurnMonitor  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -483,7 +484,10 @@ def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = (".js
             continue
         rel = str(path.relative_to(output_dir))
         shared = {"frontend/build.mjs": "frontend-build.mjs",
-                  "frontend/vite.config.mjs": "vite.config.mjs"}.get(rel)
+                  "frontend/vite.config.mjs": "vite.config.mjs",
+                  "frontend/src/shared/dom.js": "frontend-dom.js",
+                  "frontend/src/shared/request.js": "frontend-request.js",
+                  "frontend/src/shared/router.js": "frontend-router.js"}.get(rel)
         if shared:
             try:
                 if text == (BUNDLE_DIR / "blueprints" / shared).read_text(encoding="utf-8"):
@@ -734,7 +738,7 @@ def render_source_selection(scored: list[tuple], selected: list[int], stable_ord
         # page does not invalidate the unchanged source prefix after it.
         quoted.sort(key=lambda item: (0 if item[0] == 0 else 1, counts.get(str(item[1]), 0), str(item[1])))
         omitted.sort()
-    out = "Current source files (quoted; return every file you change, complete):\n"
+    out = "Current source files (quoted; use exact EDIT blocks for small changes or complete FILE blocks):\n"
     out += "".join(f"--- {rel} ---\n{text.rstrip()}\n" for _, rel, text in quoted)
     if omitted:
         out += "Other files, unchanged unless the requirement needs them: " + "; ".join(omitted) + "\n"
@@ -1372,8 +1376,9 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 
 {outline}
 
-Architecture is fixed: frontend/src/index.html plus one html per route; backend/server.js as a small Express entry that \
-serves frontend/dist and registers backend/routes/<area>.js modules; shared persistence in backend modules.
+Architecture: frontend/src/index.html is the entry with local CSS/JS modules for substantial features; use additional \
+HTML pages for multi-page routes or an explicit SPA fallback for client-side routes. backend/server.js is a small \
+Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules.
 Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
@@ -1382,17 +1387,39 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape.
 """
 
-CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with file blocks in the requested format."
+CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with FILE or EDIT blocks in the requested format."
 
 CODEGEN_RULES = """\
-Files: frontend/src/index.html (+ one html per further route); backend/server.js serves ../frontend/dist on process.env.PORT||{port} and dispatches API routes from backend/routes/<area>.js.{ports} Keep server.js a small, stable entry point and put shared persistence in backend modules. Initial package.json files already exist: frontend build copies src/* to dist, backend start runs server.js. Preserve existing architecture; update package.json and the build script when task-required packages or a frontend bundler are added. Production must serve locally built scripts, styles, fonts and media: no CDN URLs, remote browser imports or unresolved bare npm imports in dist. npm registry downloads during install/build are allowed. Prefer plain HTML/CSS/JS for simple pages; use React with a local bundler for complex shared client state, htmx for server-rendered interactions, or Tailwind CLI when its CSS utilities help. Do not add a framework solely for fashion.
-For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
-Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks.
+Files: keep frontend/src/index.html a small shell; put substantial CSS/JS in local files and separate feature/view modules. Use additional HTML pages for multi-page routes. backend/server.js serves ../frontend/dist on process.env.PORT||{port} and registers backend/routes/<area>.js.{ports} Keep it stable; put persistence in backend modules. Register literal routes before matching :parameter routes. For pushState SPA links, set frontend/package.json arc.spa=true so direct navigation works. Initial manifests exist; frontend build copies src to dist, backend start runs server.js; update package.json and the build script for packages. Production: no CDN URLs or remote browser imports; all assets must be local. npm install may download packages. Prefer plain HTML/JS; use bundled React for complex state, htmx for server-rendered interactions, or local Tailwind CLI when useful.
+Persistent data: seed only a new store or explicit migration; preserve edits, deletions and archives across restarts. Reset only if required.
+Rules: implement general valid inputs; preserve working behavior. Use accessible controls, correct labels and IDs, and distinct names for menu triggers versus destinations. Per-item actions target their item; hidden menus must not intercept input. Closing an editor saves pending fields/options to the same record. Navigation renders the selected view; visual options visibly change the item. Derive data and UI from requirements, not test outputs. Prefer exact EDIT blocks for small changes to quoted files; FILE for new files or rewrites.
 """
 
 GENERIC_TEMPLATE_NOTE = """\
-Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Do not rewrite the entry for ordinary routes. From a backend/routes/ module, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove for task-defined records. Optional frontend/build.mjs and vite.config.mjs also exist: set frontend/package.json build to "node build.mjs" when using npm frontend packages. It copies plain src, builds all src/**/*.html with Vite when vite is declared (and enables declared @vitejs/plugin-react or @tailwindcss/vite), compiles Tailwind CSS when @tailwindcss/cli is declared, and copies htmx.org to /vendor/htmx.min.js when declared. Define domain fields, validation, pages, session rules, lifecycle and seed data from the task. Do not re-emit unchanged shared files.
+Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Register static paths before matching parameter paths. Do not rewrite the entry for ordinary routes. From backend/routes/, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove. The frontend starts as a small index.html, app.js and style.css; put substantial views in separate local modules, not one expanding HTML file. Optional shared modules: ./shared/dom.js exports escapeHtml, ./shared/request.js exports requestJson, ./shared/router.js exports startRouter(render) for a[data-route] SPA links (set frontend/package.json arc.spa=true). Optional frontend/build.mjs and vite.config.mjs: set build to "node build.mjs" when using npm frontend packages; it copies plain src, builds Vite when declared, compiles Tailwind CSS with @tailwindcss/cli, and copies htmx.org locally. Define domain fields, pages, validation, session rules and seed data from the task. Do not output FILE blocks for unchanged shared helpers; use application routes and feature modules instead.
 """
+
+TASK_NEUTRAL_HELPERS = {
+    "backend/lib/store.js": "store.js",
+    "backend/lib/collection.js": "collection.js",
+    "frontend/build.mjs": "frontend-build.mjs",
+    "frontend/vite.config.mjs": "vite.config.mjs",
+    "frontend/src/shared/dom.js": "frontend-dom.js",
+    "frontend/src/shared/request.js": "frontend-request.js",
+    "frontend/src/shared/router.js": "frontend-router.js",
+}
+
+
+def unchanged_task_neutral_helpers(output_dir: Path, paths: set[str]) -> bool:
+    """Only defer writes to installed, still-pristine shared infrastructure."""
+    if not paths or not paths <= TASK_NEUTRAL_HELPERS.keys():
+        return False
+    try:
+        return all((output_dir / rel).read_text(encoding="utf-8") ==
+                   (BUNDLE_DIR / "blueprints" / TASK_NEUTRAL_HELPERS[rel]).read_text(encoding="utf-8")
+                   for rel in paths)
+    except OSError:
+        return False
 
 CODEGEN_TASK = """\
 Requirement {node_id}: {description}
@@ -2049,10 +2076,7 @@ class Flow:
             return scored
         required = set(must_include)
         defaults = {}
-        for rel, asset in (("backend/lib/store.js", "store.js"),
-                           ("backend/lib/collection.js", "collection.js"),
-                           ("frontend/build.mjs", "frontend-build.mjs"),
-                           ("frontend/vite.config.mjs", "vite.config.mjs")):
+        for rel, asset in TASK_NEUTRAL_HELPERS.items():
             try:
                 defaults[rel] = (BUNDLE_DIR / "blueprints" / asset).read_text(encoding="utf-8")
             except OSError:
@@ -2097,8 +2121,8 @@ class Flow:
             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
         existing = self.has_app()
         if existing:
-            rules = rules.replace("Files:", "Existing app below; keep everything that works and output "
-                                  "every changed file complete. Files:", 1)
+            rules = rules.replace("Files:", "Existing app below; preserve working behavior and use small exact "
+                                  "EDIT blocks for quoted files when possible. Files:", 1)
         entry = backend_entry(self.output_dir) if existing else None
         if must_include is None:
             must_include = set(getattr(self, "refused_paths", ()))
@@ -2462,40 +2486,77 @@ class Flow:
 
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
                      system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
-                     raw_target: str | None = None) -> tuple[bool, str]:
-        """Run a tool-less turn; parse and write the file blocks from the reply.
+                     raw_target: str | None = None, defer_shared_refusals: bool = False) -> tuple[bool, str]:
+        """Run a tool-less turn; apply complete files or exact anchored edits.
         `raw_target`: when the reply is a bare HTML document (tiny tier), write it there."""
         self.last_codegen_refused = set()
+        self.last_codegen_deferred = set()
         self.last_codegen_written = []
         ok, text = self.text_turn((prompt + "\n" + format_instructions) if format_instructions else prompt,
                                   timeout, label, system=system, spec_chars=spec_chars)
         files = parse_file_blocks(text) if ok else {}
-        if ok and not files and raw_target:
+        edits = parse_edit_blocks(text) if ok else []
+        if ok and not files and not edits and raw_target:
             html = strip_code_fences(text)
             if looks_like_markup(html):
                 files = {raw_target: html}
-        if files:
+        if files or edits:
+            overlap = set(files) & {rel for rel, _, _ in edits}
+            if overlap:
+                error = f"mixed FILE and EDIT blocks for {', '.join(sorted(overlap))}; use one format per path"
+                self.pending_corrections.append(error)
+                log(f"[codegen] {label}: {error}")
+                return False, error
             # A block for an existing file the prompt did not show whole is a blind
             # rewrite: the model cannot preserve what it never saw. Keep the file on
             # disk, tell the next turn, and let the specs decide what is still
             # missing. New files and files quoted whole are written as before; the
             # tiny tier's page is quoted in its own format, hence raw_target.
             shown = quoted_paths(prompt)
-            refused = [rel for rel in files
-                       if rel != raw_target and rel not in shown and (self.output_dir / rel).exists()]
+            refused = sorted({rel for rel in [*files, *(row[0] for row in edits)]
+                              if rel != raw_target and rel not in shown and (self.output_dir / rel).exists()})
             self.last_codegen_refused = set(refused)
+            # A fresh scaffold can provoke the model to re-emit its unquoted
+            # task-neutral helpers. When application files were also generated,
+            # measure those files before spending another request to rewrite the
+            # helpers. A failing acceptance round still requotes refused_paths.
+            valid = [rel for rel in files if rel not in refused]
+            valid += [rel for rel, _, _ in edits if rel not in refused]
+            if (defer_shared_refusals and valid and refused
+                    and getattr(self, "generic_template_installed", False)
+                    and unchanged_task_neutral_helpers(self.output_dir, set(refused))):
+                self.last_codegen_deferred = set(refused)
             for rel in refused:
-                files.pop(rel)
+                files.pop(rel, None)
                 log(f"[codegen] {label}: refused {rel}: the file exists and the prompt did not show it whole")
+            edits = [edit for edit in edits if edit[0] not in refused]
             if refused and hasattr(self, "refused_paths"):
                 self.refused_paths.update(refused)
-            if refused:
+            if self.last_codegen_deferred:
+                log(f"[codegen] {label}: deferred shared helper rewrite until acceptance: "
+                    f"{', '.join(sorted(self.last_codegen_deferred))}")
+            elif refused:
                 self.pending_corrections.append(
-                    f"Your previous reply rewrote {', '.join(refused)} without having been shown the file whole; "
+                    f"Your previous reply changed {', '.join(refused)} without having been shown the file whole; "
                     "the block was discarded and the file kept as it was. Change only files quoted whole in the "
                     "prompt, or add new files.")
+            if edits:
+                staged, errors = prepare_edit_files(self.output_dir, edits)
+                if errors:
+                    error = "Exact EDIT failed; no changes from this response were applied: " + "; ".join(errors[:4])
+                    self.pending_corrections.append(error)
+                    # No file was written. Let the normal one-retry path requote
+                    # these targets with the concrete anchor failure instead of
+                    # first running acceptance against unchanged source.
+                    targets = {rel for rel, _, _ in edits}
+                    self.last_codegen_refused.update(targets)
+                    if hasattr(self, "refused_paths"):
+                        self.refused_paths.update(targets)
+                    log(f"[codegen] {label}: {error}")
+                    return False, error
+                files.update(staged)
             if not files:
-                return False, f"codegen reply only rewrote files it was not shown: {', '.join(refused)}"
+                return False, f"codegen reply only changed files it was not shown: {', '.join(refused)}"
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
             if "backend/server.js" in written:
@@ -2506,8 +2567,8 @@ class Flow:
                 log(f"[codegen] {label}: removed static nav links duplicating the NAV placeholder in {deduped}")
             return True, text
         if ok:
-            log(f"[codegen] {label}: reply contained no file blocks")
-            return False, "codegen reply contained no <<<FILE>>> blocks"
+            log(f"[codegen] {label}: reply contained no FILE or EDIT blocks")
+            return False, "codegen reply contained no <<<FILE>>> or <<<EDIT>>> blocks"
         return ok, text
 
     def codegen_ports_clause(self) -> str:
@@ -3198,13 +3259,15 @@ class Flow:
                 write_codegen_manifests(self.output_dir)
                 before = set(self.refused_paths)
                 ok, text = self.codegen_turn(codegen_prompt, implement_timeout, f"{node_id} implement",
-                                            spec_chars=self.current_spec_chars)
-                # A refused block names the file the node needs. One retry with that
-                # file quoted whole costs one request; the alternative measured on
-                # cloud fcec6ac02a95 was a failing spec, a repair refused the same
-                # way, and 30-80 tool-mode requests.
+                                            spec_chars=self.current_spec_chars, defer_shared_refusals=True)
+                # Requote an unshown application file immediately: cloud
+                # fcec6ac02a95 showed that waiting there can cost 30-80 tool
+                # requests. Only pristine shared helpers with other valid
+                # output defer that request until acceptance proves it needed.
                 refused = self.refused_paths - before
-                if refused and self.codegen_mode():
+                if refused and refused == getattr(self, "last_codegen_deferred", set()):
+                    log(f"[flow] {node_id}: testing generated app before requoting shared helpers")
+                elif refused and self.codegen_mode():
                     retry_prompt = self.codegen_implement_prompt(node, spec_text, self.corrections_text())
                     if retry_prompt is not None and refused <= quoted_paths(retry_prompt):
                         names = ", ".join(sorted(refused))

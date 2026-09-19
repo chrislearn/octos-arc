@@ -22,7 +22,13 @@ def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: i
     assets = {"backend/server.js": "server.js", "backend/lib/store.js": "store.js",
               "backend/lib/collection.js": "collection.js",
               "frontend/build.mjs": "frontend-build.mjs",
-              "frontend/vite.config.mjs": "vite.config.mjs"}
+              "frontend/vite.config.mjs": "vite.config.mjs",
+              "frontend/src/index.html": "frontend-index.html",
+              "frontend/src/app.js": "frontend-app.js",
+              "frontend/src/style.css": "frontend-style.css",
+              "frontend/src/shared/dom.js": "frontend-dom.js",
+              "frontend/src/shared/request.js": "frontend-request.js",
+              "frontend/src/shared/router.js": "frontend-router.js"}
     written: list[str] = []
     for target, asset in assets.items():
         destination = output_dir / target

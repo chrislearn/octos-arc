@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codegen import parse_file_blocks, write_files
+from codegen import parse_edit_blocks, parse_file_blocks, prepare_edit_files, write_files
 
 
 class ParseTests(unittest.TestCase):
@@ -26,6 +26,100 @@ class ParseTests(unittest.TestCase):
             written = write_files(Path(tmp), {"backend/server.js": "x\n"})
             self.assertEqual(written, ["backend/server.js"])
             self.assertEqual((Path(tmp) / "backend" / "server.js").read_text(), "x\n")
+
+    def test_exact_edits_are_small_and_applied_in_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'page.html').write_text('alpha\nbeta\ngamma\n')
+            reply = ('<<<EDIT page.html>>>\n<<<SEARCH>>>\nbeta\n<<<REPLACE>>>\nsecond\n<<<END EDIT>>>\n'
+                     '<<<EDIT page.html>>>\n<<<SEARCH>>>\nsecond\n<<<REPLACE>>>\nupdated\n<<<END EDIT>>>')
+            edits = parse_edit_blocks(reply)
+            self.assertEqual(len(edits), 2)
+            files, errors = prepare_edit_files(root, edits)
+            self.assertEqual(errors, [])
+            self.assertEqual(files['page.html'], 'alpha\nupdated\ngamma\n')
+            self.assertEqual((root / 'page.html').read_text(), 'alpha\nbeta\ngamma\n', 'staging must not write')
+
+    def test_missing_or_ambiguous_anchor_rejects_all_edits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'page.html').write_text('one\none\n')
+            files, errors = prepare_edit_files(root, [('page.html', 'one', 'two')])
+            self.assertEqual(files, {})
+            self.assertIn('matched 2 times', errors[0])
+            files, errors = prepare_edit_files(root, [('page.html', 'one\none', 'two'),
+                                                      ('page.html', 'absent', 'x')])
+            self.assertEqual(files, {})
+            self.assertIn('matched 0 times', errors[0])
+            self.assertEqual((root / 'page.html').read_text(), 'one\none\n')
+
+    def test_edit_paths_cannot_escape_workspace(self):
+        reply = ('<<<EDIT ../secret>>>\n<<<SEARCH>>>\na\n<<<REPLACE>>>\nb\n<<<END EDIT>>>\n'
+                 '<<<EDIT /abs/path>>>\n<<<SEARCH>>>\na\n<<<REPLACE>>>\nb\n<<<END EDIT>>>')
+        self.assertEqual(parse_edit_blocks(reply), [])
+
+
+class EditTurnTests(unittest.TestCase):
+    def setUp(self):
+        import main
+        from unittest.mock import Mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        page = self.root / 'frontend/src/index.html'
+        page.parent.mkdir(parents=True)
+        page.write_text('<html><head><meta charset="utf-8"></head><body>old</body></html>\n')
+        self.flow = object.__new__(main.Flow)
+        self.flow.output_dir = self.root
+        self.flow.pending_corrections = []
+        self.flow.refused_paths = set()
+        self.flow.generic_template_installed = False
+        self.flow.text_turn = Mock()
+
+    @staticmethod
+    def edit(path, old, new):
+        return (f'<<<EDIT {path}>>>\n<<<SEARCH>>>\n{old}\n<<<REPLACE>>>\n{new}\n<<<END EDIT>>>')
+
+    def test_small_quoted_edit_updates_file_without_full_response(self):
+        import main
+        reply = self.edit('frontend/src/index.html', '<body>old</body>', '<body>new</body>')
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn('--- frontend/src/index.html ---\n' +
+                                       (self.root / 'frontend/src/index.html').read_text(), 60, 'edit')
+        self.assertTrue(ok)
+        self.assertEqual(self.flow.last_codegen_written, ['frontend/src/index.html'])
+        self.assertIn('<body>new</body>', (self.root / 'frontend/src/index.html').read_text())
+
+    def test_blind_edit_is_refused_without_touching_file(self):
+        reply = self.edit('frontend/src/index.html', 'old', 'new')
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn('Other files: frontend/src/index.html', 60, 'blind edit')
+        self.assertFalse(ok)
+        self.assertEqual(self.flow.refused_paths, {'frontend/src/index.html'})
+        self.assertIn('old', (self.root / 'frontend/src/index.html').read_text())
+
+    def test_failed_edit_does_not_apply_other_file_blocks(self):
+        other = self.root / 'backend/server.js'
+        other.parent.mkdir(parents=True)
+        other.write_text('previous\n')
+        reply = (self.edit('frontend/src/index.html', 'missing', 'new') + '\n'
+                 '<<<FILE backend/server.js>>>\nchanged\n<<<END FILE>>>')
+        self.flow.text_turn.return_value = True, reply
+        prompt = ('--- frontend/src/index.html ---\n' + (self.root / 'frontend/src/index.html').read_text() +
+                  '--- backend/server.js ---\nprevious\n')
+        ok, _ = self.flow.codegen_turn(prompt, 60, 'bad anchor')
+        self.assertFalse(ok)
+        self.assertEqual(other.read_text(), 'previous\n')
+        self.assertIn('matched 0 times', self.flow.pending_corrections[-1])
+        self.assertEqual(self.flow.refused_paths, {'frontend/src/index.html'})
+
+    def test_mixed_file_and_edit_for_one_path_is_refused(self):
+        reply = (self.edit('frontend/src/index.html', 'old', 'new') + '\n'
+                 '<<<FILE frontend/src/index.html>>>\n<p>whole</p>\n<<<END FILE>>>')
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn('--- frontend/src/index.html ---\nsource', 60, 'mixed')
+        self.assertFalse(ok)
+        self.assertIn('old', (self.root / 'frontend/src/index.html').read_text())
 
 
 class EnsureCharsetTests(unittest.TestCase):

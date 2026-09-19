@@ -27,6 +27,17 @@ class FrontendBlueprintTests(unittest.TestCase):
         result = subprocess.run(["node", "build.mjs"], cwd=self.frontend, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_neutral_frontend_shell_and_optional_modules_are_local(self):
+        index = (self.frontend / 'src/index.html').read_text()
+        self.assertIn('type="module" src="/app.js"', index)
+        self.assertIn('href="/style.css"', index)
+        self.assertNotIn('https://', index)
+        self.build()
+        for rel in ('index.html', 'app.js', 'style.css', 'shared/dom.js',
+                    'shared/request.js', 'shared/router.js'):
+            self.assertTrue((self.frontend / 'dist' / rel).is_file(), rel)
+        self.assertEqual(external_browser_assets(self.frontend, built=True), [])
+
     def package(self, **dependencies):
         manifest = json.loads((self.frontend / "package.json").read_text())
         manifest["dependencies"] = dependencies

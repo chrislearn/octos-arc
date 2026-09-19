@@ -2223,6 +2223,48 @@ class CodegenBeyondBudgetTests(unittest.TestCase):
             self.assertEqual((root / "backend/routes/new.js").read_text().rstrip("\n"), "brand new")  # new: written
             self.assertTrue(any("backend/routes/hidden.js" in c for c in flow.pending_corrections))
 
+    def test_should_test_partial_app_before_retrying_pristine_shared_helpers(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            helper = root / "backend/lib/store.js"
+            helper.parent.mkdir(parents=True)
+            original = (m.BUNDLE_DIR / "blueprints/store.js").read_text()
+            helper.write_text(original)
+            reply = (self._block("backend/lib/store.js", "// speculative replacement")
+                     + self._block("backend/routes/items.js", "module.exports = app => {};"))
+            flow = self._flow(root, reply)
+            flow.generic_template_installed = True
+            flow.refused_paths = set()
+            ok, _ = flow.codegen_turn("Requirement REQ-9\n", 60, "REQ-9 implement",
+                                      defer_shared_refusals=True)
+            self.assertTrue(ok)
+            self.assertEqual(helper.read_text(), original)
+            self.assertTrue((root / "backend/routes/items.js").is_file())
+            self.assertEqual(flow.last_codegen_deferred, {"backend/lib/store.js"})
+            self.assertEqual(flow.refused_paths, {"backend/lib/store.js"})
+            self.assertEqual(flow.pending_corrections, [])
+
+            # A task-specific edit to that helper must not take the fast path.
+            helper.write_text("// application-specific change")
+            second_reply = (self._block("backend/lib/store.js", "// speculative replacement")
+                            + self._block("backend/routes/other.js", "module.exports = app => {};"))
+            flow = self._flow(root, second_reply)
+            flow.generic_template_installed = True
+            flow.refused_paths = set()
+            flow.codegen_turn("Requirement REQ-9\n", 60, "REQ-9 implement",
+                              defer_shared_refusals=True)
+            self.assertEqual(flow.last_codegen_deferred, set())
+            self.assertTrue(flow.pending_corrections)
+
+    def test_codegen_rules_cover_editor_item_and_view_transitions(self):
+        self.assertIn("Closing an editor saves pending fields/options", m.CODEGEN_RULES)
+        self.assertIn("Per-item actions target their item", m.CODEGEN_RULES)
+        self.assertIn("Navigation renders the selected view", m.CODEGEN_RULES)
+        self.assertIn("distinct names for menu triggers versus destinations", m.CODEGEN_RULES)
+        self.assertIn("Do not output FILE blocks", m.GENERIC_TEMPLATE_NOTE)
+
     def test_should_fail_the_turn_when_every_block_was_refused(self):
         import tempfile
         from pathlib import Path

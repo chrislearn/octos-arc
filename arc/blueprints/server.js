@@ -7,6 +7,8 @@ const path = require('path');
 const app = express();
 const dist = path.resolve(__dirname, '../frontend/dist');
 const routes = path.join(__dirname, 'routes');
+const frontendManifest = path.resolve(__dirname, '../frontend/package.json');
+const spa = fs.existsSync(frontendManifest) && JSON.parse(fs.readFileSync(frontendManifest, 'utf8')).arc?.spa === true;
 
 app.disable('x-powered-by');
 app.use(express.json({limit: '1mb'}));
@@ -19,6 +21,18 @@ if (fs.existsSync(routes)) {
   }
 }
 app.use('/api', (req, res) => res.status(404).json({error: 'not found'}));
+if (spa) app.use((req, res, next) => {
+  if (!['GET', 'HEAD'].includes(req.method) || req.path.startsWith('/api/') || req.path === '/api' ||
+      path.extname(req.path) || !req.accepts('html')) return next();
+  const html = path.resolve(dist, '.' + req.path + '.html');
+  const nested = path.resolve(dist, '.' + req.path, 'index.html');
+  if ((html.startsWith(dist + path.sep) && fs.existsSync(html)) ||
+      (nested.startsWith(dist + path.sep) && fs.existsSync(nested))) return next();
+  fs.readFile(path.join(dist, 'index.html'), (error, body) => {
+    if (error) return next(error);
+    res.type('html').send(body);
+  });
+});
 app.use(express.static(dist, {extensions: ['html']}));
 app.use((req, res) => res.status(404).send('not found'));
 app.use((error, req, res, next) => {

@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Callable
 
 from frontend_assets import external_browser_assets
+from web_checks import scaffold_issues
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _SPEC_ID = re.compile(r"^(REQ-\d+(?:\.\d+)*)(?=[.\-_ ]|$)")
@@ -801,6 +802,9 @@ class AppServer:
         remote = external_browser_assets(frontend)
         if remote:
             return "frontend uses external browser assets; install and bundle them locally instead:\n" + "\n".join(remote[:8])
+        issues = scaffold_issues(self.project)
+        if issues:
+            return "generic scaffold route checks failed:\n" + "\n".join(issues[:8])
         for part in (frontend, backend):
             manifest = part / "package.json"
             try:

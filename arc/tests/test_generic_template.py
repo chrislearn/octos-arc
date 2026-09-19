@@ -26,7 +26,10 @@ class GenericTemplateTests(unittest.TestCase):
     def test_installs_only_missing_generic_files_and_fills_ports(self):
         files = install_generic_template(self.root, m.BUNDLE_DIR, 34123, [34124, 34125])
         self.assertEqual(files, ["backend/server.js", "backend/lib/store.js", "backend/lib/collection.js",
-                                 "frontend/build.mjs", "frontend/vite.config.mjs"])
+                                 "frontend/build.mjs", "frontend/vite.config.mjs",
+                                 "frontend/src/index.html", "frontend/src/app.js", "frontend/src/style.css",
+                                 "frontend/src/shared/dom.js", "frontend/src/shared/request.js",
+                                 "frontend/src/shared/router.js"])
         server = (self.root / "backend/server.js").read_text()
         self.assertIn("process.env.PORT || 34123", server)
         self.assertIn("[34124, 34125]", server)
@@ -57,6 +60,8 @@ class GenericTemplateTests(unittest.TestCase):
         self.assertNotIn("backend/lib/collection.js", m.quoted_paths(prompt))
         self.assertNotIn("frontend/build.mjs", m.quoted_paths(prompt))
         self.assertNotIn("frontend/vite.config.mjs", m.quoted_paths(prompt))
+        self.assertIn("frontend/src/index.html", m.quoted_paths(prompt))
+        self.assertNotIn("frontend/src/shared/dom.js", m.quoted_paths(prompt))
         requoted = flow.codegen_implement_prompt({"id": "A", "description": "Create a page"}, "page.goto('/')",
                                                   must_include={"backend/lib/store.js"})
         self.assertIn("backend/lib/store.js", m.quoted_paths(requoted))
@@ -184,6 +189,52 @@ class GenericTemplateTests(unittest.TestCase):
                     time.sleep(0.05)
             else:
                 self.fail("both template ports did not start")
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+
+    @unittest.skipUnless(shutil.which("node") and os.environ.get("ARC_TEST_NPM_INTEGRATION"),
+                         "Set ARC_TEST_NPM_INTEGRATION=1 to run npm-backed scaffold tests")
+    def test_opt_in_spa_fallback_serves_deep_links_but_not_api_or_missing_assets(self):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        install_generic_template(self.root, m.BUNDLE_DIR, port, [])
+        self._install_express()
+        manifest = self.root / 'frontend/package.json'
+        data = json.loads(manifest.read_text())
+        data['arc'] = {'spa': True}
+        manifest.write_text(json.dumps(data))
+        dist = self.root / 'frontend/dist'
+        dist.mkdir(parents=True)
+        (dist / 'index.html').write_text('<main>SPA entry</main>')
+        (dist / 'about.html').write_text('<main>Real about page</main>')
+        env = dict(os.environ, PORT=str(port), ARC_EXTRA_PORTS='0')
+        local = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        process = subprocess.Popen(['node', str(self.root / 'backend/server.js')], cwd=self.root,
+                                   env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            last_error = None
+            for _ in range(40):
+                try:
+                    navigation = urllib.request.Request(f'http://127.0.0.1:{port}/archive',
+                                                        headers={'Accept': 'text/html'})
+                    with local.open(navigation, timeout=0.2) as response:
+                        self.assertIn('SPA entry', response.read().decode())
+                    break
+                except (OSError, urllib.error.URLError) as error:
+                    last_error = error
+                    time.sleep(0.05)
+            else:
+                self.fail(f'SPA server did not serve /archive: {last_error}; process={process.poll()}')
+            with local.open(urllib.request.Request(f'http://127.0.0.1:{port}/about',
+                                                   headers={'Accept': 'text/html'})) as response:
+                self.assertIn('Real about page', response.read().decode())
+            for path in ('/api/unknown', '/missing.js'):
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    local.open(f'http://127.0.0.1:{port}{path}')
+                self.assertEqual(error.exception.code, 404)
+                error.exception.close()
         finally:
             process.terminate()
             process.wait(timeout=5)

@@ -129,6 +129,21 @@ class TokenOptimizationTests(unittest.TestCase):
         self.assertIn("current failure", rebuilt[0])
         self.assertLessEqual(len(rebuilt[0] + "\n" + m.FORMAT_INSTRUCTIONS), 90000)
 
+    def test_initial_shared_helper_refusal_waits_for_acceptance(self):
+        flow = self.node_flow()
+        flow.generic_template_installed = True
+        def partial(*args, **kwargs):
+            self.assertTrue(kwargs["defer_shared_refusals"])
+            flow.refused_paths.add("backend/lib/store.js")
+            flow.last_codegen_deferred = {"backend/lib/store.js"}
+            flow.last_codegen_written = ["backend/routes/items.js"]
+            return True, "generated application route"
+        flow.codegen_turn = Mock(side_effect=partial)
+        flow.acceptance_loop = Mock(return_value=True)
+        flow.node_cycle(helpers.node("REQ-1", "Search"), [], 1, 1)
+        flow.codegen_turn.assert_called_once()
+        flow.acceptance_loop.assert_called_once()
+
     def test_oversized_rewrite_evidence_switches_to_tools(self):
         flow = self.node_flow()
         flow.codegen_context_chars = lambda: 6000
