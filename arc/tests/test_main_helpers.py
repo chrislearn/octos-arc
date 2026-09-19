@@ -1507,7 +1507,7 @@ class CheckpointRepairTests(unittest.TestCase):
     def test_should_leave_the_verdict_false_when_the_repair_does_not_take(self):
         from unittest.mock import patch
         flow = self._flow([1, 1])
-        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2", "OCTOS_ARC_CHECKPOINT_REPAIRS": "1"}):
             flow.regression_checkpoint(2, 8)
         self.assertEqual(flow.turn.call_count, 1)
         self.assertFalse(flow.test_verdict["REQ-2"])

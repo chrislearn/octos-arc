@@ -190,7 +190,7 @@ class RepairContractTests(unittest.TestCase):
             summary.results[-1].message = next(messages)
             return summary
         flow.run_specs = observe
-        with patch.dict(os.environ, {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+        with patch.dict(os.environ, {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2", "OCTOS_ARC_CHECKPOINT_REPAIRS": "1"}):
             flow.regression_checkpoint(2, 8)
         self.assertEqual(len(flow.pending_corrections), 1)
         self.assertIn("latest failure", flow.pending_corrections[0])

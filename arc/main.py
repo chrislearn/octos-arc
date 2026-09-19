@@ -1899,12 +1899,14 @@ class Flow:
             proxy.extra_drop_tools = set(self.SHELL_TOOLS) if minimal else set()
         return VERIFY_MINIMAL if minimal else VERIFY_FULL.format(smoke=self.smoke_port)
 
-    def codegen_mode(self) -> bool:
+    def codegen_mode(self, *, node_block: bool = True) -> bool:
         """One-request generation per node (OCTOS_ARC_CODEGEN=0 disables; OCTOS_ARC_CODEGEN_MAX_NODES caps the
         tree size, default unlimited). Per node, `codegen_implement_prompt` decides it: a complete user
-        message it cannot build within the budget returns None and that node uses tool mode."""
+        message it cannot build within the budget returns None and that node uses tool mode.
+        `codegen_blocked` is the current node's escalation; a suite repair (node_block=False) is not
+        bound by it."""
         return (os.environ.get("OCTOS_ARC_CODEGEN", "1") != "0" and getattr(self, "llm_proxy", None) is not None
-                and not getattr(self, "codegen_blocked", False)
+                and not (node_block and getattr(self, "codegen_blocked", False))
                 and getattr(self, "n_nodes", 99) <= int(os.environ.get("OCTOS_ARC_CODEGEN_MAX_NODES", "999")))
 
     def all_specs_tiny(self, node_ids: list[str]) -> bool:
@@ -1926,7 +1928,8 @@ class Flow:
     def codegen_context_chars(self) -> int:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
-    def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "") -> str | None:
+    def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "",
+                                 must_include: set[str] | None = None) -> str | None:
         """Budget a complete user message, preserving rules and critical corrections.
 
         Fixed rules/source order precede node-specific text and size rules. Only
@@ -1957,8 +1960,9 @@ class Flow:
             rules = rules.replace("Files:", "Existing app below; keep everything that works and output "
                                   "every changed file complete. Files:", 1)
         entry = backend_entry(self.output_dir) if existing else None
-        scored = scored_sources(self.output_dir, spec, entry,
-                                must_include=getattr(self, "refused_paths", ())) if existing else []
+        if must_include is None:
+            must_include = set(getattr(self, "refused_paths", ()))
+        scored = scored_sources(self.output_dir, spec, entry, must_include=must_include) if existing else []
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
@@ -2178,6 +2182,86 @@ class Flow:
             return None
         return valid_app_design(design)
 
+    # -- suite repairs (regression checkpoints and the full suite) ------------
+    def changed_files_since(self, sha: str | None) -> set[str]:
+        """App files that differ from the tree at `sha`; empty without one or when git cannot answer."""
+        if not sha:
+            return set()
+        try:
+            result = self.runtime.git.run(["diff", "--name-only", sha, "--", "frontend", "backend"], check=False)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[git] diff --name-only {sha[:8]} failed: {exc}")
+            return set()
+        if getattr(result, "returncode", 1) != 0:
+            return set()
+        return {line.strip() for line in (result.stdout or "").splitlines()
+                if line.strip().startswith(("frontend/", "backend/"))}
+
+    def suite_repair_prompt(self, failing_ids: list[str], failures: str) -> str | None:
+        """One codegen prompt for the nodes a suite run found failing.
+
+        Built like an implement turn -- rules, design, ranked sources, then the
+        failures as evidence -- for the failing nodes together. The files changed
+        since the tree the suite last agreed with are quoted first: a regression
+        lives in what changed. None when nothing fits the budget; the caller
+        then uses tool mode. Until 2026-09-19 every checkpoint and full-suite
+        repair went straight to tool mode: 166-351 tool calls and 0.9-2.8 h per
+        big run (temp-logs, seven cloud runs), with the per-turn timeout cutting
+        many of them mid-edit.
+        """
+        nodes = getattr(self, "requirement_nodes", {}) or {}
+        chosen = [n for n in failing_ids if n in nodes and self.spec_map.get(n)]
+        if not chosen:
+            return None
+        limit = self.codegen_context_chars()
+        specs: list[str] = []
+        names: list[str] = []
+        for node_id in chosen:
+            body = self.spec_bodies(node_id)
+            if not body or body == "(none)":
+                continue
+            block = f"### {node_id}\n{body}\n"
+            if sum(map(len, specs)) + len(block) > limit * 0.45:
+                break
+            specs.append(block)
+            names.append(node_id)
+        if not specs:
+            return None
+        omitted = [n for n in chosen if n not in names]
+        description = ("Repair the regressions the acceptance suite found in these features: "
+                       + "; ".join(f"{n}: {str(nodes[n].get('description') or '').strip()}" for n in names))
+        if omitted:
+            description += f". Also failing, specs not shown: {', '.join(omitted)}"
+        evidence = ("The current application fails these acceptance checks; fix them without breaking the "
+                    "passing ones:\n" + (failures or "(no detail)")[:8000] + "\n")
+        must = self.changed_files_since(getattr(self, "last_checkpoint_sha", None)) | set(getattr(self, "refused_paths", ()))
+        node = {"id": ", ".join(names), "description": description}
+        return self.codegen_implement_prompt(node, "".join(specs), "", evidence=evidence, must_include=must)
+
+    def suite_repair_turn(self, label: str, failing_ids: list[str], failures: str, timeout: int, *,
+                          tool_prompt: str, prefer_codegen: bool = True) -> tuple[str, str]:
+        """Repair what a suite run found: one codegen request first, tool mode only
+        when no codegen prompt fits or the caller wants a changed approach.
+        Returns (mode, reply text); the codegen reply is file blocks, so its
+        text is not an unfinished plan and comes back empty."""
+        if prefer_codegen and self.codegen_mode(node_block=False):
+            prompt = self.suite_repair_prompt(failing_ids, failures)
+            if prompt is not None:
+                spec_chars = getattr(self, "current_spec_chars", 0)
+                before = set(getattr(self, "refused_paths", set()))
+                self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars)
+                refused = set(getattr(self, "refused_paths", set())) - before
+                if refused:
+                    retry = self.suite_repair_prompt(failing_ids, failures)
+                    if retry is not None and refused <= quoted_paths(retry):
+                        names = ", ".join(sorted(refused))
+                        log(f"[flow] {label}: retrying codegen with {names} quoted whole")
+                        self.codegen_turn(retry, timeout, f"{label} (retry with {names})", spec_chars=spec_chars)
+                return "codegen", ""
+            log(f"[flow] {label}: no codegen repair prompt within the budget; using tools")
+        _, text = self.turn(tool_prompt, timeout, label)
+        return "tools", text
+
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
                      system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
                      raw_target: str | None = None) -> tuple[bool, str]:
@@ -2331,7 +2415,8 @@ class Flow:
 
     # -- git --------------------------------------------------------------
     def head(self) -> str | None:
-        return self.runtime.git.current_head()
+        runtime = getattr(self, "runtime", None)
+        return runtime.git.current_head() if runtime is not None else None
 
     def commit(self, message: str) -> bool:
         try:
@@ -2502,7 +2587,7 @@ class Flow:
             return
         tot = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
                "prompt_cache_hit_tokens": 0, "total_tokens": 0, "request_bytes": 0, "response_bytes": 0,
-               "sse_chunks": 0}
+               "sse_chunks": 0, "no_usage": 0}
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
                 rec = json.loads(line)
@@ -3010,6 +3095,9 @@ class Flow:
         if grouped:
             self.queue_checkpoint_evidence(summary)
             self.repair_regressions(index, specs, verified, tracked, summary, grouped, workers)
+        # The tree the suite last agreed with (or was repaired towards): the next
+        # suite repair quotes what changed since it first.
+        self.last_checkpoint_sha = self.head()
 
     def queue_checkpoint_evidence(self, summary: RunSummary) -> None:
         """Bound checkpoint evidence, keeping both ends when source context is large."""
@@ -3031,22 +3119,32 @@ class Flow:
         REQ-2.3.3 broken; by checkpoint 16 the same three were still broken and
         four more had joined them, with no recovery recorded in between.
         """
-        rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "1"))
+        # Two rounds: one codegen request, then tools only if it did not take.
+        # Seven cloud runs of 2026-09-18 spent 111-307 tool calls (1.0-1.5 h) per
+        # big task on checkpoint repairs, all in tool mode, and 19 of 26 of them
+        # cleared every regression -- the tool round stays for the cases the
+        # single request misses, so the fix rate is kept at the price of one
+        # extra request where codegen fails.
+        rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "2"))
         repaired = False
         for attempt in range(rounds):
             if not grouped or self.remaining() < self.min_repair_seconds or self.wound_down():
                 break
-            failing = sorted(node for node in grouped if node) or ["the regressed behaviours"]
+            failing_ids = sorted(node for node in grouped if node)
+            failing = failing_ids or ["the regressed behaviours"]
             failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
             repaired = True
-            self.turn(REPAIR_PROMPT.format(
+            tool_prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
                 sources=self.repair_requirements() + self.sources_text(),
                 corrections=self.corrections_text(), slow="",
-                smoke=self.smoke_port, port=self.web_port),
-                min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
-                f"checkpoint {index} repair {attempt + 1}/{rounds}")
+                smoke=self.smoke_port, port=self.web_port)
+            # The first round is one codegen request; a second round, if configured,
+            # is the changed approach.
+            self.suite_repair_turn(f"checkpoint {index} repair {attempt + 1}/{rounds}", failing_ids, failures,
+                                   min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
+                                   tool_prompt=tool_prompt, prefer_codegen=attempt == 0)
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
             observed = self.run_specs(specs, workers=workers, grader_like=True)
             if observed.error or observed.killed:
@@ -3218,8 +3316,12 @@ class Flow:
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "
                 "requirement demands persistence.\n",
                 slow="", smoke=self.smoke_port, port=self.web_port)
-            _, unfinished = self.turn(prompt, min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
-                                      f"full-suite repair {attempt + 1}/{rounds}")
+            # One codegen request first; a round that reproduced the previous failures
+            # is the changed approach, and that one uses tools.
+            _, unfinished = self.suite_repair_turn(
+                f"full-suite repair {attempt + 1}/{rounds}", sorted(k for k in grouped if k), failures,
+                min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
+                tool_prompt=prompt, prefer_codegen=not repeated)
             wrote_last = self.commit(f"fix: full-suite repair {attempt + 1}")
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
         if best is not None and best["sha"] and last_passed < best["passed"]:

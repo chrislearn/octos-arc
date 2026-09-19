@@ -388,6 +388,19 @@ def prompt_fingerprint(request_body: bytes, previous_text: str) -> tuple[str, in
     return sha, shared, text
 
 
+def error_message(response_body: bytes) -> str:
+    """The upstream's error text, if the body carries one; else the body's first line."""
+    text = response_body.decode("utf-8", errors="replace").strip()
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return text.splitlines()[0] if text else ""
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        return str(error.get("message") or error)
+    return str(error) if error else ""
+
+
 def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | None:
     usage = _usage_from_body(response_body)
     if not isinstance(usage, dict):
@@ -530,8 +543,8 @@ class LlmProxy:
                 result = exc.code, exc.read(), exc.headers
             except Exception as exc:  # noqa: BLE001
                 result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
-            _, payload, _ = result
-            self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload))
+            status, payload, _ = result
+            self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload), status=status)
             future.set_result(result)
             return result
         except BaseException as exc:
@@ -558,12 +571,22 @@ class LlmProxy:
             pass
 
     def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"", req_bytes: int = 0,
-             resp_bytes: int = 0) -> None:
+             resp_bytes: int = 0, status: int | None = None) -> None:
         if not self.log_path:
             return
         rec = usage_record(payload, elapsed_ms, self.mode)
         if rec is None:
-            return
+            # Every exchange is logged, usage block or not. Until 2026-09-19 an
+            # exchange without one (error, timeout, empty stream) left no record,
+            # and the platform's meter counted 1.2-3.2x the proxy's tokens on the
+            # big runs with nothing to reconcile the gap against.
+            rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "elapsed_ms": elapsed_ms,
+                   "mode": self.mode, "no_usage": True}
+            error = error_message(payload)
+            if error:
+                rec["error"] = error[:300]
+        if status is not None:
+            rec["status"] = status
         with self._lock:
             self.total_requests += 1
             self.total_tokens += int(rec.get("prompt_tokens") or 0) + int(rec.get("completion_tokens") or 0)

@@ -47,13 +47,15 @@ def classify(label: str) -> tuple[str, str]:
 
 def _bucket() -> dict:
     return {"requests": 0, "prompt_tokens": 0, "cache_hit_tokens": 0, "cache_miss_tokens": 0,
-            "completion_tokens": 0, "reasoning_tokens": 0, "elapsed_ms": 0, "prefix_shared_chars": 0, "prompt_chars": 0}
+            "completion_tokens": 0, "reasoning_tokens": 0, "elapsed_ms": 0, "prefix_shared_chars": 0, "prompt_chars": 0,
+            "no_usage": 0}
 
 
 def _add(bucket: dict, rec: dict) -> None:
     prompt = int(rec.get("prompt_tokens") or 0)
     hit = int(rec.get("prompt_cache_hit_tokens") or 0)
     bucket["requests"] += 1
+    bucket["no_usage"] += 1 if rec.get("no_usage") else 0
     bucket["prompt_tokens"] += prompt
     bucket["cache_hit_tokens"] += hit
     bucket["cache_miss_tokens"] += max(0, prompt - hit)
@@ -96,6 +98,9 @@ def render(summary: dict) -> str:
     for phase, b in summary["run"].items():
         lines.append(row(f"_{phase}", b, " |"))
     lines.append(row("TOTAL", summary["totals"], " |"))
+    if summary["totals"].get("no_usage"):
+        lines.append(f"\nexchanges without a usage block (errors, timeouts, empty streams): "
+                     f"{summary['totals']['no_usage']} -- the meter may still have billed them")
     nodes = summary["nodes"]
     if nodes:
         passed = [n for n, b in nodes.items() if b.get("first_pass")]

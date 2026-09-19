@@ -1053,3 +1053,39 @@ twice」→ tool 模式 30–86 次请求。**这不是模型的失败，是选�
 没做的四条及理由：**#3 源码按变化频率排序、#4 修复提示词布局**——价值取决于平台是否给缓存打折，对账前未知；
 **#5 有条件 tiny**——Web 六题裁剪后最小 spec 1,934 字符，没有节点落在 tiny 层，当前价值为零；**#6 同父叶子合并**
 ——省的是 codegen 那 7% 的请求，等下一跑看 93% 那块降了多少再定。真实效果：**未评测**。
+
+## 2026-09-19：七份云端日志的横向读数 —— 检查点 / 全套修复先走 codegen，代理记录每一次交换
+
+`temp-logs/` 六份 2026-09-18 的运行日志（stackoverflow、prestashop、ctrip、keep 各一次大跑，两次 keep 类小跑）加
+`fcec6ac02a95`，按回合标签把 tool 模式的时间拆成三段（只数 `[flow] … ok in Ns (tools=N)` 行）：
+
+| 任务 | 节点回合：tool 调用 / 小时 | 检查点修复：回合 / tool 调用 / 小时 | 全套修复：回合 / tool 调用 / 小时 | 检查点修复清零率 |
+|---|---:|---:|---:|---:|
+| stackoverflow | 2,171 / 6.27 | 7 / 307 / 1.02 | 0 | 7 / 8（32 号剩 2 个） |
+| prestashop | 1,116 / 4.23 | 6 / 235 / 1.45 | 0 | 3 / 6 |
+| ctrip | 1,239 / 5.83 | 8 / 181 / 1.03 | 3 / 109 / 1.00 | 7 / 8 |
+| keep（大） | 197 / 2.63 | 4 / 111 / 1.09 | 8 / 289 / 2.67（25→31/32，未过） | 2 / 4 |
+| 小跑 ×2 | 33–41 / 0.6–0.75 | 1 / 60 / 0.26 | 1–2 / 6–54 / 0.06–0.16 | 1 / 1 |
+
+读数：
+- 节点回合仍是最大的一块（前两条已在 `fcec6ac02a95` 的改动里打过，效果未评测）。
+- **检查点修复和全套修复每一次都直接进 tool 模式**：每个大跑 1.0–1.5 h、111–307 次调用；keep 的全套修复 8 轮 2.67 h
+  仍没过。这两类修复的证据是完整的（失败摘要 + 测试源码上下文），要改的文件也可知：**回归就在上次检查点之后改动的
+  文件里**（`git diff --name-only <上次检查点> -- frontend backend`）。
+- 检查点修复清零率 19 / 26：tool 模式一轮大多能修好，所以不能只换成一次 codegen 请求就完事。
+
+改动（`tests/test_suite_repair.py` 9 项先红后绿；两个旧测试按一轮契约钉住 `OCTOS_ARC_CHECKPOINT_REPAIRS=1`）：
+- `suite_repair_prompt(failing_ids, failures)`：把失败节点的 spec（合计 ≤45% 预算，放不下的只列名字）拼成一个
+  implement 式提示词——规则 → 设计 → 排序源码（`must_include` = 上次检查点以来改动的文件 ∪ 被拒文件）→ 失败证据
+  ≤8k → 任务。`changed_files_since(sha)` 只认 `frontend/`、`backend/`。
+- `suite_repair_turn(label, failing_ids, failures, timeout, tool_prompt=…, prefer_codegen=…)`：能建出提示词就一次
+  codegen（被拒则用重建的提示词重试一次，同节点路径），建不出或调用方要求换法子才走 tool 模式。
+- 检查点：默认 **2 轮**（原 1）——第一轮 codegen，第二轮 tool 且只在第一轮没修好时才跑。期望成本 = 一次请求 +
+  P(codegen 没修好) × 原来的 tool 成本，修好率不低于原来。
+- 全套：每轮先 codegen；一轮失败签名与上一轮相同（"changing repair approach"）时那一轮用 tool。
+- `regression_checkpoint` 结束时记 `last_checkpoint_sha`；`head()` 无 runtime 时返回 None（测试夹具）。
+- **代理记录每一次交换**：没有 usage 块的响应（报错、超时、空流）也写一条 `{"no_usage": true, "status", "error"}`；
+  有 usage 的也多一个 `status`。`usage_by_node.py` 与 `[usage] provider totals` 计 `no_usage` 数。目的：平台计量比代理多
+  1.2–3.2 倍的那部分，此前代理根本没看见（代理 `urlopen(timeout=600)` 超时后上游可能照样生成、照样计费）。
+
+真实效果：**未评测**（本机无模型；下一跑看检查点 / 全套两段的 tool 调用与小时数）。
