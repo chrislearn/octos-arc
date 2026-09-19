@@ -20,7 +20,7 @@ import re
 import sys
 from pathlib import Path
 
-PHASES = ("design", "implement", "rewrite", "repair", "checkpoint", "final", "other")
+PHASES = ("design", "implement", "batch", "rewrite", "repair", "checkpoint", "final", "other")
 
 
 def classify(label: str) -> tuple[str, str]:
@@ -30,6 +30,8 @@ def classify(label: str) -> tuple[str, str]:
     low = label.lower()
     if "application design" in low or low.endswith(" design"):
         phase = "design"
+    elif low.startswith("sibling batch"):
+        phase = "batch"
     elif low.startswith("checkpoint"):
         phase = "checkpoint"
     elif low.startswith("full-suite") or low.startswith("final"):

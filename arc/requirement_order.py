@@ -80,6 +80,53 @@ def topo_order(tree: dict) -> list[dict]:
     return ordered
 
 
+def sibling_batches(tree: dict, ordered: list[dict], max_size: int = 3) -> list[list[str]]:
+    """Adjacent sibling leaves safe to implement in one generation request.
+
+    Keep topological order and never put a dependency (including a folder
+    dependency expanded to its leaves) in the same batch as its dependent.
+    The caller may still decline a batch when specs, budget or mode do not fit.
+    """
+    if max_size < 2:
+        return []
+    parents: dict[str, str] = {}
+    def walk(node: dict, parent: str = "") -> None:
+        children = [c for c in (node.get("children") or []) if isinstance(c, dict)]
+        node_id = str(node.get("id") or "")
+        if not children and str(node.get("type") or "").upper() != "FOLDER":
+            parents[node_id] = parent
+        for child in children:
+            walk(child, node_id)
+    walk(tree)
+    descendants = _descendant_atomic_ids(tree)
+    dependencies = {
+        str(node.get("id")): {atom for dep in (node.get("dependencies") or [])
+                              for atom in descendants.get(str(dep), [str(dep)])}
+        for node in ordered
+    }
+    batches: list[list[str]] = []
+    i = 0
+    while i < len(ordered):
+        first = str(ordered[i].get("id"))
+        parent = parents.get(first)
+        group = [first]
+        j = i + 1
+        while parent and j < len(ordered) and len(group) < max_size:
+            candidate = str(ordered[j].get("id"))
+            if parents.get(candidate) != parent:
+                break
+            if any(member in dependencies[candidate] or candidate in dependencies[member] for member in group):
+                break
+            group.append(candidate)
+            j += 1
+        if len(group) >= 2:
+            batches.append(group)
+            i = j
+        else:
+            i += 1
+    return batches
+
+
 def ancestors_of(node_id: str, ordered_nodes: list[dict]) -> list[str]:
     """Transitive dependencies of `node_id`, in the given (topological) order."""
     by_id = {str(n.get("id")): n for n in ordered_nodes}

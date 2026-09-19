@@ -65,6 +65,12 @@ class UsageByNodeTests(unittest.TestCase):
         self.assertEqual(summary["totals"]["requests"], 6)
         self.assertIn("REQ-2", usage_by_node.render(summary))
 
+    def test_should_account_for_shared_batch_once_at_run_level(self):
+        records = [self._rec("sibling batch REQ-1, REQ-2 implement", 30000, 25000, 1000)]
+        summary = usage_by_node.summarize(records)
+        self.assertEqual(summary["run"]["batch"]["requests"], 1)
+        self.assertEqual(summary["totals"]["prompt_tokens"], 30000)
+
 
 class TwoLayerDesignTests(unittest.TestCase):
     def test_should_keep_a_small_design_whole_before_the_sources(self):

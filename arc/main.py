@@ -54,6 +54,8 @@ Environment (all optional):
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
     OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 2)
+    OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 3; 0 disables)
+    OCTOS_ARC_SOURCE_STABILITY_ORDER  "0" restores path order instead of low-churn-first quoted sources
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
     OCTOS_GUARD               "0" logs guard findings without injecting them
 """
@@ -89,7 +91,7 @@ from acceptance import (  # noqa: E402
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
-from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
+from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
 
 BUNDLE_DIR = Path(__file__).resolve().parent
 
@@ -702,25 +704,31 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None,
     return sorted(scored, key=lambda item: item[:3])
 
 
-def render_source_selection(scored: list[tuple], selected: list[int], stable_order: bool) -> str:
+def render_source_selection(scored: list[tuple], selected: list[int], stable_order: bool,
+                            change_counts: dict[str, int] | None = None) -> str:
     if not scored:
         return ""
     chosen = set(selected)
-    quoted = [(rel, text) for i, (_, _, _, rel, text) in enumerate(scored) if i in chosen]
+    quoted = [(priority, rel, text) for i, (priority, _, _, rel, text) in enumerate(scored) if i in chosen]
     omitted = [f"{rel} ({size} chars, {-neg_hits} spec terms)"
                for i, (_, neg_hits, size, rel, _) in enumerate(scored) if i not in chosen]
     if stable_order:
-        quoted.sort(key=lambda item: str(item[0]))
+        counts = change_counts or {}
+        # Selection remains relevance-based. Presentation puts the stable entry
+        # first, then files with fewer edits earlier so a frequently rewritten
+        # page does not invalidate the unchanged source prefix after it.
+        quoted.sort(key=lambda item: (0 if item[0] == 0 else 1, counts.get(str(item[1]), 0), str(item[1])))
         omitted.sort()
     out = "Current source files (quoted; return every file you change, complete):\n"
-    out += "".join(f"--- {rel} ---\n{text.rstrip()}\n" for rel, text in quoted)
+    out += "".join(f"--- {rel} ---\n{text.rstrip()}\n" for _, rel, text in quoted)
     if omitted:
         out += "Other files, unchanged unless the requirement needs them: " + "; ".join(omitted) + "\n"
     return out
 
 
 def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order: bool = False,
-                           max_output_chars: int | None = None) -> str | None:
+                           max_output_chars: int | None = None,
+                           change_counts: dict[str, int] | None = None) -> str | None:
     """Select by relevance/content budget, then enforce the serialized budget.
 
     `max_chars` counts file contents; `max_output_chars` (when given) bounds the
@@ -728,7 +736,7 @@ def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order:
     removes one least-priority quoted file, so the entry -- ranked first -- is
     the last to go. There are at most len(scored) + 1 renders, all using the same
     in-memory snapshot. `stable_order` changes presentation only, keeping the same
-    relevance selection but quoting in path order for prefix reuse.
+    relevance selection but quoting the entry and low-churn files first for prefix reuse.
     """
     selected, total = [], 0
     for i, (_, _, size, _, _) in enumerate(scored):
@@ -736,7 +744,7 @@ def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order:
             selected.append(i)
             total += size
     while True:
-        out = render_source_selection(scored, selected, stable_order)
+        out = render_source_selection(scored, selected, stable_order, change_counts)
         if max_output_chars is None or len(out) <= max_output_chars:
             return out
         if not selected:
@@ -1983,6 +1991,30 @@ class Flow:
     def codegen_context_chars(self) -> int:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
+    def source_change_counts(self) -> dict[str, int]:
+        """Historical app-file edits, used only to order already selected quotes.
+
+        A missing git history leaves the old deterministic path order intact.
+        This never changes which sources fit the prompt or the write guard.
+        """
+        if os.environ.get("OCTOS_ARC_SOURCE_STABILITY_ORDER", "1") == "0":
+            return {}
+        runtime = getattr(self, "runtime", None)
+        if runtime is None:
+            return {}
+        try:
+            result = runtime.git.run(["log", "--format=", "--name-only", "--", "frontend", "backend"], check=False)
+        except Exception:  # noqa: BLE001
+            return {}
+        if result.returncode != 0:
+            return {}
+        counts: dict[str, int] = {}
+        for path in (result.stdout or "").splitlines():
+            path = path.strip()
+            if path.startswith(("frontend/", "backend/")):
+                counts[path] = counts.get(path, 0) + 1
+        return counts
+
     def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "",
                                  must_include: set[str] | None = None) -> str | None:
         """Budget a complete user message, preserving rules and critical corrections.
@@ -2037,7 +2069,8 @@ class Flow:
         if entry is not None and not entry_indexes:
             self.codegen_budget["reason"] = "backend_entry_unreadable"
             return None
-        minimum_sources = render_source_selection(scored, entry_indexes, True)
+        change_counts = self.source_change_counts()
+        minimum_sources = render_source_selection(scored, entry_indexes, True, change_counts)
         correction_room = limit - fixed - len(minimum_sources)
         if len(corrections) > correction_room:
             fitted = corrections.fit(correction_room) if isinstance(corrections, HarnessCorrections) else None
@@ -2049,13 +2082,14 @@ class Flow:
             corrections = fitted
             room = limit - fixed - len(corrections)
             self.codegen_budget["room"] = room
-        sources = select_source_snapshot(scored, room, stable_order=True, max_output_chars=room)
+        sources = select_source_snapshot(scored, room, stable_order=True, max_output_chars=room,
+                                         change_counts=change_counts)
         if sources is None or (entry is not None and str(entry.relative_to(self.output_dir)) not in quoted_paths(sources)):
             self.codegen_budget["reason"] = "serialized_sources_or_entry_exceed_budget"
             return None
         # Rules, a design that fits whole (identical for every node), the sources in
-        # stable order -- that prefix is byte-identical across nodes for the
-        # provider's cache -- then the per-node design slice, if any, with the
+        # stability order -- unchanged low-churn files precede frequently edited
+        # ones for prefix reuse -- then the per-node design slice, if any, with the
         # other node-specific text.
         return rules + design_stable + sources + "\n" + design_slice + corrections + evidence + task
 
@@ -2104,7 +2138,8 @@ class Flow:
             if room < 8000:
                 return None
             ranked = scored_sources(self.output_dir, spec, must_include=getattr(self, "refused_paths", ()))
-            sources = select_source_snapshot(ranked, room, stable_order=True, max_output_chars=room)
+            sources = select_source_snapshot(ranked, room, stable_order=True, max_output_chars=room,
+                                             change_counts=self.source_change_counts())
             if sources is None:
                 return None
             prompt = prompt.replace(current_sources, sources + "\n", 1)
@@ -2447,6 +2482,25 @@ class Flow:
         files = [rel for rel in specs + helpers if texts.get(rel)]
         parts = [texts[rel] if len(files) == 1 else f"--- {rel} ---\n{texts[rel]}" for rel in files]
         return "\n".join(parts) or "(none)"
+
+    def batch_spec_bodies(self, node_ids: list[str]) -> str:
+        """Quote a batch's specs and reachable helpers once, not once per leaf."""
+        if not self.tests_dir:
+            return "(none)"
+        specs = list(dict.fromkeys(path for node_id in node_ids for path in (self.spec_map.get(node_id) or [])))
+        helpers = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
+                         if not p.name.endswith(".spec.ts") and str(p.relative_to(self.tests_dir)) not in specs)
+        texts: dict[str, str] = {}
+        for rel in specs + helpers:
+            try:
+                texts[rel] = (self.tests_dir / rel).read_text(encoding="utf-8", errors="replace").strip()
+            except OSError:
+                continue
+        referenced = {ident for rel in specs for ident in _IDENT.findall(texts.get(rel, ""))}
+        for rel in helpers:
+            if rel in texts:
+                texts[rel] = trim_helper_to_references(texts[rel], referenced).strip()
+        return "\n".join(f"--- {rel} ---\n{texts[rel]}" for rel in specs + helpers if texts.get(rel)) or "(none)"
 
     def repair_requirements(self, node_id: str | None = None) -> str:
         nodes = getattr(self, "requirement_nodes", {})
@@ -2965,7 +3019,49 @@ class Flow:
         except Exception as exc:  # noqa: BLE001
             log(f"[trace] design not recorded: {exc}")
 
-    def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int) -> None:
+    def batch_codegen(self, nodes: list[dict]) -> bool:
+        """One source snapshot and one codegen request for independent siblings.
+
+        Only the generation turn is shared. Each leaf still receives its own
+        acceptance loop, repair budget, traceability and checkpoint. A batch
+        whose prompt cannot fit falls back to the original per-node flow.
+        """
+        ids = [str(node.get("id")) for node in nodes]
+        if (len(ids) < 2 or self.evolution or self.design_mode != "inline" or self.runner is None
+                or not self.codegen_mode() or self.pending_corrections or self.wound_down()
+                or self.remaining() < self.min_repair_seconds + 120
+                or any(not self.spec_map.get(node_id) for node_id in ids)):
+            return False
+        spec = self.batch_spec_bodies(ids)
+        if spec == "(none)":
+            return False
+        combined = {"id": ", ".join(ids),
+                    "description": "Implement each independent requirement below, preserving their separate "
+                                   "behaviours:\n" + "\n\n".join(describe_node(node) for node in nodes)}
+        prompt = self.codegen_implement_prompt(combined, spec)
+        if prompt is None:
+            log(f"[flow] sibling batch {ids}: prompt did not fit; using per-node turns")
+            return False
+        self.refused_paths = set()
+        write_codegen_manifests(self.output_dir)
+        label = f"sibling batch {', '.join(ids)} implement"
+        timeout = min(self.node_timeout, max(120, self.remaining() - self.min_repair_seconds))
+        ok, _ = self.codegen_turn(prompt, timeout, label, spec_chars=len(spec))
+        refused = set(self.refused_paths)
+        if refused and self.codegen_mode():
+            retry = self.codegen_implement_prompt(combined, spec)
+            if retry is not None and refused <= quoted_paths(retry):
+                log(f"[flow] sibling batch {ids}: retrying with {', '.join(sorted(refused))} quoted whole")
+                ok, _ = self.codegen_turn(retry, timeout, label + " (retry)", spec_chars=len(spec))
+        if not ok or not getattr(self, "last_codegen_written", []) or getattr(self, "last_codegen_refused", set()):
+            log(f"[flow] sibling batch {ids}: no complete write; using per-node turns")
+            return False
+        self.commit(f"sibling batch {', '.join(ids)} (implement)")
+        log(f"[flow] sibling batch {ids}: generated once; validating each leaf separately")
+        return True
+
+    def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int,
+                   *, preimplemented: bool = False) -> None:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
@@ -3012,12 +3108,18 @@ class Flow:
         prompt = corrections + prompt
         codegen_prompt = None
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
-        tiny_ok = False
-        if not corrections and self.codegen_mode() and self.tiny_mode(len(self.spec_bodies(node_id))):
+        tiny_ok = preimplemented
+        if preimplemented:
+            # The shared generation turn already wrote the app. Keep the normal
+            # per-leaf acceptance and repair path, including a codegen rebuild
+            # prompt if this leaf fails every check.
+            self.current_spec_chars = len(self.spec_bodies(node_id))
+            codegen_prompt = self.codegen_implement_prompt(node, self.spec_bodies(node_id), corrections)
+        elif not corrections and self.codegen_mode() and self.tiny_mode(len(self.spec_bodies(node_id))):
             tiny_ok = self.tiny_turn(node_id, specs, implement_timeout, node)
             self.current_spec_chars = len(self.spec_bodies(node_id))
         if tiny_ok:
-            ok, text = True, "tiny tier: specs pass"
+            ok, text = True, "sibling batch implementation" if preimplemented else "tiny tier: specs pass"
         else:
             spec_text = self.spec_bodies(node_id)
             if self.codegen_mode():
@@ -3809,6 +3911,9 @@ class Flow:
                              daemon=True).start()
             try:
                 self.prepare_build(tree, ordered)
+                batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "3"))
+                batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
+                preimplemented: set[str] = set()
                 for index, node in enumerate(ordered, 1):
                     node_id = str(node.get("id"))
                     if self.time_up():
@@ -3820,7 +3925,13 @@ class Flow:
                     if node_id in unchanged:
                         self.regression_cycle(node)
                     else:
-                        self.node_cycle(node, ordered, index, len(ordered))
+                        group = batch_starts.get(node_id)
+                        if group and not any(member in unchanged for member in group):
+                            group_nodes = [ordered[index - 1 + offset] for offset in range(len(group))]
+                            if self.batch_codegen(group_nodes):
+                                preimplemented.update(group)
+                        self.node_cycle(node, ordered, index, len(ordered),
+                                        preimplemented=node_id in preimplemented)
                     self.regression_checkpoint(index, len(ordered))
                     self.driver.end_scope("node")
 

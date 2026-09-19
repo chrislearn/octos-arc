@@ -4,6 +4,7 @@ from requirement_order import (
     ancestors_of,
     flatten_atomic,
     node_fingerprint,
+    sibling_batches,
     topo_order,
 )
 
@@ -52,6 +53,26 @@ class AncestorTests(unittest.TestCase):
         ordered = topo_order(t)
         self.assertEqual(ancestors_of("REQ-3", ordered), ["REQ-1", "REQ-2"])
         self.assertEqual(ancestors_of("REQ-4", ordered), [])
+
+
+class SiblingBatchTests(unittest.TestCase):
+    def test_groups_independent_adjacent_siblings_in_threes(self):
+        t = tree([{"id": "F", "type": "FOLDER", "children": [atomic(f"A{i}") for i in range(7)]}])
+        self.assertEqual(sibling_batches(t, topo_order(t)),
+                         [["A0", "A1", "A2"], ["A3", "A4", "A5"]])
+
+    def test_does_not_batch_dependent_or_nonadjacent_siblings(self):
+        t = tree([{"id": "F", "type": "FOLDER", "children": [
+            atomic("A"), atomic("B", ["A"]), atomic("C"), atomic("D")]},
+            {"id": "G", "type": "FOLDER", "children": [atomic("E"), atomic("F")]},
+        ])
+        self.assertEqual(sibling_batches(t, topo_order(t)), [["B", "C", "D"], ["E", "F"]])
+        self.assertEqual(sibling_batches(t, topo_order(t), 1), [])
+
+    def test_expands_folder_dependencies_before_batching(self):
+        t = tree([{"id": "F", "type": "FOLDER", "children": [atomic("A"), atomic("B")]},
+                  {"id": "G", "type": "FOLDER", "children": [atomic("C", ["F"]), atomic("D")]}])
+        self.assertEqual(sibling_batches(t, topo_order(t)), [["A", "B"], ["C", "D"]])
 
 
 class FingerprintTests(unittest.TestCase):
