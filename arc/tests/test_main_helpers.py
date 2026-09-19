@@ -148,7 +148,7 @@ class CodegenPromptTests(unittest.TestCase):
     def test_should_format_without_placeholder_errors_and_keep_build_command(self):
         import main as m
         text = m.CODEGEN_PROMPT.format(node_id="REQ-1", description="S", spec="T", port=3000, ports=" P", size_rule="R")
-        self.assertIn("update manifests when required", text)
+        self.assertIn("update package.json and the build script", text)
         self.assertIn("REQ-1", text)
 
 
@@ -2045,7 +2045,8 @@ class ModularBackendTests(unittest.TestCase):
         text = m.CODEGEN_PROMPT.format(node_id="REQ-1", description="S", spec="T",
                                        port=3000, ports=" P", size_rule="R")
         self.assertIn("backend/routes/", text)
-        self.assertIn("update manifests when required", text)  # unchanged contract
+        self.assertIn("update package.json and the build script", text)
+        self.assertIn("no CDN URLs", text)
 
     def test_should_ship_the_modular_contract_to_the_rust_engine_too(self):
         from pathlib import Path

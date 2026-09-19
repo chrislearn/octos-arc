@@ -48,6 +48,7 @@ class GenericTemplateTests(unittest.TestCase):
         self.assertIn("Shared task-neutral files already exist", prompt)
         self.assertIn("backend/routes/*.js", prompt)
         self.assertIn("require('../lib/store')", prompt)
+        self.assertIn("Express 5 entry", prompt)
         self.assertEqual(flow.codegen_ports_clause(), "")  # installed server already binds 34124
         self.assertIn("backend/server.js", m.quoted_paths(prompt))
         self.assertNotIn("backend/lib/store.js", m.quoted_paths(prompt))
@@ -74,12 +75,19 @@ class GenericTemplateTests(unittest.TestCase):
         self.assertEqual((self.root / "backend/server.js").read_text(), "// user entry\n")
         self.assertFalse((self.root / "backend/lib").exists())
 
-    @unittest.skipUnless(shutil.which("node"), "Node.js is required for scaffold runtime check")
+    def _install_express(self):
+        m.write_codegen_manifests(self.root)
+        subprocess.run(["npm", "install", "--no-audit", "--no-fund"], cwd=self.root / "backend",
+                       check=True, capture_output=True, text=True, timeout=120)
+
+    @unittest.skipUnless(shutil.which("node") and os.environ.get("ARC_TEST_NPM_INTEGRATION"),
+                         "Set ARC_TEST_NPM_INTEGRATION=1 to run npm-backed scaffold tests")
     def test_server_routes_static_pages_and_store_persists_without_domain_seed(self):
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         install_generic_template(self.root, m.BUNDLE_DIR, port, [])
+        self._install_express()
         dist = self.root / "frontend/dist"
         dist.mkdir(parents=True)
         (dist / "index.html").write_text("<main>generic home</main>")
@@ -87,10 +95,9 @@ class GenericTemplateTests(unittest.TestCase):
         routes = self.root / "backend/routes"
         routes.mkdir()
         (routes / "health.js").write_text(
-            "module.exports = async (req,res,tools) => {"
-            "if (tools.url.pathname === '/api/health') {tools.json(res,200,{ok:true}); return true;}"
-            "if (tools.url.pathname === '/api/echo' && req.method === 'POST') {"
-            "tools.json(res,200,await tools.readJson(req)); return true;} return false; };\n")
+            "module.exports = app => {"
+            "app.get('/api/health',(req,res)=>res.json({ok:true}));"
+            "app.post('/api/echo',(req,res)=>res.json(req.body)); };\n")
         env = dict(os.environ, PORT=str(port), ARC_EXTRA_PORTS="0")
         process = subprocess.Popen(["node", str(self.root / "backend/server.js")], cwd=self.root,
                                    env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -138,7 +145,8 @@ class GenericTemplateTests(unittest.TestCase):
         output = subprocess.check_output(["node", "-e", script, collection_helper], text=True)
         self.assertEqual(json.loads(output), [], "persisted deletion must not reseed on a later read")
 
-    @unittest.skipUnless(shutil.which("node"), "Node.js is required for scaffold runtime check")
+    @unittest.skipUnless(shutil.which("node") and os.environ.get("ARC_TEST_NPM_INTEGRATION"),
+                         "Set ARC_TEST_NPM_INTEGRATION=1 to run npm-backed scaffold tests")
     def test_listens_on_separate_extra_port_when_required(self):
         ports = []
         while len(ports) < 2:
@@ -148,6 +156,7 @@ class GenericTemplateTests(unittest.TestCase):
                 if port not in ports:
                     ports.append(port)
         install_generic_template(self.root, m.BUNDLE_DIR, ports[0], [ports[0], ports[1]])
+        self._install_express()
         dist = self.root / "frontend/dist"
         dist.mkdir(parents=True)
         (dist / "index.html").write_text("two ports")

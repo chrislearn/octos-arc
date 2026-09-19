@@ -36,7 +36,9 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 ## 改了内核怎么让平台用上
 
-当前 v3 包在全新 codegen 任务开始前会安装跨任务通用的 `backend/server.js`、`backend/lib/store.js` 和 `backend/lib/collection.js`；它们只提供路由、静态文件与通用持久化，不包含任何题目数据或业务规则。已有应用不会被覆盖；设置 `OCTOS_ARC_GENERIC_TEMPLATE=0` 可关闭此行为。v2 包不包含这组模板。
+当前 v4 包在全新 codegen 任务开始前会安装跨任务通用的 Express 5 `backend/server.js`、`backend/lib/store.js` 和 `backend/lib/collection.js`；它们只提供路由、静态文件与通用持久化，不包含题目数据或业务规则。后端依赖写在 `backend/package.json`。已有应用不会被覆盖；设置 `OCTOS_ARC_GENERIC_TEMPLATE=0` 可关闭此行为。v3 包是原生 Node HTTP 版本，v2 无模板。
+
+前端默认用可直接复制的 HTML/CSS/JS，以免简单任务承担框架安装和输出成本。复杂客户端状态可以改用 React + Vite；服务器渲染的局部交互可用 htmx；大量工具类样式可用 Tailwind CLI。平台最终验收会在前端运行 `npm install` 和 `npm run build`，在后端运行 `npm install` 和 `npm start`；本地验收也会按 `dependencies`、`devDependencies` 和 `optionalDependencies` 的变化安装，再构建。引入前端包时必须更新 `frontend/package.json` 的构建脚本，使所有页面、JS、CSS、字体和媒体进入 `frontend/dist/`。页面不能依赖 CDN 或远程浏览器模块；构建前后都有静态检查。npm 安装时访问包仓库不等于页面运行时使用 CDN。
 
 **本地的环境变量不会跟到平台上。** 平台在自己的容器里跑 zip 里的 `main.py`，`OCTOS_BIN`、`OCTOS_ARC_*`
 这些只在本机 `run-task-local.py` 有效；`main.py` 也不读任何配置文件（`arc-policy.toml` 只有 Rust 引擎读）。
@@ -81,7 +83,7 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 | `tasks/<题目>/` | 各题需求文件的离线副本 |
 | `run-task-local.py` / `grade-local.py` / `pack.sh` | 本机做题、打分、打包 |
 
-已知平台细节：容器里 `/workspace/tests` 有验收测试；订票题的测试默认连 3301 端口而平台起在 3000，`main.py` 会要求后端两个端口都监听；容器到 npmjs 很慢，提示词要求零依赖并走 npmmirror。
+已知平台细节：容器里 `/workspace/tests` 有验收测试；订票题的测试默认连 3301 端口而平台起在 3000，`main.py` 会要求后端两个端口都监听。平台最终验收会分别安装前后端依赖；本地生成器配置了 npmmirror，但平台安装所用的 registry 由平台自身决定。避免无必要的包，同时允许确实简化业务实现的依赖。
 
 ## 编排器开关（环境变量）
 

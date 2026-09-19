@@ -56,7 +56,7 @@ Environment (all optional):
     OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 2)
     OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 3; 0 disables)
     OCTOS_ARC_SOURCE_STABILITY_ORDER  "0" restores path order instead of low-churn-first quoted sources
-    OCTOS_ARC_GENERIC_TEMPLATE  "0" disables the task-neutral server/store scaffold (default on in v3)
+    OCTOS_ARC_GENERIC_TEMPLATE  "0" disables the task-neutral Express/store scaffold (default on in v4)
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
     OCTOS_GUARD               "0" logs guard findings without injecting them
 """
@@ -433,13 +433,17 @@ CODEGEN_MANIFESTS = {
     "frontend/package.json": {"name": "f", "private": True, "scripts": {"build": "node -e \"const f=require('fs');f.rmSync('dist',{recursive:true,force:true});f.cpSync('src','dist',{recursive:true})\""}},
     # "type": "commonjs" pins the loader: Node 20.19 module detection treated a server.js mixing
     # import and require as ESM (cloud 3e425ce2ebf6: "require is not defined in ES module scope").
-    "backend/package.json": {"name": "b", "private": True, "type": "commonjs", "scripts": {"start": "node server.js"}},
+    "backend/package.json": {"name": "b", "private": True, "type": "commonjs", "scripts": {"start": "node server.js"},
+                             "dependencies": {"express": "5.2.1"}},
 }
 
 
 def write_codegen_manifests(output_dir: Path) -> list[str]:
-    """Codegen turns never emit package.json: the harness writes the two fixed
-    manifests (idempotent build copying src/* to dist, start running server.js)."""
+    """Write initial manifests; generated code may extend them for task needs.
+
+    The lightweight frontend build copies src/ into dist/. A framework or CSS
+    compiler must replace that script with a real production build.
+    """
     written = []
     for rel, data in CODEGEN_MANIFESTS.items():
         path = output_dir / rel
@@ -1350,7 +1354,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "2"
+APP_DESIGN_PROMPT_VERSION = "3"
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1359,8 +1363,8 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 
 {outline}
 
-Architecture is fixed: frontend/src/index.html plus one html per route; backend/server.js as a small entry that \
-serves frontend/dist and requires backend/routes/<area>.js modules; shared persistence in backend modules.
+Architecture is fixed: frontend/src/index.html plus one html per route; backend/server.js as a small Express entry that \
+serves frontend/dist and registers backend/routes/<area>.js modules; shared persistence in backend modules.
 Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
@@ -1372,13 +1376,13 @@ Name every collection, field, route and page once and consistently; requirements
 CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with file blocks in the requested format."
 
 CODEGEN_RULES = """\
-Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) and dispatching API requests to the route modules it requires, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Keep server.js a small, stable entry point: new API routes go in backend/routes/<area>.js and shared persistence in backend modules, so implementing a requirement adds or edits one small module instead of re-emitting the entry. Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
+Files: frontend/src/index.html (+ one html per further route); backend/server.js serves ../frontend/dist on process.env.PORT||{port} and dispatches API routes from backend/routes/<area>.js.{ports} Keep server.js a small, stable entry point and put shared persistence in backend modules. Initial package.json files already exist: frontend build copies src/* to dist, backend start runs server.js. Preserve existing architecture; update package.json and the build script when task-required packages or a frontend bundler are added. Production must serve locally built scripts, styles, fonts and media: no CDN URLs, remote browser imports or unresolved bare npm imports in dist. npm registry downloads during install/build are allowed. Prefer plain HTML/CSS/JS for simple pages; use React with a local bundler for complex shared client state, htmx for server-rendered interactions, or Tailwind CLI when its CSS utilities help. Do not add a framework solely for fashion.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks.
 """
 
 GENERIC_TEMPLATE_NOTE = """\
-Shared task-neutral files already exist: backend/server.js serves built frontend assets and dispatches every backend/routes/*.js module. Keep that entry unchanged unless the requirement truly needs a new transport. A route module exports an async function (req, res, tools), returns false for unrelated paths before reading the body, and returns true when handled; tools provides url, json(res, status, value), and readJson(req). From a backend/routes/ module, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove for task-defined records. Define all domain fields, validation, pages, session rules, lifecycle and seed data from this task, not from the scaffold. Do not re-emit unchanged shared files.
+Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Do not rewrite the entry for ordinary routes. From a backend/routes/ module, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove for task-defined records. Define domain fields, validation, pages, session rules, lifecycle and seed data from the task. Do not re-emit unchanged shared files.
 """
 
 CODEGEN_TASK = """\
@@ -1406,7 +1410,7 @@ TINY_SYSTEM = 'Reply with HTML only. Honor supplied selectors and accessible nam
 TINY_PROMPT = """\
 Task and public acceptance example (implement general behavior):
 {spec}
-Reply with the page markup only: a concise self-contained page implementing the full task, including required styling, controls and state. Do not hardcode test outputs.
+Reply with the page markup only: a concise self-contained page implementing the full task, including required styling, controls and state. Do not hardcode test outputs or load browser assets from a CDN.
 """
 
 TINY_PROMPT_EVOLUTION = """\
@@ -1414,7 +1418,7 @@ Current index.html:
 {page}
 Task and additional acceptance example (preserve existing behavior):
 {spec}
-Reply with the complete updated page markup only: a concise self-contained page implementing the full task, including required styling, controls and state. Do not hardcode test outputs.
+Reply with the complete updated page markup only: a concise self-contained page implementing the full task, including required styling, controls and state. Do not hardcode test outputs or load browser assets from a CDN.
 """
 
 TINY_SERVER_JS = """\
@@ -1480,7 +1484,7 @@ Performance and robustness:
 ARCHITECTURE_CONTRACT = """\
 Runtime integration:
 - Preserve the platform contract: frontend/ has npm run build producing frontend/dist/; backend/ has npm start and reads PORT (default {port}). Within that contract, preserve the existing application architecture and choose libraries or storage appropriate to the requirements and available environment.
-- Prefer existing dependencies and avoid unnecessary installation. Do not prohibit frameworks, native modules or durable storage when the task requires them. Use the configured package registry.
+- Prefer existing dependencies and avoid unnecessary installation. Use Express routes in the fresh scaffold; preserve another existing architecture. React with a local bundler, htmx, Tailwind CLI and other npm packages are allowed when useful. Declare dependencies and make npm run build produce all pages and assets. Browser pages must load scripts, styles, fonts and media from local output, never a CDN or remote import. Registry downloads during npm install are allowed.
 - Handle expected request errors with appropriate responses, including 404 for missing resources. Log unexpected failures; do not suppress uncaught exceptions and continue serving potentially corrupt state. Preserve data integrity and use the runtime's recovery mechanism.
 """
 
@@ -1539,14 +1543,14 @@ NODE_PROMPT = """\
 """ + PORT_RULES
 
 NODE_PREAMBLE_EXTEND = """\
-Implement requirement node {node_id} in the existing application (frontend/ built by `npm run build` into frontend/dist/; zero-dependency Node backend in backend/, `npm start`, PORT env var). Extend the app; do not rewrite or break existing features.
+Implement requirement node {node_id} in the existing application (frontend/ built by `npm run build` into frontend/dist/; backend/ started by `npm start` with PORT). Extend the app; do not rewrite or break existing features. Use existing packages when suitable; add a declared dependency only when it simplifies or enables the requirement. Never load browser assets from a CDN.
 """
 
 NODE_PREAMBLE_CREATE = """\
 Build a full-stack web application in the current working directory that implements requirement node {node_id} (the whole requirement tree is at {req_dir}; further nodes, if any, come in later turns — leave room for them but implement only this one).
 
 """ + ARCHITECTURE_CONTRACT + """
-Mandatory files (all in this turn): frontend/package.json (with the `build` script), the frontend page sources plus the tiny build script that fills frontend/dist/, backend/package.json (with the `start` script, empty dependencies) and backend/server.js.
+Mandatory files (all in this turn): frontend/package.json (with a working production `build` script), frontend page sources, backend/package.json (with `start` and any needed dependencies) and backend/server.js. Keep all browser assets local in frontend/dist/ after the build.
 """
 
 

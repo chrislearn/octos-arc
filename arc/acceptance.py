@@ -11,6 +11,7 @@ functions covered by arc/tests/test_acceptance.py; process handling lives in
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -22,6 +23,8 @@ import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
+
+from frontend_assets import external_browser_assets
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _SPEC_ID = re.compile(r"^(REQ-\d+(?:\.\d+)*)(?=[.\-_ ]|$)")
@@ -795,16 +798,28 @@ class AppServer:
         frontend, backend = self.project / "frontend", self.project / "backend"
         if not (frontend / "package.json").is_file() or not (backend / "package.json").is_file():
             return "frontend/package.json or backend/package.json missing"
+        remote = external_browser_assets(frontend)
+        if remote:
+            return "frontend uses external browser assets; install and bundle them locally instead:\n" + "\n".join(remote[:8])
         for part in (frontend, backend):
-            deps = {}
+            manifest = part / "package.json"
             try:
-                deps = json.loads((part / "package.json").read_text()).get("dependencies") or {}
-            except Exception:  # noqa: BLE001
-                pass
-            if deps and not (part / "node_modules").is_dir():
-                rc, out = self._run(["npm", "install", "--no-audit", "--no-fund"], part, 600)
+                raw = manifest.read_bytes()
+                config = json.loads(raw)
+            except (OSError, ValueError) as exc:
+                return f"{part.name}/package.json invalid: {exc}"
+            if not isinstance(config, dict):
+                return f"{part.name}/package.json must contain a JSON object"
+            deps = any(config.get(key) for key in ("dependencies", "devDependencies", "optionalDependencies"))
+            modules = part / "node_modules"
+            stamp = modules / ".arc-manifest-sha256"
+            digest = hashlib.sha256(raw).hexdigest()
+            if deps and (not modules.is_dir() or not stamp.is_file() or stamp.read_text().strip() != digest):
+                rc, out = self._run(["npm", "install", "--include=dev", "--include=optional", "--no-audit", "--no-fund"], part, 600)
                 if rc != 0:
                     return f"{part.name} `npm install` failed:\n{out}"
+                modules.mkdir(exist_ok=True)
+                stamp.write_text(digest)
         # Cloud c17bc1b44d26: a one-line copy build failed because dist/ did not
         # exist yet. The grader builds from a fresh checkout too, so make the
         # target directory exist before every build (harmless when it does).
@@ -815,6 +830,9 @@ class AppServer:
         rc, out = self._run(["npm", "run", "build"], frontend, 600)
         if rc != 0:
             return f"frontend `npm run build` failed:\n{out}"
+        remote = external_browser_assets(frontend, built=True)
+        if remote:
+            return "built frontend uses external browser assets; bundle them locally instead:\n" + "\n".join(remote[:8])
         return None
 
     def start(self, wait_seconds: int = 45) -> str | None:

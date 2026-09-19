@@ -1,5 +1,11 @@
 # arc/ 适配层改动记录（工作流 A，分支 `wf-adapter`）
 
+## v4：按需前端依赖与本地资源（云端未评测）
+
+从 `temp-logs/2/keep.txt` 核实最终验收依次运行前端 `npm install`、`npm run build`、后端 `npm install` 和 `npm start`。新任务的通用后端入口改为 Express 5，路由模块只注册处理器，减少手写 URL、body 和响应分发。前端保持零依赖 HTML/CSS/JS 的轻量默认；仅复杂客户端状态、局部服务器交互或大规模工具类样式需要时，允许 React/Vite、htmx、Tailwind CLI 等本地 npm 构建。移除了工具模式的“零依赖/空 dependencies”矛盾提示。
+
+本地验收现在也检查 `devDependencies`、`optionalDependencies` 与 manifest 变化，安装必要依赖后构建。源码和构建产物会检查浏览器脚本、样式、字体和媒体的外部 URL；运行页面不允许依赖 CDN，npm 安装阶段可访问仓库。v4 的 token、安装耗时、缓存和通过率仍需同题云端对照，不预称改善。
+
 ## v3：跨任务通用模板（云端未评测）
 
 分析 `arc/tasks/` 的 11 棵需求树及公开 Web 验收后，仅预置跨领域重复的基础设施：`backend/server.js`（静态页面 + 自动分发 `backend/routes/*.js`）、`backend/lib/store.js`（原子 JSON 读写）和 `backend/lib/collection.js`（可选的通用记录 list/get/create/patch/remove）。模板不含任何题目字段、演示账号、初始商品/便签/车次、可访问名称或预设测试结果；页面、路由行为、验证、会话和领域生命周期仍由模型按任务实现。初次生成时只安装缺失文件，既有应用和 evolution 不覆盖；`OCTOS_ARC_GENERIC_TEMPLATE=0` 可退回 v2 行为。提示词说明这些已存在的基础件，避免重复输出；写保护和逐节点验收继续生效。
