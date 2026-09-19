@@ -1029,3 +1029,27 @@ twice」→ tool 模式 30–86 次请求。**这不是模型的失败，是选�
 **平台计量 vs 代理差 3.2 倍**（185.3M vs 57.9M），keep 那次是 1.0 倍，但 ¥/M 一致。¥2/M×55.84M + ¥7.5/M×2.10M
 = ¥127.5，与 ¥119.68 相差 6%——**像是平台按全价计 prompt token、不打缓存折扣**，但 185M 这个数还解释不了。
 对账之前，缓存命中率对榜单费用的价值是未知数，任何按节点归因都要以平台数为准。真实效果：**未评测**。
+
+## 2026-09-19：评审报告的 #1 / #2 / #7 —— 归因度量、两层设计、设计复用
+
+按报告顺序做了认同的三条（`tests/test_report_items.py` 11 项先红后绿；`test_app_design.py` 3 项按新契约改写）：
+
+- **#1 可归因的度量。** 每条用量记录多两个字段：`prompt_sha256`（消息序列化后的哈希）和 `prefix_shared_chars`
+  （与上一请求提示词的最长公共前缀字符数——provider 前缀缓存理论上能复用的部分）。新增 `usage_by_node.py`：
+  按节点 × 阶段（design / implement / rewrite / repair / checkpoint / final）汇总请求数、prompt、**cache-miss**、
+  completion、reasoning、墙钟、前缀复用比例，标出"一次通过"（implement 之后没有 repair/rewrite）。
+  口径按报告：看**每个通过节点的 cache-miss tokens、总 tokens、请求数和时间**，不单看命中率。
+  `python3 arc/usage_by_node.py <输出目录>`。对账问题（平台 185.3M vs 代理 57.9M）它解决不了，只能把我们这边的
+  数按节点摆出来等对。
+- **#2 两层设计。** `app_design_blocks` 从"放得下整份 / 放不下按节点过滤"改为：放得下 → 整份在源码前（不变）；
+  放不下 → **core**（data_model、notes 等，routes/pages 之外的一切）+ **catalog**（每条路由/页面一行：`R3 POST
+  /api/orders`、`P2 /login`，每节点相同）在源码**前**，**slice**（与 spec 重合的完整条目）在源码**后**。键排序
+  （`sort_keys`），相同设计逐字节相同。两层各自封顶。这样大设计也保留稳定前缀，而不是只有两态。
+- **#7 设计元数据与复用。** `app.json` 旁写 `app.meta.json`：`tree_sha256`（设计所依据的树大纲）、
+  `prompt_version`（`APP_DESIGN_PROMPT_VERSION`，改提示词/schema 时递增）、`model`、`design_sha256`。
+  运行开头先找已存设计：树哈希、提示词版本、内容哈希都对得上才复用（省一次设计请求）；evolution 模式**只在**
+  兼容时加载，否则和以前一样不生成（已有代码就是设计）。
+
+没做的四条及理由：**#3 源码按变化频率排序、#4 修复提示词布局**——价值取决于平台是否给缓存打折，对账前未知；
+**#5 有条件 tiny**——Web 六题裁剪后最小 spec 1,934 字符，没有节点落在 tiny 层，当前价值为零；**#6 同父叶子合并**
+——省的是 codegen 那 7% 的请求，等下一跑看 93% 那块降了多少再定。真实效果：**未评测**。

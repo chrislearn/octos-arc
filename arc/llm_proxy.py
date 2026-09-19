@@ -367,6 +367,27 @@ def to_sse(response_body: bytes) -> bytes:
     return "".join(f"data: {l}\n\n" for l in lines).encode("utf-8") + b"data: [DONE]\n\n"
 
 
+def prompt_fingerprint(request_body: bytes, previous_text: str) -> tuple[str, int, str]:
+    """(sha256 of the prompt text, chars it shares as a prefix with the previous
+    request's prompt text, the text). The text is the messages serialised in
+    order; the shared prefix is what a provider prefix cache could reuse. ("",
+    0, "") for anything that is not a chat request."""
+    import hashlib
+    try:
+        data = json.loads(request_body)
+        messages = data["messages"]
+        text = "\n".join(f"{m.get('role')}:{m.get('content') if isinstance(m.get('content'), str) else json.dumps(m.get('content'))}"
+                         for m in messages)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return "", 0, ""
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    shared = 0
+    limit = min(len(text), len(previous_text))
+    while shared < limit and text[shared] == previous_text[shared]:
+        shared += 1
+    return sha, shared, text
+
+
 def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | None:
     usage = _usage_from_body(response_body)
     if not isinstance(usage, dict):
@@ -553,6 +574,9 @@ class LlmProxy:
             rec["model"] = json.loads(request_body).get("model")
             rec["phase"] = self.phase
             rec["label"] = getattr(self, "label", "")   # turn label: node id + phase, for per-node attribution
+            sha, shared, text = prompt_fingerprint(request_body, getattr(self, "_last_prompt_text", ""))
+            self._last_prompt_text = text
+            rec["prompt_sha256"], rec["prefix_shared_chars"] = sha, shared
         with self._lock:
             try:
                 with self.log_path.open("a", encoding="utf-8") as fh:

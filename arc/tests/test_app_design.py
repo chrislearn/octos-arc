@@ -77,16 +77,18 @@ class DesignContextTests(unittest.TestCase):
         full = len(json.dumps(DESIGN, ensure_ascii=False))
         out = m.app_design_context(DESIGN, "await page.goto('/orders'); orders", full - 40)
         self.assertIn("userId", out)            # data model always
-        self.assertIn("/api/orders", out)       # overlaps the spec
-        self.assertIn('"/orders"', out)
-        self.assertNotIn("/api/register", out)  # no overlap
-        self.assertNotIn("/login", out)
+        self.assertIn("place order", out)        # detail entry: overlaps the spec
+        self.assertIn("order list", out)
+        self.assertNotIn("create user", out)     # detail entry: no overlap
+        self.assertNotIn("login form", out)
+        self.assertIn("POST /api/register", out) # but the catalog names every route
 
     def test_should_never_exceed_the_cap_by_more_than_the_marker(self):
         big = dict(DESIGN, notes="n" * 20000)
-        out = m.app_design_context(big, "orders", 500)
-        self.assertLessEqual(len(out), 500 + 120)
-        self.assertIn("design truncated", out)
+        stable, node_slice = m.app_design_blocks(big, "orders", 500)
+        self.assertLessEqual(len(stable), 500 + 120)      # each layer is capped on its own
+        self.assertLessEqual(len(node_slice), 500 + 120)
+        self.assertIn("design truncated", stable)
 
 
 class AppDesignTurnTests(unittest.TestCase):
@@ -233,9 +235,11 @@ class DesignReviewFindingsTests(unittest.TestCase):
             end_a = a.index("--- frontend/src/orders.html ---")
             end_b = b.index("--- frontend/src/orders.html ---")
             self.assertEqual(a[:end_a], b[:end_b], "prefix up to the last source must be shared")
-            self.assertIn("/api/orders", a); self.assertNotIn("/api/login", a)
-            self.assertIn("/api/login", b); self.assertNotIn("/api/orders", b)
-            self.assertLess(a.index("--- frontend/src/orders.html ---"), a.index("Application design"))
+            self.assertIn("place order", a); self.assertNotIn('"session"', a)   # details per node
+            self.assertIn('"session"', b); self.assertNotIn("place order", b)
+            self.assertIn("POST /api/login", a)                                  # catalog for every node
+            self.assertLess(a.index("Application design"), a.index("--- backend/server.js ---"))      # core + catalog before
+            self.assertLess(a.index("--- frontend/src/orders.html ---"), a.index("Design entries for this requirement"))  # slice after
 
     def test_should_put_a_design_that_fits_before_the_sources_identically_for_every_node(self):
         with tempfile.TemporaryDirectory() as folder:

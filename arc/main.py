@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import hashlib
 import json
 import os
 import re
@@ -293,40 +294,65 @@ def valid_app_design(design) -> dict | None:
     return design
 
 
+def _design_catalog(design: dict) -> list[str]:
+    """One compact line per route and page: `R3 POST /api/orders`, `P2 /login`.
+    Every node sees the whole set of names, at ~20 chars each, without the
+    detail text; the details a node needs travel in its slice."""
+    lines = []
+    for i, route in enumerate(design.get("routes") or [], 1):
+        if isinstance(route, dict):
+            lines.append(f"R{i} {route.get('method', '')} {route.get('path', '')}".strip())
+    for i, page in enumerate(design.get("pages") or [], 1):
+        if isinstance(page, dict):
+            lines.append(f"P{i} {page.get('path', '')}".strip())
+    return lines
+
+
 def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[str, str]:
     """(stable, node_slice): the design text a codegen prompt carries, split by
-    where it may sit. A design that fits `cap` whole is identical for every
-    node and goes BEFORE the sources, so the prefix every node shares stays
-    byte-identical for the provider's cache. One that does not fit is filtered
-    per node -- the data model whole, routes and pages that overlap the spec's
-    terms -- and that text differs between nodes, so it goes AFTER the sources.
-    Neither exceeds cap by more than a marker line; ("", "") without a design."""
+    where it may sit. Keys are sorted so equal designs render identically.
+
+    A design that fits `cap` whole is identical for every node and goes BEFORE
+    the sources, so the prefix every node shares stays byte-identical. A larger
+    one is compiled into two layers: a stable CORE (everything but routes and
+    pages: data model, conventions, notes) plus a CATALOG (every route and page
+    as one short line) -- the same for every node, before the sources -- and a
+    node SLICE with the full entries whose text overlaps the spec's terms, which
+    differs per node and goes AFTER the sources. Neither layer exceeds cap by
+    more than a marker line; ("", "") without a design."""
     if not design:
         return "", ""
     header = "Application design (one for the whole app; every requirement follows it):\n"
 
     def render(doc: dict) -> str:
-        return header + json.dumps(doc, ensure_ascii=False, separators=(",", ":")) + "\n"
+        return header + json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
+
+    def capped(text: str) -> str:
+        return text if len(text) <= cap else text[:cap].rstrip() + "\n[design truncated to the budget]\n"
 
     whole = render(design)
     if len(whole) <= cap:
         return whole, ""
+    core = {k: v for k, v in design.items() if k not in ("routes", "pages")}
+    stable = render(core) + "Routes and pages (catalog; details for this requirement follow the sources):\n" \
+        + "\n".join(_design_catalog(design)) + "\n"
     terms = spec_terms(spec_text)
 
     def related(item) -> bool:
         low = json.dumps(item, ensure_ascii=False).lower()
         return any(term in low for term in terms)
 
-    slim = {k: v for k, v in design.items() if k not in ("routes", "pages")}
+    detail = {}
     for key in ("routes", "pages"):
         items = design.get(key) or []
-        kept = [item for item in items if related(item)] if isinstance(items, list) else items
+        kept = [item for item in items if related(item)] if isinstance(items, list) else []
         if kept:
-            slim[key] = kept
-    out = render(slim)
-    if len(out) > cap:
-        out = out[:cap].rstrip() + "\n[design truncated to the budget]\n"
-    return "", out
+            detail[key] = kept
+    node_slice = ""
+    if detail:
+        node_slice = "Design entries for this requirement:\n" \
+            + json.dumps(detail, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
+    return capped(stable), capped(node_slice)
 
 
 def app_design_context(design: dict | None, spec_text: str, cap: int) -> str:
@@ -1261,6 +1287,10 @@ UI behavior follows the requirement and the current application:
 - Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
 """
 
+# Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
+# with another version is regenerated, not reused.
+APP_DESIGN_PROMPT_VERSION = "1"
+
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
 APP_DESIGN_PROMPT = """\
@@ -2090,10 +2120,20 @@ class Flow:
         an existing app IS its design, and tool-mode nodes read the code.
         The document is kept on the flow and in .arc/design/app.json; a reply
         without a JSON object just leaves the run without one."""
-        if os.environ.get("OCTOS_ARC_APP_DESIGN", "1") == "0" or self.evolution or not self.codegen_mode() \
+        if os.environ.get("OCTOS_ARC_APP_DESIGN", "1") == "0" or not self.codegen_mode() \
                 or len(ordered) < self.design_min_nodes:
             return None
         outline = tree_outline(tree, int(os.environ.get("OCTOS_ARC_APP_DESIGN_OUTLINE_CHARS", "60000")))
+        tree_sha = hashlib.sha256(outline.encode("utf-8")).hexdigest()
+        stored = self.stored_app_design(tree_sha)
+        if stored is not None:
+            self.app_design_doc = stored
+            log("[flow] application design: reused .arc/design/app.json (same requirement tree and prompt version)")
+            return stored
+        if self.evolution:
+            # An existing app is its own design; only a stored design made for
+            # this exact tree is trusted over the code.
+            return None
         prompt = APP_DESIGN_PROMPT.format(outline=outline)
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
@@ -2112,9 +2152,31 @@ class Flow:
         design_dir = self.output_dir / ".arc" / "design"
         design_dir.mkdir(parents=True, exist_ok=True)
         (design_dir / "app.json").write_text(json.dumps(design, ensure_ascii=False, indent=2), encoding="utf-8")
+        meta = {"tree_sha256": tree_sha, "prompt_version": APP_DESIGN_PROMPT_VERSION,
+                "model": os.environ.get("MODEL") or os.environ.get("OCTOS_MODEL") or "",
+                "design_sha256": hashlib.sha256(json.dumps(design, sort_keys=True).encode("utf-8")).hexdigest()}
+        (design_dir / "app.meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         log(f"[flow] application design: {len(design.get('routes') or [])} routes, {len(design.get('pages') or [])} pages, "
             f"{len(design.get('data_model') or {})} collections ({len(json.dumps(design, ensure_ascii=False))} chars)")
         return design
+
+    def stored_app_design(self, tree_sha: str) -> dict | None:
+        """The design persisted by an earlier run of the same requirement tree
+        with the same prompt version, when its content still matches its
+        recorded hash; None otherwise (missing, another tree, another prompt
+        version, edited, or malformed)."""
+        design_dir = self.output_dir / ".arc" / "design"
+        try:
+            meta = json.loads((design_dir / "app.meta.json").read_text(encoding="utf-8"))
+            design = json.loads((design_dir / "app.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(meta, dict) or meta.get("tree_sha256") != tree_sha \
+                or meta.get("prompt_version") != APP_DESIGN_PROMPT_VERSION:
+            return None
+        if hashlib.sha256(json.dumps(design, sort_keys=True).encode("utf-8")).hexdigest() != meta.get("design_sha256"):
+            return None
+        return valid_app_design(design)
 
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
                      system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
