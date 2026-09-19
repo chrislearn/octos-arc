@@ -53,6 +53,7 @@ Environment (all optional):
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
+    OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 2)
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
     OCTOS_GUARD               "0" logs guard findings without injecting them
 """
@@ -2687,14 +2688,19 @@ class Flow:
         self.log_usage_summary()
 
     def log_usage_summary(self) -> None:
-        """Provider-reported usage totals (same numbers the platform bills on),
-        printed so the runner log carries them even when .arc/ is not exported."""
+        """Print proxy-observed usage and missing-usage requests for reconciliation.
+
+        Platform metering can differ from these provider response records, so
+        neither a high cache-hit percentage nor a zero-valued missing record
+        should be mistaken for a complete billable-token account.
+        """
         path = self.output_dir / ".arc" / "llm-usage.jsonl"
         if not path.is_file():
             return
         tot = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
                "prompt_cache_hit_tokens": 0, "total_tokens": 0, "request_bytes": 0, "response_bytes": 0,
                "sse_chunks": 0, "no_usage": 0}
+        missing: list[dict] = []
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
                 rec = json.loads(line)
@@ -2703,7 +2709,18 @@ class Flow:
             tot["requests"] += 1
             for k in list(tot)[1:]:
                 tot[k] += int(rec.get(k) or 0)
+            if rec.get("no_usage"):
+                missing.append({key: rec.get(key) for key in
+                                ("label", "phase", "status", "elapsed_ms", "request_bytes", "response_bytes")})
         log(f"[usage] provider totals: {json.dumps(tot)}")
+        prompt = tot["prompt_tokens"]
+        hit = tot["prompt_cache_hit_tokens"]
+        if prompt:
+            log(f"[usage] observed prompt cache: hit={hit}/{prompt} ({hit / prompt:.1%}), "
+                f"miss={max(0, prompt - hit)}; completion={tot['completion_tokens']}")
+        if missing:
+            log(f"[usage] {len(missing)} request(s) lacked provider usage; "
+                f"not counted as zero-cost: {json.dumps(missing[:8])}")
 
     def cleanup_playwright(self) -> None:
         private = getattr(self, "private_playwright", None)
@@ -3333,7 +3350,17 @@ class Flow:
         # One more round than the identical-failure escalation needs, so the
         # changed approach actually gets to run.
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "3"))
+        confirm_runs = max(1, int(os.environ.get("OCTOS_ARC_FINAL_CONFIRM_RUNS", "2")))
         workers = workers_for_final(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+        def measured_suite() -> RunSummary:
+            nonlocal workers
+            observed = self.run_specs(all_specs, workers=workers, grader_like=True)
+            while observed.error and observed.killed and workers > 1:
+                workers = max(1, workers // 2)
+                log(f"[acceptance] full suite runner was killed; retrying with {workers} worker(s)")
+                observed = self.run_specs(all_specs, workers=workers, grader_like=True)
+            return observed
+
         previous_failing: frozenset | None = None
         repeated = False  # the last round reproduced the round before it
         # Which behaviours the per-node runs judged good, before this pass starts
@@ -3353,16 +3380,48 @@ class Flow:
         last_passed = -1
         unfinished = ""  # what the previous repair turn said it had left to do
         wrote_last = False  # whether that turn got as far as committing an edit
+        last_repair_mode = ""
+        force_tool_repair = False
         for attempt in range(rounds + 1):
-            summary = self.run_specs(all_specs, workers=workers, grader_like=True)
-            while summary.error and summary.killed and workers > 1:
-                # Cloud 29c840566f36: the runner was OOM-killed under a 512 MiB
-                # cgroup. The memory a suite needs is not known before running it,
-                # so give the box a count it can hold instead of abandoning the
-                # repairs on the first kill.
-                workers = max(1, workers // 2)
-                log(f"[acceptance] full suite runner was killed; retrying with {workers} worker(s)")
-                summary = self.run_specs(all_specs, workers=workers, grader_like=True)
+            summary = measured_suite()
+            if (best is not None and last_repair_mode == "codegen" and wrote_last
+                    and not summary.error and best["passed"] - summary.passed >= 3):
+                # A one-request rewrite that breaks several previously passing
+                # behaviours is different from a single flaky spec or a tool
+                # turn interrupted halfway through. Keep the measured evidence,
+                # but repair from the last good tree rather than spending another
+                # codegen round on the damage (Keep 62886df9bde1: 31 -> 25).
+                damaged = nodes_for_failures(summary.results, self.spec_map)
+                newly_broken = {n for n in damaged if n and n not in best["grouped"]}
+                if len(newly_broken) >= 2 and best["sha"]:
+                    log(f"[acceptance] full suite: codegen repair regressed {best['passed']} -> "
+                        f"{summary.passed}, newly failing {sorted(newly_broken)}; restoring best state")
+                    self.restore_app(best["sha"])
+                    self.pending_corrections.append(
+                        f"The last broad codegen repair broke {', '.join(sorted(newly_broken))}. "
+                        "The harness restored frontend/ and backend/ to the best state. "
+                        "Repair the original failure with a targeted edit; preserve passing behaviours.")
+                    summary = measured_suite()
+                    force_tool_repair = True
+                    last_repair_mode = ""
+            if not summary.error and summary.total and summary.passed == summary.total:
+                # A single lucky 32/32 did not reproduce in the platform's next
+                # clean run (Keep 62886df9bde1: 32/32 -> 30/32). Confirmation
+                # uses the unchanged app and costs no model tokens.
+                for confirmation in range(1, confirm_runs):
+                    confirmed = measured_suite()
+                    if confirmed.error or confirmed.passed < confirmed.total:
+                        owners = {Path(path).name: node for node, paths in self.spec_map.items()
+                                  for path in (paths or [])}
+                        passed_a_round.update(owners.get(Path(r.file or "").name)
+                                              for r in summary.results if r.ok)
+                        passed_a_round.discard(None)
+                        log(f"[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: "
+                            f"{confirmed.passed}/{confirmed.total}; first green run was not stable")
+                        summary = confirmed
+                        break
+                    log(f"[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: "
+                        f"{confirmed.passed}/{confirmed.total}")
             if summary.error and summary.killed:
                 log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
                 break
@@ -3470,10 +3529,11 @@ class Flow:
                 slow="", smoke=self.smoke_port, port=self.web_port)
             # One codegen request first; a round that reproduced the previous failures
             # is the changed approach, and that one uses tools.
-            _, unfinished = self.suite_repair_turn(
+            last_repair_mode, unfinished = self.suite_repair_turn(
                 f"full-suite repair {attempt + 1}/{rounds}", sorted(k for k in grouped if k), failures,
                 min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
-                tool_prompt=prompt, prefer_codegen=not repeated)
+                tool_prompt=prompt, prefer_codegen=not repeated and not force_tool_repair)
+            force_tool_repair = False
             wrote_last = self.commit(f"fix: full-suite repair {attempt + 1}")
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
         if best is not None and best["sha"] and last_passed < best["passed"]:

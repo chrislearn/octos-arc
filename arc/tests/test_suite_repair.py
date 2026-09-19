@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent)); sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main as m  # noqa: E402
@@ -143,6 +143,24 @@ class ProxyLogsEveryExchangeTests(unittest.TestCase):
             self.assertTrue(records[0]["no_usage"]); self.assertEqual(records[0]["status"], 504)
             self.assertEqual(records[0]["label"], "REQ-3 repair 1/3"); self.assertIn("timeout", records[0]["error"])
             self.assertEqual(records[1]["status"], 200); self.assertEqual(records[1]["prompt_tokens"], 5)
+
+    def test_should_report_cache_misses_and_missing_usage_without_imputing_zero_cost(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / ".arc").mkdir()
+            records = [
+                {"prompt_tokens": 100, "prompt_cache_hit_tokens": 80, "completion_tokens": 10,
+                 "total_tokens": 110, "request_bytes": 300, "response_bytes": 90},
+                {"no_usage": True, "label": "full-suite repair 3/3", "phase": "repair",
+                 "status": 504, "elapsed_ms": 1200000, "request_bytes": 500, "response_bytes": 0},
+            ]
+            (root / ".arc" / "llm-usage.jsonl").write_text("\n".join(json.dumps(r) for r in records))
+            flow = object.__new__(m.Flow); flow.output_dir = root
+            with patch.object(m, "log") as logged:
+                flow.log_usage_summary()
+            messages = [call.args[0] for call in logged.call_args_list]
+            self.assertIn("miss=20", "\n".join(messages))
+            self.assertIn("not counted as zero-cost", "\n".join(messages))
+            self.assertIn("full-suite repair 3/3", "\n".join(messages))
 
 
 if __name__ == "__main__":

@@ -541,7 +541,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.heads = iter(["sha0", "sha1", "sha2"]); flow.restored = []; flow.commits = []
         it = iter(rounds_results)
         def run_specs(specs, workers=None, grader_like=False):
-            passed = next(it)
+            passed = next(it, rounds_results[-1])
             results = [TestOutcome(title=f"{n} t", ok=i < passed, status="passed" if i < passed else "failed", duration_ms=1,
                                    file=f"{n}.spec.ts") for i, n in enumerate(["REQ-1", "REQ-2"])]
             return RunSummary(passed=passed, total=2, results=results)
@@ -568,6 +568,65 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         prompt = flow.turn.call_args.args[0]
         self.assertIn('Preserve initial state beyond visible assertions', prompt)
         self.assertIn('Save the full text without truncation', prompt)
+
+    def test_should_require_two_clean_full_suite_runs_before_accepting(self):
+        from unittest.mock import patch
+        flow = self._flow([2, 1])
+        calls = []
+        original = flow.run_specs
+        flow.run_specs = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "0"}):
+            flow.final_acceptance()
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(flow.test_verdict["REQ-2"])
+
+        flow = self._flow([2, 2])
+        calls = []
+        original = flow.run_specs
+        flow.run_specs = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "0"}):
+            flow.final_acceptance()
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(flow.test_verdict.values()))
+
+    def test_should_restore_catastrophic_codegen_regression_before_tool_repair(self):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        names = [f"REQ-{n}" for n in range(4)]
+        for name in names:
+            (root / "t" / f"{name}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {name: [f"{name}.spec.ts"] for name in names}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "w")
+        flow.test_verdict = {name: False for name in names}
+        flow.head = lambda: "shaBEST"
+        flow.commit = Mock(return_value=True)
+        flow.restore_app = Mock()
+        flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000
+        flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""
+        flow.corrections_text = lambda: ""
+        flow.last_repair_diff = lambda: ""
+        scores = iter([3, 0, 3, 4, 4])
+        def run_specs(*args, **kwargs):
+            passed = next(scores)
+            rows = [TestOutcome(title=name, ok=i < passed, status="passed" if i < passed else "failed",
+                                duration_ms=1, file=f"{name}.spec.ts", message="failed")
+                    for i, name in enumerate(names)]
+            return RunSummary(passed=passed, total=4, results=rows)
+        flow.run_specs = run_specs
+        flow.suite_repair_turn = Mock(side_effect=[("codegen", ""), ("tools", "")])
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+            flow.final_acceptance()
+        flow.restore_app.assert_called_once_with("shaBEST")
+        self.assertFalse(flow.suite_repair_turn.call_args.kwargs["prefer_codegen"])
+        self.assertTrue(all(flow.test_verdict.values()))
 
     def test_should_restore_best_state_after_regressing_repairs(self):
         import os
@@ -713,7 +772,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         calls = []
         def run_specs(*args, **kwargs):
             summary = original(*args, **kwargs)
-            message = next(observations)
+            message = next(observations, "")
             for result in summary.results:
                 if not result.ok:
                     result.message = message
@@ -722,7 +781,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.run_specs = run_specs
         with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
             flow.final_acceptance()
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)  # unchanged-app confirmation after the green round
         self.assertTrue(all(flow.test_verdict.values()))
 
     def test_should_change_approach_once_before_giving_up_on_identical_rounds(self):
@@ -1180,7 +1239,7 @@ class KilledSuiteRetryTests(unittest.TestCase):
         it = iter(outcomes)
         def run_specs(specs, workers=None, grader_like=False):
             self.seen.append(workers)
-            passed = next(it)
+            passed = next(it, outcomes[-1])
             if passed is None:
                 return RunSummary(error="playwright was killed (rc=-9)", killed=True)
             results = [TestOutcome(title=n, ok=i < passed, status="passed" if i < passed else "failed",
@@ -1204,7 +1263,7 @@ class KilledSuiteRetryTests(unittest.TestCase):
         flow = self._flow([None, None, 2])  # killed at 4 and at 2, runs at 1
         with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
             flow.final_acceptance()
-        self.assertEqual(self.seen, [4, 2, 1])
+        self.assertEqual(self.seen, [4, 2, 1, 1])
         self.assertTrue(all(flow.test_verdict.values()))
 
     def test_should_stop_when_even_one_worker_is_killed(self):

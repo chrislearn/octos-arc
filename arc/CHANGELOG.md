@@ -1,5 +1,12 @@
 # arc/ 适配层改动记录（工作流 A，分支 `wf-adapter`）
 
+## 2026-09-19：Keep 日志后的非业务模板优化（云端未评测）
+
+- 全套验收首次全绿后，默认在不改应用代码的情况下再跑一次同配置测试；只有连续通过才记为全绿。可用 `OCTOS_ARC_FINAL_CONFIRM_RUNS` 调整次数（默认 2）。针对 Keep `62886df9bde1` 的内部 32/32、平台 30/32。
+- 仅当全套 codegen 修复已经提交改动、相对最佳轮下降至少 3 项、且新增至少 2 个失败节点时，立即恢复最佳应用状态并转为定向工具修复。普通单项波动和超时的工具修复仍保留原先的两轮回退策略。针对同一运行的 31/32 → 25/32 全页改写。
+- 汇总日志新增 prompt 缓存未命中量，以及缺失 provider usage 的请求标签、阶段、状态和体积；缺失 usage 不再容易被误读为零成本。这只是代理可见用量，不宣称等于平台计量。
+- 本地 Python 测试已覆盖新分支；通过率、费用和 token 改善仍需上传包进行云端对照验证。本版不包含 Keep 业务模板。
+
 度量口径：本机 `.arc/octos-events.jsonl` 的 `turn/completed`（tokens_in / tokens_out 之和，不含缓存命中）与 `token_cost_update`（每个 session 的累计 `session_cost`，多 session 求和）；耗时取 `.arc/runner-events.jsonl` 的 running → completed；通过数由 `arc/grade-local.py` 用平台公开 Playwright 测试打分（`arc/metrics.py <输出目录>` 可一次打印整行）。所有运行都是本机、同一二进制（`octos 2.0.3-rc.11 (82e3bef3)`，`target/release/octos`，SHA-256 `b0b670ba…cd8c5`）、同一模型（`deepseek-v4-flash` 经 `api.arc-bench.com`）。「未评测」表示没有云端运行。
 
 ## 结论表（改前 → 改后，均为本机最终配置一次运行；云端未评测）
