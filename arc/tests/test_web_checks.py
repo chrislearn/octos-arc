@@ -67,6 +67,14 @@ class ScaffoldChecksTests(unittest.TestCase):
         (self.root / 'frontend/src/app.js').write_text("history.pushState(null, '', '/?sort=recent');\n")
         self.assertEqual(scaffold_issues(self.root), [])
 
+    def test_react_router_needs_spa_fallback_even_without_literal_html_links(self):
+        (self.root / 'frontend/src/main.tsx').write_text(
+            "import {BrowserRouter} from 'react-router'; export default () => <BrowserRouter />;")
+        self.assertIn('arc.spa=true', '\n'.join(scaffold_issues(self.root)))
+        (self.root / 'frontend/src/main.tsx').write_text(
+            "import {HashRouter} from 'react-router'; export default () => <HashRouter />;")
+        self.assertEqual(scaffold_issues(self.root), [])
+
 
 if __name__ == '__main__':
     unittest.main()

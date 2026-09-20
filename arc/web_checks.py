@@ -76,11 +76,15 @@ def scaffold_issues(project: Path) -> list[str]:
         try:
             page = html[0].read_text(encoding='utf-8', errors='replace')
             scripts = '\n'.join(file.read_text(encoding='utf-8', errors='replace')
-                                for file in source.rglob('*.js')
-                                if 'shared' not in file.relative_to(source).parts)
+                                for file in source.rglob('*') if file.is_file()
+                                and file.suffix in {'.js', '.mjs', '.jsx', '.ts', '.tsx', '.vue'}
+                                and 'shared' not in file.relative_to(source).parts)
         except OSError:
             return issues
-        if ('history.pushState' in page + scripts or 'startRouter(' in page + scripts) and _client_side_link(page):
+        framework_router = (re.search(r"['\"]react-router(?:-dom)?['\"]", scripts)
+                            and re.search(r'\b(?:BrowserRouter|createBrowserRouter)\b', scripts))
+        if framework_router or (('history.pushState' in page + scripts or 'startRouter(' in page + scripts)
+                                and _client_side_link(page + scripts)):
             issues.append('frontend: client-side links use history.pushState but only index.html exists; '
                           'set frontend/package.json arc.spa=true for direct loads and refreshes, or add HTML pages')
     return issues

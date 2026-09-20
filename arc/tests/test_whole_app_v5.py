@@ -106,6 +106,85 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual(flow.codegen_turn.call_count, 3)
         self.assertEqual(flow.commit.call_count, 2)
 
+    def test_later_waves_keep_the_reduced_ceiling(self):
+        flow = self.flow
+        nodes = [{"id": str(i), "description": "feature"} for i in range(12)]
+        tree = {"id": "ROOT", "children": nodes}
+        flow.batch_spec_bodies = lambda ids: "spec"
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        def generate(*args, **kwargs):
+            success = flow.codegen_turn.call_count > 1
+            flow.last_codegen_written = ["frontend/src/App.jsx"] if success else []
+            return success, "files" if success else "output_truncated"
+        flow.codegen_turn = Mock(side_effect=generate)
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "8"}):
+            self.assertTrue(flow.whole_app_waves(tree, nodes))
+        self.assertEqual(flow.codegen_turn.call_count, 4)  # failed 8, then 4+4+4, not 4+8
+        self.assertEqual(flow.whole_app_generated_ids, {str(i) for i in range(12)})
+
+    def test_wave_prefers_parent_boundary_without_reordering(self):
+        flow = self.flow
+        flow.batch_spec_bodies = Mock(return_value="spec")
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        def generate(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/App.jsx"]
+            return True, "files"
+        flow.codegen_turn = Mock(side_effect=generate)
+        tree = {"id": "ROOT", "children": [
+            {"id": "first", "children": self.nodes[:1]}, {"id": "second", "children": self.nodes[1:]}]}
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "2"}):
+            self.assertTrue(flow.whole_app_waves(tree, self.nodes))
+        self.assertEqual([call.args[0] for call in flow.batch_spec_bodies.call_args_list], [["A"], ["B", "C"]])
+
+    def test_failed_two_leaf_wave_does_not_retry_two_on_every_later_wave(self):
+        flow = self.flow
+        flow.batch_spec_bodies = Mock(return_value="spec")
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        sizes = []
+        def generate(*args, **kwargs):
+            size = len(flow.batch_spec_bodies.call_args.args[0])
+            sizes.append(size)
+            flow.last_codegen_written = ["frontend/src/App.jsx"] if size == 1 else []
+            return size == 1, "files" if size == 1 else "output_truncated"
+        flow.codegen_turn = Mock(side_effect=generate)
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "2"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertEqual(sizes, [2, 1, 1, 1])
+
+    def test_malformed_wave_retries_format_before_shrinking(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        replies = iter([(False, "codegen reply contained no <<<FILE>>> or <<<EDIT>>> blocks"),
+                        (True, "files")])
+
+        def generated(*args, **kwargs):
+            ok, reply = next(replies)
+            flow.last_codegen_written = ["frontend/src/feature.js"] if ok else []
+            return ok, reply
+
+        flow.codegen_turn = Mock(side_effect=generated)
+        self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertEqual(flow.codegen_turn.call_count, 2)
+        self.assertIn("preceding answer was discarded", flow.codegen_turn.call_args.args[0])
+        flow.commit.assert_called_once()
+
+    def test_unwritable_late_wave_keeps_completed_partial_app(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        replies = iter([(True, "files"), (False, "output_truncated")])
+
+        def generated(*args, **kwargs):
+            ok, reply = next(replies)
+            flow.last_codegen_written = ["frontend/src/feature.js"] if ok else []
+            return ok, reply
+
+        flow.codegen_turn = Mock(side_effect=generated)
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "2"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertEqual(flow.commit.call_count, 1)
+
     def test_waves_still_have_a_global_contract_if_design_turn_failed(self):
         flow = self.flow
         flow.codegen_implement_prompt = Mock(return_value="wave prompt")
@@ -141,6 +220,117 @@ class WholeAppTests(unittest.TestCase):
         self.assertIsNone(flow.whole_app_first_suite(self.nodes))
         flow.record_full_suite.assert_not_called()
 
+    def test_startup_error_gets_focused_repair_then_retests(self):
+        flow = self.flow
+        error = "generic scaffold route checks failed: backend/routes/notes.js:4 DELETE /api/notes/trash is shadowed"
+        passed = [TestOutcome(title=n["id"], ok=True, status="passed", duration_ms=1,
+                              file=f"{n['id']}.spec.ts") for n in self.nodes]
+        flow.run_specs = Mock(side_effect=[RunSummary(error=error),
+                                           RunSummary(passed=3, total=3, results=passed)])
+        flow.whole_app_startup_repair = Mock(return_value=True)
+        flow.record_full_suite = Mock()
+        self.assertEqual(flow.whole_app_first_suite(self.nodes), set())
+        flow.whole_app_startup_repair.assert_called_once_with(error)
+        self.assertEqual(flow.run_specs.call_count, 2)
+
+    def test_route_shadow_repair_quotes_only_implicated_source(self):
+        flow = self.flow
+        flow.node_timeout = 1200
+        route = self.root / "backend/routes/notes.js"
+        route.parent.mkdir(parents=True)
+        route.write_text("app.delete('/api/notes/:id', one);\n"
+                         "app.delete('/api/notes/trash', two);\n")
+        error = ("generic scaffold route checks failed:\nbackend/routes/notes.js:2 "
+                 "DELETE /api/notes/trash is shadowed by backend/routes/notes.js:1 DELETE /api/notes/:id")
+
+        def repaired(prompt, *args, **kwargs):
+            flow.last_codegen_written = ["backend/routes/notes.js"]
+            self.assertIn("--- backend/routes/notes.js ---", prompt)
+            self.assertIn("literal handler first", prompt)
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=repaired)
+        flow.turn = Mock()
+        self.assertTrue(flow.whole_app_startup_repair(error))
+        flow.turn.assert_not_called()
+        flow.commit.assert_called_once()
+
+    def test_spa_preflight_quotes_frontend_manifest_and_page(self):
+        flow = self.flow
+        flow.node_timeout = 1200
+        page = self.root / "frontend/src/index.html"
+        page.parent.mkdir(parents=True)
+        page.write_text("<a href='/notes' data-link>Notes</a>")
+        manifest = self.root / "frontend/package.json"
+        manifest.write_text('{"scripts": {}}')
+
+        def repaired(prompt, *args, **kwargs):
+            self.assertIn("--- frontend/package.json ---", prompt)
+            self.assertIn("--- frontend/src/index.html ---", prompt)
+            flow.last_codegen_written = ["frontend/package.json"]
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=repaired)
+        self.assertTrue(flow.whole_app_startup_repair(
+            "frontend: client-side links use history.pushState but only index.html exists"))
+
+    def test_route_preflight_repairs_before_first_full_suite(self):
+        flow = self.flow
+        m.write_codegen_manifests(self.root)
+        m.install_generic_template(self.root, Path(m.__file__).parent, 3000, [])
+        route = self.root / "backend/routes/notes.js"
+        route.parent.mkdir(parents=True)
+        route.write_text("app.delete('/api/notes/:id', one);\n"
+                         "app.delete('/api/notes/trash', two);\n")
+        passed = [TestOutcome(title=n["id"], ok=True, status="passed", duration_ms=1,
+                              file=f"{n['id']}.spec.ts") for n in self.nodes]
+        flow.run_specs = Mock(return_value=RunSummary(passed=3, total=3, results=passed))
+        flow.whole_app_startup_repair = Mock(return_value=True)
+        flow.record_full_suite = Mock()
+        self.assertEqual(flow.whole_app_first_suite(self.nodes), set())
+        self.assertIn("DELETE /api/notes/trash is shadowed",
+                      flow.whole_app_startup_repair.call_args.args[0])
+        self.assertEqual(flow.run_specs.call_count, 1)
+
+    def test_unreliable_first_suite_does_not_restart_all_nodes(self):
+        flow = self.flow
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_first_suite = Mock(return_value=None)
+        flow.mark = Mock()
+        flow.node_cycle = Mock()
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        flow.node_cycle.assert_not_called()
+        self.assertEqual([call.args[1] for call in flow.mark.call_args_list
+                          if call.args[0] == "test_failed"], ["A", "B", "C"])
+        self.assertTrue(all(flow.test_verdict[node["id"]] is False for node in self.nodes))
+
+    def test_partial_waves_only_generate_unreached_nodes_if_suite_unavailable(self):
+        flow = self.flow
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_generated_ids = {"A", "B"}
+        flow.whole_app_first_suite = Mock(return_value=None)
+        flow.mark = Mock()
+        flow.node_cycle = Mock()
+        flow.time_up = Mock(return_value=False)
+        flow.driver = SimpleNamespace(end_scope=Mock())
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        flow.node_cycle.assert_called_once_with(self.nodes[2], self.nodes, 3, 3)
+        self.assertEqual([call.args[1] for call in flow.mark.call_args_list
+                          if call.args[0] == "implementation_done"], ["A", "B"])
+
+    def test_failed_unreached_node_is_not_treated_as_preimplemented(self):
+        flow = self.flow
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_generated_ids = {"A", "B"}
+        flow.whole_app_first_suite = Mock(return_value={"C"})
+        flow.mark = Mock()
+        flow.node_cycle = Mock()
+        flow.time_up = Mock(return_value=False)
+        flow.driver = SimpleNamespace(end_scope=Mock())
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        flow.node_cycle.assert_called_once_with(self.nodes[2], self.nodes, 3, 3,
+                                                preimplemented=False)
+
     def test_only_failing_leaf_receives_a_node_repair_turn(self):
         flow = self.flow
         flow.whole_app_codegen = Mock(return_value=True)
@@ -171,13 +361,27 @@ class WholeAppTests(unittest.TestCase):
         flow.generic_template_installed = True
         flow.codegen_turn = Mock(return_value=(False, "output_truncated"))
         flow.whole_app_waves = Mock(return_value=False)
-        self.assertFalse(flow.whole_app_codegen(tree, nodes))
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_MAX_NODES": "64"}):
+            self.assertFalse(flow.whole_app_codegen(tree, nodes))
         self.assertEqual(flow.codegen_turn.call_count, 1)
         prompt = flow.codegen_turn.call_args.args[0]
         self.assertIn("REQ-6.2", prompt)
         self.assertIn("frontend/src/index.html", m.quoted_paths(prompt))
         self.assertIn("frontend/src/app.js", m.quoted_paths(prompt))
         self.assertLessEqual(len(prompt + "\n" + m.FORMAT_INSTRUCTIONS), 90000)
+
+    def test_large_tree_defaults_to_waves_without_spending_a_one_shot_turn(self):
+        bundle = Path(m.__file__).parent
+        tree = m.load_requirement_tree(bundle / "tasks/arc-bench-web--keep")
+        nodes = topo_order(tree)
+        flow = self.flow
+        flow.tests_dir = bundle / "public-tests/arc-bench-web--keep"
+        flow.spec_map = {str(node["id"]): [f"{node['id']}.spec.ts"] for node in nodes}
+        flow.whole_app_waves = Mock(return_value=True)
+        flow.codegen_turn = Mock()
+        self.assertTrue(flow.whole_app_codegen(tree, nodes))
+        flow.whole_app_waves.assert_called_once_with(tree, nodes)
+        flow.codegen_turn.assert_not_called()
 
     def test_all_six_web_tasks_can_be_partitioned_into_bounded_prompts(self):
         bundle = Path(m.__file__).parent

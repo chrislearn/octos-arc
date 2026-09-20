@@ -21,6 +21,16 @@ class ParseTests(unittest.TestCase):
     def test_should_return_empty_when_no_blocks(self):
         self.assertEqual(parse_file_blocks("just prose"), {})
 
+    def test_accepts_only_standalone_short_end_markers(self):
+        for ending in ("<<<END EDIT>>>", "<END EDIT>", "END EDIT"):
+            reply = ("<<<EDIT page.js>>>\n<<<SEARCH>>>\nold\n<<<REPLACE>>>\nnew\n"
+                     + ending + "\n")
+            self.assertEqual(parse_edit_blocks(reply), [("page.js", "old", "new")])
+        self.assertEqual(parse_edit_blocks("<<<EDIT page.js>>>\n<<<SEARCH>>>\na\n"
+                                           "<<<REPLACE>>>\nb\nEND EDIT plus prose"), [])
+        self.assertEqual(parse_file_blocks("<<<FILE page.js>>>\nconst x = 1;\n<END FILE>"),
+                         {"page.js": "const x = 1;\n"})
+
     def test_should_write_files_under_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             written = write_files(Path(tmp), {"backend/server.js": "x\n"})

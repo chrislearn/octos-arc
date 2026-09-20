@@ -211,7 +211,10 @@ pub fn write_manifests(root: &Path) -> Result<Vec<String>> {
     Ok(written)
 }
 
-const SOURCE_EXTS_ALL: &[&str] = &[".js", ".mjs", ".cjs", ".html", ".css", ".json"];
+const SOURCE_EXTS_ALL: &[&str] = &[
+    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".vue", ".html", ".css", ".scss",
+    ".json", ".svg",
+];
 
 fn source_paths(root: &Path, exts: &[&str]) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -226,7 +229,18 @@ fn source_paths(root: &Path, exts: &[&str]) -> Vec<PathBuf> {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            if matches!(name.as_str(), "node_modules" | "dist" | ".git") {
+            if matches!(
+                name.as_str(),
+                "node_modules"
+                    | "dist"
+                    | ".git"
+                    | "coverage"
+                    | ".vite"
+                    | "package-lock.json"
+                    | "npm-shrinkwrap.json"
+                    | "pnpm-lock.yaml"
+                    | "yarn.lock"
+            ) {
                 continue;
             }
             if path.is_dir() {
@@ -252,13 +266,9 @@ pub fn inline_sources(
     prompts: &Prompts,
     root: &Path,
     max_chars: usize,
-    codegen_only: bool,
+    _codegen_only: bool,
 ) -> String {
-    let exts = if codegen_only {
-        &[".html", ".js"][..]
-    } else {
-        SOURCE_EXTS_ALL
-    };
+    let exts = SOURCE_EXTS_ALL;
     let mut files: Vec<(u64, PathBuf)> = source_paths(root, exts)
         .into_iter()
         .map(|p| (std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0), p))
@@ -374,7 +384,7 @@ pub fn relevant_sources(
     spec_text: &str,
     max_chars: usize,
 ) -> String {
-    let files = source_paths(root, &[".html", ".js", ".mjs", ".cjs", ".css", ".json"]);
+    let files = source_paths(root, SOURCE_EXTS_ALL);
     if files.is_empty() {
         return String::new();
     }
@@ -934,6 +944,39 @@ mod tests {
         assert!(!text.contains("node_modules"));
         let listing = source_listing(dir.path(), 60);
         assert!(listing.contains("backend/server.js (100 B)"));
+    }
+
+    #[test]
+    fn should_quote_framework_sources_and_configs_but_not_dependency_locks() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("frontend/src")).unwrap();
+        for name in ["App.jsx", "View.tsx", "model.ts", "View.vue"] {
+            std::fs::write(dir.path().join("frontend/src").join(name), "feature source").unwrap();
+        }
+        std::fs::write(
+            dir.path().join("frontend/vite.config.mjs"),
+            "export default {}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("frontend/package-lock.json"),
+            "x".repeat(10000),
+        )
+        .unwrap();
+        assert!(sources_fit(dir.path(), 200));
+        for codegen_only in [true, false] {
+            let text = inline_sources(&Prompts::builtin(), dir.path(), 1000, codegen_only);
+            for name in [
+                "App.jsx",
+                "View.tsx",
+                "model.ts",
+                "View.vue",
+                "vite.config.mjs",
+            ] {
+                assert!(text.contains(name));
+            }
+            assert!(!text.contains("package-lock"));
+        }
     }
 
     #[test]

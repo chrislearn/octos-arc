@@ -53,11 +53,11 @@ class TokenOptimizationTests(unittest.TestCase):
 
     def test_budget_includes_rules_corrections_headings_and_format(self):
         self.app(server="e" * 3000, page="p" * 3000)
-        self.flow.codegen_context_chars = lambda: 6000
+        self.flow.codegen_context_chars = lambda: 6600
         correction = "Keep previous behavior. " * 20
         prompt = self.flow.codegen_implement_prompt(helpers.node("REQ-1", "Add search"), "search", correction)
         self.assertIsNotNone(prompt)
-        self.assertLessEqual(len(prompt + "\n" + m.FORMAT_INSTRUCTIONS), 6000)
+        self.assertLessEqual(len(prompt + "\n" + m.FORMAT_INSTRUCTIONS), 6600)
         self.assertIn(correction, prompt)
         self.assertIn("backend/server.js", m.quoted_paths(prompt))
         self.assertNotIn("frontend/src/index.html", m.quoted_paths(prompt))
@@ -370,7 +370,7 @@ class PrefixAndCorrectionBudgetTests(unittest.TestCase):
 
     def test_budget_render_reads_each_source_file_once(self):
         self.app(server="e" * 3000, page="p" * 3000)
-        self.flow.codegen_context_chars = lambda: 6000
+        self.flow.codegen_context_chars = lambda: 6500
         read = Path.read_text
         calls = []
         def recorded(path, *args, **kwargs):

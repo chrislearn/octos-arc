@@ -25,11 +25,12 @@
 #   repair.codegen_repairs = 0 makes the first failure fall back to tool mode directly.
 #   Targets (phase 3): <= 5 requests and <= ¥0.2 per node; the cost guard ([budget]) bounds the run.
 # Python adapter v5 experiment (not a Rust policy key): OCTOS_ARC_WHOLE_APP=1
-# first tries one full-tree codegen turn on a fresh, fully test-mapped task.
-# Oversized/truncated turns use multi-node waves (16 leaves max, then halve
-# when needed); after one complete suite, only failing leaves are repaired.
-# Set it to 0 to use the per-node path below. Whole-turn timeout defaults to
-# 1800 seconds; OCTOS_ARC_WHOLE_APP_WAVE_NODES overrides the default 16.
+# tries one full-tree codegen turn only up to 12 leaves; larger tasks start
+# directly with multi-node waves (16 leaves max). A malformed reply gets one
+# format retry; output-limit failures split the wave. Startup failures get a
+# focused repair before the full suite. Set OCTOS_ARC_WHOLE_APP=0 to use the
+# per-node path, OCTOS_ARC_WHOLE_APP_MAX_NODES to override the one-shot cap,
+# or OCTOS_ARC_WHOLE_APP_WAVE_NODES to override the 16-leaf wave cap.
 
 [mode]
 codegen = true              # OCTOS_ARC_CODEGEN — one-request codegen turns for small trees
@@ -100,10 +101,10 @@ probe_patience_seconds = 600  # wait for the endpoint to answer the start-up pro
 test_timeout_ms = 10000          # OCTOS_ARC_TEST_TIMEOUT_MS — per-test timeout, same as the grader
 slow_ms = 3000                   # OCTOS_ARC_SLOW_MS — slower tests are reported to the repair turn
 workers = 2                      # OCTOS_ARC_TEST_WORKERS — per-node runs
-final_workers = 4                # OCTOS_ARC_FINAL_WORKERS — full parallel suite
+final_workers = 1                # OCTOS_ARC_FINAL_WORKERS — match observed grader; override for stress tests
 regression_checkpoint_nodes = 4 # OCTOS_ARC_REGRESSION_CHECKPOINT — check after 4, 8, 16, 24... nodes; gaps capped at twice this value; 0 disables
 memory_per_worker_mib = 700      # container memory per Chromium worker (cgroup limit / this = workers)
-final_memory_per_worker_mib = 450   # full suite: the platform grades with 4 workers in 2 GiB
+final_memory_per_worker_mib = 450   # memory cap, independent of expected grader concurrency
 fully_parallel = false           # OCTOS_ARC_FULLY_PARALLEL — parallelism inside a spec file too
 install_playwright = true        # OCTOS_ARC_INSTALL_PLAYWRIGHT — private, pinned install when none is found
 playwright_root = ""             # OCTOS_ARC_PLAYWRIGHT_ROOT — directory holding node_modules/@playwright/test

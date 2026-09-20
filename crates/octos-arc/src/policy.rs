@@ -283,7 +283,7 @@ impl Default for AcceptancePolicy {
             test_timeout_ms: 10000,
             slow_ms: 3000,
             workers: 2,
-            final_workers: 4,
+            final_workers: 1,
             regression_checkpoint_nodes: 4,
             memory_per_worker_mib: 700,
             final_memory_per_worker_mib: 450,
@@ -841,7 +841,7 @@ mod tests {
         assert_eq!(p.acceptance.test_timeout_ms, 10000);
         assert_eq!(p.acceptance.slow_ms, 3000);
         assert_eq!(p.acceptance.workers, 2);
-        assert_eq!(p.acceptance.final_workers, 4);
+        assert_eq!(p.acceptance.final_workers, 1);
         assert_eq!(p.ports.smoke_port, 3100);
         assert_eq!(p.prompts.inline_spec_chars, 24000);
         assert_eq!(p.prompts.inline_source_chars, 40000);

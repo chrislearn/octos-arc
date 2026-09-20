@@ -25,14 +25,17 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)(?:\r?\n)?<<<END FILE>>>", re.S)
+_END_FILE = r"(?:<<<END FILE>>>|<END FILE>|END FILE)"
+_END_EDIT = r"(?:<<<END EDIT>>>|<END EDIT>|END EDIT)"
+FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)(?:\r?\n)?"
+                        rf"^{_END_FILE}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
 EDIT_BLOCK = re.compile(
     r"<<<EDIT\s+(?P<path>[^\n>]+?)\s*>>>\r?\n"
     r"<<<SEARCH>>>\r?\n(?P<search>.*?)\r?\n"
-    r"<<<REPLACE>>>\r?\n(?P<replacement>.*?)\r?\n<<<END EDIT>>>", re.S)
+    rf"<<<REPLACE>>>\r?\n(?P<replacement>.*?)\r?\n^{_END_EDIT}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
 
 FORMAT_INSTRUCTIONS = """\
-Only blocks, or exactly <<<NO CHANGE>>> if already met.
+Only blocks, or exactly <<<NO CHANGE>>> if already met. Start with a block marker, not prose.
 FILE (new file or short rewrite):
 <<<FILE relative/path>>>
 contents
@@ -186,8 +189,12 @@ def write_files(root: Path, files: dict[str, str]) -> list[str]:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.suffix.lower() in (".html", ".htm"):
             body = ensure_charset(body)
+        before = dest.read_text(encoding="utf-8") if dest.exists() else None
+        if body == before:
+            continue
         dest.write_text(body, encoding="utf-8")
         if dest.suffix.lower() in (".js", ".cjs", ".mjs"):
             repair_flattened_js(dest)
-        written.append(rel)
+        if dest.read_text(encoding="utf-8") != before:
+            written.append(rel)
     return written

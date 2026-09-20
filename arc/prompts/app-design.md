@@ -2,10 +2,11 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 
 {outline}
 
-Architecture is fixed: frontend/src/index.html plus one html per route; backend/server.js as a small Express entry that serves frontend/dist and registers backend/routes/<area>.js modules; shared persistence in backend modules.
+Preserve the installed stack: complex fresh applications use React/Vite/Radix/React Router with local bundled assets and SPA routes (frontend/package.json arc.spa=true). Simple or existing applications keep their architecture. frontend/src/index.html is the shell; backend/server.js is a small Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules. Use the provided exact dependency pins and capability recommendations; do not invent another DOM/widget framework.
 Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
 {"data_model": {"collection": {"field": "type"}},
  "routes": [{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}],
  "pages": [{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}],
- "notes": "session handling, seed data, validation conventions, naming conventions"}
-Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
+ "contracts": [{"requirements": ["REQ-..."], "invariants": ["ownership/key scope", "command: preconditions -> atomic effects and undo", "draft/save/cancel semantics", "date-only/clock/deadline rules", "control and validation semantics"]}],
+ "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}
+Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal routes before overlapping parameter routes (e.g. /api/items/trash before /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.

@@ -3,8 +3,9 @@
 const {randomUUID} = require('crypto');
 const store = require('./store');
 
-function collection(name, {idKey = 'id', initial = []} = {}) {
+function collection(name, {idKey = 'id', initial = [], migrations = []} = {}) {
   const fallback = {items: initial};
+  if (migrations.length) store.migrate(name, fallback, migrations);
   const same = (item, id) => String(item[idKey]) === String(id);
   const all = () => {
     const data = store.read(name, fallback);

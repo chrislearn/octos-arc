@@ -49,11 +49,11 @@ DESIGN = {
 
 
 class TreeOutlineTests(unittest.TestCase):
-    def test_should_keep_ids_names_descriptions_and_dependencies_but_not_scenarios(self):
+    def test_should_keep_ids_names_descriptions_dependencies_and_unique_scenarios(self):
         out = m.tree_outline(TREE)
         for token in ("REQ-1.1", "Register", "Email and Password", "REQ-1.2", "depends on REQ-1.1", "REQ-2"):
             self.assertIn(token, out)
-        self.assertNotIn("long scenario text", out)
+        self.assertIn("long scenario text", out)
         self.assertLess(out.index("REQ-1.1"), out.index("REQ-1.2"))
 
     def test_should_cap_the_outline_and_say_so(self):
@@ -86,8 +86,7 @@ class DesignContextTests(unittest.TestCase):
     def test_should_never_exceed_the_cap_by_more_than_the_marker(self):
         big = dict(DESIGN, notes="n" * 20000)
         stable, node_slice = m.app_design_blocks(big, "orders", 500)
-        self.assertLessEqual(len(stable), 500 + 120)      # each layer is capped on its own
-        self.assertLessEqual(len(node_slice), 500 + 120)
+        self.assertLessEqual(len(stable) + len(node_slice), 500)
         self.assertIn("design truncated", stable)
 
 
@@ -120,7 +119,7 @@ class AppDesignTurnTests(unittest.TestCase):
             self.assertEqual(len(flow.calls), 1)
             prompt, label = flow.calls[0]
             self.assertIn("REQ-1.1", prompt)
-            self.assertNotIn("long scenario text", prompt)
+            self.assertIn("long scenario text", prompt)
             self.assertIn("design", label)
             self.assertTrue((Path(folder) / ".arc" / "design" / "app.json").is_file())
             self.assertFalse(flow.driver.tools_disabled)   # scope restored

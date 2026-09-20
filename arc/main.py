@@ -36,6 +36,9 @@ Environment (all optional):
     OCTOS_DESIGN_MIN_NODES    design only for trees with at least this many nodes (3)
     OCTOS_ARC_APP_DESIGN      "0" skips the one application-level design request that every codegen node's prompt carries
     OCTOS_ARC_APP_DESIGN_CHARS  budget of that design inside each node prompt (6000; routes/pages filtered by spec overlap)
+    OCTOS_ARC_GRADER_WORKERS   expected grading concurrency (default 1, based on observed platform logs)
+    OCTOS_ARC_FINAL_WORKERS    internal full-suite override (default GRADER_WORKERS; larger values are stress tests)
+    OCTOS_ARC_SHARED_REPAIR    "0" disables the single shared runtime-error repair before leaf cycles
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
@@ -90,11 +93,13 @@ from acceptance import (  # noqa: E402
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
-                     prepare_edit_files, write_files)
+                     prepare_edit_files, safe_relative_path, write_files)
 from guard import TurnMonitor  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
+from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
+from web_checks import scaffold_issues  # noqa: E402
 
 BUNDLE_DIR = Path(__file__).resolve().parent
 
@@ -255,28 +260,69 @@ def load_requirement_tree(req_dir: Path) -> dict:
 
 
 def tree_outline(tree: dict, max_chars: int = 60000) -> str:
-    """The requirement tree as one indented outline: id, name, description and
-    dependencies per node, no scenarios (they duplicate the public specs and
-    triple the size: 12306's tree is 137k chars with them, 43k without)."""
-    lines: list[str] = []
+    """A complete structural catalog followed by fairly budgeted node details.
+
+    Scenarios can contain unique business rules. Keep them when space allows;
+    under pressure, reduce detail across nodes rather than lose the last modules.
+    """
+    heads: list[str] = []
+    details: list[tuple[str, str]] = []
+    compact_heads: list[tuple[str, str]] = []
 
     def walk(node: dict, depth: int) -> None:
         deps = [str(d) for d in (node.get("dependencies") or [])]
         head = f"{'  ' * depth}{node.get('id')} [{node.get('type', '')}] {node.get('name', '')}".rstrip()
         if deps:
             head += f" (depends on {', '.join(deps)})"
-        lines.append(head)
+        heads.append(head)
+        compact_heads.append((f"{node.get('id')} [{str(node.get('type', ''))[:1]}]"
+                              + (" <-" + ",".join(deps) if deps else ""), str(node.get("name", ""))))
         desc = str(node.get("description") or "").strip()
-        if desc:
-            lines.append(f"{'  ' * depth}  {' '.join(desc.split())}")
+        facts = [" ".join(desc.split())] if desc else []
+        steps = [step for sc in node.get("scenarios") or [] if isinstance(sc, dict)
+                 for step in sc.get("steps") or [] if isinstance(step, dict)]
+        # Outcomes first, then actions/setup. De-duplicate verbatim repeated facts.
+        steps.sort(key=lambda step: str(step.get("keyword", "")).upper() != "THEN")
+        seen = set(facts)
+        for step in steps:
+            fact = " ".join(str(step.get("content", "")).split())
+            if fact and fact not in seen and fact not in desc:
+                facts.append(f"{step.get('keyword', '')} {fact}".strip())
+                seen.add(fact)
+        if facts:
+            details.append((str(node.get("id")), "\n".join(facts)))
         for child in node.get("children") or []:
             walk(child, depth + 1)
 
     walk(tree, 0)
-    out = "\n".join(lines)
-    if len(out) > max_chars:
-        out = out[:max_chars].rsplit("\n", 1)[0] + "\n[outline truncated: the tree is larger than the design budget]"
-    return out
+    catalog = "\n".join(heads)
+    full = catalog + "\n\n" + "\n".join(f"{nid}: {body}" for nid, body in details)
+    if len(full) <= max_chars:
+        return full
+    marker = "\n[outline truncated: detail omitted; consult the full requirement/spec before implementing]"
+    budget = max(0, max_chars - len(marker))
+    if len(catalog) > budget * 0.65:
+        essential = sum(len(head) + 1 for head, _ in compact_heads)
+        name_room = max(0, (int(budget * 0.75) - essential) // max(1, len(compact_heads)) - 1)
+        catalog = "\n".join(head + (" " + name[:name_room] if name_room else "")
+                            for head, name in compact_heads)
+    if len(catalog) > budget:
+        # Only tiny budgets reach here for current task trees; never imply full coverage.
+        return catalog[:budget] + marker
+    remaining = budget - len(catalog)
+    rendered = []
+    pending = len(details)
+    for nid, body in details:
+        quota = remaining // pending
+        pending -= 1
+        prefix = f"\n{nid}: "
+        if quota <= len(prefix) + 4:
+            continue
+        room = quota - len(prefix)
+        value = body if len(body) <= room else body[:room - 3] + "..."
+        rendered.append(prefix + value)
+        remaining -= len(prefix) + len(value)
+    return catalog + "".join(rendered) + marker
 
 
 def valid_app_design(design) -> dict | None:
@@ -293,9 +339,37 @@ def valid_app_design(design) -> dict | None:
     for items in (routes, pages):
         if items is not None and (not isinstance(items, list) or not all(isinstance(i, dict) for i in items)):
             return None
+    for key, items in (("routes", routes), ("pages", pages)):
+        seen = set()
+        for item in items or []:
+            path = item.get("path")
+            method = item.get("method", "")
+            if not isinstance(method, str):
+                return None
+            if not isinstance(path, str) or not path.startswith("/") or re.search(r"\s", path):
+                return None
+            if key == "routes" and method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}:
+                return None
+            identity = (method, path)
+            if identity in seen:
+                return None
+            seen.add(identity)
+            if "requirements" in item and (not isinstance(item["requirements"], list)
+                    or not all(isinstance(nid, str) for nid in item["requirements"])):
+                return None
+    if data_model is not None and not all(isinstance(k, str) and k and isinstance(v, dict)
+                                          for k, v in data_model.items()):
+        return None
+    contracts = design.get("contracts")
+    if contracts is not None and (not isinstance(contracts, list)
+            or not all(isinstance(c, dict) and isinstance(c.get("invariants"), list)
+                       and c["invariants"] and all(isinstance(v, str) for v in c["invariants"])
+                       and isinstance(c.get("requirements"), list)
+                       and all(isinstance(v, str) for v in c["requirements"]) for c in contracts)):
+        return None
     if notes is not None and not isinstance(notes, str):
         return None
-    if not any(k in design for k in ("data_model", "routes", "pages")):
+    if not any(design.get(k) for k in ("data_model", "routes", "pages")):
         return None
     return design
 
@@ -321,51 +395,82 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
     A design that fits `cap` whole is identical for every node and goes BEFORE
     the sources, so the prefix every node shares stays byte-identical. A larger
     one is compiled into two layers: a stable CORE (everything but routes and
-    pages: data model, conventions, notes) plus a CATALOG (every route and page
-    as one short line) -- the same for every node, before the sources -- and a
-    node SLICE with the full entries whose text overlaps the spec's terms, which
-    differs per node and goes AFTER the sources. Neither layer exceeds cap by
-    more than a marker line; ("", "") without a design."""
-    if not design:
+    pages: data model, conventions, notes) plus a CATALOG (compact route/page
+    names, whole entries only) -- the same for every node, before the sources -- and a
+    node SLICE with relevant complete entries AFTER the sources. The combined
+    layers fit cap; serialized JSON is never cut in the middle of a field."""
+    if not design or cap < 120:
         return "", ""
-    header = "Application design (one for the whole app; every requirement follows it):\n"
+    header = "Application design (shared contract):\n"
 
     def render(doc: dict) -> str:
         return header + json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
 
-    def capped(text: str) -> str:
-        return text if len(text) <= cap else text[:cap].rstrip() + "\n[design truncated to the budget]\n"
-
     whole = render(design)
     if len(whole) <= cap:
         return whole, ""
-    core = {k: v for k, v in design.items() if k not in ("routes", "pages")}
-    stable = render(core) + "Routes and pages (catalog; details for this requirement follow the sources):\n" \
-        + "\n".join(_design_catalog(design)) + "\n"
+    core = {"omitted": "design truncated; see .arc/design/app.json"}
+    slice_header = "Design entries for this requirement:\n"
+    detail: dict = {}
+    stable_cap = max(len(render(core)), int(cap * 0.65))
+
+    def size() -> int:
+        return len(render(core)) + (len(slice_header) + len(json.dumps(
+            detail, ensure_ascii=False, separators=(",", ":"), sort_keys=True)) + 1 if detail else 0)
+
+    def append_entry(doc: dict, key: str, value) -> bool:
+        entries = doc.setdefault(key, [])
+        entries.append(value)
+        if size() <= (stable_cap if doc is core else cap):
+            return True
+        entries.pop()
+        if not entries:
+            del doc[key]
+        return False
+
+    # Stable structure takes precedence. Append only complete JSON values.
+    for entry in _design_catalog(design):
+        append_entry(core, "catalog", entry)
+    for name, shape in sorted((design.get("data_model") or {}).items()):
+        core.setdefault("data_model", {})[name] = shape
+        if size() > stable_cap:
+            del core["data_model"][name]
+    # Stable fields are selected before consulting the current requirement.
+    if design.get("notes"):
+        core["notes"] = design["notes"]
+        if size() > stable_cap:
+            del core["notes"]
+    for contract in design.get("contracts") or []:
+        if not contract.get("requirements"):
+            append_entry(core, "contracts", contract)
     terms = spec_terms(spec_text)
+    req_ids = set(re.findall(r"\bREQ-\d+(?:\.\d+)*\b", spec_text))
 
     def related(item) -> bool:
+        owners = set(item.get("requirements") or [])
+        if owners and req_ids:
+            return bool(owners & req_ids)
         low = json.dumps(item, ensure_ascii=False).lower()
         return any(term in low for term in terms)
 
-    detail = {}
-    for key in ("routes", "pages"):
+    for key in ("contracts", "routes", "pages"):
         items = design.get(key) or []
-        kept = [item for item in items if related(item)] if isinstance(items, list) else []
-        if kept:
-            detail[key] = kept
+        for item in items:
+            if related(item):
+                append_entry(detail, key, item)
     node_slice = ""
     if detail:
-        node_slice = "Design entries for this requirement:\n" \
+        node_slice = slice_header \
             + json.dumps(detail, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
-    return capped(stable), capped(node_slice)
+    stable = render(core)
+    return (stable, node_slice) if len(stable) + len(node_slice) <= cap else ("", "")
 
 
 def app_design_context(design: dict | None, spec_text: str, cap: int) -> str:
-    """The application design a node's codegen prompt carries: the data model
-    whole, and -- when the whole design does not fit `cap` -- only the routes
-    and pages whose text overlaps the node's spec terms. Never exceeds cap by
-    more than a marker line; "" without a design."""
+    """Stable design plus relevant complete entries, jointly bounded by cap.
+
+    Any omissions are explicit; full design remains on disk. Empty without a design.
+    """
     stable, node_slice = app_design_blocks(design, spec_text, cap)
     return stable + node_slice
 
@@ -456,7 +561,12 @@ def write_codegen_manifests(output_dir: Path) -> list[str]:
     return written
 
 
-def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = (".js", ".mjs", ".cjs", ".html", ".css", ".json")) -> str:
+SOURCE_EXTS = (".html", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts",
+               ".vue", ".css", ".scss", ".json", ".svg")
+LOCKFILES = {"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"}
+
+
+def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = SOURCE_EXTS) -> str:
     """Quote the app's source files (frontend sources, backend JS) so a repair
     turn edits immediately instead of spending its request budget on reads.
 
@@ -466,16 +576,7 @@ def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = (".js
     pages were quoted and `frontend/src/index.html` — the whole UI, and where
     nearly every failure lives — was the one file omitted.
     """
-    files: list[Path] = []
-    for part in ("frontend", "backend"):
-        base = output_dir / part
-        if base.is_dir():
-            for path in sorted(base.rglob("*")):
-                rel = path.relative_to(output_dir)
-                if any(seg in ("node_modules", "dist", ".git") for seg in rel.parts):
-                    continue
-                if path.is_file() and path.suffix in exts:
-                    files.append(path)
+    files = app_source_files(output_dir, exts)
     parts, total = [], 0
     for path in sorted(files, key=lambda p: (-p.stat().st_size, str(p))):
         try:
@@ -516,21 +617,20 @@ def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = (".js
     return ("Current source files (quoted; edit them directly, no need to read):\n" + "".join(parts)) if parts else ""
 
 
-SOURCE_EXTS = (".html", ".js", ".mjs", ".cjs", ".css", ".json")  # visibility and layout failures may originate in CSS
-
-
 def app_source_files(output_dir: Path, exts: tuple = SOURCE_EXTS) -> list[Path]:
     files: list[Path] = []
     for part in ("frontend", "backend"):
         base = output_dir / part
         if not base.is_dir():
             continue
-        for path in sorted(base.rglob("*")):
-            rel = path.relative_to(output_dir)
-            if any(seg in ("node_modules", "dist", ".git") for seg in rel.parts):
-                continue
-            if path.is_file() and path.suffix in exts:
-                files.append(path)
+        found = []
+        for directory, dirs, names in os.walk(base):
+            dirs[:] = sorted(name for name in dirs if name not in {"node_modules", "dist", ".git", "coverage", ".vite"})
+            for name in names:
+                path = Path(directory) / name
+                if path.is_file() and path.suffix in exts and name not in LOCKFILES:
+                    found.append(path)
+        files.extend(sorted(found))
     return files
 
 
@@ -1361,14 +1461,15 @@ UI behavior follows the requirement and the current application:
 - A control repeated once per item needs an accessible name that says which item it acts on. Identical names across items leave a name-based lookup resolving to an arbitrary one, and a control that stays exposed after the pointer leaves its item makes that worse.
 - Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input.
 - Derive state ownership and persistence from requirements: distinguish per-view, per-session and shared data. Do not reset persisted user data on startup. For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it. Provide a loading state when initialization is asynchronous.
-- Treat a UI action as a state transition: mount usable editor/dialog controls and hide the background synchronously before the first await. A browser click does not await an async event listener; the next action must not land on a similarly named background control. After a mutation, await persistence and refresh (or apply a consistent optimistic update) before exposing stale state as final; handle failure without losing the user's edits.
+- Treat a UI action as a state transition: mount usable editor/dialog controls synchronously before the first await. Isolate background controls for modal dialogs, not ordinary inline editors or non-modal menus. A browser click does not await an async event listener. After a mutation, await persistence and refresh (or apply a consistent optimistic update) before exposing stale state as final; handle failure without losing the user's edits. Derive Save/Cancel/autosave transitions from requirements; cancelling a draft must not commit it.
 - Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
+- Specify ownership/keys and atomic command effects (including undo) from requirements; related mutations must commit together in one store update or database transaction, not separate file writes. Validate authoritatively on the server. Date-only values are calendar dates, not UTC instants; persist expiry deadlines across reloads, anchor countdowns to server time, and use a task-provided reference date only when explicitly required. Keep editable rich-text regions labeled (role=textbox, aria-multiline=true); use native select for a native selection contract, not a visually similar custom menu.
 - Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
 """
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "4"
+APP_DESIGN_PROMPT_VERSION = "7"
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1377,29 +1478,29 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 
 {outline}
 
-Architecture: frontend/src/index.html is the entry with local CSS/JS modules for substantial features; use additional \
-HTML pages for multi-page routes or an explicit SPA fallback for client-side routes. backend/server.js is a small \
-Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules.
+Preserve the installed stack: complex fresh applications use React/Vite/Radix/React Router with local bundled assets and SPA routes (frontend/package.json arc.spa=true). Simple or existing applications keep their architecture. frontend/src/index.html is the shell; backend/server.js is a small Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules. Use the provided exact dependency pins and capability recommendations; do not invent another DOM/widget framework.
 Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
  "pages": [{{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
- "notes": "session handling, seed data, validation conventions, naming conventions"}}
-Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
+ "contracts": [{{"requirements": ["REQ-..."], "invariants": ["ownership/key scope", "command: preconditions -> atomic effects and undo", "draft/save/cancel semantics", "date-only/clock/deadline rules", "control and validation semantics"]}}],
+ "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}}
+Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
 """
 
 CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with FILE or EDIT blocks, or exactly <<<NO CHANGE>>> when the existing app already meets the requirement."
 
 CODEGEN_RULES = """\
-Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. Register literal routes before :parameter routes. For pushState links set frontend/package.json arc.spa=true. Initial manifests exist; update package.json and the build script for new packages. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. Use bundled React, htmx or Tailwind only when useful.
-Data: seed only a new store or migration; preserve edits/deletions across restarts.
-Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Closing an editor saves pending fields/options to the same record. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
-Async: clicks do not await handlers. Mount usable editor/dialog controls and hide background before the first await, so the next input hits the new UI. Await save and list refresh (or update optimistically); retain edits on failure.
+Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. For each HTTP method, register literal paths before overlapping :parameter paths (DELETE /api/items/trash before DELETE /api/items/:id). For pushState links set frontend/package.json arc.spa=true. Preserve the installed frontend stack, exact dependency versions and lockfile; add task-required packages to the correct package.json. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. JSX/TSX must be bundled, not copied to dist.
+Packages: update package.json and the build script only when needed by new dependencies; keep the fixed baseline.
+Data: seed only a new store or migration; preserve edits/deletions across restarts. Use atomic aggregate updates for related state and server-side validation. Persist deadlines, distinguish calendar dates from timestamps. Label rich-text textbox regions; use native select when native selection is required.
+Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
+Async: clicks do not await handlers. Mount usable editor/dialog controls before the first await; isolate background only for modal overlays. Await save and list refresh (or update optimistically); retain edits on failure.
 Output: use exact EDIT blocks for small quoted-file changes; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.
 """
 
 GENERIC_TEMPLATE_NOTE = """\
-Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Register static paths before matching parameter paths. Do not rewrite the entry for ordinary routes. From backend/routes/, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial}) with all/list/get/create/patch/remove. The frontend starts as a small index.html, app.js and style.css; put substantial views in separate local modules, not one expanding HTML file. Optional shared modules: ./shared/dom.js exports escapeHtml, ./shared/request.js exports requestJson, ./shared/router.js exports startRouter(render) for a[data-route] SPA links (set frontend/package.json arc.spa=true). Optional frontend/build.mjs and vite.config.mjs: set build to "node build.mjs" when using npm frontend packages; it copies plain src, builds Vite when declared, compiles Tailwind CSS with @tailwindcss/cli, and copies htmx.org locally. Define domain fields, pages, validation, session rules and seed data from the task. Do not output FILE blocks for unchanged shared helpers; use application routes and feature modules instead.
+Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Register static paths before matching parameter paths. Do not rewrite the entry for ordinary routes. From backend/routes/, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial,migrations}) with all/list/get/create/patch/remove. initial is new-store-only: evolve persisted data with store.migrate(name,fallback,[{id,up(data){ /* mutate synchronously, return undefined */ }}]) or collection migrations. IDs run once; preserve reserved __arcMigrations metadata. Never reinsert deleted records on read. Atomicity is single-store/single-process only; keep related command effects together or use transactional storage. Put substantial views in separate modules. ./shared/request.js exports requestJson(url,{body: JSON.stringify(data),...options}). A React scaffold uses main.jsx/App.jsx and the fixed baseline below. Only the plain scaffold has app.js, shared/dom.js (escapeHtml), and shared/router.js (startRouter(render) for a[data-route] links, requiring arc.spa=true). Optional frontend/build.mjs and vite.config.mjs: build is "node build.mjs" for npm frontend packages; Vite bundles JSX and local imports, plain src can be copied, Tailwind CLI and htmx.org have local build paths. frontend/public is copied to the dist root. Define domain fields, pages, validation, session rules and seed data from the task. Do not output FILE blocks for unchanged shared helpers; use application routes and feature modules instead.
 """
 
 TASK_NEUTRAL_HELPERS = {
@@ -1527,7 +1628,7 @@ Performance and robustness:
 ARCHITECTURE_CONTRACT = """\
 Runtime integration:
 - Preserve the platform contract: frontend/ has npm run build producing frontend/dist/; backend/ has npm start and reads PORT (default {port}). Within that contract, preserve the existing application architecture and choose libraries or storage appropriate to the requirements and available environment.
-- Prefer existing dependencies and avoid unnecessary installation. Use Express routes in the fresh scaffold; preserve another existing architecture. React with a local bundler, htmx, Tailwind CLI and other npm packages are allowed when useful. Declare dependencies and make npm run build produce all pages and assets. Browser pages must load scripts, styles, fonts and media from local output, never a CDN or remote import. Registry downloads during npm install are allowed.
+- Preserve the installed stack and exact dependency pins. Fresh complex apps use React/Vite/Radix/React Router and Express routes; keep simple or existing apps in their own architecture. Use the recommended optional libraries only for actual requirements. Declare dependencies and make npm run build produce all pages and assets. Browser pages must load scripts, styles, fonts and media from local output, never a CDN or remote import. Registry downloads during npm install are allowed.
 - Handle expected request errors with appropriate responses, including 404 for missing resources. Log unexpected failures; do not suppress uncaught exceptions and continue serving potentially corrupt state. Preserve data integrity and use the runtime's recovery mechanism.
 """
 
@@ -1906,7 +2007,7 @@ class Flow:
         # A repair has to understand the code before editing it, so it cannot be
         # quoted less than the turn that wrote the code was.
         limit = self.inline_source_chars()
-        return inline_sources(self.output_dir, limit) + "\n" if limit > 0 else ""
+        return stack_note(self.output_dir) + (inline_sources(self.output_dir, limit) + "\n" if limit > 0 else "")
 
     def corrections_text(self) -> str:
         if not self.pending_corrections:
@@ -2121,6 +2222,7 @@ class Flow:
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         if getattr(self, "generic_template_installed", False):
             rules += GENERIC_TEMPLATE_NOTE
+        rules += stack_note(self.output_dir)
         # The harness has already written package.json, which is enough for
         # has_app() but not for a runnable backend. Keep existing sources while
         # explicitly requiring the missing entry in this generation request.
@@ -2213,7 +2315,7 @@ class Flow:
         # only if this prompt carries it; counted against the requote room.
         design = app_design_context(getattr(self, "app_design_doc", None), spec,
                                     int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
-        suffix = design + suffix
+        suffix = stack_note(getattr(self, "output_dir", None)) + design + suffix
         limit = self.codegen_context_chars()
         current_sources = self.sources_text()
         if current_sources.strip() and current_sources in prompt:
@@ -2236,7 +2338,7 @@ class Flow:
         """Tiny tier by spec size -- never once an application design exists:
         its fixed static server and design-free prompt would let that node pick
         its own routes and records, which is what the design is there to stop."""
-        if getattr(self, "app_design_doc", None):
+        if getattr(self, "app_design_doc", None) or stack_note(getattr(self, "output_dir", None)):
             return False
         threshold = int(os.environ.get("OCTOS_ARC_TINY_SPEC_CHARS", "1500"))
         return os.environ.get("OCTOS_ARC_TINY", "1") != "0" and 0 < spec_chars < threshold
@@ -2310,6 +2412,18 @@ class Flow:
         fresh build called app_design, so a rerun over an existing app -- which
         is every rerun -- could never reuse the design it had stored; app_design
         itself only ever generates on a fresh build."""
+        build_dir = getattr(self, "output_dir", None)
+        if (not self.evolution and build_dir is not None and not app_source_files(build_dir) and self.codegen_mode()
+                and os.environ.get("OCTOS_ARC_GENERIC_TEMPLATE", "1") != "0"):
+            extra_ports = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
+            written = install_generic_template(build_dir, BUNDLE_DIR, self.web_port, extra_ports,
+                                               react=len(ordered) >= 3,
+                                               capabilities=recommended_capabilities(tree))
+            written += write_codegen_manifests(build_dir)
+            if written:
+                self.commit("chore: install task-neutral web scaffold")
+                log(f"[flow] generic template: installed {written}")
+            self.generic_template_installed = generic_template_active(build_dir)
         if self.codegen_mode() and os.environ.get("OCTOS_SKELETON_ALWAYS") != "1":
             if not self.evolution:
                 log(f"[flow] {len(ordered)}-node tree: codegen mode, harness manifests replace the skeleton turn")
@@ -2320,16 +2434,6 @@ class Flow:
             self.driver.end_scope("node")
         elif not self.evolution:
             log(f"[flow] {len(ordered)}-node tree: skeleton folded into the first node turn")
-        build_dir = getattr(self, "output_dir", None)
-        if (not self.evolution and build_dir is not None and not app_source_files(build_dir) and self.codegen_mode()
-                and os.environ.get("OCTOS_ARC_GENERIC_TEMPLATE", "1") != "0"):
-            write_codegen_manifests(build_dir)
-            extra_ports = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
-            written = install_generic_template(build_dir, BUNDLE_DIR, self.web_port, extra_ports)
-            if written:
-                self.commit("chore: install task-neutral web scaffold")
-                log(f"[flow] generic template: installed {written}")
-            self.generic_template_installed = generic_template_active(build_dir)
         # The tree before any node of this run: the first suite repair quotes
         # what changed since it.
         self.last_checkpoint_sha = self.head()
@@ -2345,7 +2449,8 @@ class Flow:
                 or len(ordered) < self.design_min_nodes:
             return None
         outline = tree_outline(tree, int(os.environ.get("OCTOS_ARC_APP_DESIGN_OUTLINE_CHARS", "60000")))
-        tree_sha = hashlib.sha256(outline.encode("utf-8")).hexdigest()
+        # Cache identity includes omitted detail too, not just a budgeted outline.
+        tree_sha = hashlib.sha256(json.dumps(tree, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
         stored = self.stored_app_design(tree_sha)
         if stored is not None:
             self.app_design_doc = stored
@@ -2355,7 +2460,7 @@ class Flow:
             # An existing app is its own design; only a stored design made for
             # this exact tree is trusted over the code.
             return None
-        prompt = APP_DESIGN_PROMPT.format(outline=outline)
+        prompt = stack_note(self.output_dir) + APP_DESIGN_PROMPT.format(outline=outline)
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
         design = None
@@ -2412,7 +2517,7 @@ class Flow:
         if getattr(result, "returncode", 1) != 0:
             return set()
         return {line.strip() for line in (result.stdout or "").splitlines()
-                if line.strip().startswith(("frontend/", "backend/"))}
+                if line.strip().startswith(("frontend/", "backend/")) and Path(line.strip()).name not in LOCKFILES}
 
     def suite_repair_prompt(self, failing_ids: list[str], failures: str) -> str | None:
         """One codegen prompt for the nodes a suite run found failing.
@@ -2477,22 +2582,45 @@ class Flow:
         when no codegen prompt fits or the caller wants a changed approach.
         Returns (mode, reply text); the codegen reply is file blocks, so its
         text is not an unfinished plan and comes back empty."""
+        deadline = time.monotonic() + timeout
+        reason = ""
         if prefer_codegen and self.codegen_mode(node_block=False):
             prompt = self.suite_repair_prompt(failing_ids, failures)
             if prompt is not None:
                 spec_chars = getattr(self, "suite_spec_chars", 0)
-                before = set(getattr(self, "refused_paths", set()))
-                self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars)
-                refused = set(getattr(self, "refused_paths", set())) - before
-                if refused:
-                    retry = self.suite_repair_prompt(failing_ids, failures)
-                    if retry is not None and refused <= quoted_paths(retry):
-                        names = ", ".join(sorted(refused))
-                        log(f"[flow] {label}: retrying codegen with {names} quoted whole")
-                        self.codegen_turn(retry, timeout, f"{label} (retry with {names})", spec_chars=spec_chars)
-                return "codegen", ""
-            log(f"[flow] {label}: no codegen repair prompt within the budget; using tools")
-        _, text = self.turn(tool_prompt, timeout, label)
+                for attempt in range(2):
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        break
+                    ok, reason = self.codegen_turn(prompt, left, label if not attempt else label + " (protocol retry)",
+                                                   spec_chars=spec_chars)
+                    refused = set(getattr(self, "last_codegen_refused", set()))
+                    if ok and getattr(self, "last_codegen_written", []) and not refused:
+                        return "codegen", ""
+                    if attempt or deadline - time.monotonic() < 30:
+                        break
+                    if refused:
+                        retry = self.suite_repair_prompt(failing_ids, failures)
+                        if retry is None or not refused <= quoted_paths(retry):
+                            break
+                        prompt = retry
+                    elif reason.startswith(("codegen reply contained no ", "mixed FILE and EDIT blocks")):
+                        correction = ("\nPrevious reply was not applied: " + reason[:240] +
+                                      "\nReturn only complete FILE/EDIT blocks with exact terminators; one format per path.\n")
+                        if len(prompt) + len(correction) + len(FORMAT_INSTRUCTIONS) + 1 > self.codegen_context_chars():
+                            break
+                        prompt += correction
+                    else:
+                        break
+                log(f"[flow] {label}: codegen repair not fully applied; using tools with remaining budget")
+            else:
+                log(f"[flow] {label}: no codegen repair prompt within the budget; using tools")
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return "unapplied", ""
+        if reason:
+            tool_prompt += "\nCodegen repair did not fully apply; inspect current files before editing. " + reason[:300] + "\n"
+        _, text = self.turn(tool_prompt, left, label)
         return "tools", text
 
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
@@ -2575,6 +2703,7 @@ class Flow:
                 return False, f"codegen reply only changed files it was not shown: {', '.join(refused)}"
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
+            self.last_codegen_no_change = not written and not refused
             if "backend/server.js" in written:
                 self.generic_template_installed = "Generic web entry" in files["backend/server.js"][:200]
             log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
@@ -2672,7 +2801,7 @@ class Flow:
                 args.extend([sys.executable, str(helper), "--app", str(self.output_dir.resolve()),
                              "--tests", str(self.tests_dir.resolve()), "--playwright", str(runner.root)])
                 workers = runner.workers if specs else workers_for_final(
-                    getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+                    getattr(self, "mem_limit", None), self.final_workers())
                 args.extend(["--workers", str(workers)])
                 for spec in specs or []:
                     args.extend(["--spec", spec])
@@ -2781,7 +2910,9 @@ class Flow:
         git = self.runtime.git
         for part in ("frontend", "backend"):
             if (self.output_dir / part).exists():
-                git.run(["checkout", sha, "--", part], check=False)
+                # Unlike checkout's overlay mode, restore also removes tracked
+                # files introduced by the rejected repair after this snapshot.
+                git.run(["restore", f"--source={sha}", "--staged", "--worktree", "--", part])
         git.run(["clean", "-fd", "-e", "node_modules", "-e", "dist", "--", "frontend", "backend"], check=False)
         log(f"[flow] restored frontend/ and backend/ to best commit {sha[:8]}")
 
@@ -3229,6 +3360,14 @@ class Flow:
         spec = self.batch_spec_bodies(ids)
         if spec == "(none)":
             return False
+        # A large input can fit while the corresponding application cannot fit
+        # in one output. Keep the one-shot experiment for smaller trees; the
+        # 32-leaf Keep run spent 170s on a prose-only whole-app reply.
+        max_one_shot = max(1, int(os.environ.get("OCTOS_ARC_WHOLE_APP_MAX_NODES", "12")))
+        if len(ids) > max_one_shot:
+            log(f"[flow] whole-app experiment: {len(ids)} leaves exceed the {max_one_shot}-leaf "
+                "one-shot output limit; planning generation waves")
+            return self.whole_app_waves(tree, ordered)
         description = ("Implement the COMPLETE application, not just one feature. "
                        "All listed atomic requirements must work together. Keep the "
                        "shared data model, routes and interaction lifecycle consistent.\n\n"
@@ -3243,13 +3382,43 @@ class Flow:
                       max(120, self.remaining() - self.min_repair_seconds))
         log(f"[flow] whole-app experiment: one generation turn for {len(ids)} nodes "
             f"({len(prompt)} prompt chars, {len(spec)} spec chars, timeout {timeout}s)")
-        ok, text = self.codegen_turn(prompt, timeout, "whole application implement", spec_chars=len(spec))
+        ok, text = self.whole_app_generation_turn(prompt, timeout, "whole application implement",
+                                                   spec_chars=len(spec))
         if not ok or not getattr(self, "last_codegen_written", []):
             log(f"[flow] whole-app experiment: no complete application write ({text[-120:]}); "
                 "planning smaller generation waves")
             return self.whole_app_waves(tree, ordered)
         self.commit("whole application (experimental implement)")
+        self.whole_app_generated_ids = set(ids)
         return True
+
+    def whole_app_generation_turn(self, prompt: str, timeout: int, label: str,
+                                  *, spec_chars: int) -> tuple[bool, str]:
+        """Retry a format refusal once at the same size; only output/context
+        failures justify splitting a feature group. The retry shares the stable
+        prompt prefix with the first request and names the exact protocol error.
+        """
+        deadline = time.monotonic() + timeout
+        self.whole_app_generation_requests = getattr(self, "whole_app_generation_requests", 0) + 1
+        ok, text = self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars)
+        if ok and getattr(self, "last_codegen_written", []):
+            return ok, text
+        format_error = (text.startswith("codegen reply contained no ")
+                        or text.startswith("mixed FILE and EDIT blocks"))
+        correction = ("\nThe preceding answer was discarded without writing files: " + text[:240] +
+                      "\nReturn ONLY complete <<<FILE ...>>> or <<<EDIT ...>>> blocks, with their exact "
+                      "<<<END FILE>>> or <<<END EDIT>>> terminators. Use one format per path. "
+                      "Do not explain the implementation.\n")
+        retry_seconds = min(360, int(deadline - time.monotonic()))
+        if (format_error and retry_seconds >= 30 and not self.wound_down()
+                and self.remaining() >= self.min_repair_seconds + 120
+                and len(prompt) + len(correction) + len(FORMAT_INSTRUCTIONS) + 1
+                <= self.codegen_context_chars()):
+            log(f"[flow] {label}: format rejected; one corrected reply before splitting")
+            self.whole_app_generation_requests += 1
+            return self.codegen_turn(prompt + correction, retry_seconds, label + " (format retry)",
+                                     spec_chars=spec_chars)
+        return ok, text
 
     def whole_app_waves(self, tree: dict, ordered: list[dict]) -> bool:
         """Generate contiguous, dependency-ordered feature groups before testing.
@@ -3269,19 +3438,39 @@ class Flow:
         max_nodes = max(2, int(os.environ.get("OCTOS_ARC_WHOLE_APP_WAVE_NODES", "16")))
         max_spec = min(30000, int(self.codegen_context_chars() * 0.35))
         max_details = min(24000, int(self.codegen_context_chars() * 0.25))
+        parents = {}
+
+        def index_parents(node, parent=None):
+            parents[str(node.get("id"))] = parent
+            for child in node.get("children") or []:
+                index_parents(child, str(node.get("id")))
+
+        index_parents(tree)
         start = 0
         wave = 0
+        self.whole_app_generated_ids = set()
+        attempts = 0
+        requests_before = getattr(self, "whole_app_generation_requests", 0)
         while start < len(ordered):
             if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
-                log("[flow] whole-app waves: insufficient budget; using node flow for unfinished leaves")
-                return False
+                log("[flow] whole-app waves: insufficient budget; measuring any partial application")
+                return wave > 0
             size = min(max_nodes, len(ordered) - start)
+            if start + size < len(ordered):
+                # Prefer a module boundary, without changing dependency order.
+                parent = parents.get(str(ordered[start + size]["id"]))
+                boundary = size
+                while boundary > 0 and parents.get(str(ordered[start + boundary - 1]["id"])) == parent:
+                    boundary -= 1
+                if boundary:
+                    size = boundary
             while size:
                 group = ordered[start:start + size]
                 ids = [str(node.get("id")) for node in group]
                 spec = self.batch_spec_bodies(ids)
                 details = "\n\n".join(describe_node(node) for node in group)
                 if (len(spec) > max_spec or len(details) > max_details) and size > 1:
+                    max_nodes = min(max_nodes, (size + 1) // 2)
                     size = max(1, size // 2)
                     continue
                 combined = {"id": f"application wave {wave + 1}",
@@ -3292,54 +3481,122 @@ class Flow:
                 prompt = self.codegen_implement_prompt(combined, spec)
                 if prompt is None:
                     if size > 1:
+                        max_nodes = min(max_nodes, (size + 1) // 2)
                         size = max(1, size // 2)
                         continue
                     log(f"[flow] whole-app waves: {ids[0]} cannot fit alone; using node flow")
-                    return False
+                    return wave > 0
                 write_codegen_manifests(self.output_dir)
                 timeout = min(int(os.environ.get("OCTOS_ARC_WHOLE_APP_TIMEOUT", "1800")),
                               max(120, self.remaining() - self.min_repair_seconds))
                 log(f"[flow] whole-app wave {wave + 1}: generating {ids} "
                     f"({len(prompt)} prompt chars, {len(spec)} spec chars)")
-                ok, text = self.codegen_turn(prompt, timeout, f"whole application wave {wave + 1}",
-                                             spec_chars=len(spec))
+                attempts += 1
+                ok, text = self.whole_app_generation_turn(prompt, timeout,
+                                                          f"whole application wave {wave + 1}",
+                                                          spec_chars=len(spec))
                 if not ok or not getattr(self, "last_codegen_written", []):
                     if size > 1:
                         log(f"[flow] whole-app wave {wave + 1}: no complete write "
                             f"({text[-120:]}); splitting group")
+                        max_nodes = min(max_nodes, (size + 1) // 2)
                         size = max(1, size // 2)
                         continue
-                    log(f"[flow] whole-app wave {wave + 1}: single leaf did not write; using node flow")
-                    return False
+                    log(f"[flow] whole-app wave {wave + 1}: single leaf did not write; "
+                        "measuring the partial application before targeted node repairs")
+                    return wave > 0
                 self.commit(f"whole application wave {wave + 1} (experimental implement)")
+                self.whole_app_generated_ids.update(ids)
                 start += size
                 wave += 1
                 break
-        log(f"[flow] whole-app waves: {len(ordered)} leaves generated in {wave} turns; running first full suite")
+        log(f"[flow] whole-app waves: {len(ordered)} leaves generated in {wave} successful waves "
+            f"({attempts} group attempts, "
+            f"{getattr(self, 'whole_app_generation_requests', 0) - requests_before} model turns); "
+            "running first full suite")
         return True
+
+    def whole_app_startup_repair(self, error: str) -> bool:
+        """Fix one concrete build/start failure without reimplementing all nodes."""
+        if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
+            return False
+        names = list(dict.fromkeys(re.findall(
+            r"(?:frontend|backend)/[A-Za-z0-9_./-]+\.(?:jsx?|tsx?|[cm][jt]s|vue|s?css|html|json)\b", error)))
+        # Vite usually reports paths relative to frontend, not the app root.
+        names.extend("frontend/" + path for path in re.findall(
+            r"(?<![\w/])(?:src/[A-Za-z0-9_./-]+\.(?:[jt]sx?|[cm][jt]s|vue|s?css)|vite\.config\.[cm]?[jt]s)\b", error))
+        names = list(dict.fromkeys(names))
+        if not names:
+            if "client-side links" in error or "pushState" in error:
+                names = ["frontend/package.json", "frontend/src/index.html", "frontend/src/app.js"]
+            else:
+                names = ["backend/server.js", "backend/package.json", "frontend/package.json"]
+        sources = []
+        for raw in names[:4]:
+            rel = safe_relative_path(raw)
+            if rel is None or not rel.startswith(("frontend/", "backend/")):
+                continue
+            path = self.output_dir / rel
+            try:
+                if path.resolve().is_relative_to(self.output_dir.resolve()) and path.is_file() \
+                        and path.stat().st_size <= 50000:
+                    sources.append(f"--- {rel} ---\n{path.read_text(encoding='utf-8', errors='replace')}\n")
+            except OSError:
+                continue
+        prompt = (stack_note(self.output_dir) + "The generated application failed its build/start preflight. Fix ONLY this concrete error; "
+                  "preserve every implemented feature. For a literal route shadowed by a :parameter route "
+                  "of the same method, register the literal handler first. Do not rewrite unrelated files.\n"
+                  f"Error:\n{error[:2200]}\nCurrent source files (quoted whole):\n{''.join(sources)}")
+        if sources and len(prompt) + len(FORMAT_INSTRUCTIONS) + 1 <= self.codegen_context_chars():
+            ok, _ = self.whole_app_generation_turn(prompt, min(self.node_timeout, 360),
+                                                    "whole application startup repair", spec_chars=0)
+            if ok and getattr(self, "last_codegen_written", []):
+                self.commit("fix: whole application startup preflight")
+                return True
+        # A failed file-block response is not a reason to revisit every leaf.
+        # Give tool mode only this startup error and the small implicated source.
+        tool_prompt = ("Fix the application's build/start error below with a focused source edit. "
+                       "Preserve existing features and do not run the full test suite; the harness will.\n"
+                       f"Error:\n{error[:2200]}\n{''.join(sources) or source_listing(self.output_dir)}")
+        self.turn(tool_prompt, min(self.node_timeout, 360), "whole application startup repair (tools)")
+        return self.commit("fix: whole application startup preflight (tools)")
 
     def whole_app_first_suite(self, ordered: list[dict]) -> set[str] | None:
         """Measure the generated app once; return only leaves needing repair.
 
-        None means the suite could not give a reliable verdict, so the caller
-        must use the original per-node acceptance path. No test is skipped on
+        None means the suite could not give a reliable verdict. No test is skipped on
         the strength of a model's claim that the whole app is complete.
         """
+        self.whole_app_summary = None
         if self.runner is None or not self.tests_dir:
             return None
         specs = sorted(str(path.relative_to(self.tests_dir)) for path in self.tests_dir.rglob("*.spec.ts"))
         workers = workers_for_final(getattr(self, "mem_limit", None),
-                                    int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+                                    self.final_workers())
+        issues = scaffold_issues(self.output_dir)
+        attempted_errors = set()
+        if issues:
+            preflight = "generic scaffold route checks failed:\n" + "\n".join(issues[:8])
+            attempted_errors.add(preflight)
+            self.whole_app_startup_repair(preflight)
         summary = self.run_specs(specs, workers=workers, grader_like=True)
         while summary.error and summary.killed and workers > 1:
             workers = max(1, workers // 2)
             log(f"[flow] whole-app first suite: runner killed; retrying with {workers} worker(s)")
             summary = self.run_specs(specs, workers=workers, grader_like=True)
+        for attempt in range(2):
+            if not summary.error or summary.killed or summary.error in attempted_errors:
+                break
+            attempted_errors.add(summary.error)
+            if not self.whole_app_startup_repair(summary.error):
+                break
+            log(f"[flow] whole-app first suite: repaired startup failure {attempt + 1}/2; retrying full suite")
+            summary = self.run_specs(specs, workers=workers, grader_like=True)
         observed_files = {Path(result.file or "").name for result in summary.results}
         if (summary.error or summary.load_errors or not summary.results or summary.total != len(summary.results)
                 or any(Path(spec).name not in observed_files for spec in specs)):
             log(f"[flow] whole-app first suite: no reliable verdict "
-                f"({(summary.error or 'incomplete results')[:150]}); using node flow")
+                f"({(summary.error or 'incomplete results')[:150]}); preserving app for final repair")
             return None
         grouped = nodes_for_failures(summary.results, self.spec_map)
         ids = {str(node.get("id")) for node in ordered}
@@ -3347,18 +3604,109 @@ class Flow:
             log("[flow] whole-app first suite: unmapped failure; using node flow")
             return None
         self.record_full_suite(summary, grouped)
+        self.whole_app_summary = summary
         failing = set(grouped)
         log(f"[flow] whole-app first suite: {summary.passed}/{summary.total}; "
             f"repair only {sorted(failing)}")
         return failing
+
+    def whole_app_shared_repair(self, ordered: list[dict], failing: set[str]) -> set[str]:
+        """One evidence-driven shared-error repair before per-leaf cycles.
+
+        Identical timeouts/assertions are not sufficient evidence. Always rerun
+        the full suite after a real edit and roll back newly broken behaviours.
+        """
+        summary = getattr(self, "whole_app_summary", None)
+        if (summary is None or len(failing) < 2 or self.wound_down()
+                or self.remaining() < self.min_repair_seconds + 300
+                or os.environ.get("OCTOS_ARC_SHARED_REPAIR", "1") == "0"):
+            return failing
+        grouped = nodes_for_failures(summary.results, self.spec_map)
+        clusters: dict[str, set[str]] = {}
+        for nid, outcomes in grouped.items():
+            for result in outcomes:
+                # Keep identifiers/values intact; do not merge all failures of a type.
+                for line in result.message.splitlines():
+                    if re.search(r"\b(?:ReferenceError: .+ is not defined|Cannot find module|"
+                                 r"ERR_MODULE_NOT_FOUND|SyntaxError:)", line):
+                        signature = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+                        clusters.setdefault(signature, set()).add(nid)
+                        break
+        candidates = [ids for ids in clusters.values() if len(ids) >= 2]
+        if not candidates:
+            return failing
+        ids = sorted(max(candidates, key=lambda ids: (len(ids), sorted(ids))))
+        relevant = [result for nid in ids for result in grouped[nid]]
+        evidence = RunSummary(results=relevant)
+        failures = failure_summaries(evidence) + failure_source_context(evidence, self.tests_dir)
+        instruction = ("Multiple features report the same concrete runtime error. Inspect their shared cause; "
+                       "do not assume every affected feature needs reimplementation. Fix only the demonstrated "
+                       "cause, preserve passed behaviour, and do not run tests; the harness verifies all specs.\n")
+        before = self.head()
+        if not before:
+            return failing  # A speculative shared repair needs a rollback point.
+        before_sources = self.app_source_digest()
+        log(f"[flow] shared runtime-error repair before leaf cycles: {ids}")
+        self.suite_repair_turn("shared runtime-error repair", ids, instruction + failures,
+                               min(360, self.remaining() - self.min_repair_seconds),
+                               tool_prompt=instruction + failures + self.repair_test_location()
+                               + stack_note(self.output_dir) + "\n".join(self.repair_requirements(nid) for nid in ids))
+        if self.app_source_digest() == before_sources:
+            return failing  # No source change: do not pay for an identical suite.
+        self.commit("fix: shared runtime error before leaf repairs")
+        observed = self.whole_app_first_suite(ordered)
+        if observed is None or observed - failing:
+            self.restore_app(before)
+            self.whole_app_summary = summary
+            self.record_full_suite(summary, grouped)
+            log("[flow] shared repair could not preserve the verified baseline; rolled back")
+            return failing
+        return observed
+
+    def app_source_digest(self) -> str:
+        """Source content, not traceability/log commits, determines effective repair."""
+        digest = hashlib.sha256()
+        files = app_source_files(self.output_dir)
+        files += [self.output_dir / part / name for part in ("frontend", "backend") for name in LOCKFILES
+                  if (self.output_dir / part / name).is_file()]
+        for path in sorted(files):
+            digest.update(str(path.relative_to(self.output_dir)).encode())
+            digest.update(b"\0")
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+        return digest.hexdigest()
 
     def whole_app_experiment(self, tree: dict, ordered: list[dict]) -> bool:
         """Generate globally, verify globally, then repair only failing leaves."""
         if not self.whole_app_codegen(tree, ordered):
             return False
         failing = self.whole_app_first_suite(ordered)
+        if failing is not None:
+            failing = self.whole_app_shared_repair(ordered, failing)
+        generated = getattr(self, "whole_app_generated_ids", None)
+        if generated is None:
+            generated = {str(node.get("id")) for node in ordered}
         if failing is None:
-            return False
+            # The application has already been written. A build/start problem is
+            # not evidence that all features need regenerating. Preserve the
+            # tree for the final suite's targeted startup-repair path.
+            log("[flow] whole-app first suite unavailable; preserving generated app for final targeted repair")
+            for index, node in enumerate(ordered, 1):
+                node_id = str(node.get("id"))
+                if node_id not in generated:
+                    if self.time_up():
+                        self.mark("implementation_failed", node_id, "wave did not reach this node: time budget exhausted")
+                        self.impl_failed.append(node_id)
+                    else:
+                        self.node_cycle(node, ordered, index, len(ordered))
+                        self.driver.end_scope("node")
+                    continue
+                self.mark("design_started", node_id)
+                self.mark("design_done", node_id, "covered by whole-application design")
+                self.mark("implementation_started", node_id)
+                self.mark("implementation_done", node_id, "implemented by whole-app generation")
+                self.mark("test_failed", node_id, "first full suite could not report reliable results")
+                self.test_verdict[node_id] = False
+            return True
         for index, node in enumerate(ordered, 1):
             node_id = str(node.get("id"))
             if node_id not in failing:
@@ -3379,7 +3727,7 @@ class Flow:
                 self.mark("implementation_failed", node_id, "skipped repair: time budget exhausted")
                 self.impl_failed.append(node_id)
                 continue
-            self.node_cycle(node, ordered, index, len(ordered), preimplemented=True)
+            self.node_cycle(node, ordered, index, len(ordered), preimplemented=node_id in generated)
             self.driver.end_scope("node")
         return True
 
@@ -3423,6 +3771,7 @@ class Flow:
             design_text = GENERIC_TEMPLATE_NOTE + design_text
             if not (self.output_dir / "frontend" / "src" / "index.html").is_file():
                 design_text += "Only shared infrastructure exists so far; create the required frontend page(s).\n"
+        design_text = stack_note(self.output_dir) + design_text
         if self.has_app():
             preamble = NODE_PREAMBLE_EXTEND.format(node_id=node_id)
         else:  # single-node tree without a skeleton turn: create the app in this turn
@@ -3586,17 +3935,15 @@ class Flow:
             if dest.exists():
                 shutil.rmtree(dest)
             count = 0
-            for rel in ("frontend/src", "backend"):
-                src = self.output_dir / rel
-                if not src.is_dir():
-                    continue
-                for path in src.rglob("*"):
-                    if not path.is_file() or "node_modules" in path.parts or path.suffix not in (".html", ".js", ".json", ".css"):
-                        continue
-                    target = dest / path.relative_to(self.output_dir)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, target)
-                    count += 1
+            files = app_source_files(self.output_dir)
+            # Lockfiles matter for reproduction, but never consume model context.
+            files += [self.output_dir / part / name for part in ("frontend", "backend")
+                      for name in LOCKFILES if (self.output_dir / part / name).is_file()]
+            for path in files:
+                target = dest / path.relative_to(self.output_dir)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)
+                count += 1
             log(f"[flow] {node_id}: {count} source file(s) snapshotted to {dest.relative_to(self.output_dir)}")
             return dest
         except OSError as exc:
@@ -3686,7 +4033,7 @@ class Flow:
         if len(specs) < 2:
             return
         workers = workers_for_final(getattr(self, "mem_limit", None),
-                                    int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+                                    self.final_workers())
         summary = self.run_specs(specs, workers=workers, grader_like=True)
         if summary.error or summary.killed:
             log(f"[acceptance] checkpoint {index}: no reliable verdict; {summary.error or 'runner killed'}")
@@ -3803,7 +4150,7 @@ class Flow:
         # changed approach actually gets to run.
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "3"))
         confirm_runs = max(1, int(os.environ.get("OCTOS_ARC_FINAL_CONFIRM_RUNS", "2")))
-        workers = workers_for_final(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+        workers = workers_for_final(getattr(self, "mem_limit", None), self.final_workers())
         def measured_suite() -> RunSummary:
             nonlocal workers
             observed = self.run_specs(all_specs, workers=workers, grader_like=True)
@@ -4033,7 +4380,15 @@ class Flow:
             if self.driver:
                 self.driver.end_scope("node")
 
-    GRADER_WORKERS = 4  # from the config that grades a run: workers: 4, fullyParallel: false
+    GRADER_WORKERS = 1  # observed platform logs; configurable for other graders
+
+    @classmethod
+    def grader_workers(cls) -> int:
+        return max(1, int(os.environ.get("OCTOS_ARC_GRADER_WORKERS", str(cls.GRADER_WORKERS))))
+
+    @classmethod
+    def final_workers(cls) -> int:
+        return max(1, int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", str(cls.grader_workers()))))
 
     @classmethod
     def worker_parity_note(cls, workers: int) -> str:
@@ -4049,10 +4404,11 @@ class Flow:
         worker count. What is left is the parity gap itself, which is reason
         enough not to read the list as the set that will be scored.
         """
-        if workers >= cls.GRADER_WORKERS:
+        expected = cls.grader_workers()
+        if workers == expected:
             return ""
-        return (f"\n\nThis suite ran with {workers} worker(s); grading runs {cls.GRADER_WORKERS} against one "
-                "server, so this is not the run that scores the app. Fix the cause these failures share "
+        return (f"\n\nThis suite ran with {workers} worker(s); expected grading concurrency is {expected} against one "
+                "server, so concurrency is not matched. Fix the cause these failures share "
                 "rather than the exact list, which a differently loaded run need not reproduce.")
 
     @staticmethod

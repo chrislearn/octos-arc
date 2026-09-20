@@ -60,6 +60,18 @@ class FrontendBlueprintTests(unittest.TestCase):
         self.assertTrue((self.frontend / "dist/assets/style.css").is_file())
         self.assertFalse((self.frontend / "dist/stale.html").exists())
 
+    def test_plain_build_copies_public_assets_to_dist_root(self):
+        (self.frontend / "public").mkdir()
+        (self.frontend / "public/icon.svg").write_text('<svg />')
+        self.build()
+        self.assertEqual((self.frontend / "dist/icon.svg").read_text(), '<svg />')
+
+    def test_plain_copy_refuses_uncompiled_jsx(self):
+        (self.frontend / "src/App.jsx").write_text('export default () => <main />;')
+        result = subprocess.run(['node', 'build.mjs'], cwd=self.frontend, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('require a local bundler', result.stderr)
+
     def test_unchanged_build_blueprint_is_not_requoted_in_tool_prompts(self):
         self.assertNotIn("--- frontend/build.mjs ---", m.inline_sources(self.root))
         self.assertNotIn("--- frontend/vite.config.mjs ---", m.inline_sources(self.root))

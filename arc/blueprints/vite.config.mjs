@@ -19,10 +19,13 @@ function htmlBelow(directory) {
 const input = Object.fromEntries(htmlBelow(root).map(file => [relative(root, file), file]));
 const plugins = [];
 if (has('@vitejs/plugin-react')) plugins.push((await import('@vitejs/plugin-react')).default());
+if (has('@vitejs/plugin-vue')) plugins.push((await import('@vitejs/plugin-vue')).default());
 if (has('@tailwindcss/vite')) plugins.push((await import('@tailwindcss/vite')).default());
 
 export default {
   root,
+  // Vite's root is src/, but npm projects conventionally keep public/ beside it.
+  publicDir: join(project, 'public'),
   plugins,
   build: {outDir: resolve(project, 'dist'), emptyOutDir: true, rollupOptions: {input}},
 };

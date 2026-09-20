@@ -77,6 +77,8 @@ class SuiteRepairTurnTests(unittest.TestCase):
         flow = Mock(spec=m.Flow)
         flow.codegen_mode.return_value = True
         flow.codegen_turn.return_value = (True, "generated")
+        flow.last_codegen_written = ["frontend/src/App.jsx"]
+        flow.last_codegen_refused = set()
         flow.turn.return_value = (True, "tool reply")
         flow.current_spec_chars = 0
         return flow
@@ -106,6 +108,8 @@ class CheckpointRoundsTests(unittest.TestCase):
         flow.llm_proxy = object()
         flow.suite_repair_prompt = lambda ids, failures: "codegen prompt"
         flow.codegen_turn = Mock(return_value=(True, "generated"))
+        flow.last_codegen_written = ["frontend/src/App.jsx"]
+        flow.last_codegen_refused = set()
         flow.refused_paths = set()
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
@@ -121,6 +125,8 @@ class CheckpointRoundsTests(unittest.TestCase):
         flow.llm_proxy = object()
         flow.suite_repair_prompt = lambda ids, failures: "codegen prompt"
         flow.codegen_turn = Mock(return_value=(True, "generated"))
+        flow.last_codegen_written = ["frontend/src/App.jsx"]
+        flow.last_codegen_refused = set()
         flow.refused_paths = set()
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)

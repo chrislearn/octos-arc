@@ -53,7 +53,7 @@ class GenericTemplateTests(unittest.TestCase):
         self.assertIn("backend/routes/*.js", prompt)
         self.assertIn("require('../lib/store')", prompt)
         self.assertIn("Express 5 entry", prompt)
-        self.assertIn('build to "node build.mjs"', prompt)
+        self.assertIn('build is "node build.mjs"', prompt)
         self.assertEqual(flow.codegen_ports_clause(), "")  # installed server already binds 34124
         self.assertIn("backend/server.js", m.quoted_paths(prompt))
         self.assertNotIn("backend/lib/store.js", m.quoted_paths(prompt))

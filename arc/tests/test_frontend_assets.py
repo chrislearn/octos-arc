@@ -36,6 +36,52 @@ class FrontendAssetTests(unittest.TestCase):
         (src / "app.js").write_text("import './components.js';\n")
         self.assertEqual(external_browser_assets(self.root / "frontend"), [])
 
+    def test_framework_literal_assets_are_checked_without_blocking_api_or_links(self):
+        src = self.root / "frontend/src"
+        (src / "App.tsx").write_text(
+            '<img src={"https://cdn.example.com/image.png"} />\n'
+            '<a href="https://example.com/help">Help</a>\n'
+            "fetch('https://api.example.com/data');\n")
+        (src / "App.vue").write_text(
+            '<template><img :src="\'https://cdn.example.com/vue.png\'" /></template>\n'
+            '<style>@import "https://cdn.example.com/style.css";</style>')
+        (src / "module.mts").write_text("import 'https://cdn.example.com/module.js';")
+        hits = external_browser_assets(self.root / "frontend")
+        self.assertTrue(any('image.png' in hit for hit in hits))
+        self.assertTrue(any('vue.png' in hit for hit in hits))
+        self.assertTrue(any('style.css' in hit for hit in hits))
+        self.assertTrue(any('module.js' in hit for hit in hits))
+        self.assertFalse(any('example.com/help' in hit or 'api.example.com' in hit for hit in hits))
+
+    def test_compiled_js_assets_but_not_namespace_urls_are_checked(self):
+        dist = self.root / "frontend/dist"
+        dist.mkdir()
+        (dist / "app.js").write_text('const ns="http://www.w3.org/2000/svg";x("img",{src:"https://cdn.example.com/a.png"});')
+        self.assertEqual(len(external_browser_assets(self.root / "frontend", built=True)), 1)
+
+    def test_lock_changes_invalidate_install_cache(self):
+        frontend = self.root / "frontend"
+        (frontend / "package.json").write_text('{"dependencies":{"react":"19.3.0"},"scripts":{"build":"vite build"}}')
+        (self.root / "backend/package.json").write_text('{}')
+        lock = frontend / "package-lock.json"
+        lock.write_text('{"lockfileVersion":3}')
+        calls = []
+        server = AppServer(self.root, 3000, lambda _: None)
+        def run(command, cwd, timeout):
+            calls.append(command)
+            if command[:2] == ['npm', 'install']:
+                lock.write_text('{"lockfileVersion":3,"updated":true}')
+            return 0, ''
+        server._run = run
+        self.assertIsNone(server.build())
+        calls.clear()
+        self.assertIsNone(server.build())
+        self.assertEqual([cmd[:2] for cmd in calls], [['npm', 'run']])
+        lock.write_text('{"lockfileVersion":3,"updated":false}')
+        calls.clear()
+        self.assertIsNone(server.build())
+        self.assertEqual([cmd[:2] for cmd in calls], [['npm', 'install'], ['npm', 'run']])
+
     def test_build_refuses_source_or_built_cdn_assets(self):
         frontend = self.root / "frontend"
         (frontend / "package.json").write_text('{"scripts":{"build":"node build.js"}}')

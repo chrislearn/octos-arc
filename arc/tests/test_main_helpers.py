@@ -1261,7 +1261,7 @@ class KilledSuiteRetryTests(unittest.TestCase):
     def test_should_halve_the_workers_after_a_kill_instead_of_giving_up(self):
         from unittest.mock import patch
         flow = self._flow([None, None, 2])  # killed at 4 and at 2, runs at 1
-        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1", "OCTOS_ARC_FINAL_WORKERS": "4"}):
             flow.final_acceptance()
         self.assertEqual(self.seen, [4, 2, 1, 1])
         self.assertTrue(all(flow.test_verdict.values()))
@@ -1269,7 +1269,7 @@ class KilledSuiteRetryTests(unittest.TestCase):
     def test_should_stop_when_even_one_worker_is_killed(self):
         from unittest.mock import patch
         flow = self._flow([None, None, None])
-        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1", "OCTOS_ARC_FINAL_WORKERS": "4"}):
             flow.final_acceptance()
         self.assertEqual(self.seen, [4, 2, 1])
         self.assertFalse(flow.test_verdict["REQ-1"])  # per-node verdicts survive
@@ -1810,14 +1810,18 @@ class WorkerParityNoteTests(unittest.TestCase):
     #175 covers it.)"""
 
     def test_should_say_nothing_when_it_matches_the_grader(self):
-        self.assertEqual(m.Flow.worker_parity_note(4), "")
-        self.assertEqual(m.Flow.worker_parity_note(8), "")
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"OCTOS_ARC_GRADER_WORKERS": "1"}):
+            self.assertEqual(m.Flow.worker_parity_note(1), "")
+            self.assertIn("not matched", m.Flow.worker_parity_note(4))
 
     def test_should_warn_when_memory_forced_the_count_down(self):
-        note = m.Flow.worker_parity_note(1)
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"OCTOS_ARC_GRADER_WORKERS": "4"}):
+            note = m.Flow.worker_parity_note(1)
         self.assertIn("1 worker(s)", note)
-        self.assertIn("grading runs 4", note)
-        self.assertIn("not the run that scores the app", note)
+        self.assertIn("expected grading concurrency is 4", note)
+        self.assertIn("not matched", note)
 
     def test_should_reach_the_repair_prompt(self):
         import argparse, tempfile
@@ -1845,9 +1849,9 @@ class WorkerParityNoteTests(unittest.TestCase):
         flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
         flow.pending_corrections = []
         flow.turn = Mock(return_value=(True, "repaired"))
-        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1", "OCTOS_ARC_GRADER_WORKERS": "4"}):
             flow.final_acceptance()
-        self.assertIn("grading runs 4", flow.turn.call_args.args[0])
+        self.assertIn("expected grading concurrency is 4", flow.turn.call_args.args[0])
 
 
 class LastRepairDiffTests(unittest.TestCase):

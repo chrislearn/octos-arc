@@ -30,9 +30,14 @@ const output = join(root, 'dist');
 if (has('vite')) {
   run('vite', ['build', '--config', 'vite.config.mjs']);
 } else {
+  if (filesBelow(source).some(file => /\.(jsx|tsx|ts|vue)$/.test(file))) {
+    throw new Error('JSX/TypeScript/Vue sources require a local bundler; do not copy uncompiled source to dist');
+  }
   rmSync(output, {recursive: true, force: true});
   if (existsSync(source)) cpSync(source, output, {recursive: true});
   else mkdirSync(output, {recursive: true});
+  const publicDir = join(root, 'public');
+  if (existsSync(publicDir)) cpSync(publicDir, output, {recursive: true});
   const tailwind = filesBelow(source).filter(file => file.endsWith('.css') &&
     /@import\s+["']tailwindcss(?:["'/;])/i.test(readFileSync(file, 'utf8')));
   if (tailwind.length && !has('@tailwindcss/cli')) {

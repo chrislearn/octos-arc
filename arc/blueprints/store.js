@@ -38,4 +38,41 @@ function update(name, fallback, change) {
   return write(name, next === undefined ? current : next);
 }
 
-module.exports = {read, write, update};
+// Opt-in migrations for object stores. The ledger and data share ONE atomic
+// write. Initial/fallback data alone cannot evolve an already persisted store.
+// Single Node process only: rename is not a multi-process or multi-store lock.
+function migrate(name, fallback, migrations) {
+  const key = '__arcMigrations';
+  if (!Array.isArray(migrations)) throw new Error('migrations must be an array');
+  const ids = new Set();
+  for (const migration of migrations) {
+    if (!migration || typeof migration.id !== 'string' || !migration.id.trim()
+        || typeof migration.up !== 'function' || migration.up.constructor.name === 'AsyncFunction'
+        || ids.has(migration.id)) {
+      throw new Error('migration requires a unique nonempty id and synchronous up function');
+    }
+    ids.add(migration.id);
+  }
+  const data = read(name, fallback);
+  if (!data || Array.isArray(data) || typeof data !== 'object') throw new Error('migration store must be an object');
+  const ledger = data[key] === undefined ? [] : data[key];
+  if (!Array.isArray(ledger) || ledger.some(id => typeof id !== 'string')
+      || new Set(ledger).size !== ledger.length) throw new Error('invalid migration ledger');
+  const applied = new Set(ledger);
+  let changed = false;
+  for (const {id, up} of migrations) {
+    if (applied.has(id)) continue;
+    const result = up(data);
+    if (result && typeof result.then === 'function') Promise.resolve(result).catch(() => {});
+    if (result !== undefined) throw new Error('migration must synchronously mutate data and return undefined');
+    applied.add(id);
+    changed = true;
+  }
+  if (changed) {
+    data[key] = [...applied];
+    write(name, data);
+  }
+  return data;
+}
+
+module.exports = {read, write, update, migrate};

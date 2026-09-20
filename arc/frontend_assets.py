@@ -18,6 +18,9 @@ _JS_IMPORT = re.compile(r"\b(?:from\s*|import\s*(?:\(|)|importScripts\s*\(|"
                         r"new\s+(?:SharedWorker|Worker)\s*\()\s*[\"']((?:https?:)?//[^\"']+)", re.I)
 _RESOURCE_TAGS = {"script", "img", "source", "audio", "video", "embed", "object", "image"}
 _LINK_RELS = {"stylesheet", "preload", "modulepreload", "icon", "manifest", "apple-touch-icon"}
+_SCRIPT_EXTS = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".vue"}
+_LITERAL_ATTR = re.compile(r"([:\w-]+\s*=\s*)\{\s*([\"'][^\"']*[\"'])\s*\}")
+_JS_ASSET = re.compile(r"\b(?:src|srcSet|poster)\s*(?::|=)\s*[\"']((?:https?:)?//[^\"']+)", re.I)
 
 
 class _Assets(HTMLParser):
@@ -26,7 +29,11 @@ class _Assets(HTMLParser):
         self.hits: list[tuple[int, str]] = []
 
     def handle_starttag(self, tag: str, attributes: list[tuple[str, str | None]]) -> None:
-        attrs = dict(attributes)
+        attrs = {}
+        for key, value in attributes:
+            if key.startswith(":") and value and len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]  # Vue :src="'literal URL'", not a dynamic expression.
+            attrs[key.removeprefix(":")] = value
         values: list[str] = []
         if tag == "link" and set((attrs.get("rel") or "").lower().split()) & _LINK_RELS:
             values.append(attrs.get("href") or "")
@@ -52,22 +59,25 @@ def external_browser_assets(frontend: Path, *, built: bool = False) -> list[str]
                 files.extend(sorted(directory.rglob("*")))
     hits: list[str] = []
     for file in files:
-        if not file.is_file() or file.suffix.lower() not in {".html", ".css", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".svg"}:
+        ext = file.suffix.lower()
+        if not file.is_file() or ext not in _SCRIPT_EXTS | {".html", ".css", ".scss", ".svg"}:
             continue
         try:
             body = file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         found: list[tuple[int, str]] = []
-        if file.suffix.lower() in {".html", ".svg"}:
+        if ext in {".html", ".svg", ".jsx", ".tsx", ".vue"}:
             parser = _Assets()
-            parser.feed(body)
+            parser.feed(_LITERAL_ATTR.sub(r"\1\2", body))
             found.extend(parser.hits)
-        if file.suffix.lower() in {".html", ".css", ".svg"}:
+        if ext in {".html", ".css", ".scss", ".svg", ".vue", ".jsx", ".tsx"}:
             found.extend((body.count("\n", 0, match.start()) + 1, match.group(1) or match.group(2))
                          for match in _CSS_ASSET.finditer(body))
-        if file.suffix.lower() in {".js", ".mjs", ".jsx", ".ts", ".tsx"}:
+        if ext in _SCRIPT_EXTS:
             found.extend((body.count("\n", 0, match.start()) + 1, match.group(1))
                          for match in _JS_IMPORT.finditer(body))
-        hits.extend(f"{file.relative_to(frontend)}:{line} -> {url[:120]}" for line, url in found)
+            found.extend((body.count("\n", 0, match.start()) + 1, match.group(1))
+                         for match in _JS_ASSET.finditer(body))
+        hits.extend(f"{file.relative_to(frontend)}:{line} -> {url[:120]}" for line, url in dict.fromkeys(found))
     return hits

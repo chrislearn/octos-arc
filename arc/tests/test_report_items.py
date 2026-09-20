@@ -83,7 +83,7 @@ class TwoLayerDesignTests(unittest.TestCase):
         stable_b, slice_b = m.app_design_blocks(DESIGN, "await page.goto('/login'); login", full - 40)
         self.assertEqual(stable_a, stable_b, "core + catalog are the same for every node")
         self.assertIn("userId", stable_a)                       # core: data model
-        self.assertIn("sessions via cookie", stable_a)          # core: notes
+        self.assertIn("design truncated", stable_a)             # omissions are explicit under the combined cap
         self.assertIn("POST /api/login", stable_a)              # catalog: every route, one line each
         self.assertIn("/register", stable_a)                    # catalog: every page
         self.assertNotIn("registration form", stable_a)         # catalog carries no detail text
@@ -98,7 +98,7 @@ class TwoLayerDesignTests(unittest.TestCase):
     def test_should_cap_both_layers(self):
         big = dict(DESIGN, notes="n" * 20000, routes=[{"method": "GET", "path": f"/api/r{i}"} for i in range(400)])
         stable, node_slice = m.app_design_blocks(big, "r1", 1500)
-        self.assertLessEqual(len(stable), 1500 + 120); self.assertLessEqual(len(node_slice), 1500 + 120)
+        self.assertLessEqual(len(stable) + len(node_slice), 1500)
 
 
 class DesignReuseTests(unittest.TestCase):
@@ -140,6 +140,19 @@ class DesignReuseTests(unittest.TestCase):
             flow, ordered = self._flow(folder)
             flow.app_design(self.TREE, ordered)
             changed = json.loads(json.dumps(self.TREE)); changed["children"][0]["description"] = "different"
+            again, _ = self._flow(folder)
+            again.app_design(changed, ordered)
+            self.assertEqual(again.calls, ["application design"])
+
+    def test_omitted_scenario_changes_still_invalidate_cached_design(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder, patch.dict(
+                "os.environ", {"OCTOS_ARC_APP_DESIGN_OUTLINE_CHARS": "100"}):
+            flow, ordered = self._flow(folder)
+            flow.app_design(self.TREE, ordered)
+            changed = json.loads(json.dumps(self.TREE))
+            changed["children"][-1]["scenarios"] = [{"steps": [{"keyword": "THEN", "content": "new rule"}]}]
+            self.assertEqual(m.tree_outline(self.TREE, 100), m.tree_outline(changed, 100))
             again, _ = self._flow(folder)
             again.app_design(changed, ordered)
             self.assertEqual(again.calls, ["application design"])

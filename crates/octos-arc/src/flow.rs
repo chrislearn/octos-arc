@@ -1615,7 +1615,7 @@ impl Flow {
             .join(format!("{node_id}-r{attempt}"));
         let _ = std::fs::remove_dir_all(&dest);
         let mut count = 0;
-        for rel in ["frontend/src", "backend"] {
+        for rel in ["frontend", "backend"] {
             let src = self.output_dir.join(rel);
             if !src.is_dir() {
                 continue;
@@ -1628,15 +1628,33 @@ impl Flow {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_dir() {
-                        if entry.file_name() != "node_modules" {
+                        if !matches!(
+                            entry.file_name().to_str(),
+                            Some("node_modules" | "dist" | ".git" | "coverage" | ".vite")
+                        ) {
                             stack.push(path);
                         }
                         continue;
                     }
-                    let keep = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .is_some_and(|e| matches!(e, "html" | "js" | "json" | "css"));
+                    let keep = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                        matches!(
+                            e,
+                            "html"
+                                | "js"
+                                | "mjs"
+                                | "cjs"
+                                | "jsx"
+                                | "ts"
+                                | "tsx"
+                                | "mts"
+                                | "cts"
+                                | "vue"
+                                | "json"
+                                | "css"
+                                | "scss"
+                                | "svg"
+                        )
+                    });
                     if !keep {
                         continue;
                     }

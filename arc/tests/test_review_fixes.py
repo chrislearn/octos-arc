@@ -57,6 +57,8 @@ class SuiteRepairReasoningTests(unittest.TestCase):
         flow = Mock(spec=m.Flow)
         flow.codegen_mode.return_value = True
         flow.codegen_turn.return_value = (True, "generated")
+        flow.last_codegen_written = ["frontend/src/App.jsx"]
+        flow.last_codegen_refused = set()
         flow.current_spec_chars = 10
         flow.suite_spec_chars = 12345
         flow.suite_repair_prompt.return_value = "codegen prompt"

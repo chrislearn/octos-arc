@@ -532,9 +532,10 @@ def workers_for_memory(limit: int | None, requested: int) -> int:
 
 
 def workers_for_final(limit: int | None, requested: int) -> int:
-    """Full-suite workers: the platform grades with --workers=4; mimic it when memory
-    allows (~450 MiB per Chromium worker + app), so slow tests surface before grading.
-    2 GiB -> 4, 512 MiB -> 1."""
+    """Cap configured full-suite concurrency by memory (~450 MiB per worker).
+
+    Expected platform concurrency is a caller setting, not inferred from RAM.
+    """
     if not limit:
         return requested
     return max(1, min(requested, limit // (450 * 1024 * 1024)))
@@ -817,13 +818,19 @@ class AppServer:
             deps = any(config.get(key) for key in ("dependencies", "devDependencies", "optionalDependencies"))
             modules = part / "node_modules"
             stamp = modules / ".arc-manifest-sha256"
-            digest = hashlib.sha256(raw).hexdigest()
+            # npm install may update the lock; fingerprint the resulting state
+            # after installation to avoid a redundant second install next build.
+            def dependency_digest():
+                lock = part / 'package-lock.json'
+                return hashlib.sha256(manifest.read_bytes() + b'\0' +
+                                      (lock.read_bytes() if lock.is_file() else b'')).hexdigest()
+            digest = dependency_digest()
             if deps and (not modules.is_dir() or not stamp.is_file() or stamp.read_text().strip() != digest):
                 rc, out = self._run(["npm", "install", "--include=dev", "--include=optional", "--no-audit", "--no-fund"], part, 600)
                 if rc != 0:
                     return f"{part.name} `npm install` failed:\n{out}"
                 modules.mkdir(exist_ok=True)
-                stamp.write_text(digest)
+                stamp.write_text(dependency_digest())
         # Cloud c17bc1b44d26: a one-line copy build failed because dist/ did not
         # exist yet. The grader builds from a fresh checkout too, so make the
         # target directory exist before every build (harmless when it does).
@@ -843,16 +850,18 @@ class AppServer:
         free_port(self.port)
         if self.grader_like:
             free_owned_ports(self.extra_ports, self.project)
-        self.log_file = Path(tempfile.mkstemp(prefix="octos-app-", suffix=".log")[1])
+        log_fd, log_name = tempfile.mkstemp(prefix="octos-app-", suffix=".log")
+        os.close(log_fd)
+        self.log_file = Path(log_name)
         env = dict(os.environ, PORT=str(self.port), **self.env_extra)
         env.pop("ARC_EXTRA_PORTS", None)
         if not self.grader_like:
             env["ARC_EXTRA_PORTS"] = "0"
         try:
-            fh = open(self.log_file, "w")
-            self.proc = subprocess.Popen(["npm", "start"], cwd=self.project / "backend", env=env,
-                                         stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
-                                         start_new_session=True)
+            with self.log_file.open("w") as fh:
+                self.proc = subprocess.Popen(["npm", "start"], cwd=self.project / "backend", env=env,
+                                             stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
+                                             start_new_session=True)
         except OSError as exc:
             return f"backend `npm start` could not launch: {exc}"
         deadline = time.time() + wait_seconds

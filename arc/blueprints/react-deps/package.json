@@ -1,0 +1,17 @@
+{
+  "name": "arc-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {"build": "node build.mjs"},
+  "engines": {"node": "^20.19.0 || >=22.12.0"},
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "radix-ui": "1.6.7",
+    "react-router": "7.18.4"
+  },
+  "devDependencies": {
+    "vite": "7.3.6",
+    "@vitejs/plugin-react": "5.2.0"
+  }
+}
