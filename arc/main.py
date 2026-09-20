@@ -94,7 +94,7 @@ from acceptance import (  # noqa: E402
     mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
     startup_error_digest)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
-                     incomplete_blocks, prepare_edit_files, safe_relative_path, write_files)
+                     incomplete_blocks, normalize_bare_file_reply, prepare_edit_files, safe_relative_path, write_files)
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
@@ -1474,7 +1474,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "8"
+APP_DESIGN_PROMPT_VERSION = "9"
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1492,9 +1492,11 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
  "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}}
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
 For each lifecycle view, specify which records the API returns and which filters the client applies; a client cannot recover records already excluded by the server. Specify absent versus false query values, compatible filter combinations, and inverse transitions (remove/restore, assign/unassign). For composite editors, state whether selection commits immediately or on Save, how Done/Cancel/Escape behave, and which owner retains the draft after a failed save. Do not invent lifecycle states not required by the task.
+Give every expanded editor a visible completion action: Save for explicit commits or Close/Done for autosave; Escape/outside click supplements that action, never replaces it. Moving focus within the editor is not completion. Distinguish raw response JSON from Response objects; no helper-invented result envelope unless explicitly implemented on the backend.
 """
 
-CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with FILE or EDIT blocks, or exactly <<<NO CHANGE>>> when the existing app already meets the requirement."
+CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply only with <<<FILE relative/path>>> ... <<<END FILE>>> or <<<EDIT relative/path>>> blocks using exact delimiters, or exactly <<<NO CHANGE>>> when already satisfied.
+Return a final patch, not an iterative self-review transcript: change each logical region once. No unchanged SEARCH/REPLACE pairs or successive revisions of the same function. Use the shortest unique anchors that identify the actual change, not whole functions for a one-line edit. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Stop immediately when the coherent patch is complete."""
 
 CODEGEN_RULES = """\
 Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. For each HTTP method, register literal paths before overlapping :parameter paths (DELETE /api/items/trash before DELETE /api/items/:id). For pushState links set frontend/package.json arc.spa=true. Preserve the installed frontend stack, exact dependency versions and lockfile; add task-required packages to the correct package.json. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. JSX/TSX must be bundled, not copied to dist.
@@ -2705,8 +2707,22 @@ class Flow:
             return ok, text
         ok, text = self.text_turn((prompt + "\n" + format_instructions) if format_instructions else prompt,
                                   timeout, label, system=system, spec_chars=spec_chars)
-        files = parse_file_blocks(text) if ok else {}
-        edits = parse_edit_blocks(text) if ok else []
+        truncated = False
+        proxy = getattr(self, "llm_proxy", None)
+        if not ok and "output_truncated" in text and isinstance(proxy, LlmProxy):
+            retained = proxy.take_truncated_reply(label)
+            if retained:
+                text, truncated = retained, True
+                log(f"[codegen] {label}: recovering only terminated blocks from truncated response")
+        files = parse_file_blocks(text) if ok or truncated else {}
+        edits = parse_edit_blocks(text) if ok or truncated else []
+        if ok and not files and not edits:
+            normalized = normalize_bare_file_reply(text)
+            if normalized:
+                text = normalized
+                files = parse_file_blocks(text)
+                self.metric("protocol_normalized", label=label, format="bare_file_sections", files=len(files))
+                log(f"[codegen] {label}: normalized completed bare FILE sections; applying normal write guards")
         if ok and not files and not edits and text.strip() == "<<<NO CHANGE>>>":
             self.last_codegen_no_change = True
             log(f"[codegen] {label}: existing implementation declared complete; acceptance will verify it")
@@ -2781,10 +2797,12 @@ class Flow:
             deduped = dedupe_nav_links(self.output_dir)
             if deduped:
                 log(f"[codegen] {label}: removed static nav links duplicating the NAV placeholder in {deduped}")
-            if incomplete_blocks(text):
+            if truncated or incomplete_blocks(text):
                 return result(False, "Incomplete FILE/EDIT output: complete blocks were applied; "
                               "inspect current files and finish only the missing changes.", "incomplete_blocks")
             return result(True, text, "partial" if refused else "applied" if written else "unchanged")
+        if truncated:
+            return result(False, "Truncated response contained no complete FILE/EDIT blocks", "incomplete_blocks")
         if ok:
             log(f"[codegen] {label}: reply contained no FILE or EDIT blocks")
             outcome = "incomplete_blocks" if re.search(r"(?m)^<<<(?:FILE|EDIT)\s", text) else "no_blocks"
@@ -3511,7 +3529,8 @@ class Flow:
             f"({len(prompt)} prompt chars, {len(spec)} spec chars, timeout {timeout}s)")
         ok, text = self.whole_app_generation_turn(prompt, timeout, "whole application implement",
                                                    spec_chars=len(spec))
-        if not ok or not getattr(self, "last_codegen_written", []):
+        if not ok or not (getattr(self, "last_codegen_written", [])
+                          or getattr(self, "last_codegen_no_change", False) is True):
             log(f"[flow] whole-app experiment: no complete application write ({text[-120:]}); "
                 "planning smaller generation waves")
             return self.whole_app_waves(tree, ordered)
@@ -3528,7 +3547,8 @@ class Flow:
         deadline = time.monotonic() + timeout
         self.whole_app_generation_requests = getattr(self, "whole_app_generation_requests", 0) + 1
         ok, text = self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars)
-        if ok and getattr(self, "last_codegen_written", []):
+        if ok and (getattr(self, "last_codegen_written", [])
+                   or getattr(self, "last_codegen_no_change", False) is True):
             return ok, text
         format_error = (text.startswith("codegen reply contained no ")
                         or text.startswith("mixed FILE and EDIT blocks"))
@@ -3625,7 +3645,8 @@ class Flow:
                 ok, text = self.whole_app_generation_turn(prompt, timeout,
                                                           f"whole application wave {wave + 1}",
                                                           spec_chars=len(spec))
-                if not ok or not getattr(self, "last_codegen_written", []):
+                if not ok or not (getattr(self, "last_codegen_written", [])
+                                  or getattr(self, "last_codegen_no_change", False) is True):
                     if size > 1:
                         log(f"[flow] whole-app wave {wave + 1}: no complete write "
                             f"({text[-120:]}); splitting group")
@@ -3717,11 +3738,20 @@ class Flow:
             preflight = "generic scaffold route checks failed:\n" + "\n".join(issues[:8])
             attempted_errors.add(preflight)
             self.whole_app_startup_repair(preflight)
-        summary = self.run_specs(specs, workers=workers, grader_like=True)
+        measurement = 0
+        def measure():
+            nonlocal measurement
+            observed = self.run_specs(specs, workers=workers, grader_like=True)
+            self.metric("acceptance", scope="whole_app", round=measurement,
+                        passed=observed.passed, total=observed.total,
+                        error=observed.error, killed=observed.killed)
+            measurement += 1
+            return observed
+        summary = measure()
         while summary.error and summary.killed and workers > 1:
             workers = max(1, workers // 2)
             log(f"[flow] whole-app first suite: runner killed; retrying with {workers} worker(s)")
-            summary = self.run_specs(specs, workers=workers, grader_like=True)
+            summary = measure()
         for attempt in range(2):
             if not summary.error or summary.killed or summary.error in attempted_errors:
                 break
@@ -3729,7 +3759,7 @@ class Flow:
             if not self.whole_app_startup_repair(summary.error):
                 break
             log(f"[flow] whole-app first suite: repaired startup failure {attempt + 1}/2; retrying full suite")
-            summary = self.run_specs(specs, workers=workers, grader_like=True)
+            summary = measure()
         observed_files = {Path(result.file or "").name for result in summary.results}
         if (summary.error or summary.load_errors or not summary.results or summary.total != len(summary.results)
                 or any(Path(spec).name not in observed_files for spec in specs)):
@@ -4299,6 +4329,7 @@ class Flow:
         Per-node runs cannot see cross-node interference through shared server
         state; this pass can, and it repairs the nodes whose tests fail."""
         self.final_repair_no_change = False
+        self.final_suite_progress = False
         if self.runner is None or not self.tests_dir:
             return
         all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
@@ -4412,6 +4443,8 @@ class Flow:
             self.remember_delivery_checkpoint(summary, grouped)
             last_passed = summary.passed
             if best is None or summary.passed > best["passed"]:
+                if best is not None:
+                    self.final_suite_progress = True
                 if attempt > 0:
                     self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
                 best = {"passed": summary.passed, "sha": self.head(), "summary": summary, "grouped": grouped}
@@ -4549,6 +4582,9 @@ class Flow:
             if self.driver:
                 self.driver.end_scope("node")
             if getattr(self, "final_repair_no_change", False) is True:
+                break
+            if getattr(self, "final_suite_progress", False) is not True:
+                log("[flow] full-suite pass made no measured pass-count improvement; stopping outer retries")
                 break
 
     GRADER_WORKERS = 1  # observed platform logs; configurable for other graders

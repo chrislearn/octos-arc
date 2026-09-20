@@ -34,6 +34,11 @@ const {chromium, expect} = require('@playwright/test');
     await expect(page.getByLabel('Card activations')).toHaveText('0');
     await expect(page.getByRole('button', {name: 'Open composite'})).toBeFocused();
     await page.getByRole('button', {name: 'Open composite'}).click();
+    await page.getByRole('checkbox', {name: 'Alpha', exact: true}).uncheck();
+    await page.mouse.click(5, 5); // one outside click must dismiss after internal pointer activity
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByLabel('Card activations')).toHaveText('0');
+    await page.getByRole('button', {name: 'Open composite'}).click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByLabel('Card activations')).toHaveText('0');

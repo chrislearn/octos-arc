@@ -77,6 +77,37 @@ def parse_file_blocks(text: str) -> dict[str, str]:
     return files
 
 
+def normalize_bare_file_reply(text: str) -> str | None:
+    """Compatibility for a completed reply consisting solely of FILE sections.
+
+    Some models omit ALL angle markers/terminators and separate whole files by
+    `FILE frontend/...` headings. Accept only this unambiguous alternative
+    envelope, never prose/fences, mixed EDIT syntax, duplicate/unsafe paths or
+    empty sections. The caller must check successful (not truncated) completion.
+    Normal write guards and application verification still apply afterward.
+    """
+    text = text.strip()
+    if not text.startswith("FILE ") or "<<<" in text or re.search(r"(?m)^(?:```|EDIT\b|END FILE\b)", text):
+        return None
+    headers = list(re.finditer(r"(?m)^FILE ([^\n]+)\r?$", text))
+    if not headers or headers[0].start() != 0:
+        return None
+    paths = set()
+    output = []
+    for index, header in enumerate(headers):
+        raw = header[1].strip()
+        path = safe_relative_path(raw)
+        if (not path or path != raw or path in paths
+                or not re.fullmatch(r"(?:frontend|backend)/[\w./-]+", path)):
+            return None
+        body = text[header.end():headers[index + 1].start() if index + 1 < len(headers) else len(text)].strip("\r\n")
+        if not body.strip():
+            return None
+        paths.add(path)
+        output.append(f"<<<FILE {path}>>>\n{body}\n<<<END FILE>>>")
+    return "\n".join(output)
+
+
 def parse_edit_blocks(text: str) -> list[tuple[str, str, str]]:
     """Parse exact edits in response order; only project-relative paths qualify."""
     edits = []

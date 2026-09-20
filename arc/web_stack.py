@@ -45,6 +45,7 @@ Fixed frontend baseline: React + Vite + Radix + React Router; preserve the insta
 Use import {Dialog, DropdownMenu, Popover, AlertDialog} from 'radix-ui'; import {Routes, Route, Link, useNavigate} from 'react-router'. Use native labeled inputs/selects/checkboxes where sufficient; Radix for overlays, focus, Escape and outside-click. Dialog.Content belongs in Dialog.Portal with Overlay, Title and Description. Radix is unstyled: provide overlay positioning/z-index and visible focus styles. asChild wraps exactly one element; never nest buttons. DropdownMenu.Item uses onSelect, not a second delegated click handler. Do not make every popover modal or block unrelated navigation unnecessarily.
 State invariants: one owner per draft/open state; controlled fields use value/onChange or checked/onChange, stable record IDs as keys. Radix Checkbox uses checked/onCheckedChange (true/false/'indeterminate'), not a native change event. Opening an editor is synchronous; await save before closing when required, retain draft on failure, and apply the returned canonical record. Abort/ignore stale fetch responses; clean up subscriptions/timers. No direct DOM mutations inside React roots, duplicate global handlers, or background refresh that resets an active draft. Framework primitives do not define domain transitions: specify them from requirements.
 Composite interactions: Portal events still bubble through the React tree. Keep overlays outside clickable cards or isolate content events explicitly; do not infer private Radix data attributes. Multi-selection stays open until the specified completion action, never a timer. Menu-to-dialog transitions have distinct open owners; close the menu on selection and prevent menu focus restoration from stealing focus from the new dialog. Save/Done/Cancel/Escape semantics must agree with the planned contract; buttons in forms declare their type.
+Every expanded editor, including an inline composer, needs a visible named completion control matching its semantics (Save for explicit commits, Close/Done for autosave). Keyboard/outside dismissal is an additional path, not the only way to finish. Focus moving between fields/actions of the same editor must not commit or unmount it. Keep Radix pointer events available to its document-level outside-dismiss logic; isolate parent card clicks without stopping pointerdown indiscriminately.
 """
 
 
@@ -109,8 +110,13 @@ def stack_note(output_dir: Path | None) -> str:
     lines = [REACT_CONTRACT,
              "Add exact dependencies to package.json only; npm install updates the lockfile. Never emit or hand-edit lockfile blocks.",
              "Optional pinned recommendations (not installed; add only when needed, never all by default):"]
-    if (output_dir / "frontend/src/shared/interactions.jsx").is_file():
-        lines.insert(1, "Local adapters from './shared/interactions.jsx': DialogSurface({title,description,children,...contentProps}) goes INSIDE Dialog.Root and supplies Portal/Overlay/Content with event isolation; do not add another Content around it. Style via style/className. useAsyncAction() returns {run,pending,error}; await run(() => requestJson(...)), then only if result.ok apply result.value and clear/close the draft. Render error?.message and disable duplicate submission while pending. Keep the owning editor mounted during save; cancellation/version guards for navigation are application-owned. These helpers never choose save/cancel or selection semantics.")
+    try:
+        current_adapter = ((output_dir / "frontend/src/shared/interactions.jsx").read_text() ==
+                           (Path(__file__).parent / "blueprints/react-interactions.jsx").read_text())
+    except OSError:
+        current_adapter = False
+    if current_adapter:
+        lines.insert(1, "Local adapters from './shared/interactions.jsx': DialogSurface({title,description,children,...contentProps}) goes INSIDE Dialog.Root and supplies Portal/Overlay/Content with event isolation; do not add another Content around it. Style via style/className. useAsyncAction() returns {run,pending,error}. Both requestJson(url,options) and run(action) resolve to the raw data or reject; NEITHER adds an {ok,value} envelope. Example: try { const record = await run(() => requestJson(url,options)); applyRecord(record); close(); } catch {}. Display error?.message, disable duplicate submission and keep the owner mounted during save; application code guards navigation/cancellation. Direct reads: const items = await requestJson(url); setItems(items). Do not test result.ok or read result.value unless the backend explicitly returns those fields.")
     for name, (_, frontend, backend, hint) in CAPABILITIES.items():
         if name not in selected:
             continue

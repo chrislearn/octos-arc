@@ -489,6 +489,8 @@ class LlmProxy:
         # including requests inside a tool turn. In-flight usage may overshoot.
         self.max_total_tokens_abs = int(os.environ.get("OCTOS_ARC_MAX_TOTAL_TOKENS_ABS", "0"))
         self.blocked_requests = 0
+        self.turn_serial = 0
+        self.truncated_reply = None
         self.log_path = log_path
         self.dump_dir = dump_dir      # OCTOS_ARC_PROXY_DUMP=1: first N request bodies for prefix analysis
         self.dump_limit = dump_limit
@@ -612,6 +614,8 @@ class LlmProxy:
             except Exception as exc:  # noqa: BLE001
                 result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
             status, payload, _ = result
+            if status == 200 and meta.get("codegen"):
+                self.capture_truncated_reply(payload, meta)
             self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload), status=status, meta=meta)
             future.set_result(result)
             return result
@@ -625,8 +629,46 @@ class LlmProxy:
 
     def begin_turn(self, budget: int) -> None:
         with self._lock:
+            self.turn_serial += 1
+            self.truncated_reply = None
             self.turn_budget = int(budget)
             self.turn_requests = 0
+
+    def capture_truncated_reply(self, payload: bytes, meta: dict) -> None:
+        """Keep actual response text the kernel otherwise discards on length.
+
+        Only complete protocol blocks may later be applied. Never change the
+        provider finish reason to success, and never reuse a late previous turn.
+        """
+        try:
+            choices = json.loads(payload).get("choices", [])
+            choice = choices[0] if len(choices) == 1 else {}
+            content = choice.get("message", {}).get("content")
+            if choice.get("finish_reason") != "length" or not isinstance(content, str):
+                return
+            if len(content) > 2_000_000:
+                return
+        except (ValueError, TypeError, AttributeError):
+            return
+        with self._lock:
+            if meta.get("turn_serial") != self.turn_serial:
+                return
+            self.truncated_reply = {"text": content, "label": meta.get("label"), "turn_serial": self.turn_serial}
+        if self.log_path:
+            try:
+                folder = self.log_path.parent / "truncated-replies"
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / f"turn-{meta['turn_serial']}.txt").write_text(content, encoding="utf-8")
+            except OSError:
+                pass
+
+    def take_truncated_reply(self, label: str) -> str | None:
+        with self._lock:
+            reply = self.truncated_reply
+            if not reply or reply["label"] != label or reply["turn_serial"] != self.turn_serial:
+                return None
+            self.truncated_reply = None
+            return reply["text"]
 
     def _dump(self, body: bytes) -> None:
         if not self.dump_dir or self._dumped >= self.dump_limit:
@@ -650,7 +692,8 @@ class LlmProxy:
             sha, shared, text = prompt_fingerprint(request_body, getattr(self, "_last_prompt_text", ""))
             self._last_prompt_text = text
             return {"request": shape, "model": json.loads(request_body).get("model"), "phase": self.phase,
-                    "label": getattr(self, "label", ""), "prompt_sha256": sha, "prefix_shared_chars": shared}
+                    "label": getattr(self, "label", ""), "prompt_sha256": sha, "prefix_shared_chars": shared,
+                    "turn_serial": self.turn_serial, "codegen": self.no_tools}
 
     def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"", req_bytes: int = 0,
              resp_bytes: int = 0, status: int | None = None, meta: dict | None = None) -> None:

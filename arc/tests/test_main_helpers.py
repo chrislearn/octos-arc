@@ -806,18 +806,31 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             flow.final_acceptance()
         self.assertEqual(len(calls), 3)
 
-    def test_should_repeat_the_full_suite_pass_while_budget_remains(self):
+    def test_should_repeat_the_full_suite_pass_while_progress_and_budget_remain(self):
         from unittest.mock import patch
         flow = self._flow([1])
         flow.pending_corrections = []
         flow.min_repair_seconds = 300
         flow.driver = None
         flow.time_up = lambda: False
+        flow.final_suite_progress = True
         calls = []
         flow.final_acceptance = lambda: calls.append(dict(flow.test_verdict))
         with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
             flow.final_acceptance_passes()
-        self.assertEqual(len(calls), 3)  # REQ-1 stays False, so every pass runs
+        self.assertEqual(len(calls), 3)  # unfinished but progressing passes can continue
+
+    def test_stalled_pass_does_not_restart_the_same_repair_loop(self):
+        from unittest.mock import Mock, patch
+        flow = self._flow([1])
+        flow.min_repair_seconds = 300
+        flow.driver = None
+        flow.time_up = lambda: False
+        flow.final_suite_progress = False
+        flow.final_acceptance = Mock()
+        with patch.dict('os.environ', {'OCTOS_FINAL_SUITE_PASSES': '3'}):
+            flow.final_acceptance_passes()
+        flow.final_acceptance.assert_called_once()
 
     def test_should_stop_repeating_once_the_full_suite_is_green(self):
         from unittest.mock import patch

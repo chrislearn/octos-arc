@@ -816,6 +816,37 @@ class ConsoleErrorDiagnosticsTests(unittest.TestCase):
             "console.log('chatty startup log'); console.warn('deprecated call');"
             "</script>")
 
+    def test_failed_ui_reports_successful_api_shape_without_record_values(self):
+        from acceptance import AcceptanceRunner
+        import os
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('requires installed Playwright')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='response-shape-', dir=root) as folder:
+            base = Path(folder); specs = base / 'source'; specs.mkdir()
+            source = """import {test,expect} from '@playwright/test';
+for (const fail of [false,true]) test('response shape '+fail,async({page})=>{
+ const body = JSON.stringify([{private:'secret-sentinel'}]);
+ await page.route('http://example.test/api/**', route=>route.fulfill({status:200,
+   headers:{'content-type':'application/json','content-length':String(Buffer.byteLength(body))},body}));
+ await page.route('http://example.test/', route=>route.fulfill({status:200,contentType:'text/html',body:'<h1>View</h1>'}));
+ await page.goto('http://example.test/');
+ await page.evaluate(() => fetch('/api/items?token=private-query').then(r=>r.json()));
+ await page.waitForTimeout(100);
+ expect(fail).toBe(false);
+});
+"""
+            spec = specs / 'shape.spec.ts'; spec.write_text(source)
+            runner = AcceptanceRunner(root, specs, base / 'prepared', lambda _: None, workers=1)
+            result = runner.run(['shape.spec.ts'], 'http://127.0.0.1:1')
+            self.assertEqual((result.passed, result.total), (1, 2), result.error)
+            diagnostics = failure_summaries(result).split('Browser diagnostics', 1)[-1]
+            self.assertIn('Response schema GET http://example.test/api/items: array(length=1)', diagnostics)
+            self.assertNotIn('secret-sentinel', diagnostics)
+            self.assertNotIn('private-query', diagnostics)
+            self.assertEqual(spec.read_text(), source)
+
     def test_should_report_a_caught_error_the_app_logged(self):
         from acceptance import AcceptanceRunner
         import json, os

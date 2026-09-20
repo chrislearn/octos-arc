@@ -2,10 +2,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codegen import parse_edit_blocks, parse_file_blocks, prepare_edit_files, write_files
+from codegen import normalize_bare_file_reply, parse_edit_blocks, parse_file_blocks, prepare_edit_files, write_files
 
 
 class ParseTests(unittest.TestCase):
+    def test_completed_bare_file_sections_have_a_deterministic_envelope(self):
+        raw = "FILE backend/routes/example.js\nmodule.exports = app => {};\n\nFILE frontend/src/View.jsx\nexport default () => <p>View</p>;"
+        self.assertEqual(parse_file_blocks(normalize_bare_file_reply(raw)), {
+            'backend/routes/example.js': 'module.exports = app => {};\n',
+            'frontend/src/View.jsx': 'export default () => <p>View</p>;\n'})
+
+    def test_bare_compatibility_refuses_ambiguous_or_unsafe_envelopes(self):
+        for raw in ('Here is code:\nFILE frontend/a.js\nx',
+                    'FILE ../outside.js\nx', 'FILE /frontend/a.js\nx',
+                    'FILE frontend/a.js\nx\nFILE frontend/a.js\ny',
+                    'FILE frontend/a.js\nx\nFILE backend/b.js\n',
+                    'FILE frontend/a.js\n```js\nx\n```',
+                    'FILE frontend/a.js\nx\nEDIT backend/b.js\ny',
+                    'FILE frontend/a.js\nx\n<<<EDIT backend/b.js>>>'):
+            with self.subTest(raw=raw):
+                self.assertIsNone(normalize_bare_file_reply(raw))
     def test_should_extract_blocks_and_confine_paths(self):
         text = ("Here you go.\n<<<FILE backend/server.js>>>\nconst x = 1;\n<<<END FILE>>>\n"
                 "<<<FILE frontend/src/index.html >>>\n<p>hi</p>\n<<<END FILE>>>\n"

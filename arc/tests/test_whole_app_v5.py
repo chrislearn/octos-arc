@@ -75,6 +75,19 @@ class WholeAppTests(unittest.TestCase):
         flow.whole_app_waves.assert_called_once_with(self.tree, self.nodes)
         flow.commit.assert_not_called()
 
+    def test_explicit_no_change_advances_wave_but_still_requires_suite_verification(self):
+        flow = self.flow
+        flow.codegen_implement_prompt = Mock(return_value="prompt")
+        def satisfied(*args, **kwargs):
+            flow.last_codegen_no_change = True
+            flow.last_codegen_written = []
+            return True, "<<<NO CHANGE>>>"
+        flow.codegen_turn = Mock(side_effect=satisfied)
+        self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        flow.codegen_turn.assert_called_once()
+        self.assertEqual(flow.whole_app_generated_ids, {'A', 'B', 'C'})
+        self.assertEqual(flow.test_verdict, {})  # a model's claim is not a passing test
+
     def test_oversized_whole_prompt_uses_two_generation_waves(self):
         flow = self.flow
         flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}

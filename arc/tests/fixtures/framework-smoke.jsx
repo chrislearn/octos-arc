@@ -26,12 +26,14 @@ function InteractionFixture() {
   const [fail, setFail] = useState(true);
   const action = useAsyncAction();
   async function submit() {
-    const result = await action.run(async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      if (fail) throw new Error('Save rejected');
-      return draft.trim();
-    });
-    if (result.ok) { setSaved(result.value); setDraft(''); setOpen(false); }
+    try {
+      const value = await action.run(async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (fail) throw new Error('Save rejected');
+        return draft.trim();
+      });
+      setSaved(value); setDraft(''); setOpen(false);
+    } catch {} // hook exposes the error; draft stays intact
   }
   return <section>
     <output aria-label="Card activations">{cardClicks}</output>
@@ -47,9 +49,9 @@ function InteractionFixture() {
           <label><input type="checkbox" checked={fail} onChange={event => setFail(event.target.checked)} />Reject save</label>
           <button type="button" disabled={action.pending} onClick={submit}>Save composite</button>
           <button type="button" disabled={action.pending} onClick={async () => {
-            const results = await Promise.all([action.run(() => Promise.resolve('first')),
+            const results = await Promise.allSettled([action.run(() => Promise.resolve('first')),
                                                action.run(() => Promise.resolve('second'))]);
-            setSaved(results.map(result => result.busy ? 'busy' : result.value).join(','));
+            setSaved(results.map(result => result.status === 'rejected' ? 'busy' : result.value).join(','));
           }}>Check duplicate guard</button>
           <Dialog.Close asChild><button disabled={action.pending}>Cancel composite</button></Dialog.Close>
           {action.error && <p role="alert">{action.error.message}</p>}
