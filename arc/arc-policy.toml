@@ -24,6 +24,12 @@
 #   repair.rounds / rounds_large_tree, stall_limit or the cost guard stops the node. Setting
 #   repair.codegen_repairs = 0 makes the first failure fall back to tool mode directly.
 #   Targets (phase 3): <= 5 requests and <= ¥0.2 per node; the cost guard ([budget]) bounds the run.
+# Python adapter v5 experiment (not a Rust policy key): OCTOS_ARC_WHOLE_APP=1
+# first tries one full-tree codegen turn on a fresh, fully test-mapped task.
+# Oversized/truncated turns use multi-node waves (16 leaves max, then halve
+# when needed); after one complete suite, only failing leaves are repaired.
+# Set it to 0 to use the per-node path below. Whole-turn timeout defaults to
+# 1800 seconds; OCTOS_ARC_WHOLE_APP_WAVE_NODES overrides the default 16.
 
 [mode]
 codegen = true              # OCTOS_ARC_CODEGEN — one-request codegen turns for small trees

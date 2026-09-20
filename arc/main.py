@@ -3213,6 +3213,176 @@ class Flow:
         log(f"[flow] sibling batch {ids}: generated once or declared no-change; validating each leaf separately")
         return True
 
+    def whole_app_codegen(self, tree: dict, ordered: list[dict]) -> bool:
+        """Experimental v5: generate the fresh app whole or in a few waves.
+
+        A single architecture design already precedes this turn. The tree and
+        public specs are quoted once, not once per leaf. An oversized or
+        truncated whole-app reply falls through to bounded multi-node waves.
+        """
+        ids = [str(node.get("id")) for node in ordered]
+        if (os.environ.get("OCTOS_ARC_WHOLE_APP", "1") == "0" or self.evolution
+                or len(ids) < 3 or self.runner is None or not self.codegen_mode()
+                or not self.tests_dir or any(not self.spec_map.get(node_id) for node_id in ids)
+                or self.wound_down() or self.remaining() < self.min_repair_seconds + 180):
+            return False
+        spec = self.batch_spec_bodies(ids)
+        if spec == "(none)":
+            return False
+        description = ("Implement the COMPLETE application, not just one feature. "
+                       "All listed atomic requirements must work together. Keep the "
+                       "shared data model, routes and interaction lifecycle consistent.\n\n"
+                       + tree_outline(tree) + "\n\nAtomic requirement details:\n"
+                       + "\n\n".join(describe_node(node) for node in ordered))
+        prompt = self.codegen_implement_prompt({"id": "whole application", "description": description}, spec)
+        if prompt is None:
+            log("[flow] whole-app experiment: shared prompt did not fit; planning generation waves")
+            return self.whole_app_waves(tree, ordered)
+        write_codegen_manifests(self.output_dir)
+        timeout = min(int(os.environ.get("OCTOS_ARC_WHOLE_APP_TIMEOUT", "1800")),
+                      max(120, self.remaining() - self.min_repair_seconds))
+        log(f"[flow] whole-app experiment: one generation turn for {len(ids)} nodes "
+            f"({len(prompt)} prompt chars, {len(spec)} spec chars, timeout {timeout}s)")
+        ok, text = self.codegen_turn(prompt, timeout, "whole application implement", spec_chars=len(spec))
+        if not ok or not getattr(self, "last_codegen_written", []):
+            log(f"[flow] whole-app experiment: no complete application write ({text[-120:]}); "
+                "planning smaller generation waves")
+            return self.whole_app_waves(tree, ordered)
+        self.commit("whole application (experimental implement)")
+        return True
+
+    def whole_app_waves(self, tree: dict, ordered: list[dict]) -> bool:
+        """Generate contiguous, dependency-ordered feature groups before testing.
+
+        The planner halves a group when its shared prompt exceeds the input
+        budget or its reply exceeds the output limit. A single unfittable leaf
+        hands control back to the established per-node tool fallback. The
+        application design is the common contract across waves. If the model's
+        design turn failed, a bounded whole-tree outline supplies that context
+        instead. No task- or test-specific code is preloaded.
+        """
+        global_context = ""
+        if not getattr(self, "app_design_doc", None):
+            global_context = ("Whole-tree requirement map (keep a common data and route contract "
+                              "across waves):\n" + tree_outline(tree, max_chars=12000) + "\n\n")
+            log("[flow] whole-app waves: design reply unavailable; using bounded requirement map")
+        max_nodes = max(2, int(os.environ.get("OCTOS_ARC_WHOLE_APP_WAVE_NODES", "16")))
+        max_spec = min(30000, int(self.codegen_context_chars() * 0.35))
+        max_details = min(24000, int(self.codegen_context_chars() * 0.25))
+        start = 0
+        wave = 0
+        while start < len(ordered):
+            if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
+                log("[flow] whole-app waves: insufficient budget; using node flow for unfinished leaves")
+                return False
+            size = min(max_nodes, len(ordered) - start)
+            while size:
+                group = ordered[start:start + size]
+                ids = [str(node.get("id")) for node in group]
+                spec = self.batch_spec_bodies(ids)
+                details = "\n\n".join(describe_node(node) for node in group)
+                if (len(spec) > max_spec or len(details) > max_details) and size > 1:
+                    size = max(1, size // 2)
+                    continue
+                combined = {"id": f"application wave {wave + 1}",
+                            "description": "Implement ALL of these requirements as one coherent feature group "
+                                           "within the shared application. Preserve previously generated "
+                                           "features and their data contracts. Do not defer a listed requirement "
+                                           "to a later wave.\n\n" + global_context + details}
+                prompt = self.codegen_implement_prompt(combined, spec)
+                if prompt is None:
+                    if size > 1:
+                        size = max(1, size // 2)
+                        continue
+                    log(f"[flow] whole-app waves: {ids[0]} cannot fit alone; using node flow")
+                    return False
+                write_codegen_manifests(self.output_dir)
+                timeout = min(int(os.environ.get("OCTOS_ARC_WHOLE_APP_TIMEOUT", "1800")),
+                              max(120, self.remaining() - self.min_repair_seconds))
+                log(f"[flow] whole-app wave {wave + 1}: generating {ids} "
+                    f"({len(prompt)} prompt chars, {len(spec)} spec chars)")
+                ok, text = self.codegen_turn(prompt, timeout, f"whole application wave {wave + 1}",
+                                             spec_chars=len(spec))
+                if not ok or not getattr(self, "last_codegen_written", []):
+                    if size > 1:
+                        log(f"[flow] whole-app wave {wave + 1}: no complete write "
+                            f"({text[-120:]}); splitting group")
+                        size = max(1, size // 2)
+                        continue
+                    log(f"[flow] whole-app wave {wave + 1}: single leaf did not write; using node flow")
+                    return False
+                self.commit(f"whole application wave {wave + 1} (experimental implement)")
+                start += size
+                wave += 1
+                break
+        log(f"[flow] whole-app waves: {len(ordered)} leaves generated in {wave} turns; running first full suite")
+        return True
+
+    def whole_app_first_suite(self, ordered: list[dict]) -> set[str] | None:
+        """Measure the generated app once; return only leaves needing repair.
+
+        None means the suite could not give a reliable verdict, so the caller
+        must use the original per-node acceptance path. No test is skipped on
+        the strength of a model's claim that the whole app is complete.
+        """
+        if self.runner is None or not self.tests_dir:
+            return None
+        specs = sorted(str(path.relative_to(self.tests_dir)) for path in self.tests_dir.rglob("*.spec.ts"))
+        workers = workers_for_final(getattr(self, "mem_limit", None),
+                                    int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+        summary = self.run_specs(specs, workers=workers, grader_like=True)
+        while summary.error and summary.killed and workers > 1:
+            workers = max(1, workers // 2)
+            log(f"[flow] whole-app first suite: runner killed; retrying with {workers} worker(s)")
+            summary = self.run_specs(specs, workers=workers, grader_like=True)
+        observed_files = {Path(result.file or "").name for result in summary.results}
+        if (summary.error or summary.load_errors or not summary.results or summary.total != len(summary.results)
+                or any(Path(spec).name not in observed_files for spec in specs)):
+            log(f"[flow] whole-app first suite: no reliable verdict "
+                f"({(summary.error or 'incomplete results')[:150]}); using node flow")
+            return None
+        grouped = nodes_for_failures(summary.results, self.spec_map)
+        ids = {str(node.get("id")) for node in ordered}
+        if any(node_id not in ids for node_id in grouped):
+            log("[flow] whole-app first suite: unmapped failure; using node flow")
+            return None
+        self.record_full_suite(summary, grouped)
+        failing = set(grouped)
+        log(f"[flow] whole-app first suite: {summary.passed}/{summary.total}; "
+            f"repair only {sorted(failing)}")
+        return failing
+
+    def whole_app_experiment(self, tree: dict, ordered: list[dict]) -> bool:
+        """Generate globally, verify globally, then repair only failing leaves."""
+        if not self.whole_app_codegen(tree, ordered):
+            return False
+        failing = self.whole_app_first_suite(ordered)
+        if failing is None:
+            return False
+        for index, node in enumerate(ordered, 1):
+            node_id = str(node.get("id"))
+            if node_id not in failing:
+                self.mark("design_started", node_id)
+                self.mark("design_done", node_id, "covered by whole-application design")
+                self.mark("implementation_started", node_id)
+                self.mark("implementation_done", node_id, "implemented by whole-app generation")
+                self.mark("test_passed", node_id, "passed the first full acceptance suite")
+                try:
+                    for iface in self.runtime.traceability.list_interfaces(req_id=node_id):
+                        self.runtime.traceability.set_interface_implemented(iface["interface_id"], True,
+                                                                             emit_event=False)
+                except Exception:  # noqa: BLE001
+                    pass
+                continue
+            if self.time_up():
+                self.mark("implementation_started", node_id)
+                self.mark("implementation_failed", node_id, "skipped repair: time budget exhausted")
+                self.impl_failed.append(node_id)
+                continue
+            self.node_cycle(node, ordered, index, len(ordered), preimplemented=True)
+            self.driver.end_scope("node")
+        return True
+
     def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int,
                    *, preimplemented: bool = False) -> None:
         node_id = str(node.get("id"))
@@ -4091,29 +4261,30 @@ class Flow:
                              daemon=True).start()
             try:
                 self.prepare_build(tree, ordered)
-                batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "3"))
-                batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
-                preimplemented: set[str] = set()
-                for index, node in enumerate(ordered, 1):
-                    node_id = str(node.get("id"))
-                    if self.time_up():
-                        log(f"[flow] time budget exhausted; skipping {node_id}")
-                        self.mark("implementation_started", node_id)
-                        self.mark("implementation_failed", node_id, "skipped: time budget exhausted")
-                        self.impl_failed.append(node_id)
-                        continue
-                    if node_id in unchanged:
-                        self.regression_cycle(node)
-                    else:
-                        group = batch_starts.get(node_id)
-                        if group and not any(member in unchanged for member in group):
-                            group_nodes = [ordered[index - 1 + offset] for offset in range(len(group))]
-                            if self.batch_codegen(group_nodes):
-                                preimplemented.update(group)
-                        self.node_cycle(node, ordered, index, len(ordered),
-                                        preimplemented=node_id in preimplemented)
-                    self.regression_checkpoint(index, len(ordered))
-                    self.driver.end_scope("node")
+                if not self.whole_app_experiment(tree, ordered):
+                    batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "3"))
+                    batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
+                    preimplemented: set[str] = set()
+                    for index, node in enumerate(ordered, 1):
+                        node_id = str(node.get("id"))
+                        if self.time_up():
+                            log(f"[flow] time budget exhausted; skipping {node_id}")
+                            self.mark("implementation_started", node_id)
+                            self.mark("implementation_failed", node_id, "skipped: time budget exhausted")
+                            self.impl_failed.append(node_id)
+                            continue
+                        if node_id in unchanged:
+                            self.regression_cycle(node)
+                        else:
+                            group = batch_starts.get(node_id)
+                            if group and not any(member in unchanged for member in group):
+                                group_nodes = [ordered[index - 1 + offset] for offset in range(len(group))]
+                                if self.batch_codegen(group_nodes):
+                                    preimplemented.update(group)
+                            self.node_cycle(node, ordered, index, len(ordered),
+                                            preimplemented=node_id in preimplemented)
+                        self.regression_checkpoint(index, len(ordered))
+                        self.driver.end_scope("node")
 
                 self.final_acceptance_passes()
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
