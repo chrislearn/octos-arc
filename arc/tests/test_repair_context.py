@@ -38,6 +38,20 @@ class EvidenceTests(TestCase):
 class RepairFlowTests(TestCase):
     setUp = whole_tests.WholeAppTests.setUp
 
+    def test_startup_repair_uses_codegen_floor_and_reserves_measurement(self):
+        f = self.flow
+        f.remaining.return_value = 240
+        f.repair_minimum = Mock(return_value=60)
+        f.final_measurement_reserve = Mock(return_value=120)
+        f.turn = Mock(return_value=(True, 'fixed'))
+        self.assertTrue(f.whole_app_startup_repair('Invalid module export: missing Root'))
+        f.turn.assert_called_once()
+        self.assertLessEqual(f.turn.call_args.args[1], 120)
+        f.turn.reset_mock()
+        f.remaining.return_value = 179
+        self.assertFalse(f.whole_app_startup_repair('Invalid module export: missing Root'))
+        f.turn.assert_not_called()
+
     def test_tool_prompt_uses_index_not_source_snapshot(self):
         f = self.flow
         (self.root / 'frontend').mkdir()

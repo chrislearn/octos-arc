@@ -3797,9 +3797,10 @@ class Flow:
 
     def whole_app_startup_repair(self, error: str) -> bool:
         """Fix one concrete build/start failure without reimplementing all nodes."""
-        if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
+        reserve = self.final_measurement_reserve()
+        if self.remaining() < self.repair_minimum() + reserve or self.wound_down():
             return False
-        deadline = time.monotonic() + min(self.node_timeout, 360, max(0, self.remaining() - 120))
+        deadline = time.monotonic() + min(self.node_timeout, 360, max(0, self.remaining() - reserve))
         self.last_codegen_written = []
         digest = startup_error_digest(error, 2200)
         names = list(dict.fromkeys(re.findall(
@@ -3917,8 +3918,9 @@ class Flow:
         the full suite after a real edit and roll back newly broken behaviours.
         """
         summary = getattr(self, "whole_app_summary", None)
+        reserve = self.final_measurement_reserve()
         if (summary is None or len(failing) < 2 or self.wound_down()
-                or self.remaining() < self.min_repair_seconds + 300
+                or self.remaining() < self.repair_minimum() + reserve
                 or os.environ.get("OCTOS_ARC_SHARED_REPAIR", "1") == "0"):
             return failing
         grouped = nodes_for_failures(summary.results, self.spec_map)
@@ -3926,9 +3928,11 @@ class Flow:
         for nid, outcomes in grouped.items():
             for result in outcomes:
                 # Keep identifiers/values intact; do not merge all failures of a type.
-                for line in result.message.splitlines():
+                diagnostics = "\n".join([result.message, *result.action_errors])
+                for line in diagnostics.splitlines():
                     if re.search(r"\b(?:ReferenceError: .+ is not defined|Cannot find module|"
-                                 r"ERR_MODULE_NOT_FOUND|SyntaxError:)", line):
+                                 r"ERR_MODULE_NOT_FOUND|SyntaxError:|TypeError:|"
+                                 r"Minified React error #\d+|Element type is invalid:)", line):
                         signature = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
                         clusters.setdefault(signature, set()).add(nid)
                         break
@@ -3948,7 +3952,7 @@ class Flow:
         before_sources = self.app_source_digest()
         log(f"[flow] shared runtime-error repair before leaf cycles: {ids}")
         self.suite_repair_turn("shared runtime-error repair", ids, instruction + failures,
-                               min(360, self.remaining() - self.min_repair_seconds),
+                               min(360, self.remaining() - reserve),
                                tool_prompt=instruction + failures + self.repair_test_location()
                                + stack_note(self.output_dir) + "\n".join(self.repair_requirements(nid) for nid in ids))
         if self.app_source_digest() == before_sources:

@@ -27,5 +27,18 @@ export default {
   // Vite's root is src/, but npm projects conventionally keep public/ beside it.
   publicDir: join(project, 'public'),
   plugins,
-  build: {outDir: resolve(project, 'dist'), emptyOutDir: true, rollupOptions: {input}},
+  build: {outDir: resolve(project, 'dist'), emptyOutDir: true, rollupOptions: {
+    input,
+    onwarn(warning, warn) {
+      // Namespace access to a nonexistent export can otherwise build to
+      // `undefined` and crash every route. Surface it before browser acceptance.
+      if (warning.code === 'MISSING_EXPORT') {
+        const location = warning.loc
+          ? `${warning.loc.file || warning.id || ''}:${warning.loc.line}:${warning.loc.column}`
+          : warning.id || '';
+        throw new Error(`Invalid module export (${location}): ${warning.message}`);
+      }
+      warn(warning);
+    },
+  }},
 };

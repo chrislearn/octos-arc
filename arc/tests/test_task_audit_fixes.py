@@ -174,6 +174,26 @@ class SharedRepairTests(unittest.TestCase):
         f.whole_app_shared_repair([], {"A", "B"})
         f.suite_repair_turn.assert_not_called()
 
+    def test_shared_browser_exception_is_not_hidden_by_locator_timeout(self):
+        f = self.flow
+        for result in f.whole_app_summary.results:
+            result.message = 'Timeout 10000ms exceeded'
+            result.action_errors = ['Error: Minified React error #130; args[]=undefined\n    at render']
+        f.remaining.return_value = 500
+        f.repair_minimum = Mock(return_value=60)
+        f.final_measurement_reserve = Mock(return_value=350)
+        self.assertEqual(f.whole_app_shared_repair([], {'A', 'B'}), set())
+        self.assertEqual(f.suite_repair_turn.call_args.args[2].count('Minified React error'), 2)
+        self.assertLessEqual(f.suite_repair_turn.call_args.args[3], 150)
+
+    def test_different_browser_exceptions_are_not_merged(self):
+        f = self.flow
+        for result in f.whole_app_summary.results:
+            result.message = 'Timeout 10000ms exceeded'
+            result.action_errors = [f'ReferenceError: {result.title} is not defined']
+        self.assertEqual(f.whole_app_shared_repair([], {'A', 'B'}), {'A', 'B'})
+        f.suite_repair_turn.assert_not_called()
+
     def test_regression_or_unreliable_verdict_rolls_back(self):
         f = self.flow
         for result in (None, {"C"}):

@@ -49,19 +49,19 @@ def iter_blocks(text: str):
             end = match.end()
 
 FORMAT_INSTRUCTIONS = """\
-Only blocks, or exactly <<<NO CHANGE>>> if already met. Start with a block marker, not prose.
-FILE (new file or short rewrite):
+Only changed blocks, no prose. If unchanged: <<<NO CHANGE>>>.
+New file/short rewrite:
 <<<FILE relative/path>>>
 contents
 <<<END FILE>>>
-EDIT (small change to quoted file; multiple allowed):
+Small quoted-file edit:
 <<<EDIT relative/path>>>
 <<<SEARCH>>>
 exact unique old text
 <<<REPLACE>>>
 new text
 <<<END EDIT>>>
-Do not mix formats for one path or re-emit large existing files.
+EDIT needs SEARCH/REPLACE, not whole files. Omit identical edits. One format/path; no repeated blocks or large rewrites. Stop when done.
 """
 
 

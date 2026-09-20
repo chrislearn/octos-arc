@@ -112,6 +112,45 @@ class FrontendBlueprintTests(unittest.TestCase):
         self.assertEqual(set(entries), {"index.html", "notes/list.html"})
         self.assertTrue(all(Path(value).is_file() for value in entries.values()))
 
+    def test_vite_missing_namespace_export_is_fatal_but_other_warnings_are_not(self):
+        script = """
+          import config from './vite.config.mjs';
+          const onwarn = config.build.rollupOptions.onwarn;
+          let forwarded = 0;
+          onwarn({code: 'CHUNK_SIZE_LIMIT', message: 'large chunk'}, () => forwarded++);
+          if (forwarded !== 1) throw Error('nonfatal warning lost');
+          try {
+            onwarn({code: 'MISSING_EXPORT', message: 'Root is not exported',
+                    loc: {file: 'src/App.jsx', line: 4, column: 2}}, () => {});
+          } catch (error) {
+            if (!error.message.includes('src/App.jsx:4:2')) throw error;
+            process.exit(0);
+          }
+          throw Error('invalid export was silently accepted');
+        """
+        result = subprocess.run(['node', '--input-type=module', '-e', script],
+                                cwd=self.frontend, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which('npm') and os.environ.get('ARC_TEST_NPM_INTEGRATION'),
+                         'Set ARC_TEST_NPM_INTEGRATION=1 for real namespace validation')
+    def test_real_vite_rejects_missing_namespace_export(self):
+        self.package(vite='7.1.9')
+        (self.frontend / 'src/index.html').write_text('<script type="module" src="/app.js"></script>')
+        (self.frontend / 'src/library.js').write_text('export const Dialog = {Root: 42};')
+        (self.frontend / 'src/app.js').write_text(
+            "import * as Dialog from './library.js'; document.body.textContent = Dialog.Root;")
+        installed = subprocess.run(['npm', 'install', '--no-audit', '--no-fund'],
+                                   cwd=self.frontend, capture_output=True, text=True, timeout=120)
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        built = subprocess.run(['node', 'build.mjs'], cwd=self.frontend,
+                               capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(built.returncode, 0)
+        self.assertIn('Invalid module export', built.stdout + built.stderr)
+        (self.frontend / 'src/app.js').write_text(
+            "import {Dialog} from './library.js'; document.body.textContent = Dialog.Root;")
+        self.build()
+
     @unittest.skipUnless(shutil.which("npm") and os.environ.get("ARC_TEST_NPM_INTEGRATION"),
                          "Set ARC_TEST_NPM_INTEGRATION=1 for the real Vite build")
     def test_real_vite_build_outputs_multiple_local_pages(self):
