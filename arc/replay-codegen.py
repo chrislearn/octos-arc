@@ -11,7 +11,7 @@ import time
 import urllib.request
 
 from local_config import api_environment
-from llm_proxy import open_upstream
+from llm_proxy import inject_reasoning, open_upstream
 from main import CODEGEN_SYSTEM
 
 
@@ -22,6 +22,8 @@ def main():
     parser.add_argument('--needle', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--max-output', type=int, default=8192)
+    parser.add_argument('--format', choices=['patch', 'files'], default='patch')
+    parser.add_argument('--reasoning', choices=['none', 'low'], default='none')
     args = parser.parse_args()
     if not 1 <= args.max_output <= 32768 or args.output.exists():
         parser.error('max-output must be 1..32768 and output must not exist')
@@ -36,11 +38,20 @@ def main():
             break
     if not prompt:
         parser.error('No matching recorded prompt')
+    system = CODEGEN_SYSTEM
+    if args.format == 'files':
+        system = ('You write minimal web applications. Reply only with complete '
+                  '<<<FILE relative/path>>> ... <<<END FILE>>> blocks, or exactly '
+                  '<<<NO CHANGE>>>. Each changed path appears ONCE. Do not output EDIT blocks. '
+                  'Include only files that need a change, preserve their existing behavior, '
+                  'and stop immediately after the last changed file.')
+        prompt += ('\nResponse format override for this diagnostic: use only complete FILE blocks, '
+                   'one per changed file, never EDIT blocks. Preserve unrelated code.\n')
     body = {'model': config.get('MODEL', 'deepseek-v4-flash'),
-            'messages': [{'role': 'system', 'content': CODEGEN_SYSTEM}, {'role': 'user', 'content': prompt}],
+            'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': prompt}],
             'thinking': {'type': 'disabled'}, 'stream': False, 'max_tokens': args.max_output}
     request = urllib.request.Request(config['OPENAI_BASE_URL'].rstrip('/') + '/chat/completions',
-        data=json.dumps(body).encode(), headers={'Content-Type': 'application/json',
+        data=inject_reasoning(json.dumps(body).encode(), args.reasoning), headers={'Content-Type': 'application/json',
                                                'Authorization': 'Bearer ' + config['OPENAI_API_KEY']})
     start = time.monotonic()
     try:
@@ -51,7 +62,7 @@ def main():
         return 1
     result['_diagnostic'] = {'elapsed_seconds': round(time.monotonic() - start, 3),
                              'prompt_chars': len(prompt), 'max_output': args.max_output,
-                             'system': CODEGEN_SYSTEM}
+                             'system': system, 'format': args.format, 'reasoning': args.reasoning}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x', encoding='utf-8') as target:
         json.dump(result, target, ensure_ascii=False, indent=2)

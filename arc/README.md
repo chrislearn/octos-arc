@@ -95,7 +95,10 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
 | `OCTOS_ARC_WHOLE_APP_WAVE_NODES` / `OCTOS_ARC_CODEGEN_OUTPUT_TOKENS` | 6 / 输出上限的 60% | 波次同时受输入及估计输出预算限制；超预算先拆分，不先消耗一次截断请求 |
 | `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` | 0（关闭） | 逐请求检查的累计 token 阈值；达到后不再发上游请求，已在途请求可能超出，依赖供应商 usage 计量 |
-| `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 5 / 300 | 每节点验收修复轮数 K；剩余不足 300 s 不再开修复轮 |
+| `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 小题 5、大于 2 节点 3 / 工具模式 300 s | 每节点验收修复轮上限；单请求代码修复默认以 60 s 为最低准入时间，再按近期实测耗时调高。显式设置的最低时间始终保留 |
+| `OCTOS_FINAL_REPAIR_ROUNDS` / `OCTOS_FINAL_SUITE_PASSES` | 3 / 3 | 每次全套验收最多 3 轮修复，最多 3 个验收周期；无进展、无代码变化、相同失败或预算不足会提前停止，并非固定执行 9 轮 |
+| `OCTOS_ARC_DEGENERATE_MAX_TOKENS` | 8192 | 检出大量空改动或重复 EDIT 后，本次运行后续无工具代码请求的输出上限；首次请求和设计不受影响，0 关闭；波次规划同步缩小预算 |
+| `OCTOS_ARC_RECOVERY_REASONING` | none | 检出上述生成退化后，可显式选择 low/medium/high；默认仍关闭 thinking，不自动开启 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |
 | `OCTOS_DESIGN_TURN` / `OCTOS_DESIGN_MODE` | 1 / separate | 0 = 跳过设计轮；`inline` = 设计 JSON 在实现轮开头写出，不单开一轮（TB 上更省钱但更慢，见 CHANGELOG R7/R8） |
 | `OCTOS_SESSION_SCOPE` | turn | 新 session 的粒度：`turn`（每轮新，spec 已内嵌所以修复轮自足）、`node`（设计/实现/修复共用）、`run`（全程一个） |
@@ -108,6 +111,16 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_ARC_TEST_TIMEOUT_MS` / `OCTOS_ARC_SLOW_MS` | 10000 / 3000 | 本地验收单测试超时；超过 SLOW 阈值即提醒模型 |
 
 Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Bench Web 六题的建议参数」。
+
+本地 `run-task-local.py` 为控制调试成本默认显式设置 3600 s；这与平台入口按节点数自动分配不同。
+运行完整大题应显式设定预算。例如 Keep 的平台默认是 48,000 s，而本次本地诊断使用 7,200 s。
+默认软 token 阈值为 `max(6M, 2.5M × 节点数)`，模型轮阈值为 `max(24, 4 × 节点数)`；
+触发后停止进一步修复，但不是立即杀死进程。需要逐请求停止时配置绝对 token 阈值；在途请求仍可能超出。
+
+生成退化恢复只删除无字节变化的 EDIT 和长周期重复尾部，保留的改动仍须通过唯一锚点检查与真实验收。
+部分写入不会被记为通过：先测试，再只修实际缺失部分；某一波次失败不会放弃后续所有需求。
+`analyze-run.py <output_dir>` 汇总实际 usage、阶段成本和重复输出；`replay-codegen.py` 可做有界单请求诊断，
+`apply-replay.py` 仅把已完成的回复应用到独立 Git 快照，不能修改源运行。回放请求另计费用。
 
 ### 同题内按步骤选择模型
 

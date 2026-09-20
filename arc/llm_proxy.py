@@ -29,6 +29,22 @@ from pathlib import Path
 HOP_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding"}
 
 
+def cap_output_tokens(body: bytes, limit: int) -> bytes:
+    """An explicit recovery ceiling, separate from the kernel's token floor."""
+    if limit <= 0:
+        return body
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(data, dict) or 'messages' not in data:
+        return body
+    field = 'max_completion_tokens' if 'max_completion_tokens' in data else 'max_tokens'
+    current = data.get(field)
+    data[field] = min(current, limit) if type(current) is int and current > 0 else limit
+    return json.dumps(data, ensure_ascii=False).encode('utf-8')
+
+
 def open_upstream(req, *, timeout: float):
     """Local providers must not traverse HTTP(S)_PROXY; remote ones still may."""
     host = (urlsplit(req.full_url).hostname or "").lower()
@@ -447,6 +463,23 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
         rec["sse_usage_chunks"] = text.count('"usage"')
     else:
         rec["sse_chunks"] = 0
+    # Keep termination metadata without persisting response text. A full output
+    # allowance does not by itself prove truncation; use the provider's reason.
+    chunks = [line[5:].strip() for line in text.splitlines() if line.startswith("data:")] \
+        if text.lstrip().startswith("data:") else [text]
+    reasons = set()
+    for chunk in chunks:
+        try:
+            data = json.loads(chunk)
+        except (ValueError, TypeError):
+            continue
+        choices = data.get("choices") if isinstance(data, dict) else None
+        for choice in choices if isinstance(choices, list) else []:
+            reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+            if isinstance(reason, str) and reason:
+                reasons.add(reason)
+    if reasons:
+        rec["finish_reasons"] = sorted(reasons)
     for key in ("prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens",
                 "prompt_cache_miss_tokens"):
         if key in usage:
@@ -471,6 +504,7 @@ class LlmProxy:
         self.routes = model_routes(configured_model_routes())
         self.phase = "implement"
         self.min_max_tokens = min_max_tokens
+        self.codegen_max_tokens = 0
         self.destream = destream
         self.trim = trim
         # Tools removed from every request in addition to DROP_TOOLS (mutable:
@@ -528,9 +562,12 @@ class LlmProxy:
                         body = replace_system_prompt(body, proxy.system_override)
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
+                    limit = proxy.codegen_max_tokens if proxy.no_tools else 0
+                    body = cap_output_tokens(body, limit)
                     unrouted = body
                     with proxy._lock:
                         body = route_request(body, proxy.routes, proxy.phase)
+                    body = cap_output_tokens(body, limit)
                     proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
@@ -691,7 +728,10 @@ class LlmProxy:
         with self._lock:
             sha, shared, text = prompt_fingerprint(request_body, getattr(self, "_last_prompt_text", ""))
             self._last_prompt_text = text
-            return {"request": shape, "model": json.loads(request_body).get("model"), "phase": self.phase,
+            request = json.loads(request_body)
+            return {"request": shape, "model": request.get("model"), "phase": self.phase,
+                    "mode": self.mode,
+                    "output_limit": request.get("max_completion_tokens", request.get("max_tokens")),
                     "label": getattr(self, "label", ""), "prompt_sha256": sha, "prefix_shared_chars": shared,
                     "turn_serial": self.turn_serial, "codegen": self.no_tools}
 

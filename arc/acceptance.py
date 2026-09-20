@@ -11,6 +11,7 @@ functions covered by arc/tests/test_acceptance.py; process handling lives in
 from __future__ import annotations
 
 import json
+from snapshot_focus import focus_interaction_snapshot
 import hashlib
 import os
 import re
@@ -240,7 +241,7 @@ def page_snapshot(error_context: str, max_chars: int = 4000) -> str:
     match = _PAGE_SNAPSHOT.search(error_context)
     if not match:
         return ""
-    return _clip_lines(match.group(1), max_chars)
+    return _clip_lines(focus_interaction_snapshot(match.group(1)), max_chars)
 
 
 def clip_ends(text: str, max_chars: int) -> str:

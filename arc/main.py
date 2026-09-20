@@ -28,9 +28,9 @@ Environment (all optional):
     OCTOS_NODE_TIMEOUT        seconds per model turn (default 1200)
     OCTOS_TIME_BUDGET         seconds for the whole generation (default max(3600, 1500 x nodes))
     OCTOS_SECONDS_PER_NODE    per-node allowance used for that default (1500)
-    OCTOS_MIN_REPAIR_SECONDS  do not start a repair turn with less than this left (300)
+    OCTOS_MIN_REPAIR_SECONDS  explicit repair admission floor (default tools 300s; codegen 60s + measured duration)
     OCTOS_NODE_TIME_BUDGET    explicit hard cap per node; default 1500 + earned surplus, at most 3000
-    OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
+    OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5 for <=2 nodes, otherwise 3)
     OCTOS_DESIGN_TURN         "0" disables the design turn
     OCTOS_DESIGN_MODE         inline (default) | separate (own read-only design turn)
     OCTOS_DESIGN_MIN_NODES    design only for trees with at least this many nodes (3)
@@ -57,6 +57,8 @@ Environment (all optional):
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
     OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 2)
+    OCTOS_ARC_DEGENERATE_MAX_TOKENS  codegen ceiling after repeated/no-op output (8192; 0 disables)
+    OCTOS_ARC_RECOVERY_REASONING  optional reasoning after degeneration (none by default)
     OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 3; 0 disables)
     OCTOS_ARC_SOURCE_STABILITY_ORDER  "0" restores path order instead of low-churn-first quoted sources
     OCTOS_ARC_GENERIC_TEMPLATE  "0" disables the task-neutral Express/store scaffold (default on in v4)
@@ -97,6 +99,7 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
                      incomplete_blocks, normalize_bare_file_reply, prepare_edit_files, safe_relative_path, write_files)
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
+from reply_quality import prune_degenerate_edits  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
 from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -1474,7 +1477,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "9"
+APP_DESIGN_PROMPT_VERSION = "10"
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1493,6 +1496,8 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
 For each lifecycle view, specify which records the API returns and which filters the client applies; a client cannot recover records already excluded by the server. Specify absent versus false query values, compatible filter combinations, and inverse transitions (remove/restore, assign/unassign). For composite editors, state whether selection commits immediately or on Save, how Done/Cancel/Escape behave, and which owner retains the draft after a failed save. Do not invent lifecycle states not required by the task.
 Give every expanded editor a visible completion action: Save for explicit commits or Close/Done for autosave; Escape/outside click supplements that action, never replaces it. Moving focus within the editor is not completion. Distinguish raw response JSON from Response objects; no helper-invented result envelope unless explicitly implemented on the backend.
+In notes, preserve required entry gestures and action placement (record click, direct action, menu action). Distinguish available catalogue choices from initially selected values; optional actions must follow user intent, not unconditional fixture-derived defaults.
+Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Split layouts only when requirements differ. Keep this concrete and minimal, not a configurable application framework.
 """
 
 CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply only with <<<FILE relative/path>>> ... <<<END FILE>>> or <<<EDIT relative/path>>> blocks using exact delimiters, or exactly <<<NO CHANGE>>> when already satisfied.
@@ -1949,7 +1954,10 @@ class Flow:
 
     def repair_minimum(self) -> float:
         mode = "codegen" if self.codegen_mode() else "tools"
-        return repair_seconds(getattr(self, "repair_durations", {}).get(mode, []), self.min_repair_seconds)
+        minimum = self.min_repair_seconds
+        if mode == "codegen" and "OCTOS_MIN_REPAIR_SECONDS" not in os.environ:
+            minimum = min(minimum, 60)
+        return repair_seconds(getattr(self, "repair_durations", {}).get(mode, []), minimum)
 
     # -- helpers ----------------------------------------------------------
     def wound_down(self) -> bool:
@@ -2273,7 +2281,8 @@ class Flow:
         if missing_entry:
             rules += f"Startup prerequisite: {missing_entry} is missing. Create it in this response so the configured backend start command can run.\n"
         task = CODEGEN_TASK.format(node_id=str(node.get("id")),
-            description=str(node.get("description") or "").strip(), spec=spec,
+            description=describe_node(node) if node.get("scenarios") or node.get("dependencies")
+            else str(node.get("description") or "").strip(), spec=spec,
             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
         existing = self.has_app()
         if existing:
@@ -2435,6 +2444,12 @@ class Flow:
         proxy.no_tools = True
         proxy.system_override = system
         mode_override = self.codegen_reasoning(spec_chars)
+        saved_cap = getattr(proxy, "codegen_max_tokens", 0)
+        recovering = getattr(self, "codegen_degenerated", False) and phase_for_label(label) != "design"
+        proxy.codegen_max_tokens = max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0
+        recovery_mode = os.environ.get("OCTOS_ARC_RECOVERY_REASONING", "none")
+        if recovering and recovery_mode in {"low", "medium", "high"}:
+            mode_override = recovery_mode  # opt-in; default thinking remains off
         saved_base = getattr(self, "base_reasoning_mode", proxy.mode)
         if mode_override:
             self.base_reasoning_mode = mode_override
@@ -2446,6 +2461,7 @@ class Flow:
             proxy.no_tools = False
             proxy.system_override = None
             self.base_reasoning_mode = saved_base
+            proxy.codegen_max_tokens = saved_cap
 
     def prepare_build(self, tree: dict, ordered: list[dict]) -> None:
         """What happens before the first node: the application design (loaded
@@ -2591,44 +2607,48 @@ class Flow:
         if not chosen:
             return None
         limit = self.codegen_context_chars()
-        specs: list[str] = []
+        specs = ""
         names: list[str] = []
         for node_id in chosen:
-            body = self.spec_bodies(node_id)
+            # Helpers are shared by the candidate set, not copied once per
+            # failing node. Keep full spec files and their reachable helpers.
+            body = self.batch_spec_bodies([*names, node_id])
             if not body or body == "(none)":
                 continue
-            block = f"### {node_id}\n{body}\n"
-            if sum(map(len, specs)) + len(block) > limit * 0.45:
+            if len(body) > limit * 0.45:
                 break
-            specs.append(block)
+            specs = body
             names.append(node_id)
         if not specs:
             return None
         # Reasoning for the codegen turn is sized by these specs together, not by
         # the last single node's (which could put a multi-node repair at none).
-        self.suite_spec_chars = sum(map(len, specs))
+        self.suite_spec_chars = len(specs)
         omitted = [n for n in chosen if n not in names]
-        description = ("Repair the regressions the acceptance suite found in these features: "
-                       + "; ".join(f"{n}: {str(nodes[n].get('description') or '').strip()}" for n in names))
+        description = ("Repair the failing behaviours found by acceptance, preserving the original requirements:\n"
+                       + "\n\n".join(describe_node(nodes[n]) for n in names))
         if omitted:
             description += f". Also failing, specs not shown: {', '.join(omitted)}"
         evidence = ("The current application fails these acceptance checks; fix them without breaking the "
                     "passing ones:\n" + (failures or "(no detail)")[:8000] + "\n")
         changed = self.changed_files_since(getattr(self, "last_checkpoint_sha", None))
-        must = changed | set(getattr(self, "refused_paths", ()))
+        # A concrete application refusal is stronger evidence than the whole
+        # historical diff (which can include almost every file on the first
+        # final suite). Otherwise retrying still crowds out the named target.
+        must = set(getattr(self, "refused_paths", ())) or changed
         node = {"id": ", ".join(names), "description": description}
-        prompt = self.codegen_implement_prompt(node, "".join(specs), "", evidence=evidence, must_include=must)
-        if prompt is None or not changed:
+        prompt = self.codegen_implement_prompt(node, specs, "", evidence=evidence, must_include=must)
+        if prompt is None or not must:
             return prompt
         # must_include only ranks the changed files first; a file too big for the
         # room is still omitted, and the guard would refuse the rewrite the model
         # then attempts. With none of them quoted the request is that refusal.
-        missing = sorted(changed - quoted_paths(prompt))
-        if len(missing) == len(changed):
-            log(f"[flow] suite repair: none of the changed files ({', '.join(missing)}) fit the codegen budget")
+        missing = sorted(must - quoted_paths(prompt))
+        if len(missing) == len(must):
+            log(f"[flow] suite repair: none of the priority files ({', '.join(missing)}) fit the codegen budget")
             return None
         if missing:
-            log(f"[flow] suite repair: changed files not quoted whole: {', '.join(missing)}")
+            log(f"[flow] suite repair: priority files not quoted whole: {', '.join(missing)}")
         return prompt
 
     def suite_repair_turn(self, label: str, failing_ids: list[str], failures: str, timeout: int, *,
@@ -2652,12 +2672,17 @@ class Flow:
                                                    spec_chars=spec_chars)
                     refused = set(getattr(self, "last_codegen_refused", set()))
                     self.last_repair_changed = self.last_repair_changed or bool(getattr(self, "last_codegen_written", []))
-                    if ok and getattr(self, "last_codegen_written", []) and not refused:
+                    if getattr(self, "last_codegen_written", []) and not refused:
+                        # A partial patch is evidence to measure, not proof that
+                        # another model turn is needed before testing.
                         return "codegen", ""
                     if attempt or deadline - time.monotonic() < 30:
                         break
                     if refused:
-                        retry = self.suite_repair_prompt(failing_ids, failures)
+                        retry_evidence = failures
+                        if getattr(self, "last_codegen_outcome", "") == "anchor_failed":
+                            retry_evidence += "\nPatch application error (no edits applied):\n" + reason[:1200]
+                        retry = self.suite_repair_prompt(failing_ids, retry_evidence)
                         if retry is None or not refused <= quoted_paths(retry):
                             break
                         prompt = retry
@@ -2714,6 +2739,18 @@ class Flow:
             if retained:
                 text, truncated = retained, True
                 log(f"[codegen] {label}: recovering only terminated blocks from truncated response")
+        if (ok or truncated) and not raw_target:
+            text, quality = prune_degenerate_edits(text)
+            degenerated = (quality['cycle_trimmed'] or quality['repeated_edit_blocks'] >= 8
+                          or quality['noop_edits'] >= 8 and quality['noop_chars'] >= 2048)
+            if degenerated:
+                self.codegen_degenerated = True
+                log(f"[codegen] {label}: repetitive output detected; bounded future codegen replies")
+            if quality['noop_edits'] or degenerated:
+                self.metric("reply_quality", label=label, **quality)
+            truncated = truncated or quality['cycle_trimmed']
+            if ok and not truncated and not text.strip() and quality['noop_edits']:
+                text = "<<<NO CHANGE>>>"
         files = parse_file_blocks(text) if ok or truncated else {}
         edits = parse_edit_blocks(text) if ok or truncated else []
         if ok and not files and not edits:
@@ -2779,7 +2816,7 @@ class Flow:
                     # No file was written. Let the normal one-retry path requote
                     # these targets with the concrete anchor failure instead of
                     # first running acceptance against unchanged source.
-                    targets = {rel for rel, _, _ in edits}
+                    targets = {rel for rel, _, _ in edits if any(e.startswith(rel + ': ') for e in errors)}
                     self.last_codegen_refused.update(targets)
                     if hasattr(self, "refused_paths"):
                         self.refused_paths.update(targets)
@@ -3212,7 +3249,7 @@ class Flow:
                                           spec_chars=getattr(self, "current_spec_chars", 0))
                 applied = applied or bool(self.last_codegen_written)
                 refused = self.last_codegen_refused
-                if ok and self.last_codegen_written and not refused:
+                if self.last_codegen_written and not refused:
                     return True
                 if attempt:
                     break
@@ -3227,6 +3264,8 @@ class Flow:
                             continue
                     break
                 prompt = build_prompt()
+                if getattr(self, "last_codegen_outcome", "") == "anchor_failed":
+                    failures += "\nPatch application error (no edits applied):\n" + reason[:1200]
                 compact = self.codegen_repair_prompt(node_id, prompt, failures=failures)
                 if compact is None or not refused <= quoted_paths(compact):
                     break
@@ -3474,6 +3513,9 @@ class Flow:
         # Leave room for reasoning/protocol overhead and estimation error. A
         # deployment with a smaller routed model can explicitly lower this.
         maximum = max(1, int(os.environ.get("OCTOS_ARC_MAX_TOKENS", "32768")))
+        recovery_cap = int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))
+        if getattr(self, "codegen_degenerated", False) and recovery_cap > 0:
+            maximum = min(maximum, recovery_cap)
         routes = getattr(getattr(self, "llm_proxy", None), "routes", [])
         # Rules can override the proxy's default limit after routing. Use the
         # smallest possible implement-route cap, without guessing model names.
@@ -3596,6 +3638,8 @@ class Flow:
         start = 0
         wave = 0
         self.whole_app_generated_ids = set()
+        self.whole_app_partial_ids = set()
+        self.whole_app_deferred_ids = set()
         attempts = 0
         requests_before = getattr(self, "whole_app_generation_requests", 0)
         while start < len(ordered):
@@ -3634,7 +3678,9 @@ class Flow:
                         size = max(1, size // 2)
                         continue
                     log(f"[flow] whole-app waves: {ids[0]} cannot fit alone; using node flow")
-                    return wave > 0
+                    self.whole_app_deferred_ids.update(ids)
+                    start += size
+                    break
                 write_codegen_manifests(self.output_dir)
                 timeout = min(int(os.environ.get("OCTOS_ARC_WHOLE_APP_TIMEOUT", "1800")),
                               max(120, self.remaining() - self.min_repair_seconds))
@@ -3647,25 +3693,36 @@ class Flow:
                                                           spec_chars=len(spec))
                 if not ok or not (getattr(self, "last_codegen_written", [])
                                   or getattr(self, "last_codegen_no_change", False) is True):
+                    if getattr(self, "last_codegen_written", []):
+                        self.commit(f"whole application wave {wave + 1} (partial; requires verification)")
+                        self.whole_app_partial_ids.update(ids)
+                        start += size
+                        wave += 1
+                        log(f"[flow] partial wave retained for {ids}; continuing remaining feature groups")
+                        break
                     if size > 1:
                         log(f"[flow] whole-app wave {wave + 1}: no complete write "
                             f"({text[-120:]}); splitting group")
                         max_nodes = min(max_nodes, (size + 1) // 2)
                         size = max(1, size // 2)
                         continue
-                    log(f"[flow] whole-app wave {wave + 1}: single leaf did not write; "
-                        "measuring the partial application before targeted node repairs")
-                    return wave > 0
+                    log(f"[flow] whole-app wave {wave + 1}: deferring {ids[0]} to targeted repair; "
+                        "continuing remaining feature groups")
+                    self.whole_app_deferred_ids.update(ids)
+                    start += size
+                    break
                 self.commit(f"whole application wave {wave + 1} (experimental implement)")
                 self.whole_app_generated_ids.update(ids)
                 start += size
                 wave += 1
                 break
-        log(f"[flow] whole-app waves: {len(ordered)} leaves generated in {wave} successful waves "
+        log(f"[flow] whole-app waves: {len(self.whole_app_generated_ids)} complete, "
+            f"{len(self.whole_app_partial_ids)} partial, {len(self.whole_app_deferred_ids)} deferred leaves "
+            f"in {wave} applied waves "
             f"({attempts} group attempts, "
             f"{getattr(self, 'whole_app_generation_requests', 0) - requests_before} model turns); "
             "running first full suite")
-        return True
+        return wave > 0
 
     def whole_app_startup_repair(self, error: str) -> bool:
         """Fix one concrete build/start failure without reimplementing all nodes."""
@@ -3744,7 +3801,10 @@ class Flow:
             observed = self.run_specs(specs, workers=workers, grader_like=True)
             self.metric("acceptance", scope="whole_app", round=measurement,
                         passed=observed.passed, total=observed.total,
-                        error=observed.error, killed=observed.killed)
+                        error=observed.error, killed=observed.killed,
+                        generated_leaves=len(getattr(self, "whole_app_generated_ids", ())),
+                        partial_leaves=len(getattr(self, "whole_app_partial_ids", ())),
+                        deferred_leaves=len(getattr(self, "whole_app_deferred_ids", ())))
             measurement += 1
             return observed
         summary = measure()
@@ -3903,7 +3963,9 @@ class Flow:
                 continue
             self._repair_stage = (repair_budget, repair_count, repairs_done)
             try:
-                self.node_cycle(node, ordered, index, len(ordered), preimplemented=node_id in generated)
+                self.node_cycle(node, ordered, index, len(ordered),
+                                preimplemented=node_id in generated or
+                                node_id in getattr(self, "whole_app_partial_ids", ()))
             finally:
                 self._repair_stage = None
             repairs_done += 1
