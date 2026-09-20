@@ -90,6 +90,22 @@ class EditTurnTests(unittest.TestCase):
         self.assertEqual(self.flow.last_codegen_written, ['frontend/src/index.html'])
         self.assertIn('<body>new</body>', (self.root / 'frontend/src/index.html').read_text())
 
+    def test_explicit_no_change_preserves_files_and_defers_to_acceptance(self):
+        page = self.root / 'frontend/src/index.html'
+        before = page.read_text()
+        self.flow.text_turn.return_value = True, '<<<NO CHANGE>>>'
+        ok, _ = self.flow.codegen_turn('Requirement already met', 60, 'no change')
+        self.assertTrue(ok)
+        self.assertTrue(self.flow.last_codegen_no_change)
+        self.assertEqual(self.flow.last_codegen_written, [])
+        self.assertEqual(page.read_text(), before)
+
+    def test_no_change_marker_must_be_the_entire_reply(self):
+        self.flow.text_turn.return_value = True, 'I think <<<NO CHANGE>>> is best.'
+        ok, _ = self.flow.codegen_turn('Requirement already met', 60, 'no change prose')
+        self.assertFalse(ok)
+        self.assertFalse(self.flow.last_codegen_no_change)
+
     def test_blind_edit_is_refused_without_touching_file(self):
         reply = self.edit('frontend/src/index.html', 'old', 'new')
         self.flow.text_turn.return_value = True, reply

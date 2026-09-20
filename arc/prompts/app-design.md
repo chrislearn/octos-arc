@@ -8,4 +8,4 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
  "routes": [{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}],
  "pages": [{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}],
  "notes": "session handling, seed data, validation conventions, naming conventions"}
-Name every collection, field, route and page once and consistently; requirements that share data must share the record shape.
+Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.

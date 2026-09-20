@@ -144,6 +144,32 @@ class TokenOptimizationTests(unittest.TestCase):
         flow.codegen_turn.assert_called_once()
         flow.acceptance_loop.assert_called_once()
 
+    def test_truncated_generation_probes_existing_app_before_spending_more_tokens(self):
+        flow = self.node_flow()
+        flow.runner = object()
+        flow.codegen_turn = Mock(return_value=(False, "output_truncated: max_tokens"))
+        flow.run_specs = Mock(return_value=m.RunSummary(passed=1, total=1))
+        flow.acceptance_loop = Mock(return_value=True)
+        flow.node_cycle(helpers.node("REQ-1", "Search"), [], 1, 1)
+        flow.run_specs.assert_called_once_with(["REQ-1.spec.ts"])
+        flow.codegen_turn.assert_called_once()
+        flow.turn.assert_not_called()
+        flow.acceptance_loop.assert_called_once()
+
+    def test_truncated_generation_uses_one_compact_codegen_retry_when_app_fails(self):
+        flow = self.node_flow()
+        flow.runner = object()
+        flow.codegen_turn = Mock(side_effect=[(False, "output_truncated: max_tokens"),
+                                              (True, "<<<NO CHANGE>>>")])
+        flow.run_specs = Mock(return_value=m.RunSummary(passed=0, total=1))
+        flow.acceptance_loop = Mock(return_value=True)
+        flow.node_cycle(helpers.node("REQ-1", "Search"), [], 1, 1)
+        self.assertEqual(flow.codegen_turn.call_count, 2)
+        retry = flow.codegen_turn.call_args.args[0]
+        self.assertIn("previous codegen reply exceeded its output limit", retry)
+        self.assertIn("OBSOLETE_SOURCE", retry)
+        flow.turn.assert_not_called()
+
     def test_oversized_rewrite_evidence_switches_to_tools(self):
         flow = self.node_flow()
         flow.codegen_context_chars = lambda: 6000

@@ -1361,13 +1361,14 @@ UI behavior follows the requirement and the current application:
 - A control repeated once per item needs an accessible name that says which item it acts on. Identical names across items leave a name-based lookup resolving to an arbitrary one, and a control that stays exposed after the pointer leaves its item makes that worse.
 - Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input.
 - Derive state ownership and persistence from requirements: distinguish per-view, per-session and shared data. Do not reset persisted user data on startup. For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it. Provide a loading state when initialization is asynchronous.
+- Treat a UI action as a state transition: mount usable editor/dialog controls and hide the background synchronously before the first await. A browser click does not await an async event listener; the next action must not land on a similarly named background control. After a mutation, await persistence and refresh (or apply a consistent optimistic update) before exposing stale state as final; handle failure without losing the user's edits.
 - Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
 - Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
 """
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "3"
+APP_DESIGN_PROMPT_VERSION = "4"
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1384,15 +1385,17 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
  "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
  "pages": [{{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
  "notes": "session handling, seed data, validation conventions, naming conventions"}}
-Name every collection, field, route and page once and consistently; requirements that share data must share the record shape.
+Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
 """
 
-CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with FILE or EDIT blocks in the requested format."
+CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with FILE or EDIT blocks, or exactly <<<NO CHANGE>>> when the existing app already meets the requirement."
 
 CODEGEN_RULES = """\
-Files: keep frontend/src/index.html a small shell; put substantial CSS/JS in local files and separate feature/view modules. Use additional HTML pages for multi-page routes. backend/server.js serves ../frontend/dist on process.env.PORT||{port} and registers backend/routes/<area>.js.{ports} Keep it stable; put persistence in backend modules. Register literal routes before matching :parameter routes. For pushState SPA links, set frontend/package.json arc.spa=true so direct navigation works. Initial manifests exist; frontend build copies src to dist, backend start runs server.js; update package.json and the build script for packages. Production: no CDN URLs or remote browser imports; all assets must be local. npm install may download packages. Prefer plain HTML/JS; use bundled React for complex state, htmx for server-rendered interactions, or local Tailwind CLI when useful.
-Persistent data: seed only a new store or explicit migration; preserve edits, deletions and archives across restarts. Reset only if required.
-Rules: implement general valid inputs; preserve working behavior. Use accessible controls, correct labels and IDs, and distinct names for menu triggers versus destinations. Per-item actions target their item; hidden menus must not intercept input. Closing an editor saves pending fields/options to the same record. Navigation renders the selected view; visual options visibly change the item. Derive data and UI from requirements, not test outputs. Prefer exact EDIT blocks for small changes to quoted files; FILE for new files or rewrites.
+Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. Register literal routes before :parameter routes. For pushState links set frontend/package.json arc.spa=true. Initial manifests exist; update package.json and the build script for new packages. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. Use bundled React, htmx or Tailwind only when useful.
+Data: seed only a new store or migration; preserve edits/deletions across restarts.
+Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Closing an editor saves pending fields/options to the same record. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
+Async: clicks do not await handlers. Mount usable editor/dialog controls and hide background before the first await, so the next input hits the new UI. Await save and list refresh (or update optimistically); retain edits on failure.
+Output: use exact EDIT blocks for small quoted-file changes; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.
 """
 
 GENERIC_TEMPLATE_NOTE = """\
@@ -1433,6 +1436,10 @@ CODEGEN_PROMPT = CODEGEN_RULES + "\n" + CODEGEN_TASK
 
 CODEGEN_SIZE_SMALL = 'Prefer a small implementation, but do not omit required behavior, accessibility, styling or validation to meet an arbitrary line count.'
 CODEGEN_SIZE_FULL = "Keep the implementation concise while preserving all required behavior and the existing architecture. Derive navigation, authentication, storage and validation from the requirements. Public tests illustrate contracts; handle other valid inputs too. Do not force a navigation placeholder, cookie name, redirect, validation message or rendering strategy. Fix actual ambiguous controls in their intended scope without deleting legitimate repeated links or text. Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input."
+
+TRUNCATED_CODEGEN_RETRY = """\
+The previous codegen reply exceeded its output limit and was discarded. Inspect only the quoted current sources. Emit at most three small complete EDIT blocks for existing files and FILE blocks only for new, short files. Do not reproduce an unchanged module or the whole application. If the requirement is already satisfied, reply exactly <<<NO CHANGE>>>.
+"""
 
 TRUNCATED_RETRY = """\
 YOUR PREVIOUS RESPONSE WAS TRUNCATED BY THE OUTPUT LIMIT. Inspect the current files before continuing; do not assume the previous response was applied. Use tools to make the smallest targeted edits needed for this requirement. Preserve existing behavior and avoid re-emitting large unchanged files. Create missing files only when needed, one file at a time. Verify the affected behavior and finish.
@@ -1601,7 +1608,7 @@ Read the files you need before changing them, keep every existing route, label a
 """
 
 CODEGEN_REPAIR_SUFFIX = """
-This request has no tools. Use the supplied acceptance specification and helpers below as read-only evidence; do not emit read/shell instructions or claim to have executed them. Return every application file you change as a complete file block. The harness executes acceptance after your response.
+This request has no tools. Use the supplied acceptance specification and helpers below as read-only evidence; do not emit read/shell instructions or claim to have executed them. Use exact EDIT blocks for quoted existing files, FILE blocks only for new files or unavoidable short rewrites, and no blocks for unchanged files. The harness executes acceptance after your response.
 {spec}
 """
 
@@ -1802,6 +1809,10 @@ class Flow:
         # needs; the next codegen prompt quotes it whole (must_include).
         self.refused_paths: set[str] = set()
         self.test_verdict: dict[str, bool | None] = {}
+        # Batch generation still verifies every leaf. Record its first-pass
+        # yield so subsequent runs can distinguish batching cost from repairs.
+        self.batched_groups: dict[str, tuple[str, ...]] = {}
+        self.batch_first_pass: dict[str, bool] = {}
         self.checkpoint_regressions: set[str] = set()
         self.impl_failed: list[str] = []
         self.pending_corrections: list[str] = []
@@ -2492,10 +2503,15 @@ class Flow:
         self.last_codegen_refused = set()
         self.last_codegen_deferred = set()
         self.last_codegen_written = []
+        self.last_codegen_no_change = False
         ok, text = self.text_turn((prompt + "\n" + format_instructions) if format_instructions else prompt,
                                   timeout, label, system=system, spec_chars=spec_chars)
         files = parse_file_blocks(text) if ok else {}
         edits = parse_edit_blocks(text) if ok else []
+        if ok and not files and not edits and text.strip() == "<<<NO CHANGE>>>":
+            self.last_codegen_no_change = True
+            log(f"[codegen] {label}: existing implementation declared complete; acceptance will verify it")
+            return True, text
         if ok and not files and not edits and raw_target:
             html = strip_code_fences(text)
             if looks_like_markup(html):
@@ -3018,6 +3034,12 @@ class Flow:
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
+            if attempt == 0 and node_id in getattr(self, "batched_groups", {}):
+                self.batch_first_pass[node_id] = bool(not summary.error and summary.total and passed == summary.total)
+                group = self.batched_groups[node_id]
+                if all(member in self.batch_first_pass for member in group):
+                    first_pass = sum(self.batch_first_pass[member] for member in group)
+                    log(f"[flow] sibling batch {list(group)}: first-pass {first_pass}/{len(group)} leaves")
             was_codegen = self.codegen_mode()
             normalized = failure_signature(summary) if summary.results else failures
             if normalized and normalized == previous_failures:
@@ -3179,11 +3201,16 @@ class Flow:
             if retry is not None and refused <= quoted_paths(retry):
                 log(f"[flow] sibling batch {ids}: retrying with {', '.join(sorted(refused))} quoted whole")
                 ok, _ = self.codegen_turn(retry, timeout, label + " (retry)", spec_chars=len(spec))
-        if not ok or not getattr(self, "last_codegen_written", []) or getattr(self, "last_codegen_refused", set()):
+        if not ok or not (getattr(self, "last_codegen_written", []) or getattr(self, "last_codegen_no_change", False)) \
+                or getattr(self, "last_codegen_refused", set()):
             log(f"[flow] sibling batch {ids}: no complete write; using per-node turns")
             return False
-        self.commit(f"sibling batch {', '.join(ids)} (implement)")
-        log(f"[flow] sibling batch {ids}: generated once; validating each leaf separately")
+        if getattr(self, "last_codegen_written", []):
+            self.commit(f"sibling batch {', '.join(ids)} (implement)")
+        group = tuple(ids)
+        for node_id in group:
+            self.batched_groups[node_id] = group
+        log(f"[flow] sibling batch {ids}: generated once or declared no-change; validating each leaf separately")
         return True
 
     def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int,
@@ -3282,14 +3309,34 @@ class Flow:
                     self.log_codegen_fallback(node_id)
                 ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
-            # Use targeted tool edits after a truncated whole-file response.
-            # A frontend task must not restart by rewriting backend/server.js.
-            log(f"[flow] {node_id}: output truncated; retrying with targeted tool edits")
-            self.driver.close()
-            retry = prompt + "\n" + TRUNCATED_RETRY
-            retry_time = min(self.node_timeout, deadline - time.time())
-            if retry_time > 0:
-                ok, text = self.turn(retry, retry_time, f"{node_id} implement (retry)")
+            # A truncated response made no write. Check the already generated app
+            # before paying for a tool turn: later nodes can be satisfied by a
+            # shared earlier feature (v4.2 grid-by-default: 20 needless tools).
+            if self.has_app() and self.runner is not None and specs:
+                probe = self.run_specs(specs)
+                if not probe.error and probe.total and probe.passed == probe.total:
+                    log(f"[flow] {node_id}: truncated output discarded; existing app already passes its specs")
+                    ok, text = True, "existing app passes after truncated response"
+            if not ok and codegen_prompt is not None and self.codegen_mode():
+                # A short, single-request edit is cheaper than jumping straight
+                # from a too-long file reply to dozens of tool calls. Rebuild the
+                # prompt from disk so its source budget remains valid.
+                focused = self.codegen_implement_prompt(node, spec_text, self.corrections_text(),
+                                                         evidence=TRUNCATED_CODEGEN_RETRY)
+                if focused is not None:
+                    retry_time = min(self.node_timeout, deadline - time.time())
+                    if retry_time > 0:
+                        log(f"[flow] {node_id}: truncated output; one compact EDIT retry before tools")
+                        ok, text = self.codegen_turn(focused, retry_time, f"{node_id} implement (compact retry)",
+                                                     spec_chars=self.current_spec_chars)
+            if not ok and "truncated" in text.lower():
+                # Only a second truncated response falls back to tool editing.
+                log(f"[flow] {node_id}: compact output also truncated; using targeted tool edits")
+                self.driver.close()
+                retry = prompt + "\n" + TRUNCATED_RETRY
+                retry_time = min(self.node_timeout, deadline - time.time())
+                if retry_time > 0:
+                    ok, text = self.turn(retry, retry_time, f"{node_id} implement (retry)")
         timed_out = (not ok) and "timed out" in text.lower()
         if ok and not self.has_app():
             # v6-counter: one package.json missing after the turn. Do not give
@@ -3332,7 +3379,8 @@ class Flow:
         def rebuild_prompt(failures: str) -> str:
             if self.codegen_mode() and codegen_prompt:
                 evidence = ("Your previous files failed every test. Failures:\n" + failures
-                            + "\nFix the root causes and return every file you change, complete.\n")
+                            + "\nFix the root causes with small exact EDIT blocks for quoted files; "
+                              "do not re-emit unchanged files.\n")
                 # Rebuild from current disk contents; never append a second,
                 # conflicting copy of the files quoted before implementation.
                 rebuilt = self.codegen_implement_prompt(node, self.spec_bodies(node_id), corrections, evidence=evidence)

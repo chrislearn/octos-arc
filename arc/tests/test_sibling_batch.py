@@ -47,6 +47,7 @@ class SiblingBatchFlowTests(unittest.TestCase):
         self.assertIn("A, B, C", prompt)
         self.assertEqual(prompt.count("--- helpers.ts ---"), 1)
         flow.commit.assert_called_once()
+        self.assertEqual(flow.batched_groups["A"], ("A", "B", "C"))
 
     def test_falls_back_when_batch_cannot_fit(self):
         flow = self.flow
@@ -65,6 +66,34 @@ class SiblingBatchFlowTests(unittest.TestCase):
         flow.codegen_turn.side_effect = refused
         self.assertFalse(flow.batch_codegen(self.nodes))
         flow.commit.assert_not_called()
+
+    def test_explicit_no_change_batch_runs_normal_leaf_acceptance(self):
+        flow = self.flow
+        def no_change(*args, **kwargs):
+            flow.last_codegen_written = []
+            flow.last_codegen_no_change = True
+            flow.last_codegen_refused = set()
+            return True, "<<<NO CHANGE>>>"
+        flow.codegen_turn.side_effect = no_change
+        self.assertTrue(flow.batch_codegen(self.nodes))
+        flow.commit.assert_not_called()
+        self.assertEqual(flow.batched_groups["C"], ("A", "B", "C"))
+
+    def test_records_batch_first_pass_without_skipping_leaf_verification(self):
+        from acceptance import RunSummary
+        flow = self.flow
+        flow.batched_groups = {node_id: ("A", "B", "C") for node_id in ("A", "B", "C")}
+        flow.run_specs = Mock(side_effect=[RunSummary(passed=1, total=1),
+                                           RunSummary(passed=1, total=1),
+                                           RunSummary(passed=0, total=1)])
+        flow.record_tests = Mock()
+        flow.head = Mock(return_value="head")
+        flow.repair_rounds = 0
+        self.assertTrue(flow.acceptance_loop("A", ["A.spec.ts"], 0))
+        self.assertTrue(flow.acceptance_loop("B", ["B.spec.ts"], 0))
+        self.assertFalse(flow.acceptance_loop("C", ["C.spec.ts"], 0))
+        self.assertEqual(flow.batch_first_pass, {"A": True, "B": True, "C": False})
+        self.assertEqual(flow.run_specs.call_count, 3)
 
     def test_preimplemented_leaf_still_runs_acceptance_without_another_generation(self):
         flow = self.flow

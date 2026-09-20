@@ -2263,6 +2263,10 @@ class CodegenBeyondBudgetTests(unittest.TestCase):
         self.assertIn("Per-item actions target their item", m.CODEGEN_RULES)
         self.assertIn("Navigation renders the selected view", m.CODEGEN_RULES)
         self.assertIn("distinct names for menu triggers versus destinations", m.CODEGEN_RULES)
+        self.assertIn("before the first await", m.CODEGEN_RULES)
+        self.assertIn("Await save and list refresh", m.CODEGEN_RULES)
+        self.assertIn("before the first await", m.UI_CONTRACT_CORE)
+        self.assertIn("exact EDIT blocks for quoted existing files", m.CODEGEN_REPAIR_SUFFIX)
         self.assertIn("Do not output FILE blocks", m.GENERIC_TEMPLATE_NOTE)
 
     def test_should_fail_the_turn_when_every_block_was_refused(self):

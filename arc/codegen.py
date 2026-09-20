@@ -14,6 +14,10 @@ Formats (chosen so they never collide with code or markdown fences):
 An existing file quoted in the prompt can instead receive one or more exact,
 unique search/replace edits. This keeps a small change to a large page from
 re-emitting the whole page in the completion.
+
+When a requirement is already satisfied, the model may return exactly
+``<<<NO CHANGE>>>``. The caller still runs acceptance; the marker only avoids
+spending output tokens on a redundant rewrite.
 """
 
 from __future__ import annotations
@@ -28,18 +32,19 @@ EDIT_BLOCK = re.compile(
     r"<<<REPLACE>>>\r?\n(?P<replacement>.*?)\r?\n<<<END EDIT>>>", re.S)
 
 FORMAT_INSTRUCTIONS = """\
-Only blocks. New file or rewrite:
+Only blocks, or exactly <<<NO CHANGE>>> if already met.
+FILE (new file or short rewrite):
 <<<FILE relative/path>>>
 contents
 <<<END FILE>>>
-Small change to a quoted existing file (multiple edits allowed):
+EDIT (small change to quoted file; multiple allowed):
 <<<EDIT relative/path>>>
 <<<SEARCH>>>
 exact unique old text
 <<<REPLACE>>>
 new text
 <<<END EDIT>>>
-Do not mix FILE and EDIT for one path.
+Do not mix formats for one path or re-emit large existing files.
 """
 
 
