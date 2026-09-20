@@ -383,7 +383,12 @@ class RepairModeTransitionTests(unittest.TestCase):
                 flow.sources_text = lambda: ''
                 flow.corrections_text = lambda: ''
                 flow.spec_bodies = lambda _: 'complete-spec-and-helper-evidence'
-                flow.codegen_turn = Mock(return_value=(True, 'generated repair'))
+                def generated_repair(*args, **kwargs):
+                    # This test models applied but ineffective code changes;
+                    # an unchanged response now goes straight to bounded fallback.
+                    flow.last_codegen_written = ['frontend/src/app.js']
+                    return True, 'generated repair'
+                flow.codegen_turn = Mock(side_effect=generated_repair)
                 flow.turn = Mock()
                 flow.commit = Mock()
                 flow.restore_app = Mock()

@@ -194,8 +194,10 @@ class SharedRepairTests(unittest.TestCase):
         source = f.output_dir / "frontend/src/App.jsx"
         source.parent.mkdir(parents=True)
         source.write_text("export default function App(){ return <main/>; }\n")
-        f.whole_app_generation_turn = Mock(return_value=(True, "repaired"))
-        f.last_codegen_written = ["frontend/src/App.jsx"]
+        def repaired(*args, **kwargs):
+            f.last_codegen_written = ["frontend/src/App.jsx"]
+            return True, "repaired"
+        f.whole_app_generation_turn = Mock(side_effect=repaired)
         self.assertTrue(f.whole_app_startup_repair("src/App.jsx:3: Cannot resolve import"))
         self.assertIn("--- frontend/src/App.jsx ---", f.whole_app_generation_turn.call_args.args[0])
 

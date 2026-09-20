@@ -237,15 +237,14 @@ class CodegenReasoningTests(unittest.TestCase):
     def test_should_drop_reasoning_for_small_specs_only(self):
         import argparse, os
         from pathlib import Path
+        from unittest.mock import patch
         flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
-        self.assertEqual(flow.codegen_reasoning(1200), "none")
-        self.assertIsNone(flow.codegen_reasoning(14000))
-        self.assertIsNone(flow.codegen_reasoning(0))
-        os.environ["OCTOS_ARC_REASONING"] = "low"
-        try:
+        with patch.dict(os.environ, {"OCTOS_ARC_REASONING": "auto"}):
+            self.assertEqual(flow.codegen_reasoning(1200), "none")
+            self.assertIsNone(flow.codegen_reasoning(14000))
+            self.assertIsNone(flow.codegen_reasoning(0))
+        with patch.dict(os.environ, {"OCTOS_ARC_REASONING": "low"}):
             self.assertIsNone(flow.codegen_reasoning(1200))
-        finally:
-            del os.environ["OCTOS_ARC_REASONING"]
 
 
 class DryRunDriverTests(unittest.TestCase):
@@ -1385,6 +1384,7 @@ class RepairRequestBudgetTests(unittest.TestCase):
         from types import SimpleNamespace
         flow = m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
         flow.n_nodes = nodes
+        flow.metric = lambda *a, **kw: None
         seen = {}
         flow.llm_proxy = SimpleNamespace(mode='x', phase='', turn_budget=0, turn_requests=0,
                                          begin_turn=lambda b: seen.setdefault('budget', b))
@@ -1782,6 +1782,7 @@ class VerificationDemandTests(unittest.TestCase):
         from unittest.mock import patch
         flow = m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
         flow.n_nodes = 32
+        flow.metric = lambda *a, **kw: None
         flow.llm_proxy = SimpleNamespace(mode='x', phase='', turn_budget=0, turn_requests=0,
                                          extra_drop_tools=dropped, begin_turn=lambda b: None)
         flow.driver = SimpleNamespace(run=lambda *a, **k: (True, 'done'))

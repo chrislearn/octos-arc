@@ -15,6 +15,21 @@ class InjectTests(unittest.TestCase):
         self.assertEqual(out["thinking"], {"type": "disabled"})
         self.assertNotIn("reasoning_effort", out)
 
+    def test_disabled_mode_overrides_kernel_enabled_default(self):
+        body = json.dumps({"model": "deepseek-v4-flash", "messages": [],
+                           "thinking": {"type": "enabled"}, "reasoning_effort": "high"}).encode()
+        for mode in ("none", "off", "disabled"):
+            out = json.loads(inject_reasoning(body, mode))
+            self.assertEqual(out["thinking"], {"type": "disabled"})
+            self.assertNotIn("reasoning_effort", out)
+
+    def test_explicit_enabled_mode_can_override_disabled_kernel_default(self):
+        body = json.dumps({"model": "deepseek-v4-flash", "messages": [],
+                           "thinking": {"type": "disabled"}, "reasoning_effort": "none"}).encode()
+        out = json.loads(inject_reasoning(body, "low"))
+        self.assertEqual(out["thinking"], {"type": "enabled"})
+        self.assertEqual(out["reasoning_effort"], "low")
+
     def test_should_leave_other_models_and_non_chat_bodies_alone(self):
         body = json.dumps({"model": "gpt-5", "messages": []}).encode()
         self.assertEqual(inject_reasoning(body, "low"), body)

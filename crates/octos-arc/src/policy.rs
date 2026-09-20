@@ -217,14 +217,14 @@ pub struct ReasoningPolicy {
     pub probe_patience_seconds: u64,
     /// Codegen turns for specs shorter than this many characters run with thinking off and the
     /// compact size rule; larger specs keep the base mode and the multi-page mechanisms
-    /// (`OCTOS_ARC_CODEGEN_REASONING_CHARS`; only when `mode` is auto).
+    /// (`OCTOS_ARC_CODEGEN_REASONING_CHARS`; when `mode` is auto or none).
     pub codegen_reasoning_chars: usize,
 }
 
 impl Default for ReasoningPolicy {
     fn default() -> Self {
         Self {
-            mode: "auto".into(),
+            mode: "none".into(),
             implement_override: String::new(),
             max_tokens_min: 32768,
             destream: true,
@@ -824,7 +824,7 @@ mod tests {
         assert_eq!(p.mode.small_task_nodes, 2);
         assert_eq!(p.mode.codegen_max_nodes, 999); // round 35: codegen for every tree size
         assert_eq!(p.mode.design_mode, "inline");
-        assert_eq!(p.reasoning.mode, "auto");
+        assert_eq!(p.reasoning.mode, "none");
         assert_eq!(p.reasoning.max_tokens_min, 32768);
         assert_eq!(p.reasoning.codegen_reasoning_chars, 5000);
         assert_eq!(p.budget.max_total_tokens, -1);

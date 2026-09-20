@@ -31,6 +31,24 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _SPEC_ID = re.compile(r"^(REQ-\d+(?:\.\d+)*)(?=[.\-_ ]|$)")
 
 
+def startup_error_digest(error: str, limit: int = 700) -> str:
+    """Prioritize the actual build exception over npm/Node advisory chatter."""
+    if limit <= 0:
+        return ""
+    lines = [line for line in _ANSI.sub("", error).splitlines()
+             if not any(noise in line for noise in ("Failed to load the ES module", "--trace-warnings", "npm notice"))]
+    marker = re.compile(r"(?:SyntaxError|ReferenceError|TypeError|RangeError|MODULE_NOT_FOUND|EADDRINUSE|"
+                        r"Cannot find module|error TS\d+|Error:|ERROR\])")
+    for i, line in enumerate(lines):
+        if marker.search(line):
+            # Keep file/line context, but never crowd out the exception.
+            room = min(180, limit // 4)
+            context = "\n".join(lines[max(0, i - 2):i])[-room:] if room else ""
+            prefix = (context + "\n")[:room] if context else ""
+            return prefix + "\n".join(lines[i:])[:limit - len(prefix)]
+    return "\n".join(lines)[-limit:]
+
+
 def spec_node_id(rel_path: str) -> str | None:
     """`REQ-1.2-user-login.spec.ts` -> `REQ-1.2`; non-spec files -> None."""
     name = Path(rel_path).name

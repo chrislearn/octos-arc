@@ -140,6 +140,7 @@ mod tests {
     #[test]
     fn should_pick_low_reasoning_and_keyword_contracts_for_two_node_trees() {
         let mut policy = Policy::default();
+        policy.reasoning.mode = "auto".into();
         policy.reasoning.implement_override = "none".into();
         let tree = json!({"id": "ROOT", "children": [{"id": "REQ-1", "description": "登录 with a dropdown"}, {"id": "REQ-2"}]});
         let plan = RunPlan::new(&policy, &tree, 2, 2, false).unwrap();
@@ -158,6 +159,11 @@ mod tests {
         let policy = Policy::default();
         let tree = json!({"id": "ROOT"});
         let plan = RunPlan::new(&policy, &tree, 32, 32, false).unwrap();
+        assert_eq!(plan.base_reasoning, ReasoningMode::Disabled);
+        assert_eq!(
+            plan.reasoning_for("REQ-1 repair 1/5"),
+            ReasoningMode::Disabled
+        );
         // Round 35: every tree size takes codegen; the manifests replace the skeleton turn.
         assert!(
             plan.codegen

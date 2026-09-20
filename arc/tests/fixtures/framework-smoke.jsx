@@ -15,6 +15,49 @@ import StarterKit from '@tiptap/starter-kit';
 import Decimal from 'decimal.js';
 import useEmblaCarousel from 'embla-carousel-react';
 import {Check} from 'lucide-react';
+import {DialogSurface, useAsyncAction} from './shared/interactions.jsx';
+
+function InteractionFixture() {
+  const [open, setOpen] = useState(false);
+  const [cardClicks, setCardClicks] = useState(0);
+  const [draft, setDraft] = useState('initial');
+  const [saved, setSaved] = useState('');
+  const [selections, setSelections] = useState([]);
+  const [fail, setFail] = useState(true);
+  const action = useAsyncAction();
+  async function submit() {
+    const result = await action.run(async () => {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (fail) throw new Error('Save rejected');
+      return draft.trim();
+    });
+    if (result.ok) { setSaved(result.value); setDraft(''); setOpen(false); }
+  }
+  return <section>
+    <output aria-label="Card activations">{cardClicks}</output>
+    <output aria-label="Saved draft">{saved}</output>
+    <div onClick={() => setCardClicks(value => value + 1)}>
+      <Dialog.Root open={open} onOpenChange={value => { if (!action.pending) setOpen(value); }}>
+        <Dialog.Trigger asChild><button onClick={event => event.stopPropagation()}>Open composite</button></Dialog.Trigger>
+        <DialogSurface title="Composite editor" description="Select several options and save a draft.">
+          <label>Retained draft<input value={draft} onChange={event => setDraft(event.target.value)} /></label>
+          {['Alpha', 'Beta'].map(option => <label key={option}><input type="checkbox"
+            checked={selections.includes(option)} onChange={event => setSelections(previous =>
+              event.target.checked ? [...previous, option] : previous.filter(value => value !== option))} />{option}</label>)}
+          <label><input type="checkbox" checked={fail} onChange={event => setFail(event.target.checked)} />Reject save</label>
+          <button type="button" disabled={action.pending} onClick={submit}>Save composite</button>
+          <button type="button" disabled={action.pending} onClick={async () => {
+            const results = await Promise.all([action.run(() => Promise.resolve('first')),
+                                               action.run(() => Promise.resolve('second'))]);
+            setSaved(results.map(result => result.busy ? 'busy' : result.value).join(','));
+          }}>Check duplicate guard</button>
+          <Dialog.Close asChild><button disabled={action.pending}>Cancel composite</button></Dialog.Close>
+          {action.error && <p role="alert">{action.error.message}</p>}
+        </DialogSurface>
+      </Dialog.Root>
+    </div>
+  </section>;
+}
 
 function Fixture() {
   const [checked, setChecked] = useState(false);
@@ -28,6 +71,7 @@ function Fixture() {
   const [carouselRef] = useEmblaCarousel();
   return <main>
     <h1 className="text-3xl">Framework smoke</h1>
+    <InteractionFixture />
     <Link to="/details">Details</Link>
     <label>Display mode<select defaultValue="compact"><option value="compact">Compact</option><option value="expanded">Expanded</option></select></label>
     <label><input type="checkbox" checked={checked} onChange={event => setChecked(event.target.checked)} />Native flag</label>

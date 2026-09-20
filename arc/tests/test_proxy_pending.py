@@ -10,6 +10,28 @@ from llm_proxy import LlmProxy
 
 
 class PendingCompletionTests(unittest.TestCase):
+    def test_absolute_budget_blocks_tool_requests_even_without_usage_log(self):
+        class Response:
+            status = 200
+            headers = {}
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self): return b'{"usage":{"prompt_tokens":8,"completion_tokens":3}}'
+        with patch.dict('os.environ', {'OCTOS_ARC_MAX_TOTAL_TOKENS_ABS': '10'}):
+            proxy = LlmProxy('http://unused/v1', 'none')
+        try:
+            with patch('llm_proxy.urllib.request.urlopen', return_value=Response()) as upstream:
+                first = proxy._request_upstream('POST', '/chat/completions', b'{"messages":[]}', {})
+                second = proxy._request_upstream('POST', '/chat/completions', b'{"messages":[{}]}', {})
+                self.assertEqual(first[0], 200)
+                self.assertEqual(second[0], 402)
+                self.assertIn(b'local_token_budget_exhausted', second[1])
+                self.assertEqual(proxy.total_tokens, 11)
+                self.assertEqual(proxy.blocked_requests, 1)
+                upstream.assert_called_once()
+        finally:
+            proxy.server.server_close()
+
     def test_pending_retry_shares_response_but_completed_requests_run_again(self):
         started, release, joined = threading.Event(), threading.Event(), threading.Event()
         payload = json.dumps({'usage': {'prompt_tokens': 2, 'completion_tokens': 1}}).encode()

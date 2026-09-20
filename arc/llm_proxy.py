@@ -14,16 +14,50 @@ server is stdlib `http.server` on 127.0.0.1 and forwards headers verbatim.
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
+import re
 import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOP_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding"}
+
+
+def open_upstream(req, *, timeout: float):
+    """Local providers must not traverse HTTP(S)_PROXY; remote ones still may."""
+    host = (urlsplit(req.full_url).hostname or "").lower()
+    local = host == "localhost" or host.endswith(".localhost") or host == "0.0.0.0"
+    try:
+        local = local or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass
+    if local:
+        return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def routed_model_missing(status: int, payload: bytes, model: str) -> bool:
+    """Only an explicit model-not-found response warrants a model fallback."""
+    if status != 404 or not model:
+        return False
+    try:
+        error = json.loads(payload).get("error")
+    except (ValueError, AttributeError):
+        return False
+    if not isinstance(error, dict):
+        return False
+    message = str(error.get("message", ""))
+    named = re.search(r"model\s+['\"]([^'\"]+)['\"]", message, re.I)
+    if named and named.group(1) != model:
+        return False
+    return (error.get("code") in {"model_not_found", "ModelNotFound"}
+            or bool(re.search(r"\bmodel\b.{0,180}\b(?:not found|does not exist)\b", message, re.I)))
 
 
 def model_routes(raw: str) -> list[dict]:
@@ -111,8 +145,8 @@ def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
 
 def inject_reasoning(body: bytes, mode: str) -> bytes:
     """mode: "low"|"medium"|"high" -> reasoning_effort (+ thinking enabled);
-    "none"/"off" -> thinking disabled; anything else -> unchanged. Fields the
-    client already set are respected."""
+    "none"/"off" -> thinking disabled. The turn's toggle takes precedence over
+    kernel defaults; an existing enabled effort level is otherwise respected."""
     if not mode or mode == "passthrough":
         return body
     try:
@@ -125,11 +159,12 @@ def inject_reasoning(body: bytes, mode: str) -> bytes:
     if "deepseek" not in model:
         return body
     if mode in ("none", "off", "disabled"):
-        data.setdefault("thinking", {"type": "disabled"})
+        data["thinking"] = {"type": "disabled"}
         data.pop("reasoning_effort", None)
     else:
-        data.setdefault("reasoning_effort", mode)
-        data.setdefault("thinking", {"type": "enabled"})
+        if data.get("reasoning_effort") in (None, "none", "off", "disabled"):
+            data["reasoning_effort"] = mode
+        data["thinking"] = {"type": "enabled"}
     if data.get("stream"):
         opts = data.get("stream_options") if isinstance(data.get("stream_options"), dict) else {}
         opts.setdefault("include_usage", True)
@@ -450,6 +485,10 @@ class LlmProxy:
         # Run-wide billable usage (prompt + completion), for the flow's cost guard.
         self.total_requests = 0
         self.total_tokens = 0
+        # Explicit absolute cap is enforced before EVERY upstream completion,
+        # including requests inside a tool turn. In-flight usage may overshoot.
+        self.max_total_tokens_abs = int(os.environ.get("OCTOS_ARC_MAX_TOTAL_TOKENS_ABS", "0"))
+        self.blocked_requests = 0
         self.log_path = log_path
         self.dump_dir = dump_dir      # OCTOS_ARC_PROXY_DUMP=1: first N request bodies for prefix analysis
         self.dump_limit = dump_limit
@@ -468,6 +507,7 @@ class LlmProxy:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
                 was_streaming = False
+                unrouted = None
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
                     body = inject_reasoning(body, proxy.mode)
                     body = ensure_max_tokens(body, proxy.min_max_tokens)
@@ -486,14 +526,25 @@ class LlmProxy:
                         body = replace_system_prompt(body, proxy.system_override)
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
-                    body = route_request(body, proxy.routes, proxy.phase)
+                    unrouted = body
+                    with proxy._lock:
+                        body = route_request(body, proxy.routes, proxy.phase)
                     proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
-                path = self.path
-                if path.startswith("/v1") and proxy.upstream.endswith("/v1"):
-                    path = path[3:]
+                path = proxy.forward_path(self.path)
                 status, payload, resp_headers = proxy._request_upstream(method, path, body, headers)
+                if unrouted is not None and body != unrouted:
+                    selected = json.loads(body).get("model")
+                    original = json.loads(unrouted).get("model")
+                    if selected != original and routed_model_missing(status, payload, selected):
+                        # Once only, with the caller's model AND original parameters.
+                        # Do not hide auth, quota, URL or unrelated 404 errors.
+                        with proxy._lock:
+                            proxy.routes = [r for r in proxy.routes if r["model"] != selected]
+                        headers["Content-Length"] = str(len(unrouted))
+                        proxy._dump(unrouted)
+                        status, payload, resp_headers = proxy._request_upstream(method, path, unrouted, headers)
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 if was_streaming and status == 200:
                     payload, ctype = to_sse(payload), "text/event-stream; charset=utf-8"
@@ -518,12 +569,27 @@ class LlmProxy:
         self.base_url = f"http://{host}:{self.port}/v1"
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
+    def forward_path(self, path: str) -> str:
+        # A configured provider prefix is already the API root, not necessarily /v1.
+        if urlsplit(self.upstream).path.strip("/"):
+            if path == "/v1" or path.startswith("/v1?"):
+                return "/" + path[3:]
+            if path.startswith("/v1/"):
+                return path[3:]
+        return path
+
     def _request_upstream(self, method: str, path: str, body: bytes, headers: dict) -> tuple:
         # Only pending identical completions are shared. Include credentials and
         # all forwarded headers; never share across distinct requests or phases.
         key = (method, path, body, tuple(sorted((k.lower(), v) for k, v in headers.items())), self.phase) \
             if method == "POST" and path.rstrip("/").endswith("/chat/completions") else None
         with self._lock:
+            if key is not None and self.max_total_tokens_abs > 0 and self.total_tokens >= self.max_total_tokens_abs:
+                self.blocked_requests += 1
+                return 402, json.dumps({"error": {
+                    "code": "local_token_budget_exhausted",
+                    "message": "Local absolute token budget exhausted; no upstream request was sent."
+                }}).encode(), {"Content-Type": "application/json"}
             future = self._inflight.get(key) if key is not None else None
             owner = future is None
             if owner:
@@ -538,10 +604,11 @@ class LlmProxy:
             t0 = time.time()
             meta = self.request_meta(body)   # attribution fixed at issue time, not at response time
             try:
-                with urllib.request.urlopen(req, timeout=600) as resp:
+                with open_upstream(req, timeout=600) as resp:
                     result = resp.status, resp.read(), resp.headers
             except urllib.error.HTTPError as exc:
                 result = exc.code, exc.read(), exc.headers
+                exc.close()
             except Exception as exc:  # noqa: BLE001
                 result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
             status, payload, _ = result
@@ -587,8 +654,6 @@ class LlmProxy:
 
     def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"", req_bytes: int = 0,
              resp_bytes: int = 0, status: int | None = None, meta: dict | None = None) -> None:
-        if not self.log_path:
-            return
         rec = usage_record(payload, elapsed_ms, self.mode)
         if rec is None:
             # Every exchange is logged, usage block or not. Until 2026-09-19 an
@@ -605,6 +670,8 @@ class LlmProxy:
         with self._lock:
             self.total_requests += 1
             self.total_tokens += int(rec.get("prompt_tokens") or 0) + int(rec.get("completion_tokens") or 0)
+        if not self.log_path:
+            return
         rec["request_bytes"], rec["response_bytes"] = req_bytes, resp_bytes
         rec.update(meta if meta is not None else self.request_meta(request_body))
         with self._lock:

@@ -81,7 +81,7 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `octos_stdio.py` | 通过 `octos serve --stdio` 驱动内核（默认每轮新 session） |
 | `metrics.py` | 从事件流读 Token / 费用 / 耗时 / 节点状态 |
 | `CHANGELOG.md` | 每条改动的改前改后数据 |
-| `public-tests/<题目>/` | 平台公开的 Playwright 验收测试（会自动喂给模型） |
+| `public-tests/<题目>/` | 本地开发用的公开 Playwright 验收测试，不随提交包上传；部署使用平台 `/workspace/tests` 或 `ARCBENCH_TESTS_DIR` |
 | `tasks/<题目>/` | 各题需求文件的离线副本 |
 | `run-task-local.py` / `grade-local.py` / `pack.sh` | 本机做题、打分、打包 |
 
@@ -93,6 +93,8 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 |---|---|---|
 | `OCTOS_TIME_BUDGET` / `OCTOS_NODE_TIME_BUDGET` | max(3600, 1500×节点数) / 1500 s | 整体与单节点（含修复轮）的墙钟预算；单节点预算按剩余时间/剩余节点数自适应 |
 | `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
+| `OCTOS_ARC_WHOLE_APP_WAVE_NODES` / `OCTOS_ARC_CODEGEN_OUTPUT_TOKENS` | 6 / 输出上限的 60% | 波次同时受输入及估计输出预算限制；超预算先拆分，不先消耗一次截断请求 |
+| `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` | 0（关闭） | 逐请求检查的累计 token 阈值；达到后不再发上游请求，已在途请求可能超出，依赖供应商 usage 计量 |
 | `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 5 / 300 | 每节点验收修复轮数 K；剩余不足 300 s 不再开修复轮 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |
 | `OCTOS_DESIGN_TURN` / `OCTOS_DESIGN_MODE` | 1 / separate | 0 = 跳过设计轮；`inline` = 设计 JSON 在实现轮开头写出，不单开一轮（TB 上更省钱但更慢，见 CHANGELOG R7/R8） |
@@ -108,6 +110,10 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Bench Web 六题的建议参数」。
 
 ### 同题内按步骤选择模型
+
+v5.3 重新打包版默认关闭 thinking：`OCTOS_ARC_REASONING=none`，不再根据任务大小自动开启。
+规划、生成和修复均沿用关闭状态。需要开启时显式设置 `OCTOS_ARC_REASONING=low`（或 `medium`/`high`）；
+`auto` 可恢复原先按任务大小选择的规则。显式的阶段覆盖或模型路由参数仍优先；不同供应商是否支持关闭取决于其 API。
 
 `OCTOS_ARC_MODEL_ROUTES` 接受有序 JSON 规则。同一题的不同节点、首轮与修复可以使用不同模型；匹配依据只有阶段、完整消息与工具定义的字符数、工具/图片能力，不按题名分支。第一条匹配的规则生效，无匹配则保留原请求模型；不配置时保持原行为。上下文字符数按完整消息与工具定义的紧凑 JSON 计算（Unicode 字符，不是 token）。
 

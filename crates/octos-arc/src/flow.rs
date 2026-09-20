@@ -1327,10 +1327,10 @@ impl Flow {
 
     /// Reasoning effort for a codegen turn, derived from the size of the spec it
     /// must satisfy (`main.codegen_reasoning`): small specs are generated
-    /// correctly without reasoning; large ones keep the base mode. Only when the
-    /// policy mode is auto.
+    /// without reasoning; large ones keep the base mode. Keep the compact size
+    /// rule for both auto and the default disabled mode.
     fn codegen_reasoning(&self, spec_chars: usize) -> Option<ReasoningMode> {
-        if self.policy.reasoning.mode != "auto" {
+        if !matches!(self.policy.reasoning.mode.as_str(), "auto" | "none") {
             return None;
         }
         (spec_chars > 0 && spec_chars < self.policy.reasoning.codegen_reasoning_chars)

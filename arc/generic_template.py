@@ -23,6 +23,7 @@ def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: i
                              capabilities: list[str] | None = None) -> list[str]:
     assets = {"backend/server.js": "server.js", "backend/lib/store.js": "store.js",
               "backend/lib/collection.js": "collection.js",
+              "backend/lib/query.js": "query.js",
               "frontend/build.mjs": "frontend-build.mjs",
               "frontend/vite.config.mjs": "vite.config.mjs",
               "frontend/src/index.html": "frontend-index.html",
@@ -46,6 +47,7 @@ def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: i
         assets["frontend/src/index.html"] = "react-index.html"
         assets["frontend/package-lock.json"] = "react-deps/package-lock.json"
         assets.update({"frontend/src/main.jsx": "react-main.jsx", "frontend/src/App.jsx": "react-app.jsx"})
+        assets["frontend/src/shared/interactions.jsx"] = "react-interactions.jsx"
         manifest = output_dir / "frontend/package.json"
         manifest.parent.mkdir(parents=True, exist_ok=True)
         manifest.write_text(json.dumps(react_manifest(capabilities or []), indent=2) + "\n", encoding="utf-8")

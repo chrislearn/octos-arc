@@ -117,7 +117,8 @@ class WholeAppTests(unittest.TestCase):
             flow.last_codegen_written = ["frontend/src/App.jsx"] if success else []
             return success, "files" if success else "output_truncated"
         flow.codegen_turn = Mock(side_effect=generate)
-        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "8"}):
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "8",
+                                       "OCTOS_ARC_CODEGEN_OUTPUT_TOKENS": "32768"}):
             self.assertTrue(flow.whole_app_waves(tree, nodes))
         self.assertEqual(flow.codegen_turn.call_count, 4)  # failed 8, then 4+4+4, not 4+8
         self.assertEqual(flow.whole_app_generated_ids, {str(i) for i in range(12)})
@@ -345,7 +346,7 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual([call.args[1] for call in flow.mark.call_args_list
                           if call.args[0] == "test_passed"], ["A", "C"])
 
-    def test_real_keep_whole_prompt_fits_default_budget(self):
+    def test_real_keep_whole_prompt_fits_input_but_exceeds_output_budget(self):
         # Keep is the first v5 experiment, but the generator remains task-neutral.
         bundle = Path(m.__file__).parent
         tree = m.load_requirement_tree(bundle / "tasks/arc-bench-web--keep")
@@ -363,8 +364,11 @@ class WholeAppTests(unittest.TestCase):
         flow.whole_app_waves = Mock(return_value=False)
         with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_MAX_NODES": "64"}):
             self.assertFalse(flow.whole_app_codegen(tree, nodes))
-        self.assertEqual(flow.codegen_turn.call_count, 1)
-        prompt = flow.codegen_turn.call_args.args[0]
+        flow.codegen_turn.assert_not_called()
+        flow.whole_app_waves.assert_called_once_with(tree, nodes)
+        prompt = flow.codegen_implement_prompt(
+            {"id": "whole application", "description": m.tree_outline(tree)},
+            flow.batch_spec_bodies([str(node['id']) for node in nodes]))
         self.assertIn("REQ-6.2", prompt)
         self.assertIn("frontend/src/index.html", m.quoted_paths(prompt))
         self.assertIn("frontend/src/app.js", m.quoted_paths(prompt))
@@ -417,7 +421,10 @@ class WholeAppTests(unittest.TestCase):
                 flow.codegen_turn = Mock(side_effect=generated)
                 self.assertTrue(flow.whole_app_waves(tree, nodes))
                 self.assertGreater(len(prompts), 1)
-                self.assertLessEqual(len(prompts), 12)
+                # Output-safe batches may need more than twelve waves on large
+                # trees. Still never lose leaves or exceed a per-leaf turn count.
+                self.assertLessEqual(len(prompts), len(nodes))
+                self.assertEqual(flow.whole_app_generated_ids, {str(node['id']) for node in nodes})
                 for prompt in prompts:
                     self.assertLessEqual(len(prompt + "\n" + m.FORMAT_INSTRUCTIONS), 90000)
 

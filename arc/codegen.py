@@ -87,6 +87,19 @@ def parse_edit_blocks(text: str) -> list[tuple[str, str, str]]:
     return edits
 
 
+def incomplete_blocks(text: str) -> bool:
+    """Find unconsumed block headers, ignoring marker strings inside valid bodies."""
+    spans = sorted([match.span() for pattern in (FILE_BLOCK, EDIT_BLOCK) for match in pattern.finditer(text)])
+    end = 0
+    outside = []
+    for start, stop in spans:
+        if start >= end:
+            outside.append(text[end:start])
+        end = max(end, stop)
+    outside.append(text[end:])
+    return any(re.search(r"(?m)^[ \t]*<<<(?:FILE|EDIT)\b", part) for part in outside)
+
+
 def prepare_edit_files(root: Path, edits: list[tuple[str, str, str]]) -> tuple[dict[str, str], list[str]]:
     """Stage every edit in memory; a missing or ambiguous anchor changes nothing.
 

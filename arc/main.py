@@ -29,7 +29,7 @@ Environment (all optional):
     OCTOS_TIME_BUDGET         seconds for the whole generation (default max(3600, 1500 x nodes))
     OCTOS_SECONDS_PER_NODE    per-node allowance used for that default (1500)
     OCTOS_MIN_REPAIR_SECONDS  do not start a repair turn with less than this left (300)
-    OCTOS_NODE_TIME_BUDGET    cap per node incl. repairs (default 1500)
+    OCTOS_NODE_TIME_BUDGET    explicit hard cap per node; default 1500 + earned surplus, at most 3000
     OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
     OCTOS_DESIGN_TURN         "0" disables the design turn
     OCTOS_DESIGN_MODE         inline (default) | separate (own read-only design turn)
@@ -42,7 +42,7 @@ Environment (all optional):
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
-    OCTOS_ARC_REASONING       auto (default: none for <=1 node to implement, else low) | low | medium | high | none | passthrough
+    OCTOS_ARC_REASONING       none (default: thinking disabled) | auto | low | medium | high | passthrough
     OCTOS_ARC_IMPLEMENT_REASONING  optional override for first implement turns of small tasks (default: base mode)
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
@@ -91,10 +91,12 @@ from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, clip_ends, container_memory_limit, ensure_playwright,
     failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
-    mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
+    mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
+    startup_error_digest)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
-                     prepare_edit_files, safe_relative_path, write_files)
+                     incomplete_blocks, prepare_edit_files, safe_relative_path, write_files)
 from guard import TurnMonitor  # noqa: E402
+from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
 from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -617,7 +619,7 @@ def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = SOURC
     return ("Current source files (quoted; edit them directly, no need to read):\n" + "".join(parts)) if parts else ""
 
 
-def app_source_files(output_dir: Path, exts: tuple = SOURCE_EXTS) -> list[Path]:
+def app_source_files(output_dir: Path, exts: tuple | None = SOURCE_EXTS) -> list[Path]:
     files: list[Path] = []
     for part in ("frontend", "backend"):
         base = output_dir / part
@@ -628,7 +630,7 @@ def app_source_files(output_dir: Path, exts: tuple = SOURCE_EXTS) -> list[Path]:
             dirs[:] = sorted(name for name in dirs if name not in {"node_modules", "dist", ".git", "coverage", ".vite"})
             for name in names:
                 path = Path(directory) / name
-                if path.is_file() and path.suffix in exts and name not in LOCKFILES:
+                if path.is_file() and (exts is None or path.suffix in exts) and name not in LOCKFILES:
                     found.append(path)
         files.extend(sorted(found))
     return files
@@ -1122,7 +1124,10 @@ def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) 
     }
     if provider not in ("openai", "deepseek", "anthropic") and base_url:
         config["base_url"] = base_url
-    if provider == "deepseek":
+    reasoning = os.environ.get("OCTOS_ARC_REASONING", "none")
+    if reasoning in ("none", "off", "disabled"):
+        config["gateway"]["reasoning_effort"] = "none"
+    elif provider == "deepseek":
         config["gateway"]["reasoning_effort"] = "low"
     hooks = protected_hooks(protected_dirs)
     if hooks:
@@ -1469,7 +1474,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "7"
+APP_DESIGN_PROMPT_VERSION = "8"
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1486,6 +1491,7 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
  "contracts": [{{"requirements": ["REQ-..."], "invariants": ["ownership/key scope", "command: preconditions -> atomic effects and undo", "draft/save/cancel semantics", "date-only/clock/deadline rules", "control and validation semantics"]}}],
  "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}}
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
+For each lifecycle view, specify which records the API returns and which filters the client applies; a client cannot recover records already excluded by the server. Specify absent versus false query values, compatible filter combinations, and inverse transitions (remove/restore, assign/unassign). For composite editors, state whether selection commits immediately or on Save, how Done/Cancel/Escape behave, and which owner retains the draft after a failed save. Do not invent lifecycle states not required by the task.
 """
 
 CODEGEN_SYSTEM = "You write complete, minimal web apps. Reply only with FILE or EDIT blocks, or exactly <<<NO CHANGE>>> when the existing app already meets the requirement."
@@ -1500,10 +1506,13 @@ Output: use exact EDIT blocks for small quoted-file changes; do not re-emit unch
 """
 
 GENERIC_TEMPLATE_NOTE = """\
+Optional require('../lib/query') from backend/routes/ exports optionalBoolean(value): undefined/true/false, invalid input throws status=400; matchesFlags(record,flags): strict boolean equality, undefined ignored. Whitelist fields, resolve view defaults once, enforce ownership separately. Combine filters independently; a client cannot recover server-excluded records. Check inverse transitions and filter combinations. No fixture-specific defaults.
 Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Register static paths before matching parameter paths. Do not rewrite the entry for ordinary routes. From backend/routes/, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial,migrations}) with all/list/get/create/patch/remove. initial is new-store-only: evolve persisted data with store.migrate(name,fallback,[{id,up(data){ /* mutate synchronously, return undefined */ }}]) or collection migrations. IDs run once; preserve reserved __arcMigrations metadata. Never reinsert deleted records on read. Atomicity is single-store/single-process only; keep related command effects together or use transactional storage. Put substantial views in separate modules. ./shared/request.js exports requestJson(url,{body: JSON.stringify(data),...options}). A React scaffold uses main.jsx/App.jsx and the fixed baseline below. Only the plain scaffold has app.js, shared/dom.js (escapeHtml), and shared/router.js (startRouter(render) for a[data-route] links, requiring arc.spa=true). Optional frontend/build.mjs and vite.config.mjs: build is "node build.mjs" for npm frontend packages; Vite bundles JSX and local imports, plain src can be copied, Tailwind CLI and htmx.org have local build paths. frontend/public is copied to the dist root. Define domain fields, pages, validation, session rules and seed data from the task. Do not output FILE blocks for unchanged shared helpers; use application routes and feature modules instead.
 """
 
 TASK_NEUTRAL_HELPERS = {
+    "backend/lib/query.js": "query.js",
+    "frontend/src/shared/interactions.jsx": "react-interactions.jsx",
     "backend/lib/store.js": "store.js",
     "backend/lib/collection.js": "collection.js",
     "frontend/build.mjs": "frontend-build.mjs",
@@ -1921,6 +1930,24 @@ class Flow:
         self.codegen_budget: dict = {}
         self.evolution = False
         self.folder_children: dict[str, list[str]] = {}
+        self.repair_durations: dict[str, list[float]] = {"codegen": [], "tools": []}
+
+    def metric(self, kind: str, **fields) -> None:
+        """Compact outcomes, separate from traceability commits and billed tokens."""
+        root = getattr(self, "output_dir", None)
+        if not isinstance(root, Path):
+            return
+        try:
+            path = root / ".arc" / "flow-metrics.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"kind": kind, **fields}, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            log(f"[flow] could not record metric: {exc}")
+
+    def repair_minimum(self) -> float:
+        mode = "codegen" if self.codegen_mode() else "tools"
+        return repair_seconds(getattr(self, "repair_durations", {}).get(mode, []), self.min_repair_seconds)
 
     # -- helpers ----------------------------------------------------------
     def wound_down(self) -> bool:
@@ -2018,6 +2045,9 @@ class Flow:
 
     def turn(self, prompt: str, timeout: int, label: str, expect_verification: bool = True,
              request_budget: int | None = None) -> tuple[bool, str]:
+        if timeout <= 0:
+            self.last_turn_changed = False
+            return False, "turn time allowance exhausted before execution"
         proxy = getattr(self, "llm_proxy", None)
         # `verify_text` has the proxy drop the shell tools in minimal mode. A turn
         # that cannot run a command must not then be told off for not running one.
@@ -2044,15 +2074,16 @@ class Flow:
                 request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", default)) if "repair" in label else \
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", default))
             proxy.label = label
-            proxy.phase = ("repair" if any(word in label for word in ("repair", "rewrite")) else
-                           "verify" if "final check" in label else
-                           "design" if "design" in label else "implement")
+            proxy.phase = phase_for_label(label)
             proxy.begin_turn(request_budget)
         # A model turn may change application files, even when it later fails.
         getattr(self, "probe_summaries", {}).clear()
         t0 = time.time()
+        execution_mode = "codegen" if proxy is not None and getattr(proxy, "no_tools", False) else "tools"
+        before_sources = self.app_source_digest() if execution_mode == "tools" else None
         self.turn_count += 1
-        ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
+        ok, text = self.driver.run(prompt, max(1, int(timeout)), monitor)
+        elapsed = time.time() - t0
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
         if not ok and permanent_provider_error(text):
@@ -2070,6 +2101,16 @@ class Flow:
                 + ", ".join(restored[:5]) + ". They are read-only ground truth — fix the app instead.")
         if getattr(self, "generic_template_installed", False) and monitor.wrote_files:
             self.generic_template_installed = generic_template_active(self.output_dir)
+        self.last_turn_changed = (self.app_source_digest() != before_sources) if before_sources is not None else False
+        if ok and self.last_turn_changed and phase_for_label(label) == "repair":
+            durations = getattr(self, "repair_durations", {})
+            durations.setdefault(execution_mode, []).append(elapsed)
+            durations[execution_mode] = durations[execution_mode][-12:]
+            self.repair_durations = durations
+        self.metric("turn", label=label, phase=phase_for_label(label), mode=execution_mode,
+                    ok=ok, elapsed_seconds=round(elapsed, 3),
+                    changed=self.last_turn_changed if execution_mode == "tools" else None,
+                    tools=monitor.tool_calls)
         return ok, text
 
     def slow_test_ms(self) -> int:
@@ -2375,8 +2416,9 @@ class Flow:
     def codegen_reasoning(self, spec_chars: int) -> str | None:
         """Reasoning effort for a codegen turn, derived from the size of the spec it
         must satisfy (OCTOS_ARC_CODEGEN_REASONING_CHARS, default 5000): small specs are
-        generated correctly without reasoning; large ones keep the base mode."""
-        if os.environ.get("OCTOS_ARC_REASONING", "auto") != "auto":
+        generated without reasoning; large ones keep the base mode. Retain the
+        compact size rule when thinking is disabled by default too."""
+        if os.environ.get("OCTOS_ARC_REASONING", "none") not in {"auto", "none", "off", "disabled"}:
             return None
         threshold = int(os.environ.get("OCTOS_ARC_CODEGEN_REASONING_CHARS", "5000"))
         return "none" if spec_chars and spec_chars < threshold else None
@@ -2461,16 +2503,27 @@ class Flow:
             # this exact tree is trusted over the code.
             return None
         prompt = stack_note(self.output_dir) + APP_DESIGN_PROMPT.format(outline=outline)
+        deadline = time.monotonic() + self.design_timeout
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
-        design = None
-        found = re.search(r"```json\s*(\{.*?\})\s*```", text or "", re.S) or re.search(r"(\{.*\})", text or "", re.S)
-        if ok and found:
+        def parse_design(reply):
+            found = re.search(r"```json\s*(\{.*?\})\s*```", reply or "", re.S) or re.search(r"(\{.*\})", reply or "", re.S)
             try:
-                design = json.loads(found.group(1))
+                return valid_app_design(json.loads(found.group(1))) if found else None
             except json.JSONDecodeError:
-                design = None
-        design = valid_app_design(design)
+                return None
+
+        design = parse_design(text) if ok else None
+        retry_seconds = min(120, int(deadline - time.monotonic()), int(self.remaining()))
+        if ok and not design and retry_seconds >= 30 and not self.wound_down():
+            log("[flow] application design: invalid schema/JSON; one bounded format retry")
+            ok, text = self.text_turn(
+                prompt + "\nThe preceding reply was not a valid design object. Return ONLY the JSON object "
+                "with data_model (object), routes/pages (arrays of objects), contracts (array), notes (string). "
+                "Use compact entries and no code, prose or FILE blocks.\n",
+                retry_seconds, "application design (format retry)", system=APP_DESIGN_SYSTEM,
+                spec_chars=len(outline))
+            design = parse_design(text) if ok else None
         if not design:
             log("[flow] application design: no usable JSON object in the reply; nodes proceed without one")
             return None
@@ -2584,6 +2637,7 @@ class Flow:
         text is not an unfinished plan and comes back empty."""
         deadline = time.monotonic() + timeout
         reason = ""
+        self.last_repair_changed = False
         if prefer_codegen and self.codegen_mode(node_block=False):
             prompt = self.suite_repair_prompt(failing_ids, failures)
             if prompt is not None:
@@ -2595,6 +2649,7 @@ class Flow:
                     ok, reason = self.codegen_turn(prompt, left, label if not attempt else label + " (protocol retry)",
                                                    spec_chars=spec_chars)
                     refused = set(getattr(self, "last_codegen_refused", set()))
+                    self.last_repair_changed = self.last_repair_changed or bool(getattr(self, "last_codegen_written", []))
                     if ok and getattr(self, "last_codegen_written", []) and not refused:
                         return "codegen", ""
                     if attempt or deadline - time.monotonic() < 30:
@@ -2620,7 +2675,10 @@ class Flow:
             return "unapplied", ""
         if reason:
             tool_prompt += "\nCodegen repair did not fully apply; inspect current files before editing. " + reason[:300] + "\n"
+        self.last_turn_changed = None
         _, text = self.turn(tool_prompt, left, label)
+        changed = getattr(self, "last_turn_changed", None)
+        self.last_repair_changed = True if self.last_repair_changed else changed
         return "tools", text
 
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
@@ -2632,6 +2690,19 @@ class Flow:
         self.last_codegen_deferred = set()
         self.last_codegen_written = []
         self.last_codegen_no_change = False
+        started = time.monotonic()
+        def result(ok: bool, text: str, outcome: str):
+            self.last_codegen_outcome = outcome
+            elapsed = time.monotonic() - started
+            if outcome == "applied" and phase_for_label(label) == "repair":
+                durations = getattr(self, "repair_durations", {})
+                durations.setdefault("codegen", []).append(elapsed)
+                durations["codegen"] = durations["codegen"][-12:]
+                self.repair_durations = durations
+            self.metric("codegen", label=label, outcome=outcome,
+                        elapsed_seconds=round(elapsed, 3),
+                        changed_files=len(self.last_codegen_written), refused_files=len(self.last_codegen_refused))
+            return ok, text
         ok, text = self.text_turn((prompt + "\n" + format_instructions) if format_instructions else prompt,
                                   timeout, label, system=system, spec_chars=spec_chars)
         files = parse_file_blocks(text) if ok else {}
@@ -2639,7 +2710,7 @@ class Flow:
         if ok and not files and not edits and text.strip() == "<<<NO CHANGE>>>":
             self.last_codegen_no_change = True
             log(f"[codegen] {label}: existing implementation declared complete; acceptance will verify it")
-            return True, text
+            return result(True, text, "unchanged")
         if ok and not files and not edits and raw_target:
             html = strip_code_fences(text)
             if looks_like_markup(html):
@@ -2650,7 +2721,7 @@ class Flow:
                 error = f"mixed FILE and EDIT blocks for {', '.join(sorted(overlap))}; use one format per path"
                 self.pending_corrections.append(error)
                 log(f"[codegen] {label}: {error}")
-                return False, error
+                return result(False, error, "format_error")
             # A block for an existing file the prompt did not show whole is a blind
             # rewrite: the model cannot preserve what it never saw. Keep the file on
             # disk, tell the next turn, and let the specs decide what is still
@@ -2697,10 +2768,10 @@ class Flow:
                     if hasattr(self, "refused_paths"):
                         self.refused_paths.update(targets)
                     log(f"[codegen] {label}: {error}")
-                    return False, error
+                    return result(False, error, "anchor_failed")
                 files.update(staged)
             if not files:
-                return False, f"codegen reply only changed files it was not shown: {', '.join(refused)}"
+                return result(False, f"codegen reply only changed files it was not shown: {', '.join(refused)}", "guard_refused")
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
             self.last_codegen_no_change = not written and not refused
@@ -2710,11 +2781,15 @@ class Flow:
             deduped = dedupe_nav_links(self.output_dir)
             if deduped:
                 log(f"[codegen] {label}: removed static nav links duplicating the NAV placeholder in {deduped}")
-            return True, text
+            if incomplete_blocks(text):
+                return result(False, "Incomplete FILE/EDIT output: complete blocks were applied; "
+                              "inspect current files and finish only the missing changes.", "incomplete_blocks")
+            return result(True, text, "partial" if refused else "applied" if written else "unchanged")
         if ok:
             log(f"[codegen] {label}: reply contained no FILE or EDIT blocks")
-            return False, "codegen reply contained no <<<FILE>>> or <<<EDIT>>> blocks"
-        return ok, text
+            outcome = "incomplete_blocks" if re.search(r"(?m)^<<<(?:FILE|EDIT)\s", text) else "no_blocks"
+            return result(False, "codegen reply contained no complete <<<FILE>>> or <<<EDIT>>> blocks", outcome)
+        return result(ok, text, "generation_failed")
 
     def codegen_ports_clause(self) -> str:
         if getattr(self, "generic_template_installed", False):
@@ -2975,10 +3050,9 @@ class Flow:
         return fixed_all
 
     def start_llm_proxy(self) -> None:
-        """Front the model endpoint with llm_proxy so DeepSeek reasoning is
-        capped (`OCTOS_ARC_REASONING`: low (default) | medium | high | none |
-        passthrough) and exact per-request usage lands in .arc/llm-usage.jsonl."""
-        mode = os.environ.get("OCTOS_ARC_REASONING", "auto")
+        """Default to thinking off; explicit auto/effort settings opt back in.
+        Exact per-request usage lands in .arc/llm-usage.jsonl."""
+        mode = os.environ.get("OCTOS_ARC_REASONING", "none")
         if mode == "auto":
             # Thinking off is safe for one-node builds and one-node evolutions
             # (v10: Counter/Dice/Evolution all pass, completion 0.5-1.9k tokens)
@@ -3116,13 +3190,23 @@ class Flow:
                     return applied
                 self.last_codegen_refused = set()
                 self.last_codegen_written = []
-                ok, _ = self.codegen_turn(compact, left, label if attempt == 0 else f"{label} (retry quoted files)",
+                ok, reason = self.codegen_turn(compact, left, label if attempt == 0 else f"{label} (application retry)",
                                           spec_chars=getattr(self, "current_spec_chars", 0))
                 applied = applied or bool(self.last_codegen_written)
                 refused = self.last_codegen_refused
-                if ok and not refused:
+                if ok and self.last_codegen_written and not refused:
                     return True
-                if attempt or not refused:
+                if attempt:
+                    break
+                if not refused:
+                    outcome = getattr(self, "last_codegen_outcome", "")
+                    if not applied and outcome in {"no_blocks", "incomplete_blocks", "format_error"}:
+                        correction = ("\nPrevious repair was not applied: " + reason[:240] +
+                                      "\nReturn complete FILE/EDIT blocks with exact terminators, one format per path.\n")
+                        if (deadline - time.monotonic() >= 30 and
+                                len(compact + correction) + len(FORMAT_INSTRUCTIONS) + 1 <= self.codegen_context_chars()):
+                            compact += correction
+                            continue
                     break
                 prompt = build_prompt()
                 compact = self.codegen_repair_prompt(node_id, prompt, failures=failures)
@@ -3135,7 +3219,18 @@ class Flow:
         if self.codegen_mode():
             self.codegen_blocked = True
             log(f"[flow] {label}: codegen repair unavailable or not fully applied; using tools before retesting")
+        outcome = getattr(self, "last_codegen_outcome", "unapplied")
+        if compact is not None:
+            self.pending_corrections.append(
+                f"Previous codegen repair outcome: {outcome}. The reported failure is still unresolved. "
+                "Inspect current files; apply a concrete fix before rerunning acceptance. "
+                "An unapplied or unchanged reply is not evidence that the proposed fix failed.")
+        self.last_turn_changed = None
         self.turn(build_prompt(), left, label)
+        changed = getattr(self, "last_turn_changed", None)
+        if changed is False and not applied:
+            log(f"[flow] {label}: no source changes after repair fallback; skipping duplicate acceptance")
+            return False
         return True
 
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
@@ -3149,6 +3244,7 @@ class Flow:
         best_passed, best_sha, regressions, stalls = -1, self.head(), 0, 0
         rewrite_used = False
         previous_failures = None
+        repair_applied = False
         self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
         for attempt in range(self.repair_rounds + 1):
             summary = self.run_specs(specs)
@@ -3157,7 +3253,7 @@ class Flow:
                 return None
             if summary.error:
                 log(f"[acceptance] {node_id} infrastructure error: {summary.error[:300]}")
-                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {summary.error[:600]}\n  Steps: npm run build -> npm start"
+                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(summary.error, 600)}\n  Steps: npm run build -> npm start"
                 summary = RunSummary(passed=0, total=max(1, len(specs)))
                 passed = 0
             else:
@@ -3165,6 +3261,8 @@ class Flow:
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
+            self.metric("acceptance", scope="node", node_id=node_id, round=attempt,
+                        passed=passed, total=summary.total, after_applied_repair=repair_applied)
             if attempt == 0 and node_id in getattr(self, "batched_groups", {}):
                 self.batch_first_pass[node_id] = bool(not summary.error and summary.total and passed == summary.total)
                 group = self.batched_groups[node_id]
@@ -3173,7 +3271,7 @@ class Flow:
                     log(f"[flow] sibling batch {list(group)}: first-pass {first_pass}/{len(group)} leaves")
             was_codegen = self.codegen_mode()
             normalized = failure_signature(summary) if summary.results else failures
-            if normalized and normalized == previous_failures:
+            if repair_applied and normalized and normalized == previous_failures:
                 # Cloud 91aaecaf31af: three codegen rounds, identical observation.
                 self.codegen_blocked = True
                 self.pending_corrections.append(
@@ -3214,10 +3312,11 @@ class Flow:
             if attempt == self.repair_rounds or self.wound_down():
                 break
             left = deadline - time.time()
-            if left < self.min_repair_seconds or self.time_up():
+            needed = self.repair_minimum()
+            if left < needed or self.time_up():
                 # A repair turn that starts with only a couple of minutes left
                 # times out too (keep-local-3); keep the best state instead.
-                log(f"[flow] {node_id}: {left:.0f}s left, below the {self.min_repair_seconds}s a repair needs; "
+                log(f"[flow] {node_id}: {left:.0f}s left, below the {needed:.0f}s a repair needs; "
                     f"keeping the best state")
                 break
             self.snapshot_sources(node_id, attempt)
@@ -3233,10 +3332,18 @@ class Flow:
                 if self.codegen_mode():
                     self.codegen_turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
                                       spec_chars=getattr(self, "current_spec_chars", 0))
+                    repair_applied = bool(self.last_codegen_written)
                 else:
+                    self.last_turn_changed = None
                     self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
                               request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
-                continue
+                    repair_applied = self.last_turn_changed is not False
+                if repair_applied:
+                    continue
+                self.pending_corrections.append("The rewrite did not change application sources. Apply the pending fix before retesting.")
+                left = deadline - time.time()
+                if left < self.repair_minimum() or self.wound_down():
+                    break
             corrections = self.corrections_text()
             def repair_prompt():
                 nonlocal corrections
@@ -3249,6 +3356,7 @@ class Flow:
             if not self.node_repair_turn(node_id, failures, min(self.node_timeout, left),
                                          f"{node_id} repair {attempt + 1}/{self.repair_rounds}", repair_prompt):
                 break
+            repair_applied = True
         # Failed repairs can leave dirty files without changing HEAD. Restore the files,
         # even when the current commit already equals the best recorded commit.
         if best_passed > 0 and best_sha:
@@ -3344,6 +3452,23 @@ class Flow:
         log(f"[flow] sibling batch {ids}: generated once or declared no-change; validating each leaf separately")
         return True
 
+    def generation_output_budget(self) -> int:
+        # Leave room for reasoning/protocol overhead and estimation error. A
+        # deployment with a smaller routed model can explicitly lower this.
+        maximum = max(1, int(os.environ.get("OCTOS_ARC_MAX_TOKENS", "32768")))
+        routes = getattr(getattr(self, "llm_proxy", None), "routes", [])
+        # Rules can override the proxy's default limit after routing. Use the
+        # smallest possible implement-route cap, without guessing model names.
+        if isinstance(routes, list):
+            for rule in routes:
+                if "implement" in rule.get("phases", ["implement"]):
+                    options = rule.get("parameters", {})
+                    limit = options.get("max_completion_tokens", options.get("max_tokens"))
+                    if isinstance(limit, int) and limit > 0:
+                        maximum = min(maximum, limit)
+        return max(1, min(maximum, int(os.environ.get("OCTOS_ARC_CODEGEN_OUTPUT_TOKENS",
+                                                     str(int(maximum * 0.6))))))
+
     def whole_app_codegen(self, tree: dict, ordered: list[dict]) -> bool:
         """Experimental v5: generate the fresh app whole or in a few waves.
 
@@ -3364,9 +3489,11 @@ class Flow:
         # in one output. Keep the one-shot experiment for smaller trees; the
         # 32-leaf Keep run spent 170s on a prose-only whole-app reply.
         max_one_shot = max(1, int(os.environ.get("OCTOS_ARC_WHOLE_APP_MAX_NODES", "12")))
-        if len(ids) > max_one_shot:
+        estimated = generation_tokens(ordered, len(spec))
+        if len(ids) > max_one_shot or estimated > self.generation_output_budget():
             log(f"[flow] whole-app experiment: {len(ids)} leaves exceed the {max_one_shot}-leaf "
-                "one-shot output limit; planning generation waves")
+                f"or estimated output budget ({estimated}/{self.generation_output_budget()} tokens); "
+                "planning generation waves")
             return self.whole_app_waves(tree, ordered)
         description = ("Implement the COMPLETE application, not just one feature. "
                        "All listed atomic requirements must work together. Keep the "
@@ -3435,7 +3562,7 @@ class Flow:
             global_context = ("Whole-tree requirement map (keep a common data and route contract "
                               "across waves):\n" + tree_outline(tree, max_chars=12000) + "\n\n")
             log("[flow] whole-app waves: design reply unavailable; using bounded requirement map")
-        max_nodes = max(2, int(os.environ.get("OCTOS_ARC_WHOLE_APP_WAVE_NODES", "16")))
+        max_nodes = max(1, int(os.environ.get("OCTOS_ARC_WHOLE_APP_WAVE_NODES", "6")))
         max_spec = min(30000, int(self.codegen_context_chars() * 0.35))
         max_details = min(24000, int(self.codegen_context_chars() * 0.25))
         parents = {}
@@ -3469,7 +3596,9 @@ class Flow:
                 ids = [str(node.get("id")) for node in group]
                 spec = self.batch_spec_bodies(ids)
                 details = "\n\n".join(describe_node(node) for node in group)
-                if (len(spec) > max_spec or len(details) > max_details) and size > 1:
+                estimated = generation_tokens(group, len(spec))
+                if (len(spec) > max_spec or len(details) > max_details
+                        or estimated > self.generation_output_budget()) and size > 1:
                     max_nodes = min(max_nodes, (size + 1) // 2)
                     size = max(1, size // 2)
                     continue
@@ -3490,7 +3619,8 @@ class Flow:
                 timeout = min(int(os.environ.get("OCTOS_ARC_WHOLE_APP_TIMEOUT", "1800")),
                               max(120, self.remaining() - self.min_repair_seconds))
                 log(f"[flow] whole-app wave {wave + 1}: generating {ids} "
-                    f"({len(prompt)} prompt chars, {len(spec)} spec chars)")
+                    f"({len(prompt)} prompt chars, {len(spec)} spec chars, "
+                    f"estimated output {estimated}/{self.generation_output_budget()} tokens)")
                 attempts += 1
                 ok, text = self.whole_app_generation_turn(prompt, timeout,
                                                           f"whole application wave {wave + 1}",
@@ -3520,6 +3650,9 @@ class Flow:
         """Fix one concrete build/start failure without reimplementing all nodes."""
         if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
             return False
+        deadline = time.monotonic() + min(self.node_timeout, 360, max(0, self.remaining() - 120))
+        self.last_codegen_written = []
+        digest = startup_error_digest(error, 2200)
         names = list(dict.fromkeys(re.findall(
             r"(?:frontend|backend)/[A-Za-z0-9_./-]+\.(?:jsx?|tsx?|[cm][jt]s|vue|s?css|html|json)\b", error)))
         # Vite usually reports paths relative to frontend, not the app root.
@@ -3546,9 +3679,9 @@ class Flow:
         prompt = (stack_note(self.output_dir) + "The generated application failed its build/start preflight. Fix ONLY this concrete error; "
                   "preserve every implemented feature. For a literal route shadowed by a :parameter route "
                   "of the same method, register the literal handler first. Do not rewrite unrelated files.\n"
-                  f"Error:\n{error[:2200]}\nCurrent source files (quoted whole):\n{''.join(sources)}")
+                  f"Error:\n{digest}\nCurrent source files (quoted whole):\n{''.join(sources)}")
         if sources and len(prompt) + len(FORMAT_INSTRUCTIONS) + 1 <= self.codegen_context_chars():
-            ok, _ = self.whole_app_generation_turn(prompt, min(self.node_timeout, 360),
+            ok, _ = self.whole_app_generation_turn(prompt, max(0, deadline - time.monotonic()),
                                                     "whole application startup repair", spec_chars=0)
             if ok and getattr(self, "last_codegen_written", []):
                 self.commit("fix: whole application startup preflight")
@@ -3557,9 +3690,14 @@ class Flow:
         # Give tool mode only this startup error and the small implicated source.
         tool_prompt = ("Fix the application's build/start error below with a focused source edit. "
                        "Preserve existing features and do not run the full test suite; the harness will.\n"
-                       f"Error:\n{error[:2200]}\n{''.join(sources) or source_listing(self.output_dir)}")
-        self.turn(tool_prompt, min(self.node_timeout, 360), "whole application startup repair (tools)")
-        return self.commit("fix: whole application startup preflight (tools)")
+                       f"Error:\n{digest}\n{''.join(sources) or source_listing(self.output_dir)}")
+        left = deadline - time.monotonic()
+        if left <= 0 or self.wound_down():
+            return bool(getattr(self, "last_codegen_written", []))
+        self.last_turn_changed = None
+        self.turn(tool_prompt, left, "whole application startup repair (tools)")
+        committed = self.commit("fix: whole application startup preflight (tools)")
+        return self.last_turn_changed if isinstance(self.last_turn_changed, bool) else committed
 
     def whole_app_first_suite(self, ordered: list[dict]) -> set[str] | None:
         """Measure the generated app once; return only leaves needing repair.
@@ -3604,6 +3742,7 @@ class Flow:
             log("[flow] whole-app first suite: unmapped failure; using node flow")
             return None
         self.record_full_suite(summary, grouped)
+        self.remember_delivery_checkpoint(summary, grouped)
         self.whole_app_summary = summary
         failing = set(grouped)
         log(f"[flow] whole-app first suite: {summary.passed}/{summary.total}; "
@@ -3666,13 +3805,15 @@ class Flow:
     def app_source_digest(self) -> str:
         """Source content, not traceability/log commits, determines effective repair."""
         digest = hashlib.sha256()
-        files = app_source_files(self.output_dir)
+        # Include local images/fonts and other inputs: fixing an asset is not a no-op.
+        files = app_source_files(self.output_dir, exts=None)
         files += [self.output_dir / part / name for part in ("frontend", "backend") for name in LOCKFILES
                   if (self.output_dir / part / name).is_file()]
         for path in sorted(files):
             digest.update(str(path.relative_to(self.output_dir)).encode())
             digest.update(b"\0")
-            digest.update(hashlib.sha256(path.read_bytes()).digest())
+            with path.open("rb") as fh:
+                digest.update(hashlib.file_digest(fh, "sha256").digest())
         return digest.hexdigest()
 
     def whole_app_experiment(self, tree: dict, ordered: list[dict]) -> bool:
@@ -3707,6 +3848,9 @@ class Flow:
                 self.mark("test_failed", node_id, "first full suite could not report reliable results")
                 self.test_verdict[node_id] = False
             return True
+        repair_budget = self.remaining()
+        repair_count = sum(str(node.get("id")) in failing for node in ordered)
+        repairs_done = 0
         for index, node in enumerate(ordered, 1):
             node_id = str(node.get("id"))
             if node_id not in failing:
@@ -3727,7 +3871,12 @@ class Flow:
                 self.mark("implementation_failed", node_id, "skipped repair: time budget exhausted")
                 self.impl_failed.append(node_id)
                 continue
-            self.node_cycle(node, ordered, index, len(ordered), preimplemented=node_id in generated)
+            self._repair_stage = (repair_budget, repair_count, repairs_done)
+            try:
+                self.node_cycle(node, ordered, index, len(ordered), preimplemented=node_id in generated)
+            finally:
+                self._repair_stage = None
+            repairs_done += 1
             self.driver.end_scope("node")
         return True
 
@@ -3740,7 +3889,14 @@ class Flow:
         if index > 1:
             reap_workspace_processes(self.output_dir, log)
         nodes_left = total - index + 1
-        node_budget = min(self.node_budget_cap, max(240, self.remaining() / nodes_left))
+        stage = getattr(self, "_repair_stage", None)
+        phase_budget, jobs, completed = stage or (getattr(self, "budget", self.remaining()), total, index - 1)
+        if stage:
+            nodes_left = jobs - completed
+        node_budget = node_seconds(self.remaining(), nodes_left, self.node_budget_cap,
+                                   phase_budget=phase_budget, total_jobs=jobs, completed=completed,
+                                   reserve=min(300, phase_budget * 0.1) if stage else 0,
+                                   burst_cap=None if "OCTOS_NODE_TIME_BUDGET" in os.environ else 3000)
         deadline = time.time() + node_budget
         log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
 
@@ -4113,6 +4269,9 @@ class Flow:
                                    min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
                                    tool_prompt=tool_prompt, prefer_codegen=attempt == 0)
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
+            if getattr(self, "last_repair_changed", None) is False:
+                log(f"[acceptance] checkpoint {index}: no source changes; skipping duplicate acceptance")
+                break
             observed = self.run_specs(specs, workers=workers, grader_like=True)
             if observed.error or observed.killed:
                 self.queue_checkpoint_evidence(summary)
@@ -4139,6 +4298,7 @@ class Flow:
         """Run EVERY spec file together against one server with the configured workers.
         Per-node runs cannot see cross-node interference through shared server
         state; this pass can, and it repairs the nodes whose tests fail."""
+        self.final_repair_no_change = False
         if self.runner is None or not self.tests_dir:
             return
         all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
@@ -4232,7 +4392,7 @@ class Flow:
                         self.test_verdict[node_id] = False
                 grouped = {None: []}
                 failures = (f"- Feature: application startup exactly as the grader runs it (only PORT set)\n"
-                            f"  Failed at: npm start\n  Observation: {summary.error[:700]}\n  Steps: npm run build -> npm start")
+                            f"  Failed at: npm start\n  Observation: {startup_error_digest(summary.error)}\n  Steps: npm run build -> npm start")
                 summary = RunSummary(passed=0, total=len(all_specs))
             else:
                 grouped = nodes_for_failures(summary.results, self.spec_map)
@@ -4246,7 +4406,10 @@ class Flow:
                                    for r in summary.results if r.ok} - {None}
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
+            self.metric("acceptance", scope="final_suite", round=attempt, passed=summary.passed,
+                        total=summary.total, after_applied_repair=wrote_last)
             self.record_full_suite(summary, grouped)
+            self.remember_delivery_checkpoint(summary, grouped)
             last_passed = summary.passed
             if best is None or summary.passed > best["passed"]:
                 if attempt > 0:
@@ -4291,7 +4454,7 @@ class Flow:
             unstable = frozenset(spec for node in passed_a_round
                                  for spec in (self.spec_map.get(node) or []))
             failing_signature = failure_signature(summary, unstable)
-            if previous_failing is not None and failing_signature == previous_failing:
+            if wrote_last and previous_failing is not None and failing_signature == previous_failing:
                 if repeated:
                     log("[acceptance] full suite: failures unchanged after a changed approach; stopping repairs")
                     break
@@ -4333,7 +4496,13 @@ class Flow:
                 min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
                 tool_prompt=prompt, prefer_codegen=not repeated and not force_tool_repair)
             force_tool_repair = False
-            wrote_last = self.commit(f"fix: full-suite repair {attempt + 1}")
+            committed = self.commit(f"fix: full-suite repair {attempt + 1}")
+            effective = getattr(self, "last_repair_changed", None)
+            wrote_last = effective if isinstance(effective, bool) else committed
+            if effective is False:
+                self.final_repair_no_change = True
+                log("[acceptance] full suite: repair changed no application sources; skipping duplicate suite")
+                break
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
         if best is not None and best["sha"] and last_passed < best["passed"]:
             log(f"[acceptance] full suite: last round {last_passed} < best {best['passed']}; restoring the best state")
@@ -4379,6 +4548,8 @@ class Flow:
             self.final_acceptance()
             if self.driver:
                 self.driver.end_scope("node")
+            if getattr(self, "final_repair_no_change", False) is True:
+                break
 
     GRADER_WORKERS = 1  # observed platform logs; configurable for other graders
 
@@ -4455,6 +4626,68 @@ class Flow:
                      f"{', '.join(stores_written)} — whatever one session writes there is still there for "
                      "the next.")
         return note
+
+    def remember_delivery_checkpoint(self, summary: RunSummary, grouped: dict) -> None:
+        """Keep a source snapshot only after a complete, usable suite observation.
+
+        Node passes are not comparable to a full suite. Build errors, missing
+        spec files and interrupted runners must never replace this checkpoint.
+        """
+        if (getattr(self, "runtime", None) is None or not self.tests_dir
+                or summary.error or summary.killed or summary.load_errors):
+            return
+        expected = {str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts")}
+        observed = {str(r.file or "").replace("\\", "/") for r in summary.results}
+        if (not expected or not summary.results or summary.total != len(summary.results)
+                or any(r.status not in {"passed", "failed", "timedOut"} for r in summary.results)
+                or not all(any(path == spec or path.endswith("/" + spec) for path in observed)
+                           for spec in expected)):
+            return
+        best = getattr(self, "delivery_checkpoint", None)
+        if best and summary.passed <= best["summary"].passed:
+            return
+        self.commit(f"chore: verified delivery checkpoint {summary.passed}/{summary.total}")
+        sha = self.head()
+        if not sha:
+            return
+        # A failed commit could otherwise attach new verdicts to an old tree.
+        try:
+            dirty = self.runtime.git.run(["status", "--porcelain", "--", "frontend", "backend"], check=False)
+        except Exception as exc:
+            log(f"[flow] delivery checkpoint skipped: could not inspect git status: {exc}")
+            return
+        if dirty.returncode or dirty.stdout.strip():
+            log("[flow] delivery checkpoint skipped: application snapshot is not clean")
+            return
+        self.delivery_checkpoint = {"sha": sha, "summary": summary, "grouped": grouped}
+
+    def recover_provider_stop(self, error: Exception) -> bool:
+        """No model calls: retain interrupted edits in git, deliver measured code.
+
+        Returning true means an artifact can be graded, NOT all tests passed.
+        The run still emits a failure event with the provider's original error.
+        """
+        best = getattr(self, "delivery_checkpoint", None)
+        if not best or best["summary"].passed <= 0:
+            return False
+        try:
+            self.commit("chore: preserve interrupted repair before provider-stop recovery")
+            dirty = self.runtime.git.run(["status", "--porcelain", "--", "frontend", "backend"], check=False)
+            if dirty.returncode or dirty.stdout.strip():
+                log("[flow] provider-stop recovery skipped: interrupted edits could not be preserved")
+                return False
+            self.restore_app(best["sha"])
+            self.test_verdict.clear()
+            self.record_full_suite(best["summary"], best["grouped"])
+            self.commit("chore: deliver verified checkpoint after provider stop")
+            self.metric("provider_stop", recovered=True, passed=best["summary"].passed,
+                        total=best["summary"].total, error=str(error)[:300])
+            log(f"[flow] provider stopped; restored verified checkpoint "
+                f"{best['summary'].passed}/{best['summary'].total}; no further model calls")
+            return True
+        except Exception as exc:  # recovery must not hide the original provider error
+            log(f"[flow] provider-stop recovery failed: {exc}")
+            return False
 
     def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
         """Per-node verdicts and traceability from one full-suite round."""
@@ -4686,6 +4919,7 @@ class Flow:
                 self.driver.close()
             self.cleanup_playwright()
             self.stop_llm_proxy()
+            recovered = isinstance(exc, PermanentProviderError) and self.recover_provider_stop(exc)
             for node in ordered:
                 node_id = str(node.get("id"))
                 if node_id not in self.test_verdict:
@@ -4698,7 +4932,9 @@ class Flow:
             _postflight_structure_check(self.output_dir)
             _free_web_port(self.web_port, self.output_dir)
             self.events.mark_run_failed(str(exc)[:1000])
-            return 1 if isinstance(exc, PermanentProviderError) else 0
+            # A valid measured artifact may still be graded; keep run_failed
+            # above and never report an interrupted generation as completed.
+            return 1 if isinstance(exc, PermanentProviderError) and not recovered else 0
 
     def mark_folders(self) -> None:
         """The platform counts FOLDER nodes as requirements too ("45 requirements
@@ -4759,13 +4995,14 @@ def probe_endpoint() -> None:
         return
     import urllib.request as _ur
     import urllib.error as _ue
+    from llm_proxy import open_upstream
     headers = {"Content-Type": "application/json", "Authorization": "Bearer " + key}
     deadline = time.time() + 600
     attempt = 0
     while True:
         attempt += 1
         try:
-            with _ur.urlopen(_ur.Request(base.rstrip("/") + "/models", headers=headers), timeout=30) as resp:
+            with open_upstream(_ur.Request(base.rstrip("/") + "/models", headers=headers), timeout=30) as resp:
                 log(f"[probe] GET /models -> HTTP {resp.status} (endpoint up, no tokens spent)")
                 return
         except _ue.HTTPError as exc:
@@ -4779,7 +5016,7 @@ def probe_endpoint() -> None:
             try:
                 req = _ur.Request(base.rstrip("/") + "/chat/completions", headers=headers, method="POST",
                                   data=minimal_probe_body(os.environ.get("MODEL", "deepseek-chat")))
-                with _ur.urlopen(req, timeout=60) as resp:
+                with open_upstream(req, timeout=60) as resp:
                     log(f"[probe] minimal chat probe -> HTTP {resp.status}")
                     return
             except _ue.HTTPError as exc2:

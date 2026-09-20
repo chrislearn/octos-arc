@@ -11,11 +11,18 @@ parser.add_argument("task", nargs="?"); parser.add_argument("--check", action="s
 parser.add_argument("--port", type=int, default=43100, help="grading port the app must serve (default 43100)")
 parser.add_argument("--smoke-port", type=int, default=None, help="port for the agent's own smoke tests (default port+1)")
 parser.add_argument("--template", default=None, help="existing generated app to evolve (copied into the output dir first)")
+parser.add_argument("--api-config", type=Path, help="local api_key/base_url/model file; values are never printed")
 arguments = parser.parse_args()
+if arguments.api_config:
+    from local_config import api_environment
+    try:
+        os.environ.update(api_environment(arguments.api_config))
+    except (OSError, ValueError):
+        sys.exit("API 配置读取失败；请检查 api_key/base_url/model 字段（不显示文件内容）。")
 root = Path(__file__).resolve().parent
 adapter = root
 import shutil
-_cands = [os.environ.get("OCTOS_BIN"), root.parent / "target" / "release" / "octos", root.parent / "target" / "debug" / "octos", shutil.which("octos")]
+_cands = [os.environ.get("OCTOS_BIN"), root / "bin" / "octos", root.parent / "target" / "release" / "octos", root.parent / "target" / "debug" / "octos", shutil.which("octos")]
 binary = next((Path(c).resolve() for c in _cands if c and Path(c).is_file()), None)
 if binary is None:
     sys.exit("找不到 octos 二进制：设 OCTOS_BIN，或先 cargo build --release -p octos-cli --no-default-features --features api")
