@@ -5,6 +5,18 @@ from llm_proxy import BUDGET_NOTICE, destream_request, enforce_turn_budget, ensu
 
 
 class InjectTests(unittest.TestCase):
+    def test_qwen37_plus_uses_explicit_enable_thinking(self):
+        for model in ('qwen3.7-plus', 'qwen3.7-plus-2026-05-26', 'provider/qwen3.7-plus'):
+            body = json.dumps({'model': model, 'messages': [], 'thinking': {'type': 'enabled'},
+                               'reasoning_effort': 'high'}).encode()
+            for mode in ('none', 'off', 'disabled'):
+                out = json.loads(inject_reasoning(body, mode))
+                self.assertIs(out['enable_thinking'], False)
+                self.assertNotIn('thinking', out)
+                self.assertNotIn('reasoning_effort', out)
+            self.assertTrue(json.loads(inject_reasoning(body, 'low'))['enable_thinking'])
+            self.assertEqual(inject_reasoning(body, 'passthrough'), body)
+
     def test_should_add_low_effort_and_thinking_for_deepseek(self):
         out = json.loads(inject_reasoning(json.dumps({"model": "deepseek-v4-flash", "messages": []}).encode(), "low"))
         self.assertEqual(out["reasoning_effort"], "low")

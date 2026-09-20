@@ -1477,11 +1477,16 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "10"
+APP_DESIGN_PROMPT_VERSION = "11"
+
+COLLECTION_MIGRATION_CONTRACT = (
+    "Optional collection(...) migration up(data) receives a storage OBJECT; the record array is data.items, "
+    "NOT data itself. Mutate data.items synchronously, return undefined, and preserve __arcMigrations. "
+    "Direct store.migrate receives its own fallback-shaped object. Do not change these shared APIs.\n")
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
-APP_DESIGN_PROMPT = """\
+APP_DESIGN_PROMPT = COLLECTION_MIGRATION_CONTRACT + """\
 Design the application that satisfies this whole requirement tree (do NOT implement anything):
 
 {outline}
@@ -1512,7 +1517,7 @@ Async: clicks do not await handlers. Mount usable editor/dialog controls before 
 Output: use exact EDIT blocks for small quoted-file changes; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.
 """
 
-GENERIC_TEMPLATE_NOTE = """\
+GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
 Optional require('../lib/query') from backend/routes/ exports optionalBoolean(value): undefined/true/false, invalid input throws status=400; matchesFlags(record,flags): strict boolean equality, undefined ignored. Whitelist fields, resolve view defaults once, enforce ownership separately. Combine filters independently; a client cannot recover server-excluded records. Check inverse transitions and filter combinations. No fixture-specific defaults.
 Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Register static paths before matching parameter paths. Do not rewrite the entry for ordinary routes. From backend/routes/, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial,migrations}) with all/list/get/create/patch/remove. initial is new-store-only: evolve persisted data with store.migrate(name,fallback,[{id,up(data){ /* mutate synchronously, return undefined */ }}]) or collection migrations. IDs run once; preserve reserved __arcMigrations metadata. Never reinsert deleted records on read. Atomicity is single-store/single-process only; keep related command effects together or use transactional storage. Put substantial views in separate modules. ./shared/request.js exports requestJson(url,{body: JSON.stringify(data),...options}). A React scaffold uses main.jsx/App.jsx and the fixed baseline below. Only the plain scaffold has app.js, shared/dom.js (escapeHtml), and shared/router.js (startRouter(render) for a[data-route] links, requiring arc.spa=true). Optional frontend/build.mjs and vite.config.mjs: build is "node build.mjs" for npm frontend packages; Vite bundles JSX and local imports, plain src can be copied, Tailwind CLI and htmx.org have local build paths. frontend/public is copied to the dist root. Define domain fields, pages, validation, session rules and seed data from the task. Do not output FILE blocks for unchanged shared helpers; use application routes and feature modules instead.
 """
@@ -1965,7 +1970,8 @@ class Flow:
         turns, remaining nodes get one implement turn each, one final suite, done."""
         proxy = getattr(self, "llm_proxy", None)
         tokens = proxy.total_tokens if proxy is not None else 0
-        over = (self.max_total_tokens > 0 and tokens >= self.max_total_tokens) or \
+        over = getattr(self, "local_budget_exhausted", False) or \
+               (self.max_total_tokens > 0 and tokens >= self.max_total_tokens) or \
                (self.max_turns > 0 and self.turn_count >= self.max_turns) or \
                (self.max_total_tokens_abs > 0 and tokens >= self.max_total_tokens_abs)
         if over and not self._wound_down_logged:
@@ -2096,8 +2102,6 @@ class Flow:
         elapsed = time.time() - t0
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
-        if not ok and permanent_provider_error(text):
-            raise PermanentProviderError(text[:1000])
         if proxy is not None and proxy.turn_budget and proxy.turn_requests > proxy.turn_budget:
             log(f"[guard] {label}: request budget {proxy.turn_budget} hit; turn forced to finish")
         for c in monitor.corrections():
@@ -2121,6 +2125,16 @@ class Flow:
                     ok=ok, elapsed_seconds=round(elapsed, 3),
                     changed=self.last_turn_changed if execution_mode == "tools" else None,
                     tools=monitor.tool_calls)
+        # Fatal provider responses still require protected-file restoration and
+        # an accounting event. Do not jump past the common turn cleanup.
+        if not ok and "local_token_budget_exhausted" in text:
+            # This is our admission guard, not a provider outage. Stop model
+            # calls but allow reserved acceptance time to measure these edits.
+            self.local_budget_exhausted = True
+            self.metric("budget_stop", reason="local_token_budget_exhausted")
+            return False, text
+        if not ok and permanent_provider_error(text):
+            raise PermanentProviderError(text[:1000])
         return ok, text
 
     def slow_test_ms(self) -> int:
@@ -2445,8 +2459,14 @@ class Flow:
         proxy.system_override = system
         mode_override = self.codegen_reasoning(spec_chars)
         saved_cap = getattr(proxy, "codegen_max_tokens", 0)
-        recovering = getattr(self, "codegen_degenerated", False) and phase_for_label(label) != "design"
-        proxy.codegen_max_tokens = max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0
+        phase = phase_for_label(label)
+        recovering = getattr(self, "codegen_degenerated", False) and phase != "design"
+        phase_cap = max(0, int(os.environ.get("OCTOS_ARC_REPAIR_MAX_TOKENS", "8192"))) if phase == "repair" else 0
+        if phase == "design":
+            design_default = max(4096, min(16384, 128 * getattr(self, "n_nodes", 32)))
+            phase_cap = max(0, int(os.environ.get("OCTOS_ARC_DESIGN_MAX_TOKENS", str(design_default))))
+        recovery_cap = max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0
+        proxy.codegen_max_tokens = min([cap for cap in (phase_cap, recovery_cap) if cap] or [0])
         recovery_mode = os.environ.get("OCTOS_ARC_RECOVERY_REASONING", "none")
         if recovering and recovery_mode in {"low", "medium", "high"}:
             mode_override = recovery_mode  # opt-in; default thinking remains off
@@ -3192,6 +3212,9 @@ class Flow:
         """Build, start, run the specs, then undo whatever the test run mutated
         (a persisted counter at -1 would otherwise be committed as the seed).
         `grader_like` starts the backend with only PORT set, as the platform does."""
+        started = time.monotonic()
+        if self.time_up():
+            return RunSummary(error="acceptance time budget exhausted")
         git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
         snapshot_worktree(git_run)
         server = self.app_server(grader_like)
@@ -3202,7 +3225,11 @@ class Flow:
                 err = server.start()
             if err is not None:
                 return RunSummary(error=err)
-            summary = self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers)
+            summary = self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
+                                      wall_timeout=max(1, min(900, int(self.remaining()))))
+            expected = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts")) if self.tests_dir else []
+            if grader_like and sorted(specs) == expected and self.suite_is_measured(summary, specs):
+                self.last_suite_seconds = time.monotonic() - started
             return summary
         finally:
             server.stop()
@@ -3291,7 +3318,7 @@ class Flow:
         return True
 
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
-                        rebuild_prompt=None) -> bool | None:
+                        rebuild_prompt=None, initial_summary: RunSummary | None = None) -> bool | None:
         """Returns True/False for a real verdict, None when no local run happened.
         `rebuild_prompt(failures)` (optional) yields a full re-implementation
         prompt; it is used only before any behavior has passed verification.
@@ -3304,24 +3331,27 @@ class Flow:
         repair_applied = False
         self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
         for attempt in range(self.repair_rounds + 1):
-            summary = self.run_specs(specs)
+            summary = initial_summary if attempt == 0 and initial_summary is not None else self.run_specs(specs)
             if summary.error and summary.killed:
                 log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
                 return None
-            if summary.error:
-                log(f"[acceptance] {node_id} infrastructure error: {summary.error[:300]}")
-                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(summary.error, 600)}\n  Steps: npm run build -> npm start"
-                summary = RunSummary(passed=0, total=max(1, len(specs)))
+            infrastructure_error = summary.error or ("\n".join(summary.load_errors) if summary.load_errors else "")
+            measured = not infrastructure_error and not summary.killed and summary.total > 0
+            if infrastructure_error:
+                log(f"[acceptance] {node_id} infrastructure error: {infrastructure_error[:300]}")
+                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 600)}\n  Steps: npm run build -> npm start"
                 passed = 0
             else:
                 passed = summary.passed
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
-                self.record_tests(node_id, specs, summary)
+                if measured:
+                    self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
             self.metric("acceptance", scope="node", node_id=node_id, round=attempt,
-                        passed=passed, total=summary.total, after_applied_repair=repair_applied)
+                        passed=passed, total=summary.total, after_applied_repair=repair_applied,
+                        verdict="measured" if measured else "unknown", error=infrastructure_error or None)
             if attempt == 0 and node_id in getattr(self, "batched_groups", {}):
-                self.batch_first_pass[node_id] = bool(not summary.error and summary.total and passed == summary.total)
+                self.batch_first_pass[node_id] = bool(measured and passed == summary.total)
                 group = self.batched_groups[node_id]
                 if all(member in self.batch_first_pass for member in group):
                     first_pass = sum(self.batch_first_pass[member] for member in group)
@@ -3344,21 +3374,21 @@ class Flow:
             for line in (failures or "").splitlines():
                 if line.strip().startswith(("Failed at:", "Observation:")):
                     log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")
-            if summary.total and passed == summary.total:
+            if measured and passed == summary.total:
                 self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
                 return True
-            if passed > best_passed:
+            if measured and passed > best_passed:
                 if best_passed >= 0:
                     self.commit(f"{node_id} (repair {attempt}): {passed}/{summary.total} pass")
                 best_passed, best_sha, regressions, stalls = passed, self.head(), 0, 0
-            elif passed == best_passed and attempt > 0:
+            elif measured and passed == best_passed and attempt > 0:
                 stalls += 1
                 if stalls >= 2 and not (was_codegen and self.codegen_blocked):
                     # Let a newly selected repair strategy run once, within existing budgets.
                     # Cloud f9f0026819f1: six rounds oscillating 4/6 <-> 3/6.
                     log(f"[flow] {node_id}: no improvement for two repairs; keeping the best state")
                     break
-            elif passed < best_passed:
+            elif measured and passed < best_passed:
                 regressions += 1
                 if regressions >= 2 and best_sha:
                     self.restore_app(best_sha)
@@ -3380,7 +3410,7 @@ class Flow:
             slow = summary.slow(self.slow_test_ms())
             slow_text = ("These tests exceeded the configured slow-test threshold: " + "; ".join(slow) +
                          ". Inspect the failed operations and measured timings before optimizing.\n" + self.perf_text()) if slow else ""
-            if passed == 0 and rebuild_prompt is not None and not rewrite_used \
+            if measured and passed == 0 and rebuild_prompt is not None and not rewrite_used \
                     and best_passed <= 0 and self.can_rewrite_from_scratch() \
                     and os.environ.get("OCTOS_ARC_REWRITE_ON_ZERO", "1") != "0":
                 rewrite_used = True
@@ -3402,6 +3432,10 @@ class Flow:
                 if left < self.repair_minimum() or self.wound_down():
                     break
             corrections = self.corrections_text()
+            if not measured:
+                corrections = str(corrections) + (
+                    "\nNo functional acceptance verdict was obtained. Fix the reported build/start/load failure "
+                    "in place; preserve the generated application instead of rewriting it from scratch.\n")
             def repair_prompt():
                 nonlocal corrections
                 corrections = str(corrections) + str(self.corrections_text())
@@ -3419,7 +3453,7 @@ class Flow:
         if best_passed > 0 and best_sha:
             self.restore_app(best_sha)
             self.commit(f"{node_id}: keep best acceptance state {best_passed}")
-        return False
+        return False if best_passed >= 0 else None
 
     # -- per node ---------------------------------------------------------
     def design(self, node: dict, ordered: list[dict], deadline: float) -> dict | None:
@@ -4259,9 +4293,9 @@ class Flow:
                 if not verdict:
                     deadline = time.time() + min(self.node_budget_cap, max(240, self.remaining() / 2))
                     self.pending_corrections.append(
-                        "This node passed before this evolution round; the regression below must be fixed "
-                        "without removing the new behaviour.")
-                    verdict = self.acceptance_loop(node_id, specs, deadline)
+                        "This requirement is unchanged, but its current acceptance check failed. "
+                        "Repair the observed failure without removing other behavior.")
+                    verdict = self.acceptance_loop(node_id, specs, deadline, initial_summary=summary)
         self.test_verdict[node_id] = verdict
         if verdict is True:
             self.mark("test_passed", node_id, "regression specs pass locally")
@@ -4437,7 +4471,7 @@ class Flow:
         for attempt in range(rounds + 1):
             summary = measured_suite()
             if (best is not None and last_repair_mode == "codegen" and wrote_last
-                    and not summary.error and best["passed"] - summary.passed >= 3):
+                    and self.suite_is_measured(summary, all_specs) and best["passed"] - summary.passed >= 3):
                 # A one-request rewrite that breaks several previously passing
                 # behaviours is different from a single flaky spec or a tool
                 # turn interrupted halfway through. Keep the measured evidence,
@@ -4456,13 +4490,13 @@ class Flow:
                     summary = measured_suite()
                     force_tool_repair = True
                     last_repair_mode = ""
-            if not summary.error and summary.total and summary.passed == summary.total:
+            if summary.all_passed and self.suite_is_measured(summary, all_specs):
                 # A single lucky 32/32 did not reproduce in the platform's next
                 # clean run (Keep 62886df9bde1: 32/32 -> 30/32). Confirmation
                 # uses the unchanged app and costs no model tokens.
                 for confirmation in range(1, confirm_runs):
                     confirmed = measured_suite()
-                    if confirmed.error or confirmed.passed < confirmed.total:
+                    if not confirmed.all_passed or not self.suite_is_measured(confirmed, all_specs):
                         owners = {Path(path).name: node for node, paths in self.spec_map.items()
                                   for path in (paths or [])}
                         passed_a_round.update(owners.get(Path(r.file or "").name)
@@ -4477,16 +4511,17 @@ class Flow:
             if summary.error and summary.killed:
                 log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
                 break
-            if summary.error:
-                # The app does not even start the way the grader starts it: every node fails.
-                log(f"[acceptance] full suite (grader-like start) failed: {summary.error[:300]}")
+            measured = self.suite_is_measured(summary, all_specs)
+            if not measured:
+                error = summary.error or "\n".join(summary.load_errors) or "Incomplete acceptance report; not all specs produced results"
+                log(f"[acceptance] full suite has no complete verdict: {error[:300]}")
                 for node_id in self.spec_map:
                     if node_id:
-                        self.test_verdict[node_id] = False
+                        self.test_verdict[node_id] = None
                 grouped = {None: []}
                 failures = (f"- Feature: application startup exactly as the grader runs it (only PORT set)\n"
-                            f"  Failed at: npm start\n  Observation: {startup_error_digest(summary.error)}\n  Steps: npm run build -> npm start")
-                summary = RunSummary(passed=0, total=len(all_specs))
+                            f"  Failed at: build/start/test loading\n  Observation: {startup_error_digest(error)}\n"
+                            "  No complete functional verdict. Fix the reported infrastructure problem in place; do not rewrite the app.")
             else:
                 grouped = nodes_for_failures(summary.results, self.spec_map)
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
@@ -4500,18 +4535,20 @@ class Flow:
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             self.metric("acceptance", scope="final_suite", round=attempt, passed=summary.passed,
-                        total=summary.total, after_applied_repair=wrote_last)
+                        total=summary.total, after_applied_repair=wrote_last,
+                        verdict="measured" if measured else "unknown", error=summary.error,
+                        load_errors=summary.load_errors)
             self.record_full_suite(summary, grouped)
             self.remember_delivery_checkpoint(summary, grouped)
-            last_passed = summary.passed
-            if best is None or summary.passed > best["passed"]:
+            last_passed = summary.passed if measured else -1
+            if measured and (best is None or summary.passed > best["passed"]):
                 if best is not None:
                     self.final_suite_progress = True
                 if attempt > 0:
                     self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
                 best = {"passed": summary.passed, "sha": self.head(), "summary": summary, "grouped": grouped}
                 regressions = 0
-            elif summary.passed < best["passed"]:
+            elif measured and best is not None and summary.passed < best["passed"]:
                 # The per-node loop already does this; the full-suite pass did not.
                 # A repair cut at the per-turn timeout leaves the tree part
                 # written: cloud 6e82a7ff571c went 27/32 -> repair killed at 1200s
@@ -4541,7 +4578,7 @@ class Flow:
                     self.record_full_suite(best["summary"], best["grouped"])
                     last_passed = best["passed"]
                     regressions = 0
-            if not grouped:
+            if measured and not grouped:
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (full suite)")
                 return
             # A spec that has passed once in this pass and fails now is unstable;
@@ -4571,7 +4608,8 @@ class Flow:
             else:
                 repeated = False
             previous_failing = failing_signature
-            if attempt == rounds or self.remaining() < 240 or self.wound_down():
+            if (attempt == rounds or self.remaining() < self.final_measurement_reserve() + self.repair_minimum()
+                    or self.wound_down()):
                 break
             failing = sorted(k for k in grouped if k) or ["all nodes"]
             failures += self.unfinished_repair_note(unfinished)
@@ -4588,7 +4626,7 @@ class Flow:
             # is the changed approach, and that one uses tools.
             last_repair_mode, unfinished = self.suite_repair_turn(
                 f"full-suite repair {attempt + 1}/{rounds}", sorted(k for k in grouped if k), failures,
-                min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
+                min(self.suite_repair_timeout(), max(1, self.remaining() - self.final_measurement_reserve())),
                 tool_prompt=prompt, prefer_codegen=not repeated and not force_tool_repair)
             force_tool_repair = False
             committed = self.commit(f"fix: full-suite repair {attempt + 1}")
@@ -4623,6 +4661,20 @@ class Flow:
         """
         return int(os.environ.get("OCTOS_SUITE_REPAIR_TIMEOUT", str(self.node_timeout)))
 
+    def final_measurement_reserve(self) -> float:
+        configured = os.environ.get("OCTOS_ARC_FINAL_MEASUREMENT_SECONDS")
+        if configured:
+            return max(30, float(configured))
+        return max(120, 1.25 * getattr(self, "last_suite_seconds", 0) + 10)
+
+    @staticmethod
+    def suite_is_measured(summary: RunSummary, specs: list[str]) -> bool:
+        observed = {str(r.file or "").replace("\\", "/") for r in summary.results}
+        return bool(specs and not summary.error and not summary.killed and not summary.load_errors
+                    and summary.results and summary.total == len(summary.results)
+                    and all(r.status in {"passed", "failed", "timedOut"} for r in summary.results)
+                    and all(any(path == spec or path.endswith("/" + spec) for path in observed) for spec in specs))
+
     def final_acceptance_passes(self) -> None:
         """Repeat the full-suite pass while it still fails and the budget allows.
 
@@ -4633,7 +4685,10 @@ class Flow:
         """
         passes = int(os.environ.get("OCTOS_FINAL_SUITE_PASSES", "3"))
         for attempt in range(passes):
-            if self.time_up() or self.remaining() < self.min_repair_seconds * 3:
+            # Admission for measurement is distinct from admission for repair.
+            # The old 3 * 300s floor skipped even the first measurement in a
+            # 600s run. Reserve time for a measured delivery, not another turn.
+            if self.time_up() or self.remaining() < self.final_measurement_reserve():
                 break
             if attempt:
                 if all(verdict is not False for verdict in self.test_verdict.values()):
@@ -4789,11 +4844,19 @@ class Flow:
 
     def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
         """Per-node verdicts and traceability from one full-suite round."""
+        if summary.error or summary.killed or summary.load_errors:
+            return
         for node_id, specs in self.spec_map.items():
             if node_id and specs and summary.results:
-                self.record_tests(node_id, specs, RunSummary(results=[r for r in summary.results
-                                  if Path(r.file or "").name in {Path(p).name for p in specs}]))
-                self.test_verdict[node_id] = node_id not in grouped
+                rows = [r for r in summary.results if any(
+                    str(r.file or "").replace("\\", "/") == p or
+                    str(r.file or "").replace("\\", "/").endswith("/" + p) for p in specs)]
+                local = RunSummary(results=rows, total=len(rows), passed=sum(r.ok for r in rows))
+                if self.suite_is_measured(local, specs):
+                    self.record_tests(node_id, specs, local)
+                    self.test_verdict[node_id] = local.all_passed
+                else:
+                    self.test_verdict[node_id] = None
 
     # -- skeleton ---------------------------------------------------------
     def skeleton(self, tree: dict) -> None:
@@ -4831,11 +4894,14 @@ class Flow:
                 log("[rehearsal] app builds and starts cleanly")
                 return True
             log(f"[rehearsal] FAILED: {err.splitlines()[0][:200]}")
-            if attempt == 3 or self.remaining() < -600:
+            if attempt == 3 or self.remaining() < self.repair_minimum() or self.wound_down():
                 log("[rehearsal] giving up; submitting as-is")
                 return False
             self.turn(REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(err, 1200), port=self.web_port, smoke=self.smoke_port),
-                      self.node_timeout, f"rehearsal repair {attempt}")
+                      min(self.node_timeout, max(1, self.remaining())), f"rehearsal repair {attempt}")
+            # Any post-acceptance edit invalidates the earlier verdicts.
+            if self.last_turn_changed:
+                self.test_verdict = {key: None for key in self.test_verdict}
             self.commit("fix: startup rehearsal repair")
         return False
 
@@ -4948,7 +5014,18 @@ class Flow:
                              daemon=True).start()
             try:
                 self.prepare_build(tree, ordered)
-                if not self.whole_app_experiment(tree, ordered):
+                if (self.evolution and self.runner is not None and self.tests_dir
+                        and unchanged == set(node_ids) and len(node_ids) > 1):
+                    # Repair-only evolution has no new leaves to generate. One
+                    # full baseline reveals shared failures and establishes a
+                    # comparable delivery checkpoint before spending model tokens.
+                    log("[flow] unchanged requirements: measure and repair the existing application as one suite")
+                    for node_id in node_ids:
+                        self.mark("design_started", node_id)
+                        self.mark("design_done", node_id, "unchanged requirement; carried over")
+                        self.mark("implementation_started", node_id)
+                        self.mark("implementation_done", node_id, "existing application; acceptance pending")
+                elif not self.whole_app_experiment(tree, ordered):
                     batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "3"))
                     batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
                     preimplemented: set[str] = set()
@@ -4976,7 +5053,7 @@ class Flow:
                 self.final_acceptance_passes()
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None
-                if undecided and not self.time_up():
+                if undecided and self.runner is None and not self.time_up() and not self.wound_down():
                     log(f"[flow] final check turn for nodes without a local verdict: {undecided}")
                     final_ok, _ = self.turn(FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
                                                                       tests=self.tests_prompt_for(None),
@@ -4984,7 +5061,12 @@ class Flow:
                                             self.node_timeout, "final check")
                     self.commit("chore: final verification pass")
                 rehearsed = self.rehearsal()
+                if rehearsed and any(value is None for value in self.test_verdict.values()) and self.runner is not None:
+                    self.final_acceptance_passes()
                 for node_id in undecided:
+                    if self.runner is not None and self.spec_map.get(node_id):
+                        # Starting the server is not proof that a feature works.
+                        continue
                     if rehearsed and final_ok is not False:
                         self.mark("test_passed", node_id, "final check and startup rehearsal passed")
                     else:

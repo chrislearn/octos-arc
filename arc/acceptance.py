@@ -143,7 +143,8 @@ class RunSummary:
 
     @property
     def all_passed(self) -> bool:
-        return self.total > 0 and self.passed == self.total
+        return (not self.error and not self.killed and not self.load_errors
+                and self.total > 0 and self.passed == self.total)
 
 
 def summarize_report(report: dict) -> RunSummary:

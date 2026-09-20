@@ -5,17 +5,11 @@ can be inspected without changing an in-progress experiment.
 """
 from collections import Counter
 
-from codegen import EDIT_BLOCK, FILE_BLOCK
+from codegen import EDIT_BLOCK, FILE_BLOCK, iter_blocks
 
 
 def _blocks(text):
-    # A marker literal inside a FILE body is code, not another patch operation.
-    end = 0
-    for match in sorted([*EDIT_BLOCK.finditer(text), *FILE_BLOCK.finditer(text)],
-                        key=lambda m: (m.start(), -m.end())):
-        if match.start() >= end:
-            yield match
-            end = match.end()
+    yield from iter_blocks(text)
 
 
 def reply_quality(text: str) -> dict:

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codegen import normalize_bare_file_reply, parse_edit_blocks, parse_file_blocks, prepare_edit_files, write_files
+from codegen import incomplete_blocks, normalize_bare_file_reply, parse_edit_blocks, parse_file_blocks, prepare_edit_files, write_files
 
 
 class ParseTests(unittest.TestCase):
@@ -65,6 +65,44 @@ class ParseTests(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual(files['page.html'], 'alpha\nupdated\ngamma\n')
             self.assertEqual((root / 'page.html').read_text(), 'alpha\nbeta\ngamma\n', 'staging must not write')
+
+    def test_empty_replacement_is_deletion_not_the_following_block(self):
+        delete = '<<<EDIT page.js>>>\n<<<SEARCH>>>\nremove();\n<<<REPLACE>>>\n<<<END EDIT>>>'
+        next_edit = '\n<<<EDIT page.js>>>\n<<<SEARCH>>>\nbefore();\n<<<REPLACE>>>\nafter();\n<<<END EDIT>>>'
+        for newline in ('\n', '\r\n'):
+            self.assertEqual(parse_edit_blocks((delete + next_edit).replace('\n', newline)),
+                             [('page.js', 'remove();', ''), ('page.js', 'before();', 'after();')])
+            self.assertEqual(parse_edit_blocks(delete.replace('\n', newline)), [('page.js', 'remove();', '')])
+
+    def test_malformed_terminator_cannot_swallow_a_later_edit(self):
+        bad = '<<<EDIT page.js>>>\n<<<SEARCH>>>\nold\n<<<REPLACE>>>\nnew\n<<<END EDIT>>\n'
+        good = '<<<EDIT other.js>>>\n<<<SEARCH>>>\na\n<<<REPLACE>>>\nb\n<<<END EDIT>>>'
+        self.assertEqual(parse_edit_blocks(bad + good), [('other.js', 'a', 'b')])
+        self.assertTrue(incomplete_blocks(bad + good))
+
+    def test_empty_search_is_parsed_then_rejected_by_the_write_guard(self):
+        reply = '<<<EDIT page.js>>>\n<<<SEARCH>>>\n<<<REPLACE>>>\nnew\n<<<END EDIT>>>'
+        edits = parse_edit_blocks(reply)
+        self.assertEqual(edits, [('page.js', '', 'new')])
+        files, errors = prepare_edit_files(Path('.'), edits)
+        self.assertEqual(files, {})
+        self.assertEqual(errors, ['page.js: empty SEARCH'])
+
+    def test_malformed_end_marker_cannot_become_replacement_source(self):
+        reply = '<<<EDIT page.js>>>\n<<<SEARCH>>>\nold\n<<<REPLACE>>>\nnew\n<<<END EDIT>>\n<<<END EDIT>>>'
+        self.assertEqual(parse_edit_blocks(reply), [])
+        self.assertTrue(incomplete_blocks(reply))
+
+    def test_literal_end_marker_can_be_deleted_from_a_corrupted_source(self):
+        reply = '<<<EDIT page.js>>>\n<<<SEARCH>>>\n<<<END EDIT>>>\n<<<REPLACE>>>\n<<<END EDIT>>>'
+        self.assertEqual(parse_edit_blocks(reply), [('page.js', '<<<END EDIT>>>', '')])
+
+    def test_file_body_containing_an_edit_example_is_not_an_edit_operation(self):
+        example = '<<<EDIT another.js>>>\n<<<SEARCH>>>\na\n<<<REPLACE>>>\nb\n<<<END EDIT>>>'
+        reply = '<<<FILE example.txt>>>\n' + example + '\n<<<END FILE>>>'
+        self.assertEqual(parse_file_blocks(reply), {'example.txt': example + '\n'})
+        self.assertEqual(parse_edit_blocks(reply), [])
+        self.assertFalse(incomplete_blocks(reply))
 
     def test_missing_or_ambiguous_anchor_rejects_all_edits(self):
         with tempfile.TemporaryDirectory() as tmp:

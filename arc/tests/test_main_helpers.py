@@ -848,15 +848,20 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             flow.final_acceptance_passes()
         self.assertEqual(len(calls), 1)
 
-    def test_should_not_start_a_pass_it_cannot_finish(self):
+    def test_measurement_does_not_require_three_repair_budgets(self):
         from unittest.mock import patch
         flow = self._flow([1])
         flow.min_repair_seconds = 300
         flow.driver = None
         flow.time_up = lambda: False
-        flow.remaining = lambda: 600  # under the 900 s a pass needs
+        flow.remaining = lambda: 600  # enough to measure; not 3 * 300s repairs
         calls = []
         flow.final_acceptance = lambda: calls.append(1)
+        with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
+            flow.final_acceptance_passes()
+        self.assertEqual(calls, [1])
+        calls.clear()
+        flow.remaining = lambda: 20
         with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
             flow.final_acceptance_passes()
         self.assertEqual(calls, [])

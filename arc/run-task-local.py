@@ -12,6 +12,7 @@ parser.add_argument("--port", type=int, default=43100, help="grading port the ap
 parser.add_argument("--smoke-port", type=int, default=None, help="port for the agent's own smoke tests (default port+1)")
 parser.add_argument("--template", default=None, help="existing generated app to evolve (copied into the output dir first)")
 parser.add_argument("--api-config", type=Path, help="local api_key/base_url/model file; values are never printed")
+parser.add_argument("--model", help="override only the model from the local API configuration")
 arguments = parser.parse_args()
 if arguments.api_config:
     from local_config import api_environment
@@ -19,6 +20,8 @@ if arguments.api_config:
         os.environ.update(api_environment(arguments.api_config))
     except (OSError, ValueError):
         sys.exit("API 配置读取失败；请检查 api_key/base_url/model 字段（不显示文件内容）。")
+if arguments.model:
+    os.environ["MODEL"] = arguments.model
 root = Path(__file__).resolve().parent
 adapter = root
 import shutil

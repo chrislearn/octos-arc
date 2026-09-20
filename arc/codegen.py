@@ -27,12 +27,26 @@ from pathlib import Path
 
 _END_FILE = r"(?:<<<END FILE>>>|<END FILE>|END FILE)"
 _END_EDIT = r"(?:<<<END EDIT>>>|<END EDIT>|END EDIT)"
+# Do not consume a later block when a preceding delimiter is malformed. Literal
+# protocol examples can be emitted in a FILE body, not nested inside an EDIT.
+_EDIT_BODY = r"(?:(?!^[ \t]*<<<(?:FILE|EDIT)\s).)*?"
+_REPLACEMENT_BODY = r"(?:(?!^[ \t]*<<<(?:FILE|EDIT|END EDIT|SEARCH|REPLACE)\b).)*?"
 FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)(?:\r?\n)?"
                         rf"^{_END_FILE}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
 EDIT_BLOCK = re.compile(
     r"<<<EDIT\s+(?P<path>[^\n>]+?)\s*>>>\r?\n"
-    r"<<<SEARCH>>>\r?\n(?P<search>.*?)\r?\n"
-    rf"<<<REPLACE>>>\r?\n(?P<replacement>.*?)\r?\n^{_END_EDIT}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
+    rf"<<<SEARCH>>>\r?\n(?P<search>{_EDIT_BODY})(?:\r?\n)?^"
+    rf"<<<REPLACE>>>\r?\n(?P<replacement>{_REPLACEMENT_BODY})(?:\r?\n)?^{_END_EDIT}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
+
+
+def iter_blocks(text: str):
+    """Outermost complete envelopes only; quoted examples are not operations."""
+    end = 0
+    for match in sorted([*EDIT_BLOCK.finditer(text or ""), *FILE_BLOCK.finditer(text or "")],
+                        key=lambda item: (item.start(), -item.end())):
+        if match.start() >= end:
+            yield match
+            end = match.end()
 
 FORMAT_INSTRUCTIONS = """\
 Only blocks, or exactly <<<NO CHANGE>>> if already met. Start with a block marker, not prose.
@@ -63,7 +77,9 @@ def parse_file_blocks(text: str) -> dict[str, str]:
     """Extract path -> contents; a later block for the same path wins.
     Paths are normalised and confined to the project (no absolute, no `..`)."""
     files: dict[str, str] = {}
-    for m in FILE_BLOCK.finditer(text or ""):
+    for m in iter_blocks(text):
+        if m.re is not FILE_BLOCK:
+            continue
         path = safe_relative_path(m.group("path"))
         if path is None:
             continue
@@ -111,7 +127,9 @@ def normalize_bare_file_reply(text: str) -> str | None:
 def parse_edit_blocks(text: str) -> list[tuple[str, str, str]]:
     """Parse exact edits in response order; only project-relative paths qualify."""
     edits = []
-    for match in EDIT_BLOCK.finditer(text or ""):
+    for match in iter_blocks(text):
+        if match.re is not EDIT_BLOCK:
+            continue
         path = safe_relative_path(match.group("path"))
         if path is not None:
             edits.append((path, match.group("search"), match.group("replacement")))
@@ -120,7 +138,7 @@ def parse_edit_blocks(text: str) -> list[tuple[str, str, str]]:
 
 def incomplete_blocks(text: str) -> bool:
     """Find unconsumed block headers, ignoring marker strings inside valid bodies."""
-    spans = sorted([match.span() for pattern in (FILE_BLOCK, EDIT_BLOCK) for match in pattern.finditer(text)])
+    spans = [match.span() for match in iter_blocks(text)]
     end = 0
     outside = []
     for start, stop in spans:

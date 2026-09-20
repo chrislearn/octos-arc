@@ -82,7 +82,7 @@ def model_routes(raw: str) -> list[dict]:
     if not isinstance(rules, list):
         raise ValueError("model routes must be a JSON array")
     phases = {"implement", "repair", "verify", "design"}
-    parameters = {"temperature", "top_p", "max_tokens", "max_completion_tokens", "thinking", "reasoning_effort"}
+    parameters = {"temperature", "top_p", "max_tokens", "max_completion_tokens", "thinking", "reasoning_effort", "enable_thinking"}
     for rule in rules:
         if not isinstance(rule, dict) or set(rule) - {"model", "phases", "max_input_chars", "tools", "images", "parameters"}:
             raise ValueError("invalid model route fields")
@@ -149,6 +149,7 @@ def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
         # supplies supported fields explicitly; there is no name-based guess.
         data.pop("thinking", None)
         data.pop("reasoning_effort", None)
+        data.pop("enable_thinking", None)
         opts = rule.get("parameters", {})
         if "max_completion_tokens" in opts:
             data.pop("max_tokens", None)
@@ -172,6 +173,14 @@ def inject_reasoning(body: bytes, mode: str) -> bytes:
     if not isinstance(data, dict) or "messages" not in data:
         return body
     model = str(data.get("model") or "").lower()
+    # Qwen3.7 Plus uses a different wire parameter from DeepSeek. Sending
+    # DeepSeek's thinking object (or no toggle) does not disable its default
+    # reasoning mode. Limit this adapter to the documented hybrid family.
+    if re.search(r"(?:^|/)qwen3\.7-plus(?:-|$)", model):
+        data["enable_thinking"] = mode not in ("none", "off", "disabled")
+        data.pop("thinking", None)
+        data.pop("reasoning_effort", None)
+        return json.dumps(data, ensure_ascii=False).encode("utf-8")
     if "deepseek" not in model:
         return body
     if mode in ("none", "off", "disabled"):
@@ -222,6 +231,8 @@ def request_shape(body: bytes) -> dict | None:
         return None
     shape: dict = {"messages": len(data.get("messages") or []), "tools": len(data.get("tools") or []),
                    "tools_chars": len(json.dumps(data.get("tools") or [], ensure_ascii=False))}
+    if isinstance(data.get("enable_thinking"), bool):
+        shape["enable_thinking"] = data["enable_thinking"]
     for msg in data.get("messages") or []:
         role = str(msg.get("role", "?"))
         content = msg.get("content")
