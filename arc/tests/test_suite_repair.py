@@ -81,6 +81,7 @@ class SuiteRepairTurnTests(unittest.TestCase):
         flow.last_codegen_refused = set()
         flow.turn.return_value = (True, "tool reply")
         flow.current_spec_chars = 0
+        flow.wound_down.return_value = False
         return flow
 
     def test_should_try_codegen_first_and_skip_tools(self):

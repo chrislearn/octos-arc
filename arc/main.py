@@ -100,6 +100,7 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from reply_quality import prune_degenerate_edits  # noqa: E402
+from repair_context import balanced_failure_evidence  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
 from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -2305,7 +2306,7 @@ class Flow:
         entry = backend_entry(self.output_dir) if existing else None
         if must_include is None:
             must_include = set(getattr(self, "refused_paths", ()))
-        scored = scored_sources(self.output_dir, spec, entry, must_include=must_include) if existing else []
+        scored = scored_sources(self.output_dir, spec + "\n" + evidence, entry, must_include=must_include) if existing else []
         scored = Flow.omit_unchanged_template_libraries(self, scored, must_include)
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
@@ -2354,6 +2355,8 @@ class Flow:
         spec = self.spec_bodies(node_id)
         if not spec or spec == "(none)":
             return None
+        if failures and failures in prompt:
+            prompt = prompt.replace(failures, balanced_failure_evidence(failures, 6000), 1)
         patched = self._patched_repair_prompt(node_id, spec, prompt)
         if patched is not None:
             return patched
@@ -2366,7 +2369,7 @@ class Flow:
         if node is None:
             return None
         evidence = ("The current application fails these acceptance checks; fix them without breaking the "
-                    "passing ones:\n" + (failures or "(no detail)")[:6000] + "\n")
+                    "passing ones:\n" + balanced_failure_evidence(failures or "(no detail)", 6000) + "\n")
         return self.codegen_implement_prompt(node, spec, "", evidence=evidence)
 
     def _patched_repair_prompt(self, node_id: str, spec: str, prompt: str) -> str | None:
@@ -2465,7 +2468,8 @@ class Flow:
         if phase == "design":
             design_default = max(4096, min(16384, 128 * getattr(self, "n_nodes", 32)))
             phase_cap = max(0, int(os.environ.get("OCTOS_ARC_DESIGN_MAX_TOKENS", str(design_default))))
-        recovery_cap = max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0
+        recovery_cap = self.generation_recovery_cap() if recovering and phase == "implement" else (
+            max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0)
         proxy.codegen_max_tokens = min([cap for cap in (phase_cap, recovery_cap) if cap] or [0])
         recovery_mode = os.environ.get("OCTOS_ARC_RECOVERY_REASONING", "none")
         if recovering and recovery_mode in {"low", "medium", "high"}:
@@ -2650,7 +2654,7 @@ class Flow:
         if omitted:
             description += f". Also failing, specs not shown: {', '.join(omitted)}"
         evidence = ("The current application fails these acceptance checks; fix them without breaking the "
-                    "passing ones:\n" + (failures or "(no detail)")[:8000] + "\n")
+                    "passing ones:\n" + balanced_failure_evidence(failures or "(no detail)", 8000) + "\n")
         changed = self.changed_files_since(getattr(self, "last_checkpoint_sha", None))
         # A concrete application refusal is stronger evidence than the whole
         # historical diff (which can include almost every file on the first
@@ -2671,6 +2675,17 @@ class Flow:
             log(f"[flow] suite repair: priority files not quoted whole: {', '.join(missing)}")
         return prompt
 
+    def compact_tool_repair_prompt(self, prompt: str, failures: str = "") -> str:
+        """Tools read current files on demand instead of carrying a 90k snapshot."""
+        sources = self.sources_text()
+        if sources.strip() and sources in prompt:
+            replacement = (stack_note(self.output_dir) + "\nApplication source index (read the relevant files before editing):\n"
+                           + source_listing(self.output_dir) + "\n")
+            prompt = prompt.replace(sources, replacement, 1)
+        if failures and failures in prompt:
+            prompt = prompt.replace(failures, balanced_failure_evidence(failures, 12000), 1)
+        return prompt
+
     def suite_repair_turn(self, label: str, failing_ids: list[str], failures: str, timeout: int, *,
                           tool_prompt: str, prefer_codegen: bool = True) -> tuple[str, str]:
         """Repair what a suite run found: one codegen request first, tool mode only
@@ -2680,13 +2695,14 @@ class Flow:
         deadline = time.monotonic() + timeout
         reason = ""
         self.last_repair_changed = False
+        tool_prompt = self.compact_tool_repair_prompt(tool_prompt, failures)
         if prefer_codegen and self.codegen_mode(node_block=False):
             prompt = self.suite_repair_prompt(failing_ids, failures)
             if prompt is not None:
                 spec_chars = getattr(self, "suite_spec_chars", 0)
                 for attempt in range(2):
                     left = deadline - time.monotonic()
-                    if left <= 0:
+                    if left <= 0 or self.wound_down():
                         break
                     ok, reason = self.codegen_turn(prompt, left, label if not attempt else label + " (protocol retry)",
                                                    spec_chars=spec_chars)
@@ -2696,7 +2712,7 @@ class Flow:
                         # A partial patch is evidence to measure, not proof that
                         # another model turn is needed before testing.
                         return "codegen", ""
-                    if attempt or deadline - time.monotonic() < 30:
+                    if attempt or getattr(self, "last_codegen_degenerated", False) or deadline - time.monotonic() < 30:
                         break
                     if refused:
                         retry_evidence = failures
@@ -2718,7 +2734,7 @@ class Flow:
             else:
                 log(f"[flow] {label}: no codegen repair prompt within the budget; using tools")
         left = deadline - time.monotonic()
-        if left <= 0:
+        if left <= 0 or self.wound_down():
             return "unapplied", ""
         if reason:
             tool_prompt += "\nCodegen repair did not fully apply; inspect current files before editing. " + reason[:300] + "\n"
@@ -2737,9 +2753,16 @@ class Flow:
         self.last_codegen_deferred = set()
         self.last_codegen_written = []
         self.last_codegen_no_change = False
+        self.last_codegen_degenerated = False
         started = time.monotonic()
         def result(ok: bool, text: str, outcome: str):
             self.last_codegen_outcome = outcome
+            if phase_for_label(label) == "implement" and getattr(self, "codegen_degenerated", False):
+                clean = ok and outcome == "applied" and not self.last_codegen_degenerated
+                self.clean_codegen_streak = getattr(self, "clean_codegen_streak", 0) + 1 if clean else 0
+                if self.clean_codegen_streak >= 2:
+                    self.codegen_degenerated = False
+                    self.metric("generation_recovered", label=label)
             elapsed = time.monotonic() - started
             if outcome == "applied" and phase_for_label(label) == "repair":
                 durations = getattr(self, "repair_durations", {})
@@ -2765,6 +2788,7 @@ class Flow:
                           or quality['noop_edits'] >= 8 and quality['noop_chars'] >= 2048)
             if degenerated:
                 self.codegen_degenerated = True
+                self.last_codegen_degenerated = True
                 log(f"[codegen] {label}: repetitive output detected; bounded future codegen replies")
             if quality['noop_edits'] or degenerated:
                 self.metric("reply_quality", label=label, **quality)
@@ -3278,7 +3302,7 @@ class Flow:
                 refused = self.last_codegen_refused
                 if self.last_codegen_written and not refused:
                     return True
-                if attempt:
+                if attempt or getattr(self, "last_codegen_degenerated", False):
                     break
                 if not refused:
                     outcome = getattr(self, "last_codegen_outcome", "")
@@ -3292,7 +3316,9 @@ class Flow:
                     break
                 prompt = build_prompt()
                 if getattr(self, "last_codegen_outcome", "") == "anchor_failed":
-                    failures += "\nPatch application error (no edits applied):\n" + reason[:1200]
+                    correction = "\nPatch application error (no edits applied):\n" + reason[:1200]
+                    failures += correction
+                    prompt += correction
                 compact = self.codegen_repair_prompt(node_id, prompt, failures=failures)
                 if compact is None or not refused <= quoted_paths(compact):
                     break
@@ -3310,7 +3336,7 @@ class Flow:
                 "Inspect current files; apply a concrete fix before rerunning acceptance. "
                 "An unapplied or unchanged reply is not evidence that the proposed fix failed.")
         self.last_turn_changed = None
-        self.turn(build_prompt(), left, label)
+        self.turn(self.compact_tool_repair_prompt(build_prompt(), failures), left, label)
         changed = getattr(self, "last_turn_changed", None)
         if changed is False and not applied:
             log(f"[flow] {label}: no source changes after repair fallback; skipping duplicate acceptance")
@@ -3543,11 +3569,16 @@ class Flow:
         log(f"[flow] sibling batch {ids}: generated once or declared no-change; validating each leaf separately")
         return True
 
+    @staticmethod
+    def generation_recovery_cap() -> int:
+        return max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_GENERATION_MAX_TOKENS",
+                           os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "16384"))))
+
     def generation_output_budget(self) -> int:
         # Leave room for reasoning/protocol overhead and estimation error. A
         # deployment with a smaller routed model can explicitly lower this.
         maximum = max(1, int(os.environ.get("OCTOS_ARC_MAX_TOKENS", "32768")))
-        recovery_cap = int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))
+        recovery_cap = self.generation_recovery_cap()
         if getattr(self, "codegen_degenerated", False) and recovery_cap > 0:
             maximum = min(maximum, recovery_cap)
         routes = getattr(getattr(self, "llm_proxy", None), "routes", [])
@@ -3633,7 +3664,8 @@ class Flow:
                       "<<<END FILE>>> or <<<END EDIT>>> terminators. Use one format per path. "
                       "Do not explain the implementation.\n")
         retry_seconds = min(360, int(deadline - time.monotonic()))
-        if (format_error and retry_seconds >= 30 and not self.wound_down()
+        if (format_error and not getattr(self, "last_codegen_degenerated", False)
+                and retry_seconds >= 30 and not self.wound_down()
                 and self.remaining() >= self.min_repair_seconds + 120
                 and len(prompt) + len(correction) + len(FORMAT_INSTRUCTIONS) + 1
                 <= self.codegen_context_chars()):
@@ -3659,6 +3691,8 @@ class Flow:
                               "across waves):\n" + tree_outline(tree, max_chars=12000) + "\n\n")
             log("[flow] whole-app waves: design reply unavailable; using bounded requirement map")
         max_nodes = max(1, int(os.environ.get("OCTOS_ARC_WHOLE_APP_WAVE_NODES", "6")))
+        configured_max_nodes = max_nodes
+        clean_waves = 0
         max_spec = min(30000, int(self.codegen_context_chars() * 0.35))
         max_details = min(24000, int(self.codegen_context_chars() * 0.25))
         parents = {}
@@ -3697,7 +3731,6 @@ class Flow:
                 estimated = generation_tokens(group, len(spec))
                 if (len(spec) > max_spec or len(details) > max_details
                         or estimated > self.generation_output_budget()) and size > 1:
-                    max_nodes = min(max_nodes, (size + 1) // 2)
                     size = max(1, size // 2)
                     continue
                 combined = {"id": f"application wave {wave + 1}",
@@ -3708,7 +3741,6 @@ class Flow:
                 prompt = self.codegen_implement_prompt(combined, spec)
                 if prompt is None:
                     if size > 1:
-                        max_nodes = min(max_nodes, (size + 1) // 2)
                         size = max(1, size // 2)
                         continue
                     log(f"[flow] whole-app waves: {ids[0]} cannot fit alone; using node flow")
@@ -3727,6 +3759,7 @@ class Flow:
                                                           spec_chars=len(spec))
                 if not ok or not (getattr(self, "last_codegen_written", [])
                                   or getattr(self, "last_codegen_no_change", False) is True):
+                    clean_waves = 0
                     if getattr(self, "last_codegen_written", []):
                         self.commit(f"whole application wave {wave + 1} (partial; requires verification)")
                         self.whole_app_partial_ids.update(ids)
@@ -3747,6 +3780,10 @@ class Flow:
                     break
                 self.commit(f"whole application wave {wave + 1} (experimental implement)")
                 self.whole_app_generated_ids.update(ids)
+                clean_waves += 1
+                if clean_waves >= 2:
+                    max_nodes = min(configured_max_nodes, max_nodes * 2)
+                    clean_waves = 0
                 start += size
                 wave += 1
                 break
@@ -4469,6 +4506,7 @@ class Flow:
         last_repair_mode = ""
         force_tool_repair = False
         for attempt in range(rounds + 1):
+            restored_this_round = False
             summary = measured_suite()
             if (best is not None and last_repair_mode == "codegen" and wrote_last
                     and self.suite_is_measured(summary, all_specs) and best["passed"] - summary.passed >= 3):
@@ -4483,6 +4521,7 @@ class Flow:
                     log(f"[acceptance] full suite: codegen repair regressed {best['passed']} -> "
                         f"{summary.passed}, newly failing {sorted(newly_broken)}; restoring best state")
                     self.restore_app(best["sha"])
+                    restored_this_round = True
                     self.pending_corrections.append(
                         f"The last broad codegen repair broke {', '.join(sorted(newly_broken))}. "
                         "The harness restored frontend/ and backend/ to the best state. "
@@ -4535,14 +4574,15 @@ class Flow:
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             self.metric("acceptance", scope="final_suite", round=attempt, passed=summary.passed,
-                        total=summary.total, after_applied_repair=wrote_last,
+                        total=summary.total, after_applied_repair=wrote_last and not restored_this_round,
+                        restored_before_measurement=restored_this_round,
                         verdict="measured" if measured else "unknown", error=summary.error,
                         load_errors=summary.load_errors)
             self.record_full_suite(summary, grouped)
             self.remember_delivery_checkpoint(summary, grouped)
             last_passed = summary.passed if measured else -1
             if measured and (best is None or summary.passed > best["passed"]):
-                if best is not None:
+                if best is not None and wrote_last and not restored_this_round:
                     self.final_suite_progress = True
                 if attempt > 0:
                     self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
@@ -4691,6 +4731,8 @@ class Flow:
             if self.time_up() or self.remaining() < self.final_measurement_reserve():
                 break
             if attempt:
+                if self.wound_down():
+                    break
                 if all(verdict is not False for verdict in self.test_verdict.values()):
                     break
                 log(f"[flow] full suite still failing with {self.remaining():.0f}s left; "

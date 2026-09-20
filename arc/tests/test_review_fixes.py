@@ -61,6 +61,7 @@ class SuiteRepairReasoningTests(unittest.TestCase):
         flow.last_codegen_refused = set()
         flow.current_spec_chars = 10
         flow.suite_spec_chars = 12345
+        flow.wound_down.return_value = False
         flow.suite_repair_prompt.return_value = "codegen prompt"
         m.Flow.suite_repair_turn(flow, "checkpoint 8 repair 1/2", ["REQ-2"], "f", 300, tool_prompt="t")
         self.assertEqual(flow.codegen_turn.call_args.kwargs["spec_chars"], 12345)
