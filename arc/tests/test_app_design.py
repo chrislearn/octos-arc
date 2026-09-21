@@ -44,6 +44,8 @@ DESIGN = {
     "pages": [{"path": "/register", "purpose": "registration form"},
               {"path": "/login", "purpose": "login form"},
               {"path": "/orders", "purpose": "order list"}],
+    "modules": [{"path": "frontend/src/App.jsx", "owns": ["routing"]},
+                {"path": "frontend/src/pages/Orders.jsx", "owns": ["orders page"]}],
     "notes": "sessions via cookie",
 }
 
@@ -70,7 +72,8 @@ class DesignContextTests(unittest.TestCase):
     def test_should_quote_the_whole_design_when_it_fits(self):
         out = m.app_design_context(DESIGN, "goto('/orders')", 6000)
         self.assertIn("Application design", out)
-        for token in ("/api/register", "/api/orders", "/register", "/orders", "userId", "sessions via cookie"):
+        for token in ("/api/register", "/api/orders", "/register", "/orders", "userId",
+                      "frontend/src/pages/Orders.jsx", "sessions via cookie"):
             self.assertIn(token, out)
 
     def test_should_keep_the_data_model_and_drop_unrelated_routes_and_pages_when_over_cap(self):
@@ -88,6 +91,16 @@ class DesignContextTests(unittest.TestCase):
         stable, node_slice = m.app_design_blocks(big, "orders", 500)
         self.assertLessEqual(len(stable) + len(node_slice), 500)
         self.assertIn("design truncated", stable)
+
+    def test_should_validate_module_owners_and_keep_them_in_the_stable_core(self):
+        self.assertIsNotNone(m.valid_app_design(DESIGN))
+        for modules in ([{"path": "/tmp/x", "owns": ["x"]}],
+                        [{"path": "frontend/src/X.jsx", "owns": []}],
+                        [{"path": "frontend/src/X.jsx", "owns": "page"}]):
+            with self.subTest(modules=modules):
+                self.assertIsNone(m.valid_app_design({"pages": [{"path": "/"}], "modules": modules}))
+        stable, _ = m.app_design_blocks(dict(DESIGN, notes="n" * 20000), "orders", 850)
+        self.assertIn('frontend/src/App.jsx', stable)
 
 
 class AppDesignTurnTests(unittest.TestCase):
@@ -120,6 +133,8 @@ class AppDesignTurnTests(unittest.TestCase):
             prompt, label = flow.calls[0]
             self.assertIn("REQ-1.1", prompt)
             self.assertIn("long scenario text", prompt)
+            self.assertIn('"modules"', prompt)
+            self.assertIn("below 18000 characters", prompt)
             self.assertIn("design", label)
             self.assertTrue((Path(folder) / ".arc" / "design" / "app.json").is_file())
             self.assertFalse(flow.driver.tools_disabled)   # scope restored

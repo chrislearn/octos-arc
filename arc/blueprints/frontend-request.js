@@ -8,6 +8,17 @@ export async function requestJson(url, options = {}) {
     headers.set('Content-Type', 'application/json');
   }
   const response = await fetch(url, {...options, headers});
-  if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const body = await response.text();
+    let message = body;
+    try {
+      const parsed = JSON.parse(body);
+      if (typeof parsed.error === 'string') message = parsed.error;
+      else if (typeof parsed.message === 'string') message = parsed.message;
+    } catch { /* Preserve plain-text errors. */ }
+    const error = new Error(message || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
   return response.status === 204 ? null : response.json();
 }

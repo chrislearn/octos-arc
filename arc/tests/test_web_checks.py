@@ -75,6 +75,37 @@ class ScaffoldChecksTests(unittest.TestCase):
             "import {HashRouter} from 'react-router'; export default () => <HashRouter />;")
         self.assertEqual(scaffold_issues(self.root), [])
 
+    def test_detects_uncompiled_utility_classes_before_visual_acceptance(self):
+        app = self.root / 'frontend/src/App.jsx'
+        app.write_text('''export default function App() { return <main
+          className="flex grid relative bg-white text-gray-700 border-gray-200 rounded-lg shadow-sm p-4 px-3 m-2 gap-3 items-center justify-between">
+          <button className="hover:bg-gray-100 focus:ring-2">Save</button>
+        </main>; }''')
+        issues = scaffold_issues(self.root)
+        self.assertIn('no active utility CSS', '\n'.join(issues))
+        self.assertIn('tailwindcss/@tailwindcss/vite', '\n'.join(issues))
+        self.assertIn('no active utility CSS', AppServer(self.root, 3000, lambda _: None).build())
+
+    def test_utility_classes_are_valid_with_tailwind_or_explicit_css(self):
+        app = self.root / 'frontend/src/App.jsx'
+        classes = ('flex grid relative bg-white text-gray-700 border-gray-200 rounded-lg '
+                   'shadow-sm p-4 px-3 m-2 gap-3 items-center justify-between')
+        app.write_text(f'export default () => <main className="{classes}" />;')
+        manifest = self.root / 'frontend/package.json'
+        data = json.loads(manifest.read_text())
+        data.setdefault('devDependencies', {}).update(
+            {'tailwindcss': '4.3.3', '@tailwindcss/vite': '4.3.3'})
+        manifest.write_text(json.dumps(data))
+        (self.root / 'frontend/src/style.css').write_text('@import "tailwindcss";\n')
+        self.assertEqual(scaffold_issues(self.root), [])
+
+        data['devDependencies'].pop('tailwindcss')
+        data['devDependencies'].pop('@tailwindcss/vite')
+        manifest.write_text(json.dumps(data))
+        (self.root / 'frontend/src/style.css').write_text(
+            '\n'.join('.' + name + ' {}' for name in classes.split()))
+        self.assertEqual(scaffold_issues(self.root), [])
+
 
 if __name__ == '__main__':
     unittest.main()

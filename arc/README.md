@@ -92,11 +92,12 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | 变量 | 默认 | 作用 |
 |---|---|---|
 | `OCTOS_TIME_BUDGET` / `OCTOS_NODE_TIME_BUDGET` | max(3600, 1500×节点数) / 1500 s | 整体与单节点（含修复轮）的墙钟预算；单节点预算按剩余时间/剩余节点数自适应 |
+| `OCTOS_ARC_FINAL_PHASE_SECONDS` | 自动：通常 600 s，且不超过阶段预算 25% | 大于 2 节点的任务在总预算内为最终全套测量、聚类修复和复测保留的时间；不延长总运行上限，设为 0 可关闭 |
 | `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
 | `OCTOS_ARC_WHOLE_APP_WAVE_NODES` / `OCTOS_ARC_CODEGEN_OUTPUT_TOKENS` | 6 / 输出上限的 60% | 波次同时受输入及估计输出预算限制；超预算先拆分，不先消耗一次截断请求 |
 | `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` | 0（关闭） | 逐请求检查的累计 token 阈值；达到后不再发上游请求，已在途请求可能超出，依赖供应商 usage 计量 |
 | `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 小题 5、大于 2 节点 3 / 工具模式 300 s | 每节点验收修复轮上限；单请求代码修复默认以 60 s 为最低准入时间，再按近期实测耗时调高。显式设置的最低时间始终保留 |
-| `OCTOS_FINAL_REPAIR_ROUNDS` / `OCTOS_FINAL_SUITE_PASSES` | 3 / 3 | 每次全套验收最多 3 轮修复，最多 3 个验收周期；无进展、无代码变化、相同失败或预算不足会提前停止，并非固定执行 9 轮 |
+| `OCTOS_FINAL_REPAIR_ROUNDS` / `OCTOS_FINAL_SUITE_PASSES` | 3 / 默认由整轮成本守卫决定 | 每次全套验收最多 3 轮修复；默认不再以 3 个验收周期为固定终点，只有全绿、显式时间/token/轮次守卫或不足以完成“测量→修复→复测”时停止。可显式设置周期硬上限 |
 | `OCTOS_ARC_DEGENERATE_MAX_TOKENS` | 8192 | 检出大量空改动或重复 EDIT 后，本次运行后续无工具代码请求的输出上限；首次请求和设计不受影响，0 关闭；波次规划同步缩小预算 |
 | `OCTOS_ARC_RECOVERY_REASONING` | none | 检出上述生成退化后，可显式选择 low/medium/high；默认仍关闭 thinking，不自动开启 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |

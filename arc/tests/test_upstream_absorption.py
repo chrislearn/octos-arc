@@ -142,6 +142,29 @@ class SchedulingTests(unittest.TestCase):
             self.assertLessEqual(allocated, max(0, left - 200))
             self.assertGreaterEqual(allocated, 0)
 
+    def test_large_task_reserves_final_suite_capacity_without_extending_budget(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=True):
+            root = Path(tmp)
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.n_nodes = 32
+            flow.runner = object()
+            flow.tests_dir = root
+            flow.codegen_mode = lambda **kw: True
+            self.assertEqual(flow.final_phase_reserve(), 600)
+            self.assertEqual(flow.final_phase_reserve(900), 225)
+            flow.n_nodes = 2
+            self.assertEqual(flow.final_phase_reserve(), 0)
+
+    def test_final_phase_reserve_can_be_explicitly_tuned(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+                os.environ, {"OCTOS_ARC_FINAL_PHASE_SECONDS": "750"}, clear=True):
+            root = Path(tmp)
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.n_nodes = 10
+            flow.runner = object()
+            flow.tests_dir = root
+            self.assertEqual(flow.final_phase_reserve(), 750)
+
     def test_measured_duration_median_and_phase_classification(self):
         self.assertEqual(repair_seconds([], 300), 300)
         self.assertEqual(repair_seconds([80, 100, 110], 300), 300)
@@ -247,6 +270,23 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertFalse(flow.acceptance_loop("R", ["R.spec.ts"], time.time() + 900))
         flow.run_specs.assert_called_once()
 
+    def test_leaf_repair_cannot_borrow_the_large_tasks_final_reserve(self):
+        flow = self.flow
+        flow.runner = object()
+        flow.tests_dir = self.root
+        flow.n_nodes = 32
+        flow.budget = 3600
+        flow.remaining = lambda: 600
+        flow.repair_rounds = 3
+        flow.head = lambda: "base"
+        flow.record_tests = Mock()
+        flow.run_specs = Mock(return_value=RunSummary(passed=0, total=1, results=[
+            TestOutcome("control", False, "failed", 1, message="control missing")]))
+        flow.node_repair_turn = Mock(return_value=True)
+        self.assertFalse(flow.acceptance_loop("R", ["R.spec.ts"], time.time() + 900))
+        flow.node_repair_turn.assert_not_called()
+        flow.run_specs.assert_called_once()
+
     def test_real_tool_turn_measures_effective_sources_not_attempted_writes(self):
         flow = self.flow
         flow.protected_prefixes = lambda: []
@@ -271,7 +311,7 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertEqual(len(flow.repair_durations["tools"]), 1)
         self.assertEqual(flow.repair_durations["codegen"], [])
 
-    def test_noop_final_pass_is_not_repeated(self):
+    def test_noop_final_pass_changes_approach_while_budget_remains(self):
         flow = self.flow
         flow.remaining = lambda: 10000
         flow.time_up = lambda: False
@@ -279,6 +319,16 @@ class RepairOutcomeTests(unittest.TestCase):
         def unchanged():
             flow.final_repair_no_change = True
         flow.final_acceptance = Mock(side_effect=unchanged)
+        with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
+            flow.final_acceptance_passes()
+        self.assertEqual(flow.final_acceptance.call_count, 3)
+
+    def test_noop_final_pass_stops_when_another_complete_attempt_will_not_fit(self):
+        flow = self.flow
+        flow.remaining = lambda: 250
+        flow.time_up = lambda: False
+        flow.test_verdict = {"R": False}
+        flow.final_acceptance = Mock(side_effect=lambda: setattr(flow, "final_repair_no_change", True))
         with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
             flow.final_acceptance_passes()
         flow.final_acceptance.assert_called_once()

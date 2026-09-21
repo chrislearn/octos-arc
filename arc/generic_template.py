@@ -23,6 +23,7 @@ def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: i
                              capabilities: list[str] | None = None) -> list[str]:
     assets = {"backend/server.js": "server.js", "backend/lib/store.js": "store.js",
               "backend/lib/collection.js": "collection.js",
+              "backend/lib/errors.js": "errors.js",
               "backend/lib/query.js": "query.js",
               "frontend/build.mjs": "frontend-build.mjs",
               "frontend/vite.config.mjs": "vite.config.mjs",

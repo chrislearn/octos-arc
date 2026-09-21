@@ -30,6 +30,7 @@ Environment (all optional):
     OCTOS_SECONDS_PER_NODE    per-node allowance used for that default (1500)
     OCTOS_MIN_REPAIR_SECONDS  explicit repair admission floor (default tools 300s; codegen 60s + measured duration)
     OCTOS_NODE_TIME_BUDGET    explicit hard cap per node; default 1500 + earned surplus, at most 3000
+    OCTOS_ARC_FINAL_PHASE_SECONDS  large-task time reserved inside the total budget for final suite repair
     OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5 for <=2 nodes, otherwise 3)
     OCTOS_DESIGN_TURN         "0" disables the design turn
     OCTOS_DESIGN_MODE         inline (default) | separate (own read-only design turn)
@@ -373,6 +374,15 @@ def valid_app_design(design) -> dict | None:
                        and isinstance(c.get("requirements"), list)
                        and all(isinstance(v, str) for v in c["requirements"]) for c in contracts)):
         return None
+    modules = design.get("modules")
+    if modules is not None and (not isinstance(modules, list)
+            or not all(isinstance(module, dict)
+                       and isinstance(module.get("path"), str)
+                       and module["path"].startswith(("frontend/", "backend/"))
+                       and isinstance(module.get("owns"), list) and module["owns"]
+                       and all(isinstance(owner, str) and owner for owner in module["owns"])
+                       for module in modules)):
+        return None
     if notes is not None and not isinstance(notes, str):
         return None
     if not any(design.get(k) for k in ("data_model", "routes", "pages")):
@@ -441,6 +451,9 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
         core.setdefault("data_model", {})[name] = shape
         if size() > stable_cap:
             del core["data_model"][name]
+    for module in design.get("modules") or []:
+        if not append_entry(core, "modules", module):
+            break
     # Stable fields are selected before consulting the current requirement.
     if design.get("notes"):
         core["notes"] = design["notes"]
@@ -1478,7 +1491,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "11"
+APP_DESIGN_PROMPT_VERSION = "12"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Optional collection(...) migration up(data) receives a storage OBJECT; the record array is data.items, "
@@ -1497,13 +1510,14 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
  "pages": [{{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
+ "modules": [{{"path": "frontend/src/...|backend/routes/...", "owns": ["cohesive page/layout/editor/API concern"]}}],
  "contracts": [{{"requirements": ["REQ-..."], "invariants": ["ownership/key scope", "command: preconditions -> atomic effects and undo", "draft/save/cancel semantics", "date-only/clock/deadline rules", "control and validation semantics"]}}],
  "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}}
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
 For each lifecycle view, specify which records the API returns and which filters the client applies; a client cannot recover records already excluded by the server. Specify absent versus false query values, compatible filter combinations, and inverse transitions (remove/restore, assign/unassign). For composite editors, state whether selection commits immediately or on Save, how Done/Cancel/Escape behave, and which owner retains the draft after a failed save. Do not invent lifecycle states not required by the task.
 Give every expanded editor a visible completion action: Save for explicit commits or Close/Done for autosave; Escape/outside click supplements that action, never replaces it. Moving focus within the editor is not completion. Distinguish raw response JSON from Response objects; no helper-invented result envelope unless explicitly implemented on the backend.
 In notes, preserve required entry gestures and action placement (record click, direct action, menu action). Distinguish available catalogue choices from initially selected values; optional actions must follow user intent, not unconditional fixture-derived defaults.
-Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Split layouts only when requirements differ. Keep this concrete and minimal, not a configurable application framework.
+Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Put those owners in modules. App.jsx owns routing/composition; normally keep each application module below 18000 characters by extracting cohesive pages, reusable record views/editors and API/state modules before they become a monolith. Split layouts only when requirements differ; do not create pass-through modules merely to meet a number. Keep this concrete and minimal, not a configurable application framework.
 """
 
 CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply only with <<<FILE relative/path>>> ... <<<END FILE>>> blocks using exact delimiters, or exactly <<<NO CHANGE>>> when already satisfied.
@@ -1519,8 +1533,10 @@ Output: complete FILE blocks for changed files only; do not re-emit unchanged mo
 """
 
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
-Optional require('../lib/query') from backend/routes/ exports optionalBoolean(value): undefined/true/false, invalid input throws status=400; matchesFlags(record,flags): strict boolean equality, undefined ignored. Whitelist fields, resolve view defaults once, enforce ownership separately. Combine filters independently; a client cannot recover server-excluded records. Check inverse transitions and filter combinations. No fixture-specific defaults.
-Shared task-neutral files already exist: backend/server.js is an Express 5 entry with JSON/form parsers, static frontend/dist serving, and automatic registration of backend/routes/*.js. Each route file exports a function (app) that registers app.get/post/patch/delete handlers; use req.body, req.params, res.json and res.status. Example: module.exports = app => { app.get('/api/items', (req, res) => res.json([])); }; Register static paths before matching parameter paths. Do not rewrite the entry for ordinary routes. From backend/routes/, optional helpers are require('../lib/store') with read(name,fallback), write(name,value), update(name,fallback,synchronousChange), and require('../lib/collection').collection(name,{idKey,initial,migrations}) with all/list/get/create/patch/remove. initial is new-store-only: evolve persisted data with store.migrate(name,fallback,[{id,up(data){ /* mutate synchronously, return undefined */ }}]) or collection migrations. IDs run once; preserve reserved __arcMigrations metadata. Never reinsert deleted records on read. Atomicity is single-store/single-process only; keep related command effects together or use transactional storage. Put substantial views in separate modules. ./shared/request.js exports requestJson(url,{body: JSON.stringify(data),...options}). A React scaffold uses main.jsx/App.jsx and the fixed baseline below. Only the plain scaffold has app.js, shared/dom.js (escapeHtml), and shared/router.js (startRouter(render) for a[data-route] links, requiring arc.spa=true). Optional frontend/build.mjs and vite.config.mjs: build is "node build.mjs" for npm frontend packages; Vite bundles JSX and local imports, plain src can be copied, Tailwind CLI and htmx.org have local build paths. frontend/public is copied to the dist root. Define domain fields, pages, validation, session rules and seed data from the task. Do not output FILE blocks for unchanged shared helpers; use application routes and feature modules instead.
+Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes.
+From backend/routes/: require('../lib/store') exports read(name,fallback), write(name,value), update(name,fallback,synchronousChange). Prefer require('../lib/collection').collection(name,{idKey,initial,migrations,normalize}) for ordinary CRUD instead of regenerating persistence; it exports all/list/get/create/patch/remove/transact. initial applies only to a new store; persist changes to existing data via versioned migrations up(data) mutating data.items synchronously, preserving __arcMigrations. Never reseed deleted records. Optional normalize(record) returns an object with the SAME id on reads/create/patch and before/after transact; choose defaults from requirements, not fixtures. Reads do not persist normalization. transact(items => result) synchronously mutates one collection in one write; duplicate/missing IDs and async callbacks fail. Atomicity is single-store/single-process only; cross-store effects need one aggregate or transactional storage. require('../lib/errors').HttpError(status,message) gives explicit 4xx {error:message}; 5xx details are hidden. Define domain validation, authorization and messages from requirements.
+Optional require('../lib/query') exports optionalBoolean(value) (missing/true/false, invalid => 400) and matchesFlags(record,flags) (strict booleans, undefined ignored). Whitelist fields, resolve view defaults once, combine filters, and enforce ownership separately; clients cannot recover server-excluded rows.
+Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (204 => null) or an Error with {error} message and numeric status; no {ok,value} envelope. React uses main.jsx/App.jsx. Plain scaffold uses app.js, shared/dom.js (escapeHtml) and shared/router.js (startRouter(render), arc.spa=true). Optional build.mjs/vite.config.mjs: build is "node build.mjs"; bundle JSX/local assets. frontend/public copies to dist root. Define fields, pages, sessions and seed data from the task. Do not output FILE blocks for unchanged shared helpers.
 """
 
 TASK_NEUTRAL_HELPERS = {
@@ -1528,6 +1544,7 @@ TASK_NEUTRAL_HELPERS = {
     "frontend/src/shared/interactions.jsx": "react-interactions.jsx",
     "backend/lib/store.js": "store.js",
     "backend/lib/collection.js": "collection.js",
+    "backend/lib/errors.js": "errors.js",
     "frontend/build.mjs": "frontend-build.mjs",
     "frontend/vite.config.mjs": "vite.config.mjs",
     "frontend/src/shared/dom.js": "frontend-dom.js",
@@ -1696,7 +1713,7 @@ Read the acceptance spec files for this node in full and the existing code they 
  "data_model": {{"collection": {{"field": "type"}}}},
  "files": ["backend/server.js", "frontend/src/..."],
  "notes": "validation rules, session handling, seed data, performance decisions"}}
-Copy every accessible name verbatim from the specs. This is a reading turn: use only file reading, listing and grep — no builds, servers, curl or other shell commands — and do not create or modify any other file.\
+Copy every accessible name verbatim from the specs. Keep App.jsx for routing/composition; when the planned feature would make one application module exceed roughly 18000 characters, list cohesive page/component/state modules instead of one monolith. Do not split tiny cohesive code. This is a reading turn: use only file reading, listing and grep — no builds, servers, curl or other shell commands — and do not create or modify any other file.\
 """
 
 NODE_PROMPT = """\
@@ -1964,6 +1981,28 @@ class Flow:
         if mode == "codegen" and "OCTOS_MIN_REPAIR_SECONDS" not in os.environ:
             minimum = min(minimum, 60)
         return repair_seconds(getattr(self, "repair_durations", {}).get(mode, []), minimum)
+
+    def final_phase_reserve(self, phase_budget: float | None = None) -> float:
+        """Time large tasks keep for final measurement and clustered repairs.
+
+        Per-leaf acceptance is useful evidence, but spending the last minute on
+        one leaf prevents the full suite from exposing and repairing a shared
+        cause.  The reserve is scheduling capacity, not extra runtime: explicit
+        run budgets remain hard limits.  Small tasks keep their direct loop.
+        """
+        if getattr(self, "n_nodes", 0) <= 2 or self.runner is None or not self.tests_dir:
+            return 0.0
+        available = max(0.0, float(self.budget if phase_budget is None else phase_budget))
+        configured = os.environ.get("OCTOS_ARC_FINAL_PHASE_SECONDS")
+        if configured is not None:
+            return min(available, max(0.0, float(configured)))
+        measurement = self.final_measurement_reserve()
+        desired = max(600.0, 2 * measurement + 2 * self.repair_minimum())
+        return min(desired, available * 0.25)
+
+    def final_retry_admission(self) -> float:
+        """Budget needed to measure, repair, then preserve a final measurement."""
+        return 2 * self.final_measurement_reserve() + self.repair_minimum()
 
     # -- helpers ----------------------------------------------------------
     def wound_down(self) -> bool:
@@ -2558,7 +2597,7 @@ class Flow:
             log("[flow] application design: invalid schema/JSON; one bounded format retry")
             ok, text = self.text_turn(
                 prompt + "\nThe preceding reply was not a valid design object. Return ONLY the JSON object "
-                "with data_model (object), routes/pages (arrays of objects), contracts (array), notes (string). "
+                "with data_model (object), routes/pages/modules/contracts (arrays of objects), notes (string). "
                 "Use compact entries and no code, prose or FILE blocks.\n",
                 retry_seconds, "application design (format retry)", system=APP_DESIGN_SYSTEM,
                 spec_chars=len(outline))
@@ -3512,11 +3551,15 @@ class Flow:
                 break
             left = deadline - time.time()
             needed = self.repair_minimum()
-            if left < needed or self.time_up():
+            reserve = self.final_phase_reserve()
+            if left < needed or (reserve and self.remaining() < needed + reserve) or self.time_up():
                 # A repair turn that starts with only a couple of minutes left
-                # times out too (keep-local-3); keep the best state instead.
-                log(f"[flow] {node_id}: {left:.0f}s left, below the {needed:.0f}s a repair needs; "
-                    f"keeping the best state")
+                # times out too (keep-local-3). On a large task, leave enough
+                # global time to repair related failures together in the suite.
+                reason = (f"{self.remaining():.0f}s run time leaves the {reserve:.0f}s final-phase reserve"
+                          if reserve and self.remaining() < needed + reserve else
+                          f"{left:.0f}s node time is below the {needed:.0f}s a repair needs")
+                log(f"[flow] {node_id}: {reason}; keeping the best state for full-suite repair")
                 break
             self.snapshot_sources(node_id, attempt)
             slow = summary.slow(self.slow_test_ms())
@@ -4004,7 +4047,7 @@ class Flow:
         the full suite after a real edit and roll back newly broken behaviours.
         """
         summary = getattr(self, "whole_app_summary", None)
-        reserve = self.final_measurement_reserve()
+        reserve = max(self.final_measurement_reserve(), self.final_phase_reserve())
         if (summary is None or len(failing) < 2 or self.wound_down()
                 or self.remaining() < self.repair_minimum() + reserve
                 or os.environ.get("OCTOS_ARC_SHARED_REPAIR", "1") == "0"):
@@ -4146,9 +4189,10 @@ class Flow:
         phase_budget, jobs, completed = stage or (getattr(self, "budget", self.remaining()), total, index - 1)
         if stage:
             nodes_left = jobs - completed
+        reserve = self.final_phase_reserve(phase_budget) if stage else 0
         node_budget = node_seconds(self.remaining(), nodes_left, self.node_budget_cap,
                                    phase_budget=phase_budget, total_jobs=jobs, completed=completed,
-                                   reserve=min(300, phase_budget * 0.1) if stage else 0,
+                                   reserve=reserve,
                                    burst_cap=None if "OCTOS_NODE_TIME_BUDGET" in os.environ else 3000)
         deadline = time.time() + node_budget
         log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
@@ -4431,8 +4475,9 @@ class Flow:
 
     def regression_checkpoint(self, index: int, total: int) -> None:
         start = int(os.environ.get("OCTOS_ARC_REGRESSION_CHECKPOINT", "4"))
+        reserve = self.final_phase_reserve()
         if (not regression_checkpoint_due(index, total, start) or self.runner is None
-                or not self.tests_dir or self.remaining() < self.min_repair_seconds):
+                or not self.tests_dir or self.remaining() < self.min_repair_seconds + reserve):
             return
         tracked = getattr(self, "checkpoint_regressions", set())
         self.checkpoint_regressions = tracked
@@ -4504,8 +4549,13 @@ class Flow:
         rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "2"))
         repaired = False
         for attempt in range(rounds):
-            if not grouped or self.remaining() < self.min_repair_seconds or self.wound_down():
+            reserve = self.final_phase_reserve()
+            if (not grouped or self.remaining() < self.repair_minimum() + reserve
+                    or self.wound_down()):
                 break
+            # Re-read after admission so time consumed between rounds cannot be
+            # lent to this turn by a stale sample.
+            available = self.remaining() - reserve
             failing_ids = sorted(node for node in grouped if node)
             failing = failing_ids or ["the regressed behaviours"]
             failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
@@ -4519,7 +4569,7 @@ class Flow:
             # The first round is one codegen request; a second round, if configured,
             # is the changed approach.
             self.suite_repair_turn(f"checkpoint {index} repair {attempt + 1}/{rounds}", failing_ids, failures,
-                                   min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
+                                   min(self.suite_repair_timeout(), max(1, available)),
                                    tool_prompt=tool_prompt, prefer_codegen=attempt == 0)
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
             if getattr(self, "last_repair_changed", None) is False:
@@ -4553,6 +4603,9 @@ class Flow:
         state; this pass can, and it repairs the nodes whose tests fail."""
         self.final_repair_no_change = False
         self.final_suite_progress = False
+        self.final_suite_green = False
+        force_tool_repair = bool(getattr(self, "_force_final_tool_repair", False))
+        self._force_final_tool_repair = False
         if self.runner is None or not self.tests_dir:
             return
         all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
@@ -4594,7 +4647,6 @@ class Flow:
         unfinished = ""  # what the previous repair turn said it had left to do
         wrote_last = False  # whether that turn got as far as committing an edit
         last_repair_mode = ""
-        force_tool_repair = False
         for attempt in range(rounds + 1):
             restored_this_round = False
             summary = measured_suite()
@@ -4709,6 +4761,7 @@ class Flow:
                     last_passed = best["passed"]
                     regressions = 0
             if measured and not grouped:
+                self.final_suite_green = True
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (full suite)")
                 return
             # A spec that has passed once in this pass and fails now is unstable;
@@ -4764,7 +4817,12 @@ class Flow:
             wrote_last = effective if isinstance(effective, bool) else committed
             if effective is False:
                 self.final_repair_no_change = True
-                log("[acceptance] full suite: repair changed no application sources; skipping duplicate suite")
+                self._force_final_tool_repair = True
+                self.pending_corrections.append(
+                    "The previous full-suite repair changed no application source. Do not only describe a fix: "
+                    "inspect the current implementation and apply a concrete, targeted source edit before verification.")
+                log("[acceptance] full suite: repair changed no application sources; "
+                    "deferring remeasurement and changing approach on the next pass")
                 break
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
         if best is not None and best["sha"] and last_passed < best["passed"]:
@@ -4813,7 +4871,12 @@ class Flow:
         rest of the time unused. Every pass keeps its own best state, so a
         repeat starts from a state at least as good as the one before it.
         """
-        passes = int(os.environ.get("OCTOS_FINAL_SUITE_PASSES", "3"))
+        configured_passes = os.environ.get("OCTOS_FINAL_SUITE_PASSES")
+        # By default the run-wide time/token/turn guards, not a three-pass
+        # constant, decide when a still-red suite must stop.  Keep an explicit
+        # override for controlled comparisons and constrained deployments.
+        passes = max(1, int(configured_passes)) if configured_passes is not None else \
+            max(3, int(getattr(self, "max_turns", 3)) if getattr(self, "max_turns", -1) > 0 else 3)
         for attempt in range(passes):
             # Admission for measurement is distinct from admission for repair.
             # The old 3 * 300s floor skipped even the first measurement in a
@@ -4823,18 +4886,31 @@ class Flow:
             if attempt:
                 if self.wound_down():
                     break
-                if all(verdict is not False for verdict in self.test_verdict.values()):
+                if (getattr(self, "final_suite_green", False)
+                        or (self.test_verdict and all(verdict is True for verdict in self.test_verdict.values()))):
                     break
                 log(f"[flow] full suite still failing with {self.remaining():.0f}s left; "
                     f"pass {attempt + 1}/{passes}")
             self.final_acceptance()
             if self.driver:
                 self.driver.end_scope("node")
+            if (getattr(self, "final_suite_green", False)
+                    or (self.test_verdict and all(verdict is True for verdict in self.test_verdict.values()))):
+                break
+            if self.wound_down() or self.remaining() < self.final_retry_admission():
+                log(f"[flow] full suite still failing, but {self.remaining():.0f}s is below the "
+                    f"{self.final_retry_admission():.0f}s needed to measure, repair, and remeasure")
+                break
             if getattr(self, "final_repair_no_change", False) is True:
-                break
+                log("[flow] full-suite repair made no source change; retrying with a changed repair approach")
+                continue
             if getattr(self, "final_suite_progress", False) is not True:
-                log("[flow] full-suite pass made no measured pass-count improvement; stopping outer retries")
-                break
+                self._force_final_tool_repair = True
+                self.pending_corrections.append(
+                    "The previous full-suite pass did not increase the measured pass count. Reinspect the failing "
+                    "interaction end to end and use a different targeted repair approach; preserve the best state.")
+                log("[flow] full-suite pass made no measured pass-count improvement; "
+                    "budget remains, so changing approach instead of stopping")
 
     GRADER_WORKERS = 1  # observed platform logs; configurable for other graders
 

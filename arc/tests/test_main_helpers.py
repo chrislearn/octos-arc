@@ -795,6 +795,16 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
                             for c in flow.pending_corrections))
         self.assertTrue(all(flow.test_verdict.values()))  # the changed approach fixed it
 
+    def test_outer_no_change_retry_starts_with_tool_strategy(self):
+        from unittest.mock import Mock, patch
+        flow = self._flow([1, 2, 2])
+        flow._force_final_tool_repair = True
+        flow.suite_repair_turn = Mock(return_value=("tools", ""))
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+            flow.final_acceptance()
+        self.assertFalse(flow.suite_repair_turn.call_args.kwargs["prefer_codegen"])
+        self.assertTrue(flow.final_suite_green)
+
     def test_should_stop_when_a_changed_approach_still_reproduces_the_failure(self):
         from unittest.mock import patch
         flow = self._flow([1, 1, 1, 2])  # a fourth round exists but must not run
@@ -820,7 +830,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             flow.final_acceptance_passes()
         self.assertEqual(len(calls), 3)  # unfinished but progressing passes can continue
 
-    def test_stalled_pass_does_not_restart_the_same_repair_loop(self):
+    def test_stalled_pass_changes_approach_while_budget_remains(self):
         from unittest.mock import Mock, patch
         flow = self._flow([1])
         flow.min_repair_seconds = 300
@@ -830,7 +840,34 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.final_acceptance = Mock()
         with patch.dict('os.environ', {'OCTOS_FINAL_SUITE_PASSES': '3'}):
             flow.final_acceptance_passes()
+        self.assertEqual(flow.final_acceptance.call_count, 3)
+        self.assertTrue(flow._force_final_tool_repair)
+
+    def test_stalled_pass_stops_when_measure_repair_remeasure_will_not_fit(self):
+        from unittest.mock import Mock, patch
+        flow = self._flow([1])
+        flow.min_repair_seconds = 300
+        flow.driver = None
+        flow.time_up = lambda: False
+        flow.remaining = lambda: 500  # admission is 2 * 120 + 300 = 540
+        flow.final_suite_progress = False
+        flow.final_acceptance = Mock()
+        with patch.dict('os.environ', {'OCTOS_FINAL_SUITE_PASSES': '3'}):
+            flow.final_acceptance_passes()
         flow.final_acceptance.assert_called_once()
+
+    def test_default_outer_pass_limit_follows_the_run_turn_guard(self):
+        from unittest.mock import Mock, patch
+        flow = self._flow([1])
+        flow.driver = None
+        flow.max_turns = 5
+        flow.time_up = lambda: False
+        flow.wound_down = lambda: False
+        flow.final_suite_progress = False
+        flow.final_acceptance = Mock()
+        with patch.dict('os.environ', {}, clear=True):
+            flow.final_acceptance_passes()
+        self.assertEqual(flow.final_acceptance.call_count, 5)
 
     def test_should_stop_repeating_once_the_full_suite_is_green(self):
         from unittest.mock import patch
@@ -854,8 +891,8 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.min_repair_seconds = 300
         flow.driver = None
         flow.time_up = lambda: False
-        flow.remaining = lambda: 600  # enough to measure; not 3 * 300s repairs
         calls = []
+        flow.remaining = lambda: 600 if not calls else 500  # first measurement fits; another complete cycle does not
         flow.final_acceptance = lambda: calls.append(1)
         with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
             flow.final_acceptance_passes()
