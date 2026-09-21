@@ -1,5 +1,6 @@
 """The v5 whole-app path keeps a measured, per-leaf repair fallback."""
 import argparse
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,9 @@ from requirement_order import topo_order
 
 class WholeAppTests(unittest.TestCase):
     def setUp(self):
+        experimental = patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "1"})
+        experimental.start()
+        self.addCleanup(experimental.stop)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)

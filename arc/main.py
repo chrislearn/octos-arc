@@ -43,7 +43,7 @@ Environment (all optional):
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
-    OCTOS_ARC_REASONING       none (default: thinking disabled) | auto | low | medium | high | passthrough
+    OCTOS_ARC_REASONING       low (default) | none | auto | medium | high | passthrough
     OCTOS_ARC_IMPLEMENT_REASONING  optional override for first implement turns of small tasks (default: base mode)
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
@@ -60,7 +60,7 @@ Environment (all optional):
     OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 2)
     OCTOS_ARC_DEGENERATE_MAX_TOKENS  codegen ceiling after repeated/no-op output (8192; 0 disables)
     OCTOS_ARC_RECOVERY_REASONING  optional reasoning after degeneration (none by default)
-    OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 3; 0 disables)
+    OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 1; no batching)
     OCTOS_ARC_SOURCE_STABILITY_ORDER  "0" restores path order instead of low-churn-first quoted sources
     OCTOS_ARC_GENERIC_TEMPLATE  "0" disables the task-neutral Express/store scaffold (default on in v4)
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
@@ -1145,9 +1145,11 @@ def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) 
     }
     if provider not in ("openai", "deepseek", "anthropic") and base_url:
         config["base_url"] = base_url
-    reasoning = os.environ.get("OCTOS_ARC_REASONING", "none")
+    reasoning = os.environ.get("OCTOS_ARC_REASONING", "low")
     if reasoning in ("none", "off", "disabled"):
         config["gateway"]["reasoning_effort"] = "none"
+    elif reasoning in ("low", "medium", "high"):
+        config["gateway"]["reasoning_effort"] = reasoning
     elif provider == "deepseek":
         config["gateway"]["reasoning_effort"] = "low"
     hooks = protected_hooks(protected_dirs)
@@ -2503,7 +2505,7 @@ class Flow:
         must satisfy (OCTOS_ARC_CODEGEN_REASONING_CHARS, default 5000): small specs are
         generated without reasoning; large ones keep the base mode. Retain the
         compact size rule when thinking is disabled by default too."""
-        if os.environ.get("OCTOS_ARC_REASONING", "none") not in {"auto", "none", "off", "disabled"}:
+        if os.environ.get("OCTOS_ARC_REASONING", "low") not in {"auto", "none", "off", "disabled"}:
             return None
         threshold = int(os.environ.get("OCTOS_ARC_CODEGEN_REASONING_CHARS", "5000"))
         return "none" if spec_chars and spec_chars < threshold else None
@@ -3408,7 +3410,7 @@ class Flow:
     def start_llm_proxy(self) -> None:
         """Default to thinking off; explicit auto/effort settings opt back in.
         Exact per-request usage lands in .arc/llm-usage.jsonl."""
-        mode = os.environ.get("OCTOS_ARC_REASONING", "none")
+        mode = os.environ.get("OCTOS_ARC_REASONING", "low")
         if mode == "auto":
             # Thinking off is safe for one-node builds and one-node evolutions
             # (v10: Counter/Dice/Evolution all pass, completion 0.5-1.9k tokens)
@@ -3880,7 +3882,7 @@ class Flow:
         truncated whole-app reply falls through to bounded multi-node waves.
         """
         ids = [str(node.get("id")) for node in ordered]
-        if (os.environ.get("OCTOS_ARC_WHOLE_APP", "1") == "0" or self.evolution
+        if (os.environ.get("OCTOS_ARC_WHOLE_APP", "0") == "0" or self.evolution
                 or len(ids) < 3 or self.runner is None or not self.codegen_mode()
                 or not self.tests_dir or any(not self.spec_map.get(node_id) for node_id in ids)
                 or self.wound_down() or self.remaining() < self.min_repair_seconds + 180):
@@ -5418,7 +5420,7 @@ class Flow:
                         self.mark("implementation_started", node_id)
                         self.mark("implementation_done", node_id, "existing application; acceptance pending")
                 elif not self.whole_app_experiment(tree, ordered):
-                    batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "3"))
+                    batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "1"))
                     batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
                     preimplemented: set[str] = set()
                     for index, node in enumerate(ordered, 1):

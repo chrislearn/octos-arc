@@ -84,7 +84,7 @@ repair = 10      # OCTOS_ARC_REPAIR_REQUESTS — hard request cap of repair turn
 codegen = 3      # OCTOS_ARC_CODEGEN_REQUESTS — attempts (incl. transient retries) of a codegen turn
 
 [reasoning]
-mode = "none"              # OCTOS_ARC_REASONING — thinking off by default; auto | low | medium | high | none | passthrough
+mode = "low"               # OCTOS_ARC_REASONING — low by default; auto | low | medium | high | none | passthrough
 # Codegen effort by spec size (round 30): specs shorter than this many characters run with thinking off and
 # the compact size rule; larger specs keep the base mode and the multi-page mechanisms. Applies to auto and none.
 codegen_reasoning_chars = 5000  # OCTOS_ARC_CODEGEN_REASONING_CHARS
