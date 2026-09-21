@@ -3,10 +3,54 @@ import hashlib
 import json
 import os
 import re
+import posixpath
 import signal
 import subprocess
 import time
 from pathlib import Path
+
+
+def helper_import_errors(sources, changed):
+    """Check only literal named CJS imports from unchanged bundled helpers.
+
+    No application modules are executed. Customized modules and dynamic imports
+    are intentionally left to the compiler/runtime instead of guessed exports.
+    """
+    contracts = {'store': {'read', 'write', 'update', 'migrate'},
+                 'collection': {'collection'}, 'errors': {'HttpError'},
+                 'query': {'optionalBoolean', 'matchesFlags'}}
+    known = {}
+    for name, exports in contracts.items():
+        path = 'backend/lib/' + name + '.js'
+        template = Path(__file__).parent / 'blueprints' / (name + '.js')
+        if path in sources and template.is_file() and sources[path] == template.read_text():
+            known[path] = exports
+    errors = []
+    for path in sorted(changed):
+        if not path.startswith('backend/') or not path.endswith(('.js', '.cjs')):
+            continue
+        source = sources.get(path, '')
+        # Skip declarations quoted in comments/documentation/string literals.
+        opaque = [m.span() for m in re.finditer(
+            r'''//[^\n]*|/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`''', source)]
+        for match in re.finditer(r'''(?m)^\s*(?:const|let|var)\s*\{([^{}\n]+)\}\s*=\s*require\(\s*['"](\.[^'"]+)['"]\s*\)\s*;?\s*$''', source):
+            start = match.start() + len(match.group()) - len(match.group().lstrip())
+            if any(left <= start < right for left, right in opaque):
+                continue
+            fields, rel = match.groups()
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(path), rel))
+            if not target.endswith('.js'):
+                target += '.js'
+            if target not in known:
+                continue
+            fields = [field.strip().split(':', 1)[0].strip() for field in fields.split(',') if field.strip()]
+            if not all(re.fullmatch(r'[A-Za-z_$][\w$]*', field) for field in fields):
+                continue
+            missing = sorted(set(fields) - known[target])
+            if missing:
+                errors.append(f'{path}: {target} does not export {", ".join(missing)}; '
+                              f'available: {", ".join(sorted(known[target]))}. Fix the caller; do not invent helper APIs.')
+    return errors
 
 
 def _bounded_run(command, cwd, timeout):
@@ -66,7 +110,7 @@ def contract_warnings(sources, changed):
 
 def check_batch(root: Path, changed, budget=30, sources=None):
     deadline = time.monotonic() + budget
-    errors, checked, deferred = [], [], []
+    errors, checked, deferred = helper_import_errors(sources or {}, changed), [], []
 
     def run(command, cwd, label):
         left = deadline - time.monotonic()

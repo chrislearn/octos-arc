@@ -321,7 +321,7 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertEqual(len(flow.repair_durations["tools"]), 1)
         self.assertEqual(flow.repair_durations["codegen"], [])
 
-    def test_noop_final_pass_changes_approach_while_budget_remains(self):
+    def test_noop_final_pass_does_not_repeat_measurement_just_because_budget_remains(self):
         flow = self.flow
         flow.remaining = lambda: 10000
         flow.time_up = lambda: False
@@ -331,7 +331,7 @@ class RepairOutcomeTests(unittest.TestCase):
         flow.final_acceptance = Mock(side_effect=unchanged)
         with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
             flow.final_acceptance_passes()
-        self.assertEqual(flow.final_acceptance.call_count, 3)
+        self.assertEqual(flow.final_acceptance.call_count, 1)
 
     def test_noop_final_pass_stops_when_another_complete_attempt_will_not_fit(self):
         flow = self.flow

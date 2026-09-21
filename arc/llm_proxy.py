@@ -373,6 +373,28 @@ BUDGET_NOTICE = ("Tool budget for this turn is exhausted. Do not call any more t
                  "summary of what you changed. The harness will build and test the app.")
 
 
+def reserve_edit_budget(body: bytes, used: int, budget: int) -> bytes:
+    """Mid-turn guidance retains tools and never authorizes guessing an edit."""
+    if budget < 4 or used < budget // 2 or used >= budget:
+        return body
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(data, dict) or not data.get('tools') or not isinstance(data.get('messages'), list):
+        return body
+    prefix = 'Repair execution budget: '
+    messages = [m for m in data['messages'] if not (m.get('role') == 'user'
+                and isinstance(m.get('content'), str) and m['content'].startswith(prefix))]
+    messages.append({'role': 'user', 'content': prefix + f'{budget - used} upstream requests remain. '
+                     'Reserve them for a focused edit and verification. Reuse already-read unchanged sources; '
+                     'avoid another broad shell dump or test-directory scan. Read only a specific missing '
+                     'dependency if necessary. Do not guess edits or claim success without evidence; '
+                     'if the cause is still unknown, report the precise blocker.'})
+    data['messages'] = messages
+    return json.dumps(data, ensure_ascii=False).encode('utf-8')
+
+
 def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
     """Once `used` requests have been made in the current turn, strip the tool
     schemas and append a user notice so the model must answer (ending the turn).
@@ -665,6 +687,9 @@ class LlmProxy:
                     with proxy._lock:
                         used = proxy.turn_requests
                         proxy.turn_requests += 1
+                        upstream_used = proxy.turn_upstream_requests
+                    if proxy.phase == 'repair' and not proxy.no_tools:
+                        body = reserve_edit_budget(body, upstream_used, proxy.turn_budget)
                     capped = enforce_turn_budget(body, used, proxy.turn_budget)
                     if capped is not body:
                         proxy.budget_hits += 1

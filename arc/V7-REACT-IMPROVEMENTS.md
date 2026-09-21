@@ -143,3 +143,31 @@ verify installed API contracts, reserve tool budget for edits, and reuse complet
 measurements only when source/tests/dependencies/environment/data permit it.
 Single-run sampling/network confounders remain; these findings do not prove all
 regression was caused by the added prompt rules. See the artifact REPORT.md.
+
+## Resumable startup and bounded repair follow-up
+
+- Sequential startup failure now gets at most two focused infrastructure repairs.
+  Only a complete current-node measurement clears the blocker; a functional
+  assertion failure permits continuing implementation but is not marked passed.
+  Remaining requirements resume and checkpoint regression still runs. Failed or
+  incomplete recovery retains the existing fail-stop behavior.
+- Startup repairs prefer complete files and include implicated helper dependencies.
+  Design guidance names installed APIs. Narrow literal named CommonJS imports
+  from byte-identical bundled helpers are checked before codegen writes; an invalid
+  import rejects the staged batch, with explicit exports as correction evidence.
+  Customized helpers, dynamic/ambiguous syntax and quoted examples are not rejected
+  by this check. This is not a general JavaScript type checker.
+- File repairs and tracked tool repairs feed generation checks too. A mid-budget
+  reminder on tool-repair requests reserves attention for edits and validation,
+  retains all available tools, and explicitly forbids guessing a repair.
+- A final repair with no effective source change stops repeat full-suite passes.
+  No test result is cached or invented across changed data/environment, and no
+  previously measured failure becomes a pass. Existing independent grading remains.
+
+No benchmark-specific UI role adaptation, fixture seeding or test changes.
+
+Validation before benchmark: 726 tests in 30.558 seconds, 18 skipped, all others
+passed (Node 22.23.2); git diff --check passed. Tests cover preserving incomplete
+verdicts, resuming after infrastructure recovery without claiming a functional
+pass, whole-batch rejection before writes, custom helper exemptions and bounded
+mid-turn notices retaining tool access.

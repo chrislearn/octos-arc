@@ -1498,9 +1498,12 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "13-state-data-contracts"
+APP_DESIGN_PROMPT_VERSION = "14-resumable-startup"
 
 COLLECTION_MIGRATION_CONTRACT = (
+    "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate; "
+    "backend/lib/collection exports collection. Frontend shared/request.js exports requestJson (raw JSON). "
+    "Reuse these exact APIs; do not invent load/save aliases or plan replacement helpers. "
     "Assign one canonical module per collection: it owns initial records, migrations and shared access. "
     "Reuse that owner across routes; do not create independent fallbacks for the same store. "
     "Trace explicitly required initial records to requirements, not arbitrary test examples. "
@@ -2800,6 +2803,7 @@ class Flow:
         ok, text = self.turn(prompt, timeout, label)
         after = self.repair_source_index().versions
         self.last_codegen_written = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
+        self.generation_batch_check(label)
         self.remember_repair(label, prompt, 'applied' if self.last_codegen_written else 'unchanged' if ok else 'tool_incomplete')
         return ok, text
 
@@ -2937,7 +2941,7 @@ class Flow:
         def result(ok: bool, text: str, outcome: str):
             self.last_codegen_outcome = outcome
             self.remember_repair(label, prompt, outcome)
-            if phase_for_label(label) == 'implement' and self.last_codegen_written:
+            if self.last_codegen_written:
                 self.generation_batch_check(label)
             if phase_for_label(label) == "implement" and getattr(self, "codegen_degenerated", False):
                 clean = ok and outcome == "applied" and not self.last_codegen_degenerated
@@ -3061,6 +3065,14 @@ class Flow:
                 error = "Invalid source envelope; no changes were applied: " + "; ".join(protocol_errors[:4])
                 self.pending_corrections.append(error)
                 return result(False, error, "format_error")
+            from generation_checks import helper_import_errors
+            candidates = dict(self.repair_source_index().sources)
+            candidates.update(files)
+            interface_errors = helper_import_errors(candidates, files)
+            if interface_errors:
+                error = 'Invalid installed-helper imports; no changes applied: ' + '; '.join(interface_errors[:4])
+                self.pending_corrections.append(error)
+                return result(False, error, 'helper_contract_error')
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
             self.last_codegen_no_change = not written and not refused
@@ -3966,7 +3978,8 @@ class Flow:
         """
         deadline = time.monotonic() + timeout
         self.whole_app_generation_requests = getattr(self, "whole_app_generation_requests", 0) + 1
-        ok, text = self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars)
+        ok, text = self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars,
+                                     force_files='startup repair' in label)
         self.generation_batch_check(label)
         if ok and (getattr(self, "last_codegen_written", [])
                    or getattr(self, "last_codegen_no_change", False) is True):
@@ -3986,7 +3999,7 @@ class Flow:
             log(f"[flow] {label}: format rejected; one corrected reply before splitting")
             self.whole_app_generation_requests += 1
             result = self.codegen_turn(prompt + correction, retry_seconds, label + " (format retry)",
-                                       spec_chars=spec_chars)
+                                       spec_chars=spec_chars, force_files='startup repair' in label)
             self.generation_batch_check(label)
             return result
         return ok, text
@@ -4134,6 +4147,37 @@ class Flow:
             "running first full suite")
         return wave > 0
 
+    def recover_sequential_startup(self, node_id: str) -> bool:
+        """Repair infrastructure locally, measure the active node, then resume.
+
+        No full-suite repair of unimplemented features. Functional assertion
+        failures do not block further implementation; incomplete/load verdicts do.
+        """
+        specs = self.spec_map.get(node_id, [])
+        if not specs or self.runner is None:
+            return False
+        for attempt in range(2):
+            error = getattr(self, '_unresolved_startup_error', '')
+            if not error:
+                return True
+            if not self.whole_app_startup_repair(error):
+                break
+            if self.time_up() or self.remaining() < 30:
+                break
+            summary = self.run_specs(specs)
+            complete = self.suite_is_measured(summary, specs)
+            self.metric('startup_recovery', node_id=node_id, attempt=attempt + 1,
+                        resumed=complete, passed=summary.passed, total=summary.total,
+                        error=summary.error, load_errors=summary.load_errors)
+            if complete:
+                self._unresolved_startup_error = ''
+                self.record_tests(node_id, specs, summary)
+                self.test_verdict[node_id] = summary.passed == summary.total
+                log(f"[flow] startup recovered at {node_id}; resuming remaining requirements")
+                return True
+            self._unresolved_startup_error = summary.error or '\n'.join(summary.load_errors) or 'Incomplete startup recovery verdict'
+        return False
+
     def whole_app_startup_repair(self, error: str) -> bool:
         """Fix one concrete build/start failure without reimplementing all nodes."""
         reserve = self.final_measurement_reserve()
@@ -4148,6 +4192,9 @@ class Flow:
         names.extend("frontend/" + path for path in re.findall(
             r"(?<![\w/])(?:src/[A-Za-z0-9_./-]+\.(?:[jt]sx?|[cm][jt]s|vue|s?css)|vite\.config\.[cm]?[jt]s)\b", error))
         names = list(dict.fromkeys(names))
+        index = self.repair_source_index()
+        names.extend(sorted({dependency for name in names for dependency in index.dependencies.get(name, ())
+                             if dependency.startswith('backend/lib/')} - set(names)))
         if not names:
             if "client-side links" in error or "pushState" in error:
                 names = ["frontend/package.json", "frontend/src/index.html", "frontend/src/app.js"]
@@ -5129,8 +5176,8 @@ class Flow:
                     f"{self.final_retry_admission():.0f}s needed to measure, repair, and remeasure")
                 break
             if getattr(self, "final_repair_no_change", False) is True:
-                log("[flow] full-suite repair made no source change; retrying with a changed repair approach")
-                continue
+                log("[flow] full-suite repair made no source change; stopping duplicate repair/measurement passes")
+                break
             if getattr(self, "final_suite_progress", False) is not True:
                 self._force_final_tool_repair = True
                 self.pending_corrections.append(
@@ -5484,6 +5531,10 @@ class Flow:
                                             preimplemented=node_id in preimplemented)
                         if getattr(self, '_unresolved_startup_error', ''):
                             self.driver.end_scope("node")
+                            if self.recover_sequential_startup(node_id):
+                                self.regression_checkpoint(index, len(ordered))
+                                self.driver.end_scope("node")
+                                continue
                             log("[flow] unresolved build/start/load failure: deferring new features to final repair")
                             self.metric("implementation_deferred", reason="unresolved_startup", after_node=node_id,
                                         remaining_nodes=[str(n.get('id')) for n in ordered[index:]])
