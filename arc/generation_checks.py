@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import time
@@ -24,7 +25,46 @@ def _bounded_run(command, cwd, timeout):
         return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
-def check_batch(root: Path, changed, budget=30):
+def contract_warnings(sources, changed):
+    """Bounded source hints, never proof of a bug or grounds to reject a write.
+
+    Inspect the supplied source index, not arbitrary files or executable code.
+    Aliased calls and subscriptions can escape these heuristics; require a
+    behavioral check rather than prescribing a replacement implementation.
+    """
+    from source_index import SourceIndex
+    index = SourceIndex(sources)
+    affected = index.affected(set(changed))
+    warnings = []
+    owners = {}
+    for path, source in sources.items():
+        if not path.startswith('backend/'):
+            continue
+        for name in re.findall(r'''\bcollection\(\s*['"]([^'"\n]+)['"]\s*,\s*\{\s*initial\s*:''', source):
+            owners.setdefault(name, set()).add(path)
+    for name, paths in sorted(owners.items()):
+        if len(paths) > 1 and paths & affected:
+            warnings.append('DATA_OWNER (heuristic): collection ' + name + ' is initialized in ' +
+                            ', '.join(sorted(paths)) + '. Verify one canonical owner; compare fresh-store '
+                            'and existing-store behavior. Do not reset data or resurrect deleted records.')
+    for path in sorted(affected):
+        if not path.startswith('frontend/') or not path.endswith(('.jsx', '.tsx')):
+            continue
+        source = sources.get(path, '')
+        # Only a concrete JSX consumer with a storage-writing dependency merits
+        # this reminder. Do not flag every use of localStorage as an error.
+        nearby = index.related([path])
+        writes = [p for p in sorted(nearby) if re.search(
+            r'\b(?:localStorage|sessionStorage)\s*\.\s*(?:setItem|removeItem|clear)\s*\(', sources[p])]
+        if writes and not re.search(r'\b(?:useContext|useSyncExternalStore)\s*\(', source):
+            warnings.append('REACTIVE_STATE (heuristic): ' + path + ' is near storage writes in ' +
+                            ', '.join(writes) + '. Verify shared consumers update without reload after '
+                            'success, restore correctly after reload, and stay unchanged on failure. '
+                            'State/props/custom hooks may already handle this; inspect before editing.')
+    return [warning[:900] for warning in warnings[:6]]
+
+
+def check_batch(root: Path, changed, budget=30, sources=None):
     deadline = time.monotonic() + budget
     errors, checked, deferred = [], [], []
 
@@ -75,4 +115,5 @@ def check_batch(root: Path, changed, budget=30):
             run(['npm', 'run', 'build'], frontend, 'frontend build')
         else:
             deferred.append('frontend build: dependencies not verified or syntax errors pending; full acceptance still required')
-    return {'errors': errors, 'checked': checked, 'deferred': deferred}
+    return {'errors': errors, 'checked': checked, 'deferred': deferred,
+            'warnings': contract_warnings(sources or {}, changed)}

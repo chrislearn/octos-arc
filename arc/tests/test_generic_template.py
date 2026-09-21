@@ -18,6 +18,29 @@ from generic_template import install_generic_template
 
 
 class GenericTemplateTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'Node is required')
+    def test_fresh_and_upgrade_contract_preserves_edits_and_deletions(self):
+        install_generic_template(self.root, m.BUNDLE_DIR, 34123, [])
+        helper = str(self.root / 'backend/lib/collection.js')
+        script = """
+const assert = require('node:assert/strict');
+const {collection} = require(process.argv[1]);
+const initial = [{id:'a', title:'Initial'}, {id:'b', title:'Removable'}];
+const first = collection('entries', {initial});
+assert.equal(first.all().length, 2);
+first.patch('a', {title:'User edit'});
+first.remove('b');
+// A changed fallback must not overwrite persisted values or restore deletion.
+assert.deepEqual(collection('entries', {initial:[...initial, {id:'c'}]}).all(),
+                 [{id:'a', title:'User edit'}]);
+const migrations = [{id:'add-c', up(data) { data.items.push({id:'c', title:'New requirement'}); }}];
+const upgraded = collection('entries', {initial, migrations});
+assert.deepEqual(upgraded.all(), [{id:'a', title:'User edit'}, {id:'c', title:'New requirement'}]);
+upgraded.remove('c');
+assert.deepEqual(collection('entries', {initial, migrations}).all(), [{id:'a', title:'User edit'}]);
+"""
+        subprocess.run(['node', '-e', script, helper], check=True, timeout=10, capture_output=True)
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

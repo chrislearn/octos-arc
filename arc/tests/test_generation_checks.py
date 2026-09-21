@@ -5,10 +5,44 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
-from generation_checks import check_batch
+from generation_checks import check_batch, contract_warnings
 
 
 class GenerationChecksTests(TestCase):
+    def test_duplicate_collection_owners_are_advisory_and_change_scoped(self):
+        sources = {
+            'backend/routes/a.js': "collection('records', {initial: []})",
+            'backend/routes/b.js': "collection('records', {initial: items})",
+            'backend/routes/c.js': "collection('other', {initial: []})",
+        }
+        warnings = contract_warnings(sources, ['backend/routes/a.js'])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('DATA_OWNER', warnings[0])
+        self.assertIn('backend/routes/b.js', warnings[0])
+        self.assertEqual(contract_warnings(sources, ['backend/routes/c.js']), [])
+
+    def test_storage_writer_dependency_prompts_behavior_check_not_rewrite(self):
+        sources = {'frontend/src/state.js': "export function save(x) {localStorage.setItem('x', x)}",
+                   'frontend/src/Layout.jsx': "import {get} from './state'; export default function Layout(){return <p>{get()}</p>}"}
+        warnings = contract_warnings(sources, ['frontend/src/state.js'])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('REACTIVE_STATE', warnings[0])
+        self.assertIn('without reload', warnings[0])
+        self.assertIn('may already handle', warnings[0])
+        sources['frontend/src/Layout.jsx'] += '\nuseSyncExternalStore(subscribe, getSnapshot);'
+        self.assertEqual(contract_warnings(sources, ['frontend/src/state.js']), [])
+
+    def test_storage_alone_is_not_an_error_and_warnings_are_bounded(self):
+        sources = {'frontend/cache.js': "localStorage.setItem('x', 'y');"}
+        self.assertEqual(contract_warnings(sources, sources), [])
+        for i in range(20):
+            sources[f'frontend/View{i}.jsx'] = "localStorage.setItem('x', 'y');"
+        warnings = contract_warnings(sources, sources)
+        self.assertEqual(len(warnings), 6)
+        self.assertTrue(all(len(w) <= 900 for w in warnings))
+        result = check_batch(self.root, [], sources=sources)
+        self.assertFalse(result['errors'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

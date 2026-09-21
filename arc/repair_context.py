@@ -2,6 +2,29 @@
 import re
 
 
+def failure_triage(text: str, limit: int = 1200) -> str:
+    """Classify observed failure layers, not inferred business root causes."""
+    hints = []
+    if re.search(r'Failed at: build/start|SyntaxError:|ERR_MODULE_NOT_FOUND|Cannot find module', text):
+        hints.append('BUILD/LOAD: resolve the reported syntax/import/startup error before expanding features.')
+    if re.search(r'ReferenceError:|TypeError:', text):
+        hints.append('RUNTIME: trace the exact exception and caller contract; do not infer missing business features.')
+    if re.search(r'\b(?:HTTP|status(?: code)?)\s*[:=]?\s*[45]\d\d\b', text, re.I):
+        hints.append('HTTP: inspect the failing endpoint, status and request preconditions before changing rendering.')
+    if re.search(r'getByRole\(|locator\.(?:click|fill)|toBeVisible\(\) failed', text):
+        hints.append('UI/LOCATOR: first distinguish missing required data, failed request, stale UI and locator timing/semantics. '
+                     'A timeout alone proves none of these. Compare the last actions, response and rendered snapshot. '
+                     'If the target exists under another role, inspect helper fallback and async readiness; do not turn '
+                     'all links into buttons or ordinary text into headings merely to satisfy a fallback selector.')
+    if len(re.findall(r'(?m)^- Feature:', text)) > 1 and hints:
+        hints.append('SHARED CAUSE: group only with a concrete common exception or source/data owner. '
+                     'The same test-helper line or timeout is not evidence of the same bug; keep each verdict.')
+    if not hints or limit <= 0:
+        return ''
+    return ('Diagnostic hypotheses (verify against current source; not test verdicts):\n' +
+            '\n'.join(hints))[:limit]
+
+
 def _clip(text: str, limit: int) -> str:
     if limit <= 0:
         return ''
@@ -23,6 +46,18 @@ def balanced_failure_evidence(text: str, limit: int = 8000) -> str:
     and runtime errors often explain what the screenshot alone cannot).
     Infrastructure and other unstructured messages retain their head AND tail.
     """
+    return _balanced_failure_evidence(text, limit)
+
+
+def diagnosed_failure_evidence(text: str, limit: int = 8000) -> str:
+    """Keep classification and original evidence inside the caller's budget."""
+    hint = failure_triage(text, min(1200, max(0, limit // 5)))
+    if not hint:
+        return balanced_failure_evidence(text, limit)
+    return hint + '\n' + balanced_failure_evidence(text, max(0, limit - len(hint) - 1))
+
+
+def _balanced_failure_evidence(text: str, limit: int) -> str:
     if limit <= 0:
         return ''
     if len(text) <= limit:

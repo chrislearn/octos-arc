@@ -1,4 +1,5 @@
 Requirement {node_id}: {description}
+Give each collection one canonical initialization/migration/access owner. Verify requirement-defined prerequisites on an empty store and preserving upgrades on an existing store. Shared React state uses state/context or a subscribed store: verify updates without reload, intended restoration after reload, and no success state on failed operations. Persistence alone is not a UI notification. Preserve semantic links/actions, not test-helper fallback roles.
 
 Public acceptance example (implement the full requirement):
 {spec}

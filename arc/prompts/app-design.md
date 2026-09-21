@@ -1,3 +1,4 @@
+Assign one canonical module per collection: it owns initial records, migrations and shared access. Reuse that owner across routes; do not create independent fallbacks for the same store. Trace explicitly required initial records to requirements, not arbitrary test examples. Verify fresh-store prerequisites and existing-store upgrades separately; restarts must preserve user edits/deletions.
 Design the application that satisfies this whole requirement tree (do NOT implement anything):
 
 {outline}

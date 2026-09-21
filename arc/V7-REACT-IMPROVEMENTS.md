@@ -73,3 +73,47 @@ Inspect shared React auth state and asynchronous navigation/accessible names,
 and enforce a hard feature-generation cutoff before final repair next.
 The historical HTML baseline remains higher at 27/34; this run does not show
 React outperforming HTML. See the artifact REPORT.md for full comparison.
+
+## Task-neutral follow-up: data ownership, reactive state, diagnostic layers
+
+The pre-change submission archive is v7-thinking-react-d7851961.zip; it is not
+overwritten by this follow-up. No generated benchmark application or official
+acceptance test is changed.
+
+- Planning and implementation contracts give each collection one canonical
+  owner for initialization, migrations and access. Required initial records must
+  come from requirements, not arbitrary test examples. Fresh-store prerequisites
+  and existing-store upgrades must be checked separately; edits and deletions
+  survive restart. Existing collection/store APIs remain unchanged.
+- React-only implementation guidance requires a reactive state owner or an
+  external-store subscription. Persistence alone is not a UI notification.
+  Check cross-component updates without reload, intended restoration after reload,
+  and no false success state after failed commands. Do not prescribe a particular
+  auth schema or assume browser profile data grants server authorization.
+- Generation checks emit bounded advisory source hints for multiple literal
+  collection initializers and JSX consumers near browser-storage writes. These
+  are heuristics (aliases, custom hooks and state/props can evade or satisfy them),
+  not compiler failures, automatic rewrites, test passes or new repair attempts.
+  Hints are scoped to changed files/callers, logged and fed into the next codegen
+  context; existing wall-clock gating still applies. No server or model call is
+  added for the scan. Actual behavioral verification remains acceptance/model
+  work; the scanner does not claim to run an application-specific login test.
+- Bounded repair evidence separates observed build/load, runtime, HTTP and
+  UI/locator signals. Missing data and stale UI remain hypotheses until source,
+  responses and snapshots support them. Preserve proper link/button semantics;
+  never adapt every role to a test helper's fallback.
+- Unknown failures no longer merge merely because ownership is unknown. Concrete
+  runtime signatures and explicit source ownership still group repairs. Existing
+  round budgets can select multiple independent groups together. Focused repair
+  prompts retain prior-pass/flakiness, state-interference and worker evidence.
+
+Design cache version is bumped. Regression coverage includes warning scope and
+bounds, non-fatal advisory behavior, evidence budgets, unknown-failure grouping,
+React-only prompt scope, and real Node checks that explicit migrations preserve
+user edits/deletions and run once. No new paid model benchmark is claimed here.
+
+Validation: 719 tests in 30.172 seconds, 18 skipped, all remaining passed under
+Node 22.23.2; git diff --check passed. Read-only replay on the previous generated
+application identified duplicate collection owners and the layout/storage update
+boundary; diagnostic evidence stayed inside its 8000-character budget. This is
+diagnostic coverage, not evidence of an improved benchmark score.

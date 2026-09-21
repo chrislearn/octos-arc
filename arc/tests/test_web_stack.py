@@ -18,6 +18,15 @@ from acceptance import AppServer
 
 
 class WebStackTests(unittest.TestCase):
+    def test_reactive_state_contract_is_scoped_to_react_stack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install_generic_template(root, m.BUNDLE_DIR, 34123, [], react=True)
+            self.assertIn('persistence is not a React notification', stack_note(root))
+            manifest = root / 'frontend/package.json'
+            manifest.write_text('{}')
+            self.assertEqual(stack_note(root), '')
+
     def test_fresh_large_app_defaults_to_local_plain_modules(self):
         flow = self.flow()
         flow.app_design = Mock()

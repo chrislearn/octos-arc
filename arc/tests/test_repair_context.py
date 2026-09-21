@@ -4,11 +4,27 @@ from types import SimpleNamespace
 
 from acceptance import RunSummary, TestOutcome
 
-from repair_context import balanced_failure_evidence
+from repair_context import balanced_failure_evidence, diagnosed_failure_evidence, failure_triage
 import test_whole_app_v5 as whole_tests
 
 
 class EvidenceTests(TestCase):
+    def test_triage_keeps_missing_data_and_locator_hypotheses_distinct(self):
+        text = "- Feature: A\ngetByRole('button', { name: 'Edit' })\n  Page at failure:\n- link \"Edit\"\n- Feature: B\nlocator.click timed out"
+        result = diagnosed_failure_evidence(text, 6000)
+        self.assertIn('UI/LOCATOR', result)
+        self.assertIn('missing required data', result)
+        self.assertIn('same test-helper line', result)
+        self.assertIn('- link "Edit"', result)
+        self.assertLessEqual(len(result), 6000)
+
+    def test_triage_is_not_a_new_verdict_and_preserves_budget(self):
+        self.assertEqual(failure_triage('Unknown failure'), '')
+        self.assertIn('BUILD/LOAD', failure_triage('SyntaxError: invalid token'))
+        self.assertIn('HTTP', failure_triage('HTTP 404'))
+        for limit in (0, 1, 4, 20, 100, 1000):
+            self.assertLessEqual(len(diagnosed_failure_evidence('TypeError: bad' * 1000, limit)), limit)
+
     def test_every_failure_precedes_large_dom(self):
         evidence = ''.join(f'- Feature: REQ-{i}\n  Location: test-{i}:12\n  Observation: failure-{i}\n'
                            '  Page at failure:\n' + 'DOM content\n' * 1000 +

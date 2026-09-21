@@ -51,8 +51,9 @@ def failure_groups(grouped, targets):
     """Merge concrete identical runtime errors or explicit feature ownership.
 
     Generic assertion/timeouts alone never demonstrate a shared root cause.
-    Unknown ownership stays in one fallback group rather than forcing one turn
-    per test. This is scheduling evidence, not a diagnosis.
+    Unknown ownership does not demonstrate a shared cause. The group selector
+    can still fit several independent groups in one bounded turn.
+    This is scheduling evidence, not a diagnosis.
     """
     groups = []
     for node, outcomes in grouped.items():
@@ -64,7 +65,7 @@ def failure_groups(grouped, targets):
                 if match:
                     keys.add('runtime:' + re.sub(r'\x1b\[[0-9;]*m', '', match.group()).strip())
         if not keys:
-            keys = {'unknown'}
+            keys = {'unknown:' + node}
         merged = {node}
         rest = []
         # Repeat to handle a bridge between two previously separate groups.

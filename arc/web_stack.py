@@ -115,6 +115,7 @@ def stack_note(output_dir: Path | None) -> str:
     except (OSError, ValueError, AttributeError):
         return ""
     lines = [REACT_CONTRACT,
+             "Shared state: persistence is not a React notification. Use state/context or a subscribed external store as the UI owner. Verify updates reach mounted consumers without reload, reload restores only intended state, and failed operations do not publish success. Preserve semantic links/actions, not test-helper fallback roles.",
              "Add exact dependencies to package.json only; npm install updates the lockfile. Never emit or hand-edit lockfile blocks.",
              "Optional pinned recommendations (not installed; add only when needed, never all by default):"]
     try:

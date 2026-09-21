@@ -102,7 +102,7 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from reply_quality import prune_degenerate_edits  # noqa: E402
-from repair_context import balanced_failure_evidence  # noqa: E402
+from repair_context import diagnosed_failure_evidence as balanced_failure_evidence  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
 from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -1498,9 +1498,13 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "12-react-ab"
+APP_DESIGN_PROMPT_VERSION = "13-state-data-contracts"
 
 COLLECTION_MIGRATION_CONTRACT = (
+    "Assign one canonical module per collection: it owns initial records, migrations and shared access. "
+    "Reuse that owner across routes; do not create independent fallbacks for the same store. "
+    "Trace explicitly required initial records to requirements, not arbitrary test examples. "
+    "Verify fresh-store prerequisites and existing-store upgrades separately; restarts must preserve user edits/deletions.\n"
     "Optional collection(...) migration up(data) receives a storage OBJECT; the record array is data.items, "
     "NOT data itself. Mutate data.items synchronously, return undefined, and preserve __arcMigrations. "
     "Direct store.migrate receives its own fallback-shaped object. Do not change these shared APIs.\n")
@@ -1657,10 +1661,12 @@ def compact_spec_lines(text: str) -> str:
 
 UI_CONTRACT_DATA = """\
 - Treat examples as examples unless the requirement explicitly identifies initial records or enumerated values. Implement general handling for other valid inputs. Preserve required initial data without overwriting existing user data; do not invent broad lists or fixed sample accounts.
+- Give each collection one canonical owner for initialization, migrations and shared access. Check explicitly required initial records on an empty store; check upgrades separately on an existing store, preserving user edits and deletions. Changing initial/fallback data is not a migration. Do not maintain competing fallbacks in separate routes.
 """
 
 UI_CONTRACT_SESSION = """\
 - Derive authentication routes, redirects, labels and session lifetime from the requirements and existing app. Keep authentication state isolated between users; preserve sessions only as required. Failed authentication must not create a session or mutate protected data. Choose error disclosure appropriate to the security requirements.
+- Persistence is not a UI notification. Shared React state needs state/context or a subscribed external store, not storage reads alone. Check login/logout update mounted consumers without reload, reload restores only intended state, and failure does not publish success. Browser-stored profile fields are not server authorization.
 """
 
 UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full set (multi-node tasks)
@@ -1762,6 +1768,7 @@ Use the supplied acceptance specification and helpers below as read-only evidenc
 """
 
 REPAIR_PROMPT = """\
+Classify the observed failure before editing: build/load, runtime exception, HTTP failure, missing requirement precondition, stale UI, or locator timing/semantics. A timeout alone cannot distinguish these. Compare prior actions, responses and the rendered snapshot. Keep unknown causes unknown; combine failures only with concrete shared exception/source/data-owner evidence, not a common helper line. Preserve semantic links/actions instead of adapting roles to a helper fallback. Check storage-to-state-to-consumer updates without reload; verify fresh and existing stores separately without resetting data.
 Fix frontend/ and/or backend/ so the failing tests listed below pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. For a failed post-action assertion, trace the preceding actions and identify the element and record actually acted on. With repeated controls, inspect locator scope, ordering, visibility, and hover/focus state before assuming a storage or rendering failure. Preserve keyboard access and the required interaction semantics when resolving ambiguity. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 """ + PORT_RULES + """
@@ -2332,7 +2339,7 @@ class Flow:
             return None
         gate = getattr(self, '_generation_gate_evidence', '')
         if gate:
-            evidence += '\nPrevious batch compiler/checker evidence (fix in the current logical batch):\n' + gate[:4000]
+            evidence += '\nPrevious batch checks (fix confirmed errors; verify advisory hypotheses before editing):\n' + gate[:4000]
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         if getattr(self, "generic_template_installed", False):
@@ -3991,14 +3998,18 @@ class Flow:
         if self.wound_down() or self.remaining() < self.min_repair_seconds + 120:
             return
         from generation_checks import check_batch
-        versions = self.repair_source_index().versions
+        index = self.repair_source_index()
+        versions = index.versions
         if versions == getattr(self, '_generation_checked_versions', None):
             return
         paths = set(changed) | set(getattr(self, '_generation_gate_paths', ()))
-        result = check_batch(self.output_dir, paths, budget=30)
+        result = check_batch(self.output_dir, paths, budget=30, sources=index.sources)
         self._generation_gate_paths = paths if result['errors'] or result['deferred'] else set()
         self._generation_checked_versions = versions
         self._generation_gate_evidence = '\n'.join(result['errors'])[:4000]
+        if result.get('warnings'):
+            self._generation_gate_evidence += ('\nAdvisory contract checks (not confirmed errors):\n' +
+                                              '\n'.join(result['warnings']))[:2200]
         self.metric('generation_gate', label=label, **result)
         if result['errors']:
             log(f"[flow] {label}: early checks found {len(result['errors'])} issue(s); exact evidence queued for next batch")
@@ -5005,6 +5016,10 @@ class Flow:
                     overview = f"All failing requirement IDs: {', '.join(failing)}. Active repair group: {', '.join(active)}. Other groups are deferred, not passed.\n"
                     focused = RunSummary(results=[r for n in active for r in grouped[n]])
                     failures = overview + failure_summaries(focused) + failure_source_context(focused, self.tests_dir)
+                    active_grouped = {n: grouped[n] for n in active}
+                    failures += self.interference_note(active_grouped, passed_alone, summary.stores_written)
+                    failures += self.intermittent_note(active_grouped, passed_a_round)
+                    failures += self.worker_parity_note(workers)
                     failing = active
                     self.metric("repair_group", active=active, groups=clusters)
             failures += self.unfinished_repair_note(unfinished)

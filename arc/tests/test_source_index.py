@@ -32,6 +32,12 @@ class SourceIndexTests(TestCase):
         failure = SimpleNamespace(message='Timeout 30000ms exceeded', action_errors=[])
         self.assertEqual(failure_groups({'a': [failure], 'b': [failure]}, {'a': {'A.jsx'}, 'b': {'B.jsx'}}), [['a'], ['b']])
 
+    def test_unknown_timeouts_are_not_a_shared_cause(self):
+        failure = SimpleNamespace(message='Timeout at helpers.ts:122', action_errors=[])
+        self.assertEqual(failure_groups({'a': [failure], 'b': [failure]}, {}), [['a'], ['b']])
+        # Independent groups can still share one budgeted turn, without adding rounds.
+        self.assertEqual(select_repair_groups([['a'], ['b']], {}, 1), ['a', 'b'])
+
     def test_concrete_shared_runtime_error_merges_features(self):
         failure = SimpleNamespace(message='TypeError: note.tags.map is not a function', action_errors=[])
         self.assertEqual(failure_groups({'a': [failure], 'b': [failure]}, {'a': {'A.jsx'}, 'b': {'B.jsx'}}), [['a', 'b']])

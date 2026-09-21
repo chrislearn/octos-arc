@@ -1,3 +1,4 @@
+Classify the observed failure before editing: build/load, runtime exception, HTTP failure, missing requirement precondition, stale UI, or locator timing/semantics. A timeout alone cannot distinguish these. Compare prior actions, responses and the rendered snapshot. Keep unknown causes unknown; combine failures only with concrete shared exception/source/data-owner evidence, not a common helper line. Preserve semantic links/actions instead of adapting roles to a helper fallback. Check storage-to-state-to-consumer updates without reload; verify fresh and existing stores separately without resetting data.
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
 {test_location}
