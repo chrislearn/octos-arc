@@ -196,6 +196,15 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertEqual(self.flow.last_codegen_outcome, "unchanged")
         self.assertIn("unchanged", " ".join(self.flow.pending_corrections))
 
+    def test_startup_repair_uses_file_protocol_even_when_tools_would_be_selected(self):
+        self.flow.use_structured_edits = Mock(return_value=True)
+        self.flow.structured_edit_turn = Mock()
+        self.flow.text_turn.return_value = True, '<<<FILE backend/new.js>>>\nmodule.exports = 1;\n<<<END FILE>>>'
+        self.assertTrue(self.flow.node_repair_turn('R', 'Failed at: build/start\nSyntaxError',
+                                                  60, 'R repair', lambda: 'repair'))
+        self.flow.structured_edit_turn.assert_not_called()
+        self.flow.text_turn.assert_called_once()
+
     def test_suite_noop_is_not_an_applied_repair(self):
         self.assertEqual(self.flow.suite_repair_turn("suite repair", ["R"], "missing control", 300,
                                                    tool_prompt="repair")[0], "tools")
@@ -222,17 +231,18 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertNotIn("secret", records)
         self.assertEqual(sum(json.loads(line)['kind'] == 'codegen' for line in records.splitlines()), 4)
 
-    def test_truncated_response_keeps_complete_files_without_claiming_full_application(self):
+    def test_completed_reply_with_unclosed_block_is_rejected_before_any_write(self):
         reply = ("<<<FILE backend/one.js>>>\ncomplete\n<<<END FILE>>>\n"
                  "<<<FILE backend/two.js>>>\nunfinished")
         self.flow.text_turn.return_value = True, reply
         ok, message = self.flow.codegen_turn("new app", 60, "R repair")
         self.assertFalse(ok)
         self.assertEqual(self.flow.last_codegen_outcome, "incomplete_blocks")
-        self.assertEqual(self.flow.last_codegen_written, ["backend/one.js"])
+        self.assertEqual(self.flow.last_codegen_written, [])
+        self.assertFalse((self.root / "backend/one.js").exists())
         self.assertFalse((self.root / "backend/two.js").exists())
-        self.assertIn("complete blocks were applied", message)
-        self.assertFalse(incomplete_blocks("<<<FILE backend/example.js>>>\nconst example = `\n"
+        self.assertIn("no changes were applied", message)
+        self.assertTrue(incomplete_blocks("<<<FILE backend/example.js>>>\nconst example = `\n"
                                            "<<<FILE literal-inside-string>>>\n`;\n<<<END FILE>>>"))
 
     def test_protocol_retry_is_bounded_and_does_not_run_acceptance_between_attempts(self):

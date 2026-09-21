@@ -107,6 +107,8 @@ const {collection} = require('./backend/lib/collection');
 const {HttpError} = require('./backend/lib/errors');
 const fs = require('node:fs');
 const shape = row => ({flags: [], ...row});
+assert.throws(() => collection('bad-shape', {initial: {items: []}}), /initial must be an array/);
+assert.equal(fs.existsSync('backend/data/bad-shape.json'), false);
 const rows = collection('records', {initial: [{id: 'a'}], normalize: shape});
 assert.deepEqual(rows.get('a'), {id: 'a', flags: []});
 assert.equal(fs.existsSync('backend/data/records.json'), false, 'read normalization is not a migration');

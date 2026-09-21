@@ -31,7 +31,11 @@ _END_EDIT = r"(?:<<<END EDIT>>>|<END EDIT>|END EDIT)"
 # protocol examples can be emitted in a FILE body, not nested inside an EDIT.
 _EDIT_BODY = r"(?:(?!^[ \t]*<<<(?:FILE|EDIT)\s).)*?"
 _REPLACEMENT_BODY = r"(?:(?!^[ \t]*<<<(?:FILE|EDIT|END EDIT|SEARCH|REPLACE)\b).)*?"
-FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)(?:\r?\n)?"
+# A malformed terminator must not borrow the next file's terminator. FILE
+# headers/terminators are reserved at line starts; inline strings remain valid.
+_FILE_BODY = r"(?:(?!^[ \t]*<<<(?:FILE|END FILE)\b).)*?"
+FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n"
+                        rf"(?P<body>{_FILE_BODY})(?:\r?\n)?"
                         rf"^{_END_FILE}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
 EDIT_BLOCK = re.compile(
     r"<<<EDIT\s+(?P<path>[^\n>]+?)\s*>>>\r?\n"
@@ -56,6 +60,7 @@ contents
 <<<END FILE>>>
 Only FILE blocks are supported in this request. No EDIT, SEARCH/REPLACE or diff syntax.
 One block per changed path. Preserve existing behavior. Omit unchanged files. Stop when done.
+Never put protocol headers inside source contents; encode literal examples as strings.
 """
 
 
@@ -141,6 +146,15 @@ def incomplete_blocks(text: str) -> bool:
         end = max(end, stop)
     outside.append(text[end:])
     return any(re.search(r"(?m)^[ \t]*<<<(?:FILE|EDIT)\b", part) for part in outside)
+
+
+def source_protocol_errors(files: dict[str, str]) -> list[str]:
+    """Reserved envelopes cannot be executable source, even inside a bad block."""
+    source_suffixes = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json',
+                       '.html', '.css', '.vue', '.svelte', '.py', '.sh'}
+    marker = re.compile(r'(?m)^[ \t]*<<<(?:FILE|EDIT|END FILE|END EDIT|SEARCH|REPLACE)\b')
+    return [f'{path}: protocol marker inside source contents' for path, body in files.items()
+            if Path(path).suffix in source_suffixes and marker.search(body)]
 
 
 def prepare_edit_files(root: Path, edits: list[tuple[str, str, str]]) -> tuple[dict[str, str], list[str]]:

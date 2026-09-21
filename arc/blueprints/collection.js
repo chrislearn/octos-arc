@@ -4,6 +4,7 @@ const {randomUUID} = require('crypto');
 const store = require('./store');
 
 function collection(name, {idKey = 'id', initial = [], migrations = [], normalize = item => item} = {}) {
+  if (!Array.isArray(initial)) throw new TypeError('collection initial must be an array of records, not {items: [...]}');
   if (typeof normalize !== 'function') throw new TypeError('normalize must be a function');
   const fallback = {items: initial};
   if (migrations.length) store.migrate(name, fallback, migrations);

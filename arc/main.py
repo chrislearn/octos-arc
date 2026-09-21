@@ -97,7 +97,8 @@ from acceptance import (  # noqa: E402
     mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
     startup_error_digest)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
-                     incomplete_blocks, normalize_bare_file_reply, prepare_edit_files, safe_relative_path, write_files)
+                     incomplete_blocks, normalize_bare_file_reply, prepare_edit_files, safe_relative_path,
+                     source_protocol_errors, write_files)
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from reply_quality import prune_degenerate_edits  # noqa: E402
@@ -1539,6 +1540,7 @@ Output: complete FILE blocks for changed files only; do not re-emit unchanged mo
 """
 
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
+Collection API: const {collection} = require('../lib/collection'); do not call the module object. Pass initial: [{id:'example'}], NOT initial: {items:[...]}. Only migration callbacks receive the envelope {items:[...]}. Correct callers rather than changing shared exports. Invalid stored shapes require an explicit preserving migration, never deletion/reset of persisted data.
 Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes.
 From backend/routes/: require('../lib/store') exports read(name,fallback), write(name,value), update(name,fallback,synchronousChange). Prefer require('../lib/collection').collection(name,{idKey,initial,migrations,normalize}) for ordinary CRUD instead of regenerating persistence; it exports all/list/get/create/patch/remove/transact. initial applies only to a new store; persist changes to existing data via versioned migrations up(data) mutating data.items synchronously, preserving __arcMigrations. Never reseed deleted records. Optional normalize(record) returns an object with the SAME id on reads/create/patch and before/after transact; choose defaults from requirements, not fixtures. Reads do not persist normalization. transact(items => result) synchronously mutates one collection in one write; duplicate/missing IDs and async callbacks fail. Atomicity is single-store/single-process only; cross-store effects need one aggregate or transactional storage. require('../lib/errors').HttpError(status,message) gives explicit 4xx {error:message}; 5xx details are hidden. Define domain validation, authorization and messages from requirements.
 Optional require('../lib/query') exports optionalBoolean(value) (missing/true/false, invalid => 400) and matchesFlags(record,flags) (strict booleans, undefined ignored). Whitelist fields, resolve view defaults once, combine filters, and enforce ownership separately; clients cannot recover server-excluded rows.
@@ -1672,6 +1674,7 @@ Performance and robustness:
 
 ARCHITECTURE_CONTRACT = """\
 Runtime integration:
+- Resolve relative imports from the importing file's directory, not the project root; reuse the exact exported helper API. Do not add extra parent segments or change shared exports to fit an incorrect caller.
 - Preserve the platform contract: frontend/ has npm run build producing frontend/dist/; backend/ has npm start and reads PORT (default {port}). Within that contract, preserve the existing application architecture and choose libraries or storage appropriate to the requirements and available environment.
 - Preserve the installed stack and exact dependency pins. Fresh complex apps use React/Vite/Radix/React Router and Express routes; reuse the installed components instead of inventing a custom widget framework. Existing apps keep their architecture. Use native semantic controls and local libraries only for actual requirements. Declare dependencies and make npm run build produce all pages and assets. Browser pages must load scripts, styles, fonts and media from local output, never a CDN or remote import. Registry downloads during npm install are allowed.
 - Handle expected request errors with appropriate responses, including 404 for missing resources. Log unexpected failures; do not suppress uncaught exceptions and continue serving potentially corrupt state. Preserve data integrity and use the runtime's recovery mechanism.
@@ -2908,7 +2911,8 @@ class Flow:
 
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
                      system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
-                     raw_target: str | None = None, defer_shared_refusals: bool = False) -> tuple[bool, str]:
+                     raw_target: str | None = None, defer_shared_refusals: bool = False,
+                     force_files: bool = False) -> tuple[bool, str]:
         """Run a tool-less turn; apply complete files or exact anchored edits.
         `raw_target`: when the reply is a bare HTML document (tiny tier), write it there."""
         self.last_codegen_refused = set()
@@ -2916,7 +2920,7 @@ class Flow:
         self.last_codegen_written = []
         self.last_codegen_no_change = False
         self.last_codegen_degenerated = False
-        if not raw_target and self.use_structured_edits(prompt, label):
+        if not raw_target and not force_files and self.use_structured_edits(prompt, label):
             return self.structured_edit_turn(prompt, timeout, label)
         if phase_for_label(label) == 'repair':
             memory = self.repair_memory_context(prompt)
@@ -2983,6 +2987,11 @@ class Flow:
             html = strip_code_fences(text)
             if looks_like_markup(html):
                 files = {raw_target: html}
+        if ok and not truncated and not raw_target and incomplete_blocks(text):
+            error = ("Incomplete FILE/EDIT output: no changes were applied. "
+                     "Return complete blocks with exact terminators; never nest FILE headers.")
+            self.pending_corrections.append(error)
+            return result(False, error, "incomplete_blocks")
         if files or edits:
             overlap = set(files) & {rel for rel, _, _ in edits}
             if overlap:
@@ -3040,6 +3049,11 @@ class Flow:
                 files.update(staged)
             if not files:
                 return result(False, f"codegen reply only changed files it was not shown: {', '.join(refused)}", "guard_refused")
+            protocol_errors = source_protocol_errors(files)
+            if protocol_errors:
+                error = "Invalid source envelope; no changes were applied: " + "; ".join(protocol_errors[:4])
+                self.pending_corrections.append(error)
+                return result(False, error, "format_error")
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
             self.last_codegen_no_change = not written and not refused
@@ -3567,7 +3581,8 @@ class Flow:
                 self.last_codegen_refused = set()
                 self.last_codegen_written = []
                 ok, reason = self.codegen_turn(compact, left, label if attempt == 0 else f"{label} (application retry)",
-                                          spec_chars=getattr(self, "current_spec_chars", 0))
+                                          spec_chars=getattr(self, "current_spec_chars", 0),
+                                          force_files="Failed at: build/start" in failures)
                 applied = applied or bool(self.last_codegen_written)
                 refused = self.last_codegen_refused
                 if self.last_codegen_written and not refused:
@@ -3634,10 +3649,11 @@ class Flow:
                 return None
             infrastructure_error = summary.error or ("\n".join(summary.load_errors) if summary.load_errors else "")
             measured = not infrastructure_error and not summary.killed and summary.total > 0
+            self._unresolved_startup_error = infrastructure_error
             self.verify_repair_memory(summary, measured)
             if infrastructure_error:
                 log(f"[acceptance] {node_id} infrastructure error: {infrastructure_error[:300]}")
-                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 600)}\n  Steps: npm run build -> npm start"
+                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 2200)}\n  Steps: npm run build -> npm start"
                 passed = 0
             else:
                 passed = summary.passed
@@ -5451,6 +5467,12 @@ class Flow:
                                     preimplemented.update(group)
                             self.node_cycle(node, ordered, index, len(ordered),
                                             preimplemented=node_id in preimplemented)
+                        if getattr(self, '_unresolved_startup_error', ''):
+                            self.driver.end_scope("node")
+                            log("[flow] unresolved build/start/load failure: deferring new features to final repair")
+                            self.metric("implementation_deferred", reason="unresolved_startup", after_node=node_id,
+                                        remaining_nodes=[str(n.get('id')) for n in ordered[index:]])
+                            break
                         self.regression_checkpoint(index, len(ordered))
                         self.driver.end_scope("node")
 

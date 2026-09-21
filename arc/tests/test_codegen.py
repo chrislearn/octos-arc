@@ -88,6 +88,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(files, {})
         self.assertEqual(errors, ['page.js: empty SEARCH'])
 
+    def test_malformed_file_end_never_consumes_the_next_file(self):
+        for ending in ('<<<END FILE>>', '<<<END FILE>>>>', ''):
+            bad = '<<<FILE backend/a.js>>>\nconst a = 1;\n' + ending + '\n'
+            good = '<<<FILE backend/b.js>>>\nconst b = 2;\n<<<END FILE>>>'
+            with self.subTest(ending=ending):
+                self.assertEqual(parse_file_blocks(bad + good), {'backend/b.js': 'const b = 2;\n'})
+                self.assertTrue(incomplete_blocks(bad + good))
+
     def test_malformed_end_marker_cannot_become_replacement_source(self):
         reply = '<<<EDIT page.js>>>\n<<<SEARCH>>>\nold\n<<<REPLACE>>>\nnew\n<<<END EDIT>>\n<<<END EDIT>>>'
         self.assertEqual(parse_edit_blocks(reply), [])
@@ -153,6 +161,31 @@ class EditTurnTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(self.flow.last_codegen_written, ['frontend/src/index.html'])
         self.assertIn('<body>new</body>', (self.root / 'frontend/src/index.html').read_text())
+
+    def test_malformed_file_batch_leaves_all_sources_untouched(self):
+        self.flow.text_turn.return_value = True, (
+            '<<<FILE backend/a.js>>>\nconst a=1;\n<<<END FILE>>\n'
+            '<<<FILE backend/b.js>>>\nconst b=2;\n<<<END FILE>>>')
+        ok, message = self.flow.codegen_turn('new files', 60, 'implement')
+        self.assertFalse(ok)
+        self.assertIn('no changes were applied', message)
+        self.assertEqual(self.flow.last_codegen_written, [])
+        self.assertFalse((self.root / 'backend').exists())
+
+    def test_source_protocol_marker_rejects_otherwise_complete_batch(self):
+        self.flow.text_turn.return_value = True, (
+            '<<<FILE backend/a.js>>>\nconst a=1;\n<<<END FILE>>>\n'
+            '<<<FILE backend/b.js>>>\n<<<SEARCH>>>\nconst b=2;\n<<<END FILE>>>')
+        self.assertFalse(self.flow.codegen_turn('new files', 60, 'implement')[0])
+        self.assertFalse((self.root / 'backend').exists())
+
+    def test_force_files_bypasses_tool_selection_for_localized_startup_fix(self):
+        from unittest.mock import Mock
+        self.flow.use_structured_edits = Mock(return_value=True)
+        self.flow.structured_edit_turn = Mock()
+        self.flow.text_turn.return_value = True, '<<<FILE backend/a.js>>>\nconst a=1;\n<<<END FILE>>>'
+        self.assertTrue(self.flow.codegen_turn('new files', 60, 'startup repair', force_files=True)[0])
+        self.flow.structured_edit_turn.assert_not_called()
 
     def test_explicit_no_change_preserves_files_and_defers_to_acceptance(self):
         page = self.root / 'frontend/src/index.html'
