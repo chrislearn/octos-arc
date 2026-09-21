@@ -38,6 +38,15 @@ def startup_error_digest(error: str, limit: int = 700) -> str:
         return ""
     lines = [line for line in _ANSI.sub("", error).splitlines()
              if not any(noise in line for noise in ("Failed to load the ES module", "--trace-warnings", "npm notice"))]
+    # Vite parse failures often originate from JSX put in a .js/.ts module.
+    # Preserve the compiler evidence and give a conditional fix, not a guessed
+    # rewrite of the build pipeline (the source might be invalid for other reasons).
+    for line in lines:
+        if re.search(r"\.(?:js|ts)\s*\(\d+:\d+\):\s*(?:Expression expected|Unexpected token)", line):
+            hint = ("If this module contains JSX, move JSX to a .jsx/.tsx file and update its imports, "
+                    "or use React.createElement. Inspect the indicated source first; do not replace "
+                    "the build configuration to hide a source parse error.")
+            return (line + "\n" + hint + "\n" + "\n".join(lines)[-1000:])[:limit]
     marker = re.compile(r"(?:SyntaxError|ReferenceError|TypeError|RangeError|MODULE_NOT_FOUND|EADDRINUSE|"
                         r"Cannot find module|error TS\d+|Error:|ERROR\])")
     for i, line in enumerate(lines):

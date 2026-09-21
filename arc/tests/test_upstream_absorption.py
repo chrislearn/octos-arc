@@ -343,8 +343,54 @@ class RepairOutcomeTests(unittest.TestCase):
             flow.final_acceptance_passes()
         flow.final_acceptance.assert_called_once()
 
+    def test_final_passes_stop_after_two_stalls_even_with_source_changes(self):
+        flow = self.flow
+        flow.remaining = lambda: 50000
+        flow.time_up = lambda: False
+        flow.test_verdict = {"R": False}
+        flow.final_suite_progress = False
+        flow.final_repair_no_change = False
+        flow.final_acceptance = Mock()
+        with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "136"}):
+            flow.final_acceptance_passes()
+        self.assertEqual(flow.final_acceptance.call_count, 2)
+
+    def test_default_final_pass_cap_does_not_scale_with_tree(self):
+        flow = self.flow
+        flow.remaining = lambda: 50000
+        flow.time_up = lambda: False
+        flow.test_verdict = {"R": False}
+        flow.max_turns = 136
+        flow.final_suite_progress = True
+        flow.final_repair_no_change = False
+        flow.final_acceptance = Mock()
+        with patch.dict("os.environ", {}, clear=True):
+            flow.final_acceptance_passes()
+        self.assertEqual(flow.final_acceptance.call_count, 3)
+
+    def test_final_pass_progress_resets_stall_counter(self):
+        flow = self.flow
+        flow.remaining = lambda: 50000
+        flow.time_up = lambda: False
+        flow.test_verdict = {"R": False}
+        flow.final_repair_no_change = False
+        progress = iter([False, True, False, False])
+        flow.final_acceptance = Mock(side_effect=lambda: setattr(flow, "final_suite_progress", next(progress)))
+        with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "10"}):
+            flow.final_acceptance_passes()
+        self.assertEqual(flow.final_acceptance.call_count, 4)
+
 
 class StartupDigestTests(unittest.TestCase):
+    def test_vite_js_parse_error_preserves_location_and_conditional_jsx_advice(self):
+        error = 'vite building...\nsrc/hooks/useAuth.js (47:4): Expression expected\n' + 'stack\n' * 250
+        digest = startup_error_digest(error)
+        self.assertIn('useAuth.js (47:4)', digest)
+        self.assertIn('If this module contains JSX', digest)
+        self.assertIn('do not replace', digest)
+        self.assertLessEqual(len(digest), 700)
+        self.assertLessEqual(len(startup_error_digest(error, 30)), 30)
+
     def test_long_module_warning_does_not_hide_actual_exception(self):
         log = ("server exited early\nWarning: Failed to load the ES module. " + "advice " * 300 +
                "\n(Use node --trace-warnings ...)\n/app/backend/server.js:4\nconst __dirname = 'x';\n"

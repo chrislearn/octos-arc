@@ -830,7 +830,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             flow.final_acceptance_passes()
         self.assertEqual(len(calls), 3)  # unfinished but progressing passes can continue
 
-    def test_stalled_pass_changes_approach_while_budget_remains(self):
+    def test_stalled_pass_allows_one_changed_approach_then_stops(self):
         from unittest.mock import Mock, patch
         flow = self._flow([1])
         flow.min_repair_seconds = 300
@@ -840,7 +840,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.final_acceptance = Mock()
         with patch.dict('os.environ', {'OCTOS_FINAL_SUITE_PASSES': '3'}):
             flow.final_acceptance_passes()
-        self.assertEqual(flow.final_acceptance.call_count, 3)
+        self.assertEqual(flow.final_acceptance.call_count, 2)
         self.assertTrue(flow._force_final_tool_repair)
 
     def test_stalled_pass_stops_when_measure_repair_remeasure_will_not_fit(self):
@@ -856,18 +856,18 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             flow.final_acceptance_passes()
         flow.final_acceptance.assert_called_once()
 
-    def test_default_outer_pass_limit_follows_the_run_turn_guard(self):
+    def test_default_outer_pass_limit_is_independent_of_run_turn_guard(self):
         from unittest.mock import Mock, patch
         flow = self._flow([1])
         flow.driver = None
         flow.max_turns = 5
         flow.time_up = lambda: False
         flow.wound_down = lambda: False
-        flow.final_suite_progress = False
+        flow.final_suite_progress = True
         flow.final_acceptance = Mock()
         with patch.dict('os.environ', {}, clear=True):
             flow.final_acceptance_passes()
-        self.assertEqual(flow.final_acceptance.call_count, 5)
+        self.assertEqual(flow.final_acceptance.call_count, 3)
 
     def test_should_stop_repeating_once_the_full_suite_is_green(self):
         from unittest.mock import patch

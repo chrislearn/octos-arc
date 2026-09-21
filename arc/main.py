@@ -1498,7 +1498,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "14-resumable-startup"
+APP_DESIGN_PROMPT_VERSION = "15-explicit-migration-contract"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate; "
@@ -1508,6 +1508,7 @@ COLLECTION_MIGRATION_CONTRACT = (
     "Reuse that owner across routes; do not create independent fallbacks for the same store. "
     "Trace explicitly required initial records to requirements, not arbitrary test examples. "
     "Verify fresh-store prerequisites and existing-store upgrades separately; restarts must preserve user edits/deletions.\n"
+    "migrations is an array of objects with unique nonempty string id and synchronous up(data), not functions. "
     "Optional collection(...) migration up(data) receives a storage OBJECT; the record array is data.items, "
     "NOT data itself. Mutate data.items synchronously, return undefined, and preserve __arcMigrations. "
     "Direct store.migrate receives its own fallback-shaped object. Do not change these shared APIs.\n")
@@ -1547,6 +1548,7 @@ Output: complete FILE blocks for changed files only; do not re-emit unchanged mo
 """
 
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
+JSX (including Context providers) needs .jsx/.tsx, not .js/.ts; update imports. Fix source parse errors before changing build config.
 Collection API: const {collection} = require('../lib/collection'); do not call the module object. Pass initial: [{id:'example'}], NOT initial: {items:[...]}. Only migration callbacks receive the envelope {items:[...]}. Correct callers rather than changing shared exports. Invalid stored shapes require an explicit preserving migration, never deletion/reset of persisted data.
 Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes.
 From backend/routes/: require('../lib/store') exports read(name,fallback), write(name,value), update(name,fallback,synchronousChange). Prefer require('../lib/collection').collection(name,{idKey,initial,migrations,normalize}) for ordinary CRUD instead of regenerating persistence; it exports all/list/get/create/patch/remove/transact. initial applies only to a new store; persist changes to existing data via versioned migrations up(data) mutating data.items synchronously, preserving __arcMigrations. Never reseed deleted records. Optional normalize(record) returns an object with the SAME id on reads/create/patch and before/after transact; choose defaults from requirements, not fixtures. Reads do not persist normalization. transact(items => result) synchronously mutates one collection in one write; duplicate/missing IDs and async callbacks fail. Atomicity is single-store/single-process only; cross-store effects need one aggregate or transactional storage. require('../lib/errors').HttpError(status,message) gives explicit 4xx {error:message}; 5xx details are hidden. Define domain validation, authorization and messages from requirements.
@@ -5138,19 +5140,12 @@ class Flow:
                     and all(any(path == spec or path.endswith("/" + spec) for path in observed) for spec in specs))
 
     def final_acceptance_passes(self) -> None:
-        """Repeat the full-suite pass while it still fails and the budget allows.
-
-        Cloud 3ffe9702bf15 delivered 25/32 after spending 5754 s of a 48000 s
-        budget: one pass ran, its repairs stalled, and the run ended with the
-        rest of the time unused. Every pass keeps its own best state, so a
-        repeat starts from a state at least as good as the one before it.
-        """
+        """Bound final repair passes independently of the overall task size."""
         configured_passes = os.environ.get("OCTOS_FINAL_SUITE_PASSES")
-        # By default the run-wide time/token/turn guards, not a three-pass
-        # constant, decide when a still-red suite must stop.  Keep an explicit
-        # override for controlled comparisons and constrained deployments.
-        passes = max(1, int(configured_passes)) if configured_passes is not None else \
-            max(3, int(getattr(self, "max_turns", 3)) if getattr(self, "max_turns", -1) > 0 else 3)
+        # A large implementation allowance is not permission for hundreds of
+        # full-suite repair passes. Each pass already contains several repairs.
+        passes = max(1, int(configured_passes)) if configured_passes is not None else 3
+        stalled_passes = 0
         for attempt in range(passes):
             # Admission for measurement is distinct from admission for repair.
             # The old 3 * 300s floor skipped even the first measurement in a
@@ -5179,12 +5174,18 @@ class Flow:
                 log("[flow] full-suite repair made no source change; stopping duplicate repair/measurement passes")
                 break
             if getattr(self, "final_suite_progress", False) is not True:
+                stalled_passes += 1
+                if stalled_passes >= 2:
+                    log("[flow] two full-suite passes without measured improvement; stopping repair loop")
+                    break
                 self._force_final_tool_repair = True
                 self.pending_corrections.append(
                     "The previous full-suite pass did not increase the measured pass count. Reinspect the failing "
                     "interaction end to end and use a different targeted repair approach; preserve the best state.")
                 log("[flow] full-suite pass made no measured pass-count improvement; "
-                    "budget remains, so changing approach instead of stopping")
+                    "allowing one changed approach before stopping")
+            else:
+                stalled_passes = 0
 
     GRADER_WORKERS = 1  # observed platform logs; configurable for other graders
 
