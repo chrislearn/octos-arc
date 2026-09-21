@@ -2954,7 +2954,7 @@ class Flow:
                 continue
             if "/shared/" in rel or path.name in {"build.mjs", "vite.config.mjs"}:
                 continue
-            if phase == "repair" and path.stat().st_size >= 1500:
+            if phase == "repair" and rel in paths and path.stat().st_size >= 1500:
                 return True
             if rel in paths and path.stat().st_size >= limit:
                 return True
@@ -2969,17 +2969,28 @@ class Flow:
         """
         before = {str(p.relative_to(self.output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in app_source_files(self.output_dir, exts=None)}
-        for rel in quoted_paths(prompt):
+        from source_index import SourceIndex
+        sources = {str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
+                   for p in app_source_files(self.output_dir)}
+        prompt += "\n" + SourceIndex(sources).render(quoted_paths(prompt)) + "\n"
+        retained = 0
+        for rel in sorted(quoted_paths(prompt)):
             path = self.output_dir / rel
             if path.is_file():
                 content = path.read_text(encoding="utf-8", errors="replace").rstrip()
                 quoted = f"--- {rel} ---\n{content}\n"
-                prompt = prompt.replace(quoted, f"--- {rel} --- (read current file before editing)\n")
+                # Preserve small, already localized files instead of paying for
+                # another read. Large files remain available through range reads.
+                if quoted in prompt and retained + len(content) <= 16000:
+                    retained += len(content)
+                else:
+                    prompt = prompt.replace(quoted, f"--- {rel} --- (read current file before editing)\n")
         prompt = prompt.replace("Return only requested file blocks.", "Use the supplied file tools.")
         prompt = prompt.replace("Output: complete FILE blocks for changed files only; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.",
                                 "Use tools for necessary changes only; finish when the requirements are satisfied.")
         prompt += ("\nThis is a tool-editing turn, not a text codegen response. Do not emit FILE/EDIT blocks or diffs. "
-                   "Read current files, then use edit_file with path, old_string, new_string for small changes; "
+                   "Quoted source is the current disk snapshot; use it directly without redundant reads. "
+                   "For unquoted files read current ranges, then use edit_file with path, old_string, new_string for small changes; "
                    "use write_file for new files or a necessary short full rewrite. Batch independent small calls. "
                    "If an edit fails, inspect the current source excerpt or read the file; do not guess the anchor. "
                    "Do not repeat identical or no-op edits. Preserve unrelated behavior and stop after the changes. "

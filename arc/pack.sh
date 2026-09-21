@@ -19,6 +19,7 @@ fi
 # (arc/bin/octos, a cross target, or target/release/octos -- see pack_kernel.py).
 # main.py then runs it instead of downloading OCTOS_RELEASE_URL.
 # ARC_PACK_KERNEL=0 forces the small, download-based bundle.
+zip -q ../octos-arc-bundle.zip source_index.py
 python3 pack_kernel.py ../octos-arc-bundle.zip
 echo "打包完成：$(cd .. && pwd)/octos-arc-bundle.zip（$(du -h ../octos-arc-bundle.zip | cut -f1)）"
 shasum -a 256 ../octos-arc-bundle.zip

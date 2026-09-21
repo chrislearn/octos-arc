@@ -40,7 +40,8 @@ class EditProtocolTests(TestCase):
         p = self.source('a' * 13000)
         prompt = '--- frontend/src/App.jsx ---\n' + p.read_text() + '\n'
         self.assertTrue(self.flow.use_structured_edits(prompt, 'wave implement'))
-        self.assertTrue(self.flow.use_structured_edits('', 'suite repair'))
+        self.assertFalse(self.flow.use_structured_edits('', 'suite repair'))
+        self.assertTrue(self.flow.use_structured_edits(prompt, 'suite repair'))
         self.assertFalse(self.flow.use_structured_edits('', 'wave implement'))
         self.assertFalse(self.flow.use_structured_edits(prompt, 'application design'))
         with patch.dict('os.environ', {'OCTOS_ARC_STRUCTURED_EDITS': '0'}):
@@ -76,6 +77,12 @@ class EditProtocolTests(TestCase):
             self.flow.structured_edit_turn('', 90, 'repair')
         self.assertEqual(self.flow.llm_proxy.extra_drop_tools, {'original'})
         self.assertFalse(self.flow.llm_proxy.compact_reads)
+
+    def test_localized_small_source_is_not_discarded(self):
+        p = self.source('const current = 1;')
+        self.flow.turn = Mock(return_value=(True, 'done'))
+        self.flow.structured_edit_turn('--- frontend/src/App.jsx ---\n' + p.read_text() + '\n', 90, 'repair')
+        self.assertIn(p.read_text(), self.flow.turn.call_args.args[0])
 
     def test_local_request_cap_is_incomplete_not_success_or_run_exhaustion(self):
         f = self.flow
