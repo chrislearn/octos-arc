@@ -53,6 +53,9 @@ class WebStackTests(unittest.TestCase):
         return flow
 
     def test_fresh_large_flow_installs_pins_before_design_and_never_copy_builds(self):
+        self.assertIn("React/Vite/Radix/React Router", m.APP_DESIGN_PROMPT)
+        self.assertNotIn("without React or JSX", m.APP_DESIGN_PROMPT)
+        self.assertNotIn("do not introduce React", m.ARCHITECTURE_CONTRACT)
         flow = self.flow()
         flow.app_design = Mock(side_effect=lambda *_: self.assertIn("Fixed frontend baseline", stack_note(self.root)))
         with patch.dict(os.environ, {"OCTOS_ARC_REACT": "1"}):

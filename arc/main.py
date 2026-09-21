@@ -1497,7 +1497,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "12"
+APP_DESIGN_PROMPT_VERSION = "12-react-ab"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Optional collection(...) migration up(data) receives a storage OBJECT; the record array is data.items, "
@@ -1511,7 +1511,7 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 
 {outline}
 
-Preserve the installed stack. Fresh applications default to local HTML/CSS/JavaScript ES modules, native semantic controls and Express routes, without React or JSX. Existing applications keep their architecture. frontend/src/index.html is the shell; backend/server.js is a small Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules. Reuse the provided request/router helpers and cohesive view modules; do not invent another DOM/widget framework. Use one owner per draft/dialog state, stable record IDs, and ignore stale async responses. Render shared navigation consistently; preserve focus and drafts during unrelated updates.
+Preserve the installed stack. Fresh complex applications use React/Vite/Radix/React Router with local bundled assets and Express routes. Existing applications keep their architecture. frontend/src/index.html is the shell; backend/server.js is a small Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules. Reuse the provided request/interaction helpers and cohesive React components; do not invent another DOM/widget framework. Use one owner per draft/dialog state, stable record IDs, and ignore stale async responses. Render shared navigation consistently; preserve focus and drafts during unrelated updates.
 Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
@@ -1673,7 +1673,7 @@ Performance and robustness:
 ARCHITECTURE_CONTRACT = """\
 Runtime integration:
 - Preserve the platform contract: frontend/ has npm run build producing frontend/dist/; backend/ has npm start and reads PORT (default {port}). Within that contract, preserve the existing application architecture and choose libraries or storage appropriate to the requirements and available environment.
-- Preserve the installed stack and exact dependency pins. Fresh apps use HTML/CSS/JavaScript ES modules and Express routes; do not introduce React, JSX or a custom widget framework into the plain scaffold. Existing apps keep their architecture. Use native semantic controls and local libraries only for actual requirements. Declare dependencies and make npm run build produce all pages and assets. Browser pages must load scripts, styles, fonts and media from local output, never a CDN or remote import. Registry downloads during npm install are allowed.
+- Preserve the installed stack and exact dependency pins. Fresh complex apps use React/Vite/Radix/React Router and Express routes; reuse the installed components instead of inventing a custom widget framework. Existing apps keep their architecture. Use native semantic controls and local libraries only for actual requirements. Declare dependencies and make npm run build produce all pages and assets. Browser pages must load scripts, styles, fonts and media from local output, never a CDN or remote import. Registry downloads during npm install are allowed.
 - Handle expected request errors with appropriate responses, including 404 for missing resources. Log unexpected failures; do not suppress uncaught exceptions and continue serving potentially corrupt state. Preserve data integrity and use the runtime's recovery mechanism.
 """
 
@@ -2560,7 +2560,7 @@ class Flow:
                 and os.environ.get("OCTOS_ARC_GENERIC_TEMPLATE", "1") != "0"):
             extra_ports = [p for p in spec_base_ports(self.tests_dir) if p != self.web_port]
             written = install_generic_template(build_dir, BUNDLE_DIR, self.web_port, extra_ports,
-                                               react=os.environ.get("OCTOS_ARC_REACT", "0") == "1" and len(ordered) >= 3,
+                                               react=os.environ.get("OCTOS_ARC_REACT", "1") == "1" and len(ordered) >= 3,
                                                capabilities=recommended_capabilities(tree))
             written += write_codegen_manifests(build_dir)
             if written:

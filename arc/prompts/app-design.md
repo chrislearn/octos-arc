@@ -2,7 +2,7 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 
 {outline}
 
-Preserve the installed stack. Fresh applications default to local HTML/CSS/JavaScript ES modules, native semantic controls and Express routes, without React or JSX. Existing applications keep their architecture. frontend/src/index.html is the shell; backend/server.js is a small Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules. Reuse the provided request/router helpers and cohesive view modules; do not invent another DOM/widget framework. Use one owner per draft/dialog state, stable record IDs, and ignore stale async responses. Render shared navigation consistently; preserve focus and drafts during unrelated updates.
+Preserve the installed stack. Fresh complex applications use React/Vite/Radix/React Router with local bundled assets and Express routes. Existing applications keep their architecture. frontend/src/index.html is the shell; backend/server.js is a small Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules. Reuse the provided request/interaction helpers and cohesive React components; do not invent another DOM/widget framework. Use one owner per draft/dialog state, stable record IDs, and ignore stale async responses. Render shared navigation consistently; preserve focus and drafts during unrelated updates.
 Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
 {"data_model": {"collection": {"field": "type"}},
  "routes": [{"method": "GET|POST|PUT|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."]}],
