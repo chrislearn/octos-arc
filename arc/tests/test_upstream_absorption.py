@@ -220,7 +220,7 @@ class RepairOutcomeTests(unittest.TestCase):
             self.assertEqual(self.flow.last_codegen_outcome, outcome)
         records = (self.root / ".arc/flow-metrics.jsonl").read_text()
         self.assertNotIn("secret", records)
-        self.assertEqual(len(records.splitlines()), 4)
+        self.assertEqual(sum(json.loads(line)['kind'] == 'codegen' for line in records.splitlines()), 4)
 
     def test_truncated_response_keeps_complete_files_without_claiming_full_application(self):
         reply = ("<<<FILE backend/one.js>>>\ncomplete\n<<<END FILE>>>\n"

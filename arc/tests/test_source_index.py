@@ -1,6 +1,7 @@
 from unittest import TestCase
 from source_index import SourceIndex
 from source_index import failure_groups
+from source_index import select_repair_groups
 from types import SimpleNamespace
 import tempfile
 from pathlib import Path
@@ -34,6 +35,13 @@ class SourceIndexTests(TestCase):
     def test_concrete_shared_runtime_error_merges_features(self):
         failure = SimpleNamespace(message='TypeError: note.tags.map is not a function', action_errors=[])
         self.assertEqual(failure_groups({'a': [failure], 'b': [failure]}, {'a': {'A.jsx'}, 'b': {'B.jsx'}}), [['a', 'b']])
+
+    def test_group_coverage_fits_existing_repair_rounds(self):
+        groups = [[str(i)] for i in range(7)]
+        visits = {}
+        self.assertEqual(select_repair_groups(groups, visits, 3), ['0', '1', '2'])
+        self.assertEqual(select_repair_groups(groups, visits, 2), ['3', '4', '5', '6'])
+        self.assertEqual(select_repair_groups(groups, visits, 1), [str(i) for i in range(7)])
 
     def test_regression_scheduler_escalates_shared_or_unknown_changes(self):
         with tempfile.TemporaryDirectory() as directory:

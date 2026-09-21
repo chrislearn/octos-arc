@@ -36,9 +36,14 @@ class SourceIndex:
         for path in sorted(self.related(paths)):
             source = self.sources[path]
             symbols = re.findall(r'(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|class|const)\s+(\w+)', source)
+            signatures = re.findall(r'function\s+\w+\s*\([^)]{0,180}\)', source)
+            routes = re.findall(r'''\b(?:app|router)\.(?:get|post|put|patch|delete)\(\s*['"][^'"]+['"]''', source)
+            requests = re.findall(r'''\bfetch\(\s*['"`][^'"`\n]{1,120}['"`]''', source)
             props = re.findall(r'<([A-Z]\w*)\b([^<>]*?)/?>', source)
             calls = [name + '(' + ','.join(re.findall(r'\b(\w+)\s*=', attrs)) + ')' for name, attrs in props]
             lines.append(f'{path}: imports={",".join(sorted(self.dependencies[path]))}; symbols={",".join(symbols[:20])}; components={",".join(calls[:20])}')
+            if signatures or routes or requests:
+                lines.append('  contracts: ' + '; '.join(signatures[:6] + routes[:10] + requests[:10]))
         return '\n'.join(lines)[:limit]
 
 
@@ -76,3 +81,13 @@ def failure_groups(grouped, targets):
         groups = rest + [(merged, keys)]
     return [sorted(ids) for ids, _ in sorted(groups, key=lambda g: (-len(g[0]), sorted(g[0])))]
 
+
+def select_repair_groups(groups, visits, slots):
+    """Fit group coverage into existing round limits, without adding calls."""
+    ordered = sorted(groups, key=lambda ids: (visits.get(tuple(ids), 0), -len(ids), ids))
+    slots = max(1, slots)
+    count = max(1, (len(groups) + slots - 1) // slots)
+    selected = ordered[:count]
+    for group in selected:
+        visits[tuple(group)] = visits.get(tuple(group), 0) + 1
+    return sorted({node for group in selected for node in group})

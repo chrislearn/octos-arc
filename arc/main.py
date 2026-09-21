@@ -839,6 +839,10 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None,
         else:
             priority = 4
         scored.append((priority, -hits, len(text), rel, text))
+    from source_index import SourceIndex
+    index = SourceIndex({str(row[3]): row[4] for row in scored})
+    related = index.related(certain | guessed | navigated)
+    scored = [(3.5 if row[0] >= 4 and str(row[3]) in related else row[0], *row[1:]) for row in scored]
     return sorted(scored, key=lambda item: item[:3])
 
 
@@ -2321,6 +2325,9 @@ class Flow:
             self.codegen_budget = dict(spec=len(spec), entry=0, room=0, limit=limit,
                                        reason="spec_at_or_above_60_percent")
             return None
+        gate = getattr(self, '_generation_gate_evidence', '')
+        if gate:
+            evidence += '\nPrevious batch compiler/checker evidence (fix in the current logical batch):\n' + gate[:4000]
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         if getattr(self, "generic_template_installed", False):
@@ -2379,7 +2386,20 @@ class Flow:
         # stability order -- unchanged low-churn files precede frequently edited
         # ones for prefix reuse -- then the per-node design slice, if any, with the
         # other node-specific text.
-        return rules + design_stable + sources + "\n" + design_slice + corrections + evidence + task
+        prompt = rules + design_stable + sources + "\n" + design_slice + corrections + evidence + task
+        self.bind_edit_scope(prompt, spec + '\n' + evidence, must_include)
+        return prompt
+
+    def bind_edit_scope(self, prompt, evidence, priority=()):
+        root = getattr(self, 'output_dir', None)
+        paths = [p.relative_to(root) for p in app_source_files(root)] if isinstance(root, Path) else []
+        scope = set(priority or ()) | spec_targets(evidence, paths) | navigation_targets(evidence, paths)
+        scopes = getattr(self, '_edit_scopes', {})
+        scopes[hashlib.sha256(prompt.encode()).hexdigest()] = scope
+        self._edit_scopes = dict(list(scopes.items())[-4:])
+
+    def edit_scope(self, prompt):
+        return getattr(self, '_edit_scopes', {}).get(hashlib.sha256(prompt.encode()).hexdigest()) or quoted_paths(prompt)
 
     def log_codegen_fallback(self, node_id: str) -> None:
         budget = self.codegen_budget
@@ -2395,6 +2415,7 @@ class Flow:
             prompt = prompt.replace(failures, balanced_failure_evidence(failures, 6000), 1)
         patched = self._patched_repair_prompt(node_id, spec, prompt)
         if patched is not None:
+            self.bind_edit_scope(patched, spec + '\n' + failures, getattr(self, 'refused_paths', ()))
             return patched
         # The tool-mode prompt could not be requoted within the budget (cloud
         # fcec6ac02a95: 15 repairs went straight to tools this way). Build the
@@ -2696,6 +2717,12 @@ class Flow:
         # historical diff (which can include almost every file on the first
         # final suite). Otherwise retrying still crowds out the named target.
         must = set(getattr(self, "refused_paths", ())) or changed
+        index = self.repair_source_index()
+        localized = spec_targets(specs + '\n' + failures, [Path(p) for p in index.sources])
+        if localized and not getattr(self, "refused_paths", ()):
+            # Historical diffs may contain the entire generated application.
+            # Prefer current failure ownership and its direct callers instead.
+            must = localized | (changed & index.related(localized))
         node = {"id": ", ".join(names), "description": description}
         prompt = self.codegen_implement_prompt(node, specs, "", evidence=evidence, must_include=must)
         if prompt is None or not must:
@@ -2713,6 +2740,8 @@ class Flow:
 
     def repair_source_index(self):
         from source_index import SourceIndex
+        if not isinstance(getattr(self, 'output_dir', None), Path):
+            return SourceIndex({})
         index = SourceIndex({str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
                              for p in app_source_files(self.output_dir)})
         versioned = app_source_files(self.output_dir, exts=None)
@@ -2878,11 +2907,15 @@ class Flow:
         if not raw_target and self.use_structured_edits(prompt, label):
             return self.structured_edit_turn(prompt, timeout, label)
         if phase_for_label(label) == 'repair':
-            prompt += self.repair_memory_context(prompt)
+            memory = self.repair_memory_context(prompt)
+            if len(prompt) + len(memory) + len(format_instructions) <= self.codegen_context_chars():
+                prompt += memory
         started = time.monotonic()
         def result(ok: bool, text: str, outcome: str):
             self.last_codegen_outcome = outcome
             self.remember_repair(label, prompt, outcome)
+            if phase_for_label(label) == 'implement' and self.last_codegen_written:
+                self.generation_batch_check(label)
             if phase_for_label(label) == "implement" and getattr(self, "codegen_degenerated", False):
                 clean = ok and outcome == "applied" and not self.last_codegen_degenerated
                 self.clean_codegen_streak = getattr(self, "clean_codegen_streak", 0) + 1 if clean else 0
@@ -3031,7 +3064,7 @@ class Flow:
         if phase not in {"implement", "repair"}:
             return False
         limit = max(1000, int(os.environ.get("OCTOS_ARC_EDIT_FILE_CHARS", "12000")))
-        paths = quoted_paths(prompt)
+        paths = self.edit_scope(prompt)
         for path in app_source_files(self.output_dir):
             rel = str(path.relative_to(self.output_dir))
             if path.suffix not in {".js", ".jsx", ".ts", ".tsx", ".html", ".css"}:
@@ -3106,6 +3139,8 @@ class Flow:
         self.last_codegen_no_change = ok and not self.last_codegen_written
         self.last_codegen_outcome = "applied" if ok and self.last_codegen_written else "unchanged" if ok else "tool_incomplete"
         self.remember_repair(label, prompt, self.last_codegen_outcome)
+        if phase_for_label(label) == 'implement' and self.last_codegen_written:
+            self.generation_batch_check(label)
         self.metric("structured_edit", label=label, outcome=self.last_codegen_outcome,
                     elapsed_seconds=round(time.monotonic() - started, 3),
                     changed_files=len(self.last_codegen_written))
@@ -3629,7 +3664,7 @@ class Flow:
                 current_versions = self.repair_source_index().versions
                 changed = {p for p in initial_versions.keys() | current_versions.keys()
                            if initial_versions.get(p) != current_versions.get(p)}
-                regression_specs = self.affected_regression_specs(changed, specs)
+                regression_specs = self.affected_regression_specs(changed, specs) if repair_applied else []
                 if regression_specs and not self.wound_down() and self.remaining() > self.final_measurement_reserve():
                     regression = self.run_specs(regression_specs, grader_like=True)
                     self.metric("acceptance", scope="affected_regression", node_id=node_id,
@@ -3897,6 +3932,7 @@ class Flow:
         deadline = time.monotonic() + timeout
         self.whole_app_generation_requests = getattr(self, "whole_app_generation_requests", 0) + 1
         ok, text = self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars)
+        self.generation_batch_check(label)
         if ok and (getattr(self, "last_codegen_written", [])
                    or getattr(self, "last_codegen_no_change", False) is True):
             return ok, text
@@ -3914,9 +3950,30 @@ class Flow:
                 <= self.codegen_context_chars()):
             log(f"[flow] {label}: format rejected; one corrected reply before splitting")
             self.whole_app_generation_requests += 1
-            return self.codegen_turn(prompt + correction, retry_seconds, label + " (format retry)",
-                                     spec_chars=spec_chars)
+            result = self.codegen_turn(prompt + correction, retry_seconds, label + " (format retry)",
+                                       spec_chars=spec_chars)
+            self.generation_batch_check(label)
+            return result
         return ok, text
+
+    def generation_batch_check(self, label):
+        changed = getattr(self, 'last_codegen_written', [])
+        if not changed or not hasattr(self, 'max_total_tokens'):
+            return  # No configured execution budget: do not launch subprocesses.
+        if self.wound_down() or self.remaining() < self.min_repair_seconds + 120:
+            return
+        from generation_checks import check_batch
+        versions = self.repair_source_index().versions
+        if versions == getattr(self, '_generation_checked_versions', None):
+            return
+        paths = set(changed) | set(getattr(self, '_generation_gate_paths', ()))
+        result = check_batch(self.output_dir, paths, budget=30)
+        self._generation_gate_paths = paths if result['errors'] or result['deferred'] else set()
+        self._generation_checked_versions = versions
+        self._generation_gate_evidence = '\n'.join(result['errors'])[:4000]
+        self.metric('generation_gate', label=label, **result)
+        if result['errors']:
+            log(f"[flow] {label}: early checks found {len(result['errors'])} issue(s); exact evidence queued for next batch")
 
     def whole_app_waves(self, tree: dict, ordered: list[dict]) -> bool:
         """Generate contiguous, dependency-ordered feature groups before testing.
@@ -4911,11 +4968,10 @@ class Flow:
                 break
             failing = sorted(k for k in grouped if k) or ["all nodes"]
             if measured and len(failing) > 1:
-                from source_index import failure_groups
+                from source_index import failure_groups, select_repair_groups
                 clusters = failure_groups({k: v for k, v in grouped.items() if k}, self.requirement_source_targets())
                 visits = getattr(self, "_repair_group_visits", {})
-                active = min(clusters, key=lambda ids: (visits.get(tuple(ids), 0), -len(ids), ids))
-                visits[tuple(active)] = visits.get(tuple(active), 0) + 1
+                active = select_repair_groups(clusters, visits, rounds - attempt)
                 self._repair_group_visits = visits
                 if len(clusters) > 1:
                     overview = f"All failing requirement IDs: {', '.join(failing)}. Active repair group: {', '.join(active)}. Other groups are deferred, not passed.\n"
@@ -4927,7 +4983,7 @@ class Flow:
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
-                sources="\n".join(self.repair_requirements(n) for n in failing) + self.sources_text(),
+                sources=self.repair_requirements() + self.sources_text(),
                 corrections=self.corrections_text() + "The full suite runs all spec files against one "
                 "server; tests from different files must not interfere through shared server state "
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "

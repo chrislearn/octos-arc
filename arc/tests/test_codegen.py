@@ -350,7 +350,7 @@ class BestRepairStateTests(unittest.TestCase):
         flow.snapshot_sources = Mock()
         flow.sources_text = lambda: ''
         flow.corrections_text = lambda: ''
-        flow.turn = Mock()  # failed repair leaves uncommitted edits; HEAD remains unchanged
+        flow.turn = Mock(return_value=(False, 'incomplete'))  # partial edits; HEAD remains unchanged
         flow.commit = Mock()
         flow.restore_app = Mock()
         failure = TestOutcome('behavior', False, 'failed', 1, message='missing control')
@@ -383,7 +383,7 @@ class VerifiedBehaviorRewriteTests(unittest.TestCase):
         flow.wound_down = flow.time_up = lambda: False
         flow.sources_text = flow.corrections_text = flow.repair_test_location = lambda *args: ''
         flow.record_tests = flow.snapshot_sources = flow.commit = Mock()
-        flow.turn = Mock()
+        flow.turn = Mock(return_value=(True, 'done'))
         flow.smoke_port, flow.web_port = 43219, 3000
         fail = TestOutcome('new behavior', False, 'failed', 1, message='missing control')
         flow.run_specs = Mock(side_effect=[RunSummary(passed=0, total=1, results=[fail]),
@@ -443,7 +443,7 @@ class RepairModeTransitionTests(unittest.TestCase):
                     flow.last_codegen_written = ['frontend/src/app.js']
                     return True, 'generated repair'
                 flow.codegen_turn = Mock(side_effect=generated_repair)
-                flow.turn = Mock()
+                flow.turn = Mock(return_value=(True, 'done'))
                 flow.commit = Mock()
                 flow.restore_app = Mock()
                 summaries = [RunSummary(passed=0, total=1, results=[

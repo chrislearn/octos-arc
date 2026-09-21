@@ -84,6 +84,14 @@ class EditProtocolTests(TestCase):
         self.flow.structured_edit_turn('--- frontend/src/App.jsx ---\n' + p.read_text() + '\n', 90, 'repair')
         self.assertIn(p.read_text(), self.flow.turn.call_args.args[0])
 
+    def test_large_quoted_context_file_does_not_override_known_small_target(self):
+        p = self.source('a' * 13000)
+        target = p.parent / 'Small.jsx'
+        target.write_text('export const Small = () => null;')
+        prompt = '--- frontend/src/App.jsx ---\n' + p.read_text() + '\n--- frontend/src/Small.jsx ---\n' + target.read_text() + '\n'
+        self.flow.bind_edit_scope(prompt, '', {'frontend/src/Small.jsx'})
+        self.assertFalse(self.flow.use_structured_edits(prompt, 'suite repair'))
+
     def test_local_request_cap_is_incomplete_not_success_or_run_exhaustion(self):
         f = self.flow
         proxy = SimpleNamespace(mode='none', extra_drop_tools=set(), no_tools=False,
