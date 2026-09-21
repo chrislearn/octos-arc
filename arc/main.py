@@ -2713,8 +2713,54 @@ class Flow:
 
     def repair_source_index(self):
         from source_index import SourceIndex
-        return SourceIndex({str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
-                            for p in app_source_files(self.output_dir, exts=None)})
+        index = SourceIndex({str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
+                             for p in app_source_files(self.output_dir)})
+        versioned = app_source_files(self.output_dir, exts=None)
+        versioned += [self.output_dir / part / name for part in ('frontend', 'backend')
+                      for name in LOCKFILES if (self.output_dir / part / name).is_file()]
+        index.versions = {str(p.relative_to(self.output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
+                          for p in versioned}
+        return index
+
+    def repair_memory_context(self, prompt):
+        current = self.repair_source_index().versions
+        paths = quoted_paths(prompt)
+        history = [r for r in getattr(self, '_repair_history', [])
+                   if r['versions'] == current and (not paths or paths & set(r['paths']))]
+        if not history:
+            return ''
+        lines = ['Recent harness observations for this exact source/dependency state (not a diagnosis):']
+        for record in history[-3:]:
+            lines.append(f"{record['label']}: {record['outcome']}; changed={', '.join(record['changed']) or 'none'}; "
+                         f"verification={record.get('verification', 'not yet measured')}")
+        return '\n' + '\n'.join(lines)[:2200] + '\nDo not repeat an unchanged attempt; use the current failure evidence.\n'
+
+    def remember_repair(self, label, prompt, outcome):
+        if phase_for_label(label) != 'repair':
+            return
+        changed = list(getattr(self, 'last_codegen_written', []))
+        record = {'label': label, 'outcome': outcome, 'changed': changed,
+                  'paths': sorted(quoted_paths(prompt) | set(changed)),
+                  'versions': self.repair_source_index().versions}
+        self._repair_history = (getattr(self, '_repair_history', []) + [record])[-8:]
+        self.metric('repair_memory', label=label, outcome=outcome, changed=changed)
+
+    def verify_repair_memory(self, summary, measured):
+        current = self.repair_source_index().versions
+        for record in getattr(self, '_repair_history', []):
+            if record['versions'] == current:
+                # A targeted run is explicitly not evidence of global success.
+                record['verification'] = (f"{summary.passed}/{summary.total} observed in the latest test scope; "
+                                          "not a claim about untested features") if measured else 'incomplete test verdict'
+
+    def repair_tool_turn(self, prompt, timeout, label):
+        before = self.repair_source_index().versions
+        prompt += self.repair_memory_context(prompt)
+        ok, text = self.turn(prompt, timeout, label)
+        after = self.repair_source_index().versions
+        self.last_codegen_written = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
+        self.remember_repair(label, prompt, 'applied' if self.last_codegen_written else 'unchanged' if ok else 'tool_incomplete')
+        return ok, text
 
     def requirement_source_targets(self):
         paths = [p.relative_to(self.output_dir) for p in app_source_files(self.output_dir)]
@@ -2814,7 +2860,7 @@ class Flow:
         if reason:
             tool_prompt += "\nCodegen repair did not fully apply; inspect current files before editing. " + reason[:300] + "\n"
         self.last_turn_changed = None
-        _, text = self.turn(tool_prompt, left, label)
+        _, text = self.repair_tool_turn(tool_prompt, left, label)
         changed = getattr(self, "last_turn_changed", None)
         self.last_repair_changed = True if self.last_repair_changed else changed
         return "tools", text
@@ -2831,9 +2877,12 @@ class Flow:
         self.last_codegen_degenerated = False
         if not raw_target and self.use_structured_edits(prompt, label):
             return self.structured_edit_turn(prompt, timeout, label)
+        if phase_for_label(label) == 'repair':
+            prompt += self.repair_memory_context(prompt)
         started = time.monotonic()
         def result(ok: bool, text: str, outcome: str):
             self.last_codegen_outcome = outcome
+            self.remember_repair(label, prompt, outcome)
             if phase_for_label(label) == "implement" and getattr(self, "codegen_degenerated", False):
                 clean = ok and outcome == "applied" and not self.last_codegen_degenerated
                 self.clean_codegen_streak = getattr(self, "clean_codegen_streak", 0) + 1 if clean else 0
@@ -3004,6 +3053,8 @@ class Flow:
         """
         before = {str(p.relative_to(self.output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in app_source_files(self.output_dir, exts=None)}
+        if phase_for_label(label) == 'repair':
+            prompt += self.repair_memory_context(prompt)
         from source_index import SourceIndex
         sources = {str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
                    for p in app_source_files(self.output_dir)}
@@ -3054,6 +3105,7 @@ class Flow:
         self.last_codegen_written = sorted(rel for rel in before.keys() | after.keys() if before.get(rel) != after.get(rel))
         self.last_codegen_no_change = ok and not self.last_codegen_written
         self.last_codegen_outcome = "applied" if ok and self.last_codegen_written else "unchanged" if ok else "tool_incomplete"
+        self.remember_repair(label, prompt, self.last_codegen_outcome)
         self.metric("structured_edit", label=label, outcome=self.last_codegen_outcome,
                     elapsed_seconds=round(time.monotonic() - started, 3),
                     changed_files=len(self.last_codegen_written))
@@ -3507,7 +3559,7 @@ class Flow:
                 "Inspect current files; apply a concrete fix before rerunning acceptance. "
                 "An unapplied or unchanged reply is not evidence that the proposed fix failed.")
         self.last_turn_changed = None
-        self.turn(self.compact_tool_repair_prompt(build_prompt(), failures), left, label)
+        self.repair_tool_turn(self.compact_tool_repair_prompt(build_prompt(), failures), left, label)
         changed = getattr(self, "last_turn_changed", None)
         if changed is False and not applied:
             log(f"[flow] {label}: no source changes after repair fallback; skipping duplicate acceptance")
@@ -3535,6 +3587,7 @@ class Flow:
                 return None
             infrastructure_error = summary.error or ("\n".join(summary.load_errors) if summary.load_errors else "")
             measured = not infrastructure_error and not summary.killed and summary.total > 0
+            self.verify_repair_memory(summary, measured)
             if infrastructure_error:
                 log(f"[acceptance] {node_id} infrastructure error: {infrastructure_error[:300]}")
                 failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 600)}\n  Steps: npm run build -> npm start"
@@ -4754,6 +4807,7 @@ class Flow:
                 log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
                 break
             measured = self.suite_is_measured(summary, all_specs)
+            self.verify_repair_memory(summary, measured)
             if not measured:
                 error = summary.error or "\n".join(summary.load_errors) or "Incomplete acceptance report; not all specs produced results"
                 log(f"[acceptance] full suite has no complete verdict: {error[:300]}")

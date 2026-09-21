@@ -414,18 +414,25 @@ def compact_repeated_reads(body: bytes) -> bytes:
                 calls.pop(call.get('id'), None)
                 if fn.get('name') == 'read_file':
                     args = json.loads(fn.get('arguments', '{}'))
-                    calls[call['id']] = json.dumps(args, sort_keys=True)
+                    scope = {k: v for k, v in args.items() if k not in {'start_line', 'end_line', 'offset', 'limit'}}
+                    calls[call['id']] = (json.dumps(args, sort_keys=True), json.dumps(scope, sort_keys=True))
             if message.get('role') == 'tool' and isinstance(message.get('content'), str):
                 key = calls.get(message.get('tool_call_id'))
                 if key is not None:
                     reads.append((key, message))
         seen = set()
+        covered = {}
         changed = False
-        for key, message in reversed(reads):
-            if key in seen and len(message['content']) > 160:
-                message['content'] = '[Earlier read omitted: a later result for the identical read arguments appears below. Use the later observation; edits may have changed the file.]'
+        for (key, scope), message in reversed(reads):
+            lines = {int(n): text for n, text in re.findall(r'(?m)^\s*(\d+)│ (.*)$', message['content'])}
+            later = covered.setdefault(scope, {})
+            redundant_range = bool(lines) and all(later.get(n) == text for n, text in lines.items())
+            if (key in seen or redundant_range) and len(message['content']) > 160:
+                message['content'] = '[Earlier read omitted: a later result covers this read below. Use the later observation; edits may have changed the file.]'
                 changed = True
             seen.add(key)
+            for n, text in lines.items():
+                later.setdefault(n, text)
         return json.dumps(data, ensure_ascii=False).encode() if changed else body
     except (ValueError, TypeError, AttributeError, KeyError):
         return body

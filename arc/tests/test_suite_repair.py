@@ -80,6 +80,7 @@ class SuiteRepairTurnTests(unittest.TestCase):
         flow.last_codegen_written = ["frontend/src/App.jsx"]
         flow.last_codegen_refused = set()
         flow.turn.return_value = (True, "tool reply")
+        flow.repair_tool_turn.return_value = (True, "tool reply")
         flow.current_spec_chars = 0
         flow.wound_down.return_value = False
         return flow
@@ -91,11 +92,12 @@ class SuiteRepairTurnTests(unittest.TestCase):
         flow.codegen_turn.assert_called_once()
         self.assertEqual(flow.codegen_turn.call_args.args[0], "codegen prompt")
         flow.turn.assert_not_called()
+        flow.repair_tool_turn.assert_not_called()
 
     def test_should_fall_back_to_tools_when_no_codegen_prompt_fits_or_when_told_to(self):
         flow = self._flow(); flow.suite_repair_prompt.return_value = None
         mode, _ = m.Flow.suite_repair_turn(flow, "checkpoint 8 repair 1/1", ["REQ-2"], "f", 300, tool_prompt="tool prompt")
-        self.assertEqual(mode, "tools"); flow.turn.assert_called_once(); flow.codegen_turn.assert_not_called()
+        self.assertEqual(mode, "tools"); flow.repair_tool_turn.assert_called_once(); flow.codegen_turn.assert_not_called()
         flow = self._flow(); flow.suite_repair_prompt.return_value = "codegen prompt"
         mode, _ = m.Flow.suite_repair_turn(flow, "x", ["REQ-2"], "f", 300, tool_prompt="tool prompt", prefer_codegen=False)
         self.assertEqual(mode, "tools"); flow.codegen_turn.assert_not_called()
