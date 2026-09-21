@@ -50,18 +50,12 @@ def iter_blocks(text: str):
 
 FORMAT_INSTRUCTIONS = """\
 Only changed blocks, no prose. If unchanged: <<<NO CHANGE>>>.
-New file/short rewrite:
+Return complete contents for each changed or new file:
 <<<FILE relative/path>>>
 contents
 <<<END FILE>>>
-Small quoted-file edit:
-<<<EDIT relative/path>>>
-<<<SEARCH>>>
-exact unique old text
-<<<REPLACE>>>
-new text
-<<<END EDIT>>>
-EDIT needs SEARCH/REPLACE, not whole files. Omit identical edits. One format/path; no repeated blocks or large rewrites. Stop when done.
+Only FILE blocks are supported in this request. No EDIT, SEARCH/REPLACE or diff syntax.
+One block per changed path. Preserve existing behavior. Omit unchanged files. Stop when done.
 """
 
 

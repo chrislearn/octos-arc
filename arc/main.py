@@ -844,7 +844,7 @@ def render_source_selection(scored: list[tuple], selected: list[int], stable_ord
         # page does not invalidate the unchanged source prefix after it.
         quoted.sort(key=lambda item: (0 if item[0] == 0 else 1, counts.get(str(item[1]), 0), str(item[1])))
         omitted.sort()
-    out = "Current source files (quoted; use exact EDIT blocks for small changes or complete FILE blocks):\n"
+    out = "Current source files (quoted; preserve unchanged behavior):\n"
     out += "".join(f"--- {rel} ---\n{text.rstrip()}\n" for _, rel, text in quoted)
     if omitted:
         out += "Other files, unchanged unless the requirement needs them: " + "; ".join(omitted) + "\n"
@@ -1506,8 +1506,8 @@ In notes, preserve required entry gestures and action placement (record click, d
 Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Split layouts only when requirements differ. Keep this concrete and minimal, not a configurable application framework.
 """
 
-CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply only with <<<FILE relative/path>>> ... <<<END FILE>>> or <<<EDIT relative/path>>> blocks using exact delimiters, or exactly <<<NO CHANGE>>> when already satisfied.
-Return a final patch, not an iterative self-review transcript: change each logical region once. No unchanged SEARCH/REPLACE pairs or successive revisions of the same function. Use the shortest unique anchors that identify the actual change, not whole functions for a one-line edit. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Stop immediately when the coherent patch is complete."""
+CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply only with <<<FILE relative/path>>> ... <<<END FILE>>> blocks using exact delimiters, or exactly <<<NO CHANGE>>> when already satisfied.
+Return each changed file once, with complete contents. No EDIT blocks, diffs, unchanged files or iterative self-review. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Preserve existing behavior. Stop immediately when complete."""
 
 CODEGEN_RULES = """\
 Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. For each HTTP method, register literal paths before overlapping :parameter paths (DELETE /api/items/trash before DELETE /api/items/:id). For pushState links set frontend/package.json arc.spa=true. Preserve the installed frontend stack, exact dependency versions and lockfile; add task-required packages to the correct package.json. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. JSX/TSX must be bundled, not copied to dist.
@@ -1515,7 +1515,7 @@ Packages: update package.json and the build script only when needed by new depen
 Data: seed only a new store or migration; preserve edits/deletions across restarts. Use atomic aggregate updates for related state and server-side validation. Persist deadlines, distinguish calendar dates from timestamps. Label rich-text textbox regions; use native select when native selection is required.
 Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
 Async: clicks do not await handlers. Mount usable editor/dialog controls before the first await; isolate background only for modal overlays. Await save and list refresh (or update optimistically); retain edits on failure.
-Output: use exact EDIT blocks for small quoted-file changes; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.
+Output: complete FILE blocks for changed files only; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.
 """
 
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
@@ -1561,7 +1561,7 @@ CODEGEN_SIZE_SMALL = 'Prefer a small implementation, but do not omit required be
 CODEGEN_SIZE_FULL = "Keep the implementation concise while preserving all required behavior and the existing architecture. Derive navigation, authentication, storage and validation from the requirements. Public tests illustrate contracts; handle other valid inputs too. Do not force a navigation placeholder, cookie name, redirect, validation message or rendering strategy. Fix actual ambiguous controls in their intended scope without deleting legitimate repeated links or text. Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input."
 
 TRUNCATED_CODEGEN_RETRY = """\
-The previous codegen reply exceeded its output limit and was discarded. Inspect only the quoted current sources. Emit at most three small complete EDIT blocks for existing files and FILE blocks only for new, short files. Do not reproduce an unchanged module or the whole application. If the requirement is already satisfied, reply exactly <<<NO CHANGE>>>.
+The previous codegen reply exceeded its output limit. Inspect current sources: some complete files may already have been applied. Finish only the missing changes and do not reproduce unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.
 """
 
 TRUNCATED_RETRY = """\
@@ -1731,7 +1731,7 @@ Read the files you need before changing them, keep every existing route, label a
 """
 
 CODEGEN_REPAIR_SUFFIX = """
-This request has no tools. Use the supplied acceptance specification and helpers below as read-only evidence; do not emit read/shell instructions or claim to have executed them. Use exact EDIT blocks for quoted existing files, FILE blocks only for new files or unavoidable short rewrites, and no blocks for unchanged files. The harness executes acceptance after your response.
+Use the supplied acceptance specification and helpers below as read-only evidence. Preserve unrelated behavior. The harness executes acceptance after your response.
 {spec}
 """
 
@@ -2080,19 +2080,15 @@ class Flow:
             is_implement = label.endswith(" implement") or label.startswith("skeleton")
             proxy.mode = impl_mode if (impl_mode and is_implement and self.minimal_mode(getattr(self, "n_nodes", 99))) else base_mode
             if request_budget is None:
-                # A repair has to understand a failure before it can edit, so it
-                # cannot need less room than the turn that wrote the code. Both
-                # follow the same default; the per-turn timeout and the cost
-                # guard still bound them. Cloud 746c81a2b5aa and 3ffe9702bf15 hit
-                # the old fixed cap of 10 on 17% and 23% of their repair turns —
-                # including the last repair of every node that stayed broken —
-                # while spending 7% of the token budget and 7% of the time.
-                default = "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"
+                # Repairs are measured after bounded work, not allowed unlimited
+                # context growth. Creation keeps its independent default.
+                default = "12" if "repair" in label else "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"
                 request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", default)) if "repair" in label else \
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", default))
             proxy.label = label
             proxy.phase = phase_for_label(label)
             proxy.begin_turn(request_budget)
+            proxy.turn_deadline = time.monotonic() + timeout
         # A model turn may change application files, even when it later fails.
         getattr(self, "probe_summaries", {}).clear()
         t0 = time.time()
@@ -2100,11 +2096,13 @@ class Flow:
         before_sources = self.app_source_digest() if execution_mode == "tools" else None
         self.turn_count += 1
         ok, text = self.driver.run(prompt, max(1, int(timeout)), monitor)
+        if proxy is not None and getattr(proxy, "hard_budget_exhausted", False) is True:
+            ok, text = False, "local_turn_budget_exhausted: partial edits retained; acceptance must measure them."
         elapsed = time.time() - t0
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
-        if proxy is not None and proxy.turn_budget and proxy.turn_requests > proxy.turn_budget:
-            log(f"[guard] {label}: request budget {proxy.turn_budget} hit; turn forced to finish")
+        if proxy is not None and getattr(proxy, "hard_budget_exhausted", False) is True:
+            log(f"[guard] {label}: hard request budget {proxy.turn_budget} hit; turn incomplete")
         for c in monitor.corrections():
             log(f"[guard] {label}: {c[:160]}")
             if self.guard_enabled:
@@ -2301,8 +2299,7 @@ class Flow:
             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
         existing = self.has_app()
         if existing:
-            rules = rules.replace("Files:", "Existing app below; preserve working behavior and use small exact "
-                                  "EDIT blocks for quoted files when possible. Files:", 1)
+            rules = rules.replace("Files:", "Existing app below; preserve working behavior. Files:", 1)
         entry = backend_entry(self.output_dir) if existing else None
         if must_include is None:
             must_include = set(getattr(self, "refused_paths", ()))
@@ -2724,7 +2721,7 @@ class Flow:
                         prompt = retry
                     elif reason.startswith(("codegen reply contained no ", "mixed FILE and EDIT blocks")):
                         correction = ("\nPrevious reply was not applied: " + reason[:240] +
-                                      "\nReturn only complete FILE/EDIT blocks with exact terminators; one format per path.\n")
+                                      "\nReturn only complete FILE blocks with exact terminators; one block per path.\n")
                         if len(prompt) + len(correction) + len(FORMAT_INSTRUCTIONS) + 1 > self.codegen_context_chars():
                             break
                         prompt += correction
@@ -2734,7 +2731,11 @@ class Flow:
             else:
                 log(f"[flow] {label}: no codegen repair prompt within the budget; using tools")
         left = deadline - time.monotonic()
-        if left <= 0 or self.wound_down():
+        if left < 30 or "local_turn_budget_exhausted" in reason or self.wound_down():
+            # Do not restart a fresh tool allowance after a hard cap, or issue
+            # a request that has no useful execution window left. The caller
+            # retains current files and owns acceptance/next-round admission.
+            log(f"[flow] {label}: no viable fallback window or request budget exhausted; returning to acceptance")
             return "unapplied", ""
         if reason:
             tool_prompt += "\nCodegen repair did not fully apply; inspect current files before editing. " + reason[:300] + "\n"
@@ -2754,6 +2755,8 @@ class Flow:
         self.last_codegen_written = []
         self.last_codegen_no_change = False
         self.last_codegen_degenerated = False
+        if not raw_target and self.use_structured_edits(prompt, label):
+            return self.structured_edit_turn(prompt, timeout, label)
         started = time.monotonic()
         def result(ok: bool, text: str, outcome: str):
             self.last_codegen_outcome = outcome
@@ -2889,6 +2892,88 @@ class Flow:
             outcome = "incomplete_blocks" if re.search(r"(?m)^<<<(?:FILE|EDIT)\s", text) else "no_blocks"
             return result(False, "codegen reply contained no complete <<<FILE>>> or <<<EDIT>>> blocks", outcome)
         return result(ok, text, "generation_failed")
+
+    def use_structured_edits(self, prompt: str, label: str) -> bool:
+        """Full files for creation/small apps; tools for repairs/large existing files.
+
+        The threshold concerns application code, not installed blueprint libraries
+        or the size of the acceptance specification. Legacy mode remains available
+        for controlled protocol comparisons.
+        """
+        if os.environ.get("OCTOS_ARC_STRUCTURED_EDITS", "1") == "0":
+            return False
+        if getattr(self, "llm_proxy", None) is None or not getattr(self, "output_dir", None):
+            return False
+        phase = phase_for_label(label)
+        if phase not in {"implement", "repair"}:
+            return False
+        limit = max(1000, int(os.environ.get("OCTOS_ARC_EDIT_FILE_CHARS", "12000")))
+        paths = quoted_paths(prompt)
+        for path in app_source_files(self.output_dir):
+            rel = str(path.relative_to(self.output_dir))
+            if path.suffix not in {".js", ".jsx", ".ts", ".tsx", ".html", ".css"}:
+                continue
+            if "/shared/" in rel or path.name in {"build.mjs", "vite.config.mjs"}:
+                continue
+            if phase == "repair" and path.stat().st_size >= 1500:
+                return True
+            if rel in paths and path.stat().st_size >= limit:
+                return True
+        return False
+
+    def structured_edit_turn(self, prompt: str, timeout: int, label: str) -> tuple[bool, str]:
+        """Use the native read/edit/write loop, bounded by the caller's deadline.
+
+        Keep requirements and test evidence; replace only verified whole-source
+        quotations with an index. Native calls get individual application results.
+        The protected-file hook rejects unsafe fuzzy/no-op edits before execution.
+        """
+        before = {str(p.relative_to(self.output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in app_source_files(self.output_dir, exts=None)}
+        for rel in quoted_paths(prompt):
+            path = self.output_dir / rel
+            if path.is_file():
+                content = path.read_text(encoding="utf-8", errors="replace").rstrip()
+                quoted = f"--- {rel} ---\n{content}\n"
+                prompt = prompt.replace(quoted, f"--- {rel} --- (read current file before editing)\n")
+        prompt = prompt.replace("Return only requested file blocks.", "Use the supplied file tools.")
+        prompt = prompt.replace("Output: complete FILE blocks for changed files only; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.",
+                                "Use tools for necessary changes only; finish when the requirements are satisfied.")
+        prompt += ("\nThis is a tool-editing turn, not a text codegen response. Do not emit FILE/EDIT blocks or diffs. "
+                   "Read current files, then use edit_file with path, old_string, new_string for small changes; "
+                   "use write_file for new files or a necessary short full rewrite. Batch independent small calls. "
+                   "If an edit fails, inspect the current source excerpt or read the file; do not guess the anchor. "
+                   "Do not repeat identical or no-op edits. Preserve unrelated behavior and stop after the changes. "
+                   "Use targeted grep and line-range reads; do not reread unchanged files to confirm an edit that succeeded. "
+                   "Before changing a shared prop/callback, locate every caller and update all rendering branches. "
+                   "Keep seed/create/update/read record shapes consistent; optional collections must not crash rendering. "
+                   "Do not narrate a long diagnosis: issue the necessary edits and finish with a short summary. "
+                   "The harness builds and runs acceptance immediately afterwards; no shell is available.\n")
+        proxy = self.llm_proxy
+        saved = set(getattr(proxy, "extra_drop_tools", set()))
+        saved_cap = getattr(proxy, "tool_max_tokens", 0)
+        saved_compaction = getattr(proxy, "compact_reads", False)
+        proxy.compact_reads = True
+        proxy.extra_drop_tools = saved | self.SHELL_TOOLS | {"diff_edit", "apply_patch"}
+        proxy.tool_max_tokens = max(1024, int(os.environ.get("OCTOS_ARC_EDIT_MAX_TOKENS", "4096")))
+        started = time.monotonic()
+        try:
+            ok, text = self.turn(prompt, timeout, label + " (structured edits)", expect_verification=False,
+                                 request_budget=max(1, int(os.environ.get("OCTOS_ARC_EDIT_REQUESTS", "8"))))
+        finally:
+            proxy.extra_drop_tools = saved
+            proxy.tool_max_tokens = saved_cap
+            proxy.compact_reads = saved_compaction
+        after = {str(p.relative_to(self.output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
+                 for p in app_source_files(self.output_dir, exts=None)}
+        self.last_codegen_written = sorted(rel for rel in before.keys() | after.keys() if before.get(rel) != after.get(rel))
+        self.last_codegen_no_change = ok and not self.last_codegen_written
+        self.last_codegen_outcome = "applied" if ok and self.last_codegen_written else "unchanged" if ok else "tool_incomplete"
+        self.metric("structured_edit", label=label, outcome=self.last_codegen_outcome,
+                    elapsed_seconds=round(time.monotonic() - started, 3),
+                    changed_files=len(self.last_codegen_written))
+        # Do not feed final tool prose into the FILE protocol-retry detector.
+        return ok, "" if ok else "Structured editing incomplete; inspect current files before continuing. " + text[-300:]
 
     def codegen_ports_clause(self) -> str:
         if getattr(self, "generic_template_installed", False):
@@ -3177,6 +3262,7 @@ class Flow:
             log(f"[proxy] could not start local LLM proxy ({exc}); using the endpoint directly")
             return
         self.base_reasoning_mode = mode
+        os.environ["OCTOS_ARC_EDIT_ARGUMENTS_DIR"] = self.llm_proxy.enable_edit_preflight()
         os.environ["OPENAI_BASE_URL"] = self.llm_proxy.base_url
         log(f"[proxy] LLM requests via {self.llm_proxy.base_url} -> {upstream} (reasoning={mode}, "
             f"destream={'on' if self.llm_proxy.destream else 'off'}, trim={'on' if self.llm_proxy.trim else 'off'})")
@@ -3308,7 +3394,7 @@ class Flow:
                     outcome = getattr(self, "last_codegen_outcome", "")
                     if not applied and outcome in {"no_blocks", "incomplete_blocks", "format_error"}:
                         correction = ("\nPrevious repair was not applied: " + reason[:240] +
-                                      "\nReturn complete FILE/EDIT blocks with exact terminators, one format per path.\n")
+                                      "\nReturn complete FILE blocks with exact terminators, one block per path.\n")
                         if (deadline - time.monotonic() >= 30 and
                                 len(compact + correction) + len(FORMAT_INSTRUCTIONS) + 1 <= self.codegen_context_chars()):
                             compact += correction
@@ -3660,8 +3746,8 @@ class Flow:
         format_error = (text.startswith("codegen reply contained no ")
                         or text.startswith("mixed FILE and EDIT blocks"))
         correction = ("\nThe preceding answer was discarded without writing files: " + text[:240] +
-                      "\nReturn ONLY complete <<<FILE ...>>> or <<<EDIT ...>>> blocks, with their exact "
-                      "<<<END FILE>>> or <<<END EDIT>>> terminators. Use one format per path. "
+                      "\nReturn ONLY complete <<<FILE ...>>> blocks, with exact "
+                      "<<<END FILE>>> terminators. One block per path. "
                       "Do not explain the implementation.\n")
         retry_seconds = min(360, int(deadline - time.monotonic()))
         if (format_error and not getattr(self, "last_codegen_degenerated", False)
@@ -4168,7 +4254,7 @@ class Flow:
                 if focused is not None:
                     retry_time = min(self.node_timeout, deadline - time.time())
                     if retry_time > 0:
-                        log(f"[flow] {node_id}: truncated output; one compact EDIT retry before tools")
+                        log(f"[flow] {node_id}: truncated output; one bounded retry (tools for large existing files)")
                         ok, text = self.codegen_turn(focused, retry_time, f"{node_id} implement (compact retry)",
                                                      spec_chars=self.current_spec_chars)
             if not ok and "truncated" in text.lower():
@@ -4221,7 +4307,7 @@ class Flow:
         def rebuild_prompt(failures: str) -> str:
             if self.codegen_mode() and codegen_prompt:
                 evidence = ("Your previous files failed every test. Failures:\n" + failures
-                            + "\nFix the root causes with small exact EDIT blocks for quoted files; "
+                            + "\nFix the root causes while preserving unrelated behavior; "
                               "do not re-emit unchanged files.\n")
                 # Rebuild from current disk contents; never append a second,
                 # conflicting copy of the files quoted before implementation.

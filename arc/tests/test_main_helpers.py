@@ -1416,15 +1416,15 @@ class RepairRequestBudgetTests(unittest.TestCase):
         flow.turn(prompt='p', timeout=60, label=label)
         return seen['budget']
 
-    def test_should_give_a_repair_the_same_room_as_the_turn_that_wrote_the_code(self):
-        self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=32),
-                         self._budget('REQ-1 implement', nodes=32))
+    def test_repairs_are_bounded_without_changing_creation_budget(self):
+        self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=32), 12)
+        self.assertEqual(self._budget('REQ-1 implement', nodes=32), 0)
 
-    def test_should_not_cap_a_repair_below_ten_on_a_large_tree(self):
-        self.assertEqual(self._budget('REQ-1 repair 3/3', nodes=32), 0)  # 0 = uncapped
+    def test_large_tree_does_not_remove_repair_cap(self):
+        self.assertEqual(self._budget('REQ-1 repair 3/3', nodes=32), 12)
 
     def test_should_keep_a_cap_on_a_small_task(self):
-        self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=1), 20)
+        self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=1), 12)
 
     def test_should_still_honour_an_explicit_override(self):
         from unittest.mock import patch
@@ -2289,7 +2289,8 @@ class CodegenBeyondBudgetTests(unittest.TestCase):
         self.assertIn("before the first await", m.CODEGEN_RULES)
         self.assertIn("Await save and list refresh", m.CODEGEN_RULES)
         self.assertIn("before the first await", m.UI_CONTRACT_CORE)
-        self.assertIn("exact EDIT blocks for quoted existing files", m.CODEGEN_REPAIR_SUFFIX)
+        self.assertIn("Preserve unrelated behavior", m.CODEGEN_REPAIR_SUFFIX)
+        self.assertNotIn("exact EDIT blocks", m.CODEGEN_REPAIR_SUFFIX)
         self.assertIn("Do not output FILE blocks", m.GENERIC_TEMPLATE_NOTE)
 
     def test_should_fail_the_turn_when_every_block_was_refused(self):

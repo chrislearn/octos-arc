@@ -14,10 +14,12 @@ server is stdlib `http.server` on 127.0.0.1 and forwards headers verbatim.
 from __future__ import annotations
 
 import json
+import hashlib
 import ipaddress
 import os
 import re
 import threading
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -25,6 +27,62 @@ from urllib.parse import urlsplit
 from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from reply_quality import StreamRepetitionGuard
+
+
+def collect_codegen_stream(response, deadline: float | None = None) -> tuple[bytes, str | None]:
+    """Collect SSE incrementally; close the connection on strong repetition.
+
+    Report interruption as length, NEVER stop/success. Missing provider usage
+    remains missing: early cancellation cannot establish final billed tokens.
+    Only the tool-less codegen path calls this; native tool deltas are untouched.
+    """
+    guard = StreamRepetitionGuard()
+    text, reasoning, usage, finish = "", "", None, None
+    identity = {}
+    aborted = None
+    for raw in response:
+        if deadline is not None and time.monotonic() >= deadline:
+            aborted = "turn_deadline"
+            break
+        if not raw.startswith(b"data:"):
+            continue
+        payload = raw[5:].strip()
+        if payload == b"[DONE]":
+            break
+        try:
+            event = json.loads(payload)
+        except (ValueError, UnicodeError):
+            raise ValueError("invalid codegen SSE event")
+        identity.update({key: event[key] for key in ("id", "model", "created") if key in event})
+        if event.get("error"):
+            raise ValueError("upstream codegen SSE error")
+        if event.get("usage"):
+            usage = event["usage"]
+        for choice in event.get("choices", []):
+            if choice.get("index", 0) != 0:
+                raise ValueError("multiple codegen choices are unsupported")
+            delta = choice.get("delta") or {}
+            if delta.get("tool_calls"):
+                raise ValueError("unexpected tools in tool-less codegen stream")
+            text += delta.get("content") or ""
+            reasoning += delta.get("reasoning_content") or ""
+            finish = choice.get("finish_reason") or finish
+        aborted = "response_size_limit" if len(text) + len(reasoning) > 2_000_000 else guard.check(text)
+        if aborted:
+            break
+    if aborted or not finish:
+        aborted = aborted or "incomplete_stream"
+        finish = "length"
+    message = {"role": "assistant", "content": text}
+    if reasoning:
+        message["reasoning_content"] = reasoning
+    result = dict(identity, object="chat.completion", choices=[{"index": 0, "message": message, "finish_reason": finish}])
+    if usage is not None:
+        result["usage"] = usage
+    if aborted:
+        result["arc_stream_stop"] = aborted
+    return json.dumps(result, ensure_ascii=False).encode(), aborted
 
 HOP_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding"}
 
@@ -318,8 +376,8 @@ BUDGET_NOTICE = ("Tool budget for this turn is exhausted. Do not call any more t
 def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
     """Once `used` requests have been made in the current turn, strip the tool
     schemas and append a user notice so the model must answer (ending the turn).
-    A hard cap the model cannot ignore, unlike prompt budgets (v11-tb: 20-call
-    repair turns)."""
+    This is only a prompt-level finishing hint. The proxy admission check supplies
+    the hard limit; removing tool schemas alone cannot stop unsolicited calls."""
     if budget <= 0 or used < budget:
         return body
     try:
@@ -335,6 +393,42 @@ def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
         msgs.append({"role": "user", "content": BUDGET_NOTICE})
     data["messages"] = msgs
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
+def compact_repeated_reads(body: bytes) -> bytes:
+    """Retain the latest observation of each exact read, not duplicate payloads.
+
+    Preserve call ids, arguments, ordering, distinct ranges and all edit results.
+    A superseded result is explicitly marked, never presented as current source.
+    No compaction of the most recent result or of non-text/malformed messages.
+    """
+    try:
+        data = json.loads(body)
+        calls = {}
+        reads = []
+        for message in data.get('messages', []):
+            for call in message.get('tool_calls', []) or []:
+                fn = call.get('function') or {}
+                # Some providers reuse ids across completions. Never classify
+                # an edit result using an earlier read with the same id.
+                calls.pop(call.get('id'), None)
+                if fn.get('name') == 'read_file':
+                    args = json.loads(fn.get('arguments', '{}'))
+                    calls[call['id']] = json.dumps(args, sort_keys=True)
+            if message.get('role') == 'tool' and isinstance(message.get('content'), str):
+                key = calls.get(message.get('tool_call_id'))
+                if key is not None:
+                    reads.append((key, message))
+        seen = set()
+        changed = False
+        for key, message in reversed(reads):
+            if key in seen and len(message['content']) > 160:
+                message['content'] = '[Earlier read omitted: a later result for the identical read arguments appears below. Use the later observation; edits may have changed the file.]'
+                changed = True
+            seen.add(key)
+        return json.dumps(data, ensure_ascii=False).encode() if changed else body
+    except (ValueError, TypeError, AttributeError, KeyError):
+        return body
 
 
 def ensure_max_tokens(body: bytes, minimum: int) -> bytes:
@@ -526,7 +620,10 @@ class LlmProxy:
         # Per-turn request cap (0 = unlimited); the flow calls begin_turn().
         self.turn_budget = 0
         self.turn_requests = 0
+        self.turn_upstream_requests = 0
         self.budget_hits = 0
+        self.hard_budget_exhausted = False
+        self.compact_reads = False
         # Run-wide billable usage (prompt + completion), for the flow's cost guard.
         self.total_requests = 0
         self.total_tokens = 0
@@ -571,9 +668,11 @@ class LlmProxy:
                         body = strip_all_tools(body)
                     if proxy.system_override:
                         body = replace_system_prompt(body, proxy.system_override)
+                    if proxy.compact_reads:
+                        body = compact_repeated_reads(body)
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
-                    limit = proxy.codegen_max_tokens if proxy.no_tools else 0
+                    limit = proxy.codegen_max_tokens if proxy.no_tools else getattr(proxy, "tool_max_tokens", 0)
                     body = cap_output_tokens(body, limit)
                     unrouted = body
                     with proxy._lock:
@@ -634,34 +733,72 @@ class LlmProxy:
         key = (method, path, body, tuple(sorted((k.lower(), v) for k, v in headers.items())), self.phase) \
             if method == "POST" and path.rstrip("/").endswith("/chat/completions") else None
         with self._lock:
+            future = self._inflight.get(key) if key is not None else None
+            if (key is not None and future is None and self.turn_budget > 0
+                    and self.turn_upstream_requests >= self.turn_budget):
+                # A local terminal message ends the kernel loop without provider
+                # retries. Flow marks the turn incomplete and measures partial edits.
+                # The kernel requires usage. Zero here means a LOCAL response
+                # with no upstream request, never an estimate of provider usage.
+                # It is deliberately absent from provider llm-usage.jsonl.
+                self.hard_budget_exhausted = True
+                payload = {'id': 'arc-local-turn-limit', 'object': 'chat.completion',
+                           'model': json.loads(body).get('model', 'arc-local'),
+                           'created': int(time.time()),
+                           'arc_local_response': True,
+                           'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+                           'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {
+                               'role': 'assistant', 'content': 'local_turn_budget_exhausted: '
+                               'repair incomplete; evaluate current files before further work.'}}]}
+                return 200, json.dumps(payload).encode(), {'Content-Type': 'application/json'}
             if key is not None and self.max_total_tokens_abs > 0 and self.total_tokens >= self.max_total_tokens_abs:
                 self.blocked_requests += 1
                 return 402, json.dumps({"error": {
                     "code": "local_token_budget_exhausted",
                     "message": "Local absolute token budget exhausted; no upstream request was sent."
                 }}).encode(), {"Content-Type": "application/json"}
-            future = self._inflight.get(key) if key is not None else None
             owner = future is None
             if owner:
                 future = Future()
                 if key is not None:
+                    self.turn_upstream_requests += 1
                     self._inflight[key] = future
         if not owner:
             return future.result()
         try:
+            guarded_stream = (self.no_tools and self.phase in {"implement", "repair"}
+                              and os.environ.get("OCTOS_ARC_STREAM_GUARD", "1") != "0"
+                              and method == "POST" and path.rstrip("/").endswith("/chat/completions"))
+            if guarded_stream:
+                data = json.loads(body)
+                data["stream"] = True
+                data["stream_options"] = {**(data.get("stream_options") or {}), "include_usage": True}
+                body = json.dumps(data, ensure_ascii=False).encode()
+                headers = {k: v for k, v in headers.items() if k.lower() != "content-length"}
+                headers["Content-Length"] = str(len(body))
             req = urllib.request.Request(self.upstream + path, data=body if body else None,
                                          headers=headers, method=method)
             t0 = time.time()
             meta = self.request_meta(body)   # attribution fixed at issue time, not at response time
             try:
-                with open_upstream(req, timeout=600) as resp:
-                    result = resp.status, resp.read(), resp.headers
+                deadline = getattr(self, "turn_deadline", None)
+                request_timeout = min(600, max(1, deadline - time.monotonic())) if deadline else 600
+                with open_upstream(req, timeout=request_timeout) as resp:
+                    if guarded_stream and "text/event-stream" in resp.headers.get("Content-Type", ""):
+                        payload, stopped = collect_codegen_stream(resp, deadline)
+                        meta["stream_guard"] = stopped or "completed"
+                        result = resp.status, payload, {"Content-Type": "application/json"}
+                    else:
+                        result = resp.status, resp.read(), resp.headers
             except urllib.error.HTTPError as exc:
                 result = exc.code, exc.read(), exc.headers
                 exc.close()
             except Exception as exc:  # noqa: BLE001
                 result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
             status, payload, _ = result
+            if (status == 200 and getattr(self, "edit_arguments_dir", None)
+                    and meta.get("turn_serial") == self.turn_serial):
+                self.retain_edit_arguments(payload)
             if status == 200 and meta.get("codegen"):
                 self.capture_truncated_reply(payload, meta)
             self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload), status=status, meta=meta)
@@ -681,6 +818,45 @@ class LlmProxy:
             self.truncated_reply = None
             self.turn_budget = int(budget)
             self.turn_requests = 0
+            self.turn_upstream_requests = 0
+            self.hard_budget_exhausted = False
+
+    def enable_edit_preflight(self) -> str:
+        """Private transport of complete args to the trusted ARC hook.
+
+        The kernel limits hook payloads to 1 KB. Keep full arguments keyed by
+        the provider tool-call id so large edits receive the same validation.
+        Not sent to the model or included in the deployment/application output.
+        """
+        self._edit_arguments_temp = tempfile.TemporaryDirectory(prefix="arc-edit-args-")
+        self.edit_arguments_dir = Path(self._edit_arguments_temp.name)
+        return str(self.edit_arguments_dir)
+
+    def retain_edit_arguments(self, payload: bytes) -> None:
+        try:
+            data = json.loads(payload)
+            # Native tool execution completes before the next model request.
+            # Providers may reuse call ids in a later completion; only duplicate
+            # ids inside the CURRENT completion are an ambiguity.
+            for previous in self.edit_arguments_dir.glob("*.json"):
+                previous.unlink()
+            for choice in data.get("choices", []):
+                for call in choice.get("message", {}).get("tool_calls", []):
+                    function = call.get("function") or {}
+                    if function.get("name") != "edit_file" or not isinstance(call.get("id"), str):
+                        continue
+                    args = json.loads(function.get("arguments", "{}"))
+                    if not isinstance(args, dict):
+                        continue
+                    filename = hashlib.sha256(call["id"].encode()).hexdigest() + ".json"
+                    target = self.edit_arguments_dir / filename
+                    record = {"id": call["id"], "name": "edit_file", "arguments": args}
+                    encoded = json.dumps(record, ensure_ascii=False)
+                    if target.exists() and target.read_text() != encoded:
+                        encoded = json.dumps({"id": call["id"], "error": "conflicting tool call ids; issue a new edit"})
+                    target.write_text(encoded)
+        except (ValueError, TypeError, AttributeError, OSError):
+            pass  # large truncated calls fail closed in the hook if unavailable
 
     def capture_truncated_reply(self, payload: bytes, meta: dict) -> None:
         """Keep actual response text the kernel otherwise discards on length.
@@ -785,3 +961,5 @@ class LlmProxy:
             self.server.server_close()
         except Exception:  # noqa: BLE001
             pass
+        if getattr(self, "_edit_arguments_temp", None):
+            self._edit_arguments_temp.cleanup()

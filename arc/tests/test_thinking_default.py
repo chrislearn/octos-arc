@@ -23,6 +23,7 @@ class ThinkingDefaultTests(unittest.TestCase):
                 proxy = Mock(mode="none", base_url="http://127.0.0.1:9999/v1", no_tools=False,
                              extra_drop_tools=set(), turn_budget=0, turn_requests=0)
                 proxy.start.return_value = proxy
+                proxy.enable_edit_preflight.return_value = tmp
                 with patch("main.LlmProxy", return_value=proxy) as factory:
                     flow.start_llm_proxy()
                 self.assertEqual(factory.call_args.args[1], "none")
@@ -45,6 +46,7 @@ class ThinkingDefaultTests(unittest.TestCase):
                     flow.nodes_to_implement = nodes
                     proxy = Mock(base_url="http://127.0.0.1:9999/v1")
                     proxy.start.return_value = proxy
+                    proxy.enable_edit_preflight.return_value = tmp
                     with patch("main.LlmProxy", return_value=proxy) as factory:
                         flow.start_llm_proxy()
                     self.assertEqual(factory.call_args.args[1], expected)

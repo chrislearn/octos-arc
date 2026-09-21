@@ -8,6 +8,39 @@ from collections import Counter
 from codegen import EDIT_BLOCK, FILE_BLOCK, iter_blocks
 
 
+class StreamRepetitionGuard:
+    """Conservative stop signal, never a rewrite or proof of completion.
+
+    Check at most once per 2048 new characters. Complete repeated operation
+    envelopes are stronger evidence than repeated ordinary source lines.
+    """
+    def __init__(self):
+        self.checked_chars = 0
+
+    def check(self, text: str) -> str | None:
+        if len(text) - self.checked_chars < 2048:
+            return None
+        self.checked_chars = len(text)
+        blocks = list(iter_blocks(text))
+        noops = [m for m in blocks if m.re is EDIT_BLOCK and m['search'] == m['replacement']]
+        if len(noops) >= 6 and sum(len(m[0]) for m in noops) >= 2048:
+            return "repeated_noop_edits"
+        for width in range(1, min(8, len(blocks) // 3) + 1):
+            tail = blocks[-3 * width:]
+            keys = [m[0] for m in tail]
+            if (keys[:width] == keys[width:2 * width] == keys[2 * width:]
+                    and sum(map(len, keys)) >= 2048
+                    and not any(text[a.end():b.start()].strip() for a, b in zip(tail, tail[1:]))):
+                return "repeated_operation_cycle"
+        # Long exact periodic suffixes also catch degeneration inside an
+        # unfinished FILE. Six copies and >= 4096 chars avoid small UI patterns.
+        tail = text[-49152:]
+        for width in range(256, min(8192, len(tail) // 6) + 1):
+            if width * 6 >= 4096 and tail[-width * 6:] == tail[-width:] * 6:
+                return "periodic_text_suffix"
+        return None
+
+
 def _blocks(text):
     yield from iter_blocks(text)
 

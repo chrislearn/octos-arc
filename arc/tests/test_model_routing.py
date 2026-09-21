@@ -131,6 +131,7 @@ class RoutingStartupTests(unittest.TestCase):
                    'OCTOS_ARC_MODEL_ROUTES': '[{"model":"configured"}]'}
             with patch.dict('os.environ', env), patch('main.LlmProxy') as proxy:
                 proxy.return_value.start.return_value.base_url = 'http://localhost:1234/v1'
+                proxy.return_value.start.return_value.enable_edit_preflight.return_value = tmp
                 flow.start_llm_proxy()
                 proxy.assert_called_once()
 
