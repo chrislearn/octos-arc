@@ -22,6 +22,15 @@ class SourceIndex:
         return paths | {q for p in paths for q in self.dependencies[p]} | {
             p for p, deps in self.dependencies.items() if deps & paths}
 
+    def affected(self, paths):
+        """Transitive callers, unlike the bounded display's one-hop context."""
+        found = set(paths)
+        while True:
+            expanded = found | {p for p, deps in self.dependencies.items() if deps & found}
+            if expanded == found:
+                return found
+            found = expanded
+
     def render(self, paths, limit=5000):
         lines = ['Source relationships (heuristic; verify callers before changing contracts):']
         for path in sorted(self.related(paths)):
@@ -31,3 +40,39 @@ class SourceIndex:
             calls = [name + '(' + ','.join(re.findall(r'\b(\w+)\s*=', attrs)) + ')' for name, attrs in props]
             lines.append(f'{path}: imports={",".join(sorted(self.dependencies[path]))}; symbols={",".join(symbols[:20])}; components={",".join(calls[:20])}')
         return '\n'.join(lines)[:limit]
+
+
+def failure_groups(grouped, targets):
+    """Merge concrete identical runtime errors or explicit feature ownership.
+
+    Generic assertion/timeouts alone never demonstrate a shared root cause.
+    Unknown ownership stays in one fallback group rather than forcing one turn
+    per test. This is scheduling evidence, not a diagnosis.
+    """
+    groups = []
+    for node, outcomes in grouped.items():
+        keys = {'file:' + p for p in targets.get(node, ())}
+        for result in outcomes:
+            diagnostic = '\n'.join([result.message or '', *(result.action_errors or [])])
+            for line in diagnostic.splitlines():
+                match = re.search(r'(?:ReferenceError: .+ is not defined|TypeError: .+|SyntaxError: .+|ERR_MODULE_NOT_FOUND.*)', line)
+                if match:
+                    keys.add('runtime:' + re.sub(r'\x1b\[[0-9;]*m', '', match.group()).strip())
+        if not keys:
+            keys = {'unknown'}
+        merged = {node}
+        rest = []
+        # Repeat to handle a bridge between two previously separate groups.
+        pending = groups
+        while pending:
+            old_ids, old_keys = pending.pop(0)
+            if keys & old_keys:
+                merged |= old_ids
+                keys |= old_keys
+                pending.extend(rest)
+                rest = []
+            else:
+                rest.append((old_ids, old_keys))
+        groups = rest + [(merged, keys)]
+    return [sorted(ids) for ids, _ in sorted(groups, key=lambda g: (-len(g[0]), sorted(g[0])))]
+

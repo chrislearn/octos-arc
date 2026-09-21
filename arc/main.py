@@ -2711,6 +2711,41 @@ class Flow:
             log(f"[flow] suite repair: priority files not quoted whole: {', '.join(missing)}")
         return prompt
 
+    def repair_source_index(self):
+        from source_index import SourceIndex
+        return SourceIndex({str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
+                            for p in app_source_files(self.output_dir, exts=None)})
+
+    def requirement_source_targets(self):
+        paths = [p.relative_to(self.output_dir) for p in app_source_files(self.output_dir)]
+        targets = {}
+        for node, specs in self.spec_map.items():
+            texts = []
+            for spec in specs or []:
+                path = self.tests_dir / spec
+                if path.is_file():
+                    texts.append(path.read_text(encoding="utf-8", errors="replace"))
+            text = "\n".join(texts)
+            targets[node] = spec_targets(text, paths) | navigation_targets(text, paths)
+        return targets
+
+    def affected_regression_specs(self, changed, already_run):
+        """Unknown/global changes escalate, never reuse a cached passing verdict."""
+        if not changed or not self.tests_dir:
+            return []
+        all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+        index = self.repair_source_index()
+        affected = index.affected(changed)
+        targets = self.requirement_source_targets()
+        global_change = any(p.startswith('backend/') or p.endswith(('.json', '.html', '.css'))
+                            or '/shared/' in p or Path(p).name in {'App.jsx', 'App.tsx', 'main.jsx', 'main.tsx'}
+                            for p in changed)
+        covered = set().union(*targets.values()) if targets else set()
+        if global_change or not affected & covered or any(not v for v in targets.values()):
+            return all_specs  # shared state requires testing together, including target
+        return sorted({s for n, paths in targets.items() if paths & affected
+                       for s in self.spec_map.get(n, [])} - set(already_run))
+
     def compact_tool_repair_prompt(self, prompt: str, failures: str = "") -> str:
         """Tools read current files on demand instead of carrying a 90k snapshot."""
         sources = self.sources_text()
@@ -3460,7 +3495,7 @@ class Flow:
                     break
                 log(f"[flow] {label}: retrying codegen with {', '.join(sorted(refused))} quoted whole")
         left = deadline - time.monotonic()
-        if left <= 0 or self.wound_down():
+        if left < 30 or self.wound_down() or getattr(getattr(self, "llm_proxy", None), "hard_budget_exhausted", False) is True:
             return applied
         if self.codegen_mode():
             self.codegen_blocked = True
@@ -3491,6 +3526,7 @@ class Flow:
         rewrite_used = False
         previous_failures = None
         repair_applied = False
+        initial_versions = self.repair_source_index().versions
         self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
         for attempt in range(self.repair_rounds + 1):
             summary = initial_summary if attempt == 0 and initial_summary is not None else self.run_specs(specs)
@@ -3537,6 +3573,20 @@ class Flow:
                 if line.strip().startswith(("Failed at:", "Observation:")):
                     log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")
             if measured and passed == summary.total:
+                current_versions = self.repair_source_index().versions
+                changed = {p for p in initial_versions.keys() | current_versions.keys()
+                           if initial_versions.get(p) != current_versions.get(p)}
+                regression_specs = self.affected_regression_specs(changed, specs)
+                if regression_specs and not self.wound_down() and self.remaining() > self.final_measurement_reserve():
+                    regression = self.run_specs(regression_specs, grader_like=True)
+                    self.metric("acceptance", scope="affected_regression", node_id=node_id,
+                                passed=regression.passed, total=regression.total,
+                                changed_files=sorted(changed))
+                    if not regression.all_passed or not self.suite_is_measured(regression, regression_specs):
+                        self.pending_corrections.append("Related regression checks after the targeted repair:\n" +
+                            balanced_failure_evidence(failure_summaries(regression) or regression.error or "Incomplete regression verdict", 4000))
+                        # Do not certify a repair that broke its surrounding behaviour.
+                        return False
                 self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
                 return True
             if measured and passed > best_passed:
@@ -4806,11 +4856,24 @@ class Flow:
                     or self.wound_down()):
                 break
             failing = sorted(k for k in grouped if k) or ["all nodes"]
+            if measured and len(failing) > 1:
+                from source_index import failure_groups
+                clusters = failure_groups({k: v for k, v in grouped.items() if k}, self.requirement_source_targets())
+                visits = getattr(self, "_repair_group_visits", {})
+                active = min(clusters, key=lambda ids: (visits.get(tuple(ids), 0), -len(ids), ids))
+                visits[tuple(active)] = visits.get(tuple(active), 0) + 1
+                self._repair_group_visits = visits
+                if len(clusters) > 1:
+                    overview = f"All failing requirement IDs: {', '.join(failing)}. Active repair group: {', '.join(active)}. Other groups are deferred, not passed.\n"
+                    focused = RunSummary(results=[r for n in active for r in grouped[n]])
+                    failures = overview + failure_summaries(focused) + failure_source_context(focused, self.tests_dir)
+                    failing = active
+                    self.metric("repair_group", active=active, groups=clusters)
             failures += self.unfinished_repair_note(unfinished)
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
-                sources=self.repair_requirements() + self.sources_text(),
+                sources="\n".join(self.repair_requirements(n) for n in failing) + self.sources_text(),
                 corrections=self.corrections_text() + "The full suite runs all spec files against one "
                 "server; tests from different files must not interfere through shared server state "
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "
@@ -4819,7 +4882,7 @@ class Flow:
             # One codegen request first; a round that reproduced the previous failures
             # is the changed approach, and that one uses tools.
             last_repair_mode, unfinished = self.suite_repair_turn(
-                f"full-suite repair {attempt + 1}/{rounds}", sorted(k for k in grouped if k), failures,
+                f"full-suite repair {attempt + 1}/{rounds}", failing if measured else [], failures,
                 min(self.suite_repair_timeout(), max(1, self.remaining() - self.final_measurement_reserve())),
                 tool_prompt=prompt, prefer_codegen=not repeated and not force_tool_repair)
             force_tool_repair = False
