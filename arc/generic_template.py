@@ -34,6 +34,15 @@ def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: i
               "frontend/src/shared/request.js": "frontend-request.js",
               "frontend/src/shared/router.js": "frontend-router.js"}
     written: list[str] = []
+    if not react:
+        manifest = output_dir / "frontend/package.json"
+        if not manifest.exists():
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(json.dumps({
+                "name": "arc-frontend", "private": True, "type": "module",
+                "scripts": {"build": "node build.mjs"}, "arc": {"spa": True},
+            }, indent=2) + "\n", encoding="utf-8")
+            written.append("frontend/package.json")
     if react:
         # Call only for a fresh app, before the fallback manifests are created.
         # Never replace a user/evolution application's manifest or entry point.

@@ -18,6 +18,23 @@ from acceptance import AppServer
 
 
 class WebStackTests(unittest.TestCase):
+    def test_fresh_large_app_defaults_to_local_plain_modules(self):
+        flow = self.flow()
+        flow.app_design = Mock()
+        with patch.dict(os.environ, {"OCTOS_ARC_REACT": "0"}):
+            flow.prepare_build({}, [{"id": str(i)} for i in range(34)])
+        manifest = json.loads((self.root / "frontend/package.json").read_text())
+        dependencies = {**manifest.get("dependencies", {}), **manifest.get("devDependencies", {})}
+        self.assertEqual(manifest["scripts"]["build"], "node build.mjs")
+        self.assertTrue(manifest["arc"]["spa"])
+        self.assertFalse(set(dependencies) & {"react", "react-dom", "radix-ui", "react-router"})
+        self.assertTrue((self.root / "frontend/src/app.js").is_file())
+        self.assertTrue((self.root / "frontend/src/shared/router.js").is_file())
+        self.assertFalse((self.root / "frontend/src/main.jsx").exists())
+        prompt = flow.codegen_implement_prompt({"id": "A", "description": "Create form"}, "page.goto('/')")
+        self.assertNotIn("Fixed frontend baseline: React", prompt)
+        self.assertNotIn("react-hook-form@", prompt)
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -38,7 +55,8 @@ class WebStackTests(unittest.TestCase):
     def test_fresh_large_flow_installs_pins_before_design_and_never_copy_builds(self):
         flow = self.flow()
         flow.app_design = Mock(side_effect=lambda *_: self.assertIn("Fixed frontend baseline", stack_note(self.root)))
-        flow.prepare_build({"description": "registration form", "children": []}, [{"id": str(i)} for i in range(3)])
+        with patch.dict(os.environ, {"OCTOS_ARC_REACT": "1"}):
+            flow.prepare_build({"description": "registration form", "children": []}, [{"id": str(i)} for i in range(3)])
         manifest = json.loads((self.root / "frontend/package.json").read_text())
         self.assertEqual(manifest["dependencies"], CORE)
         self.assertEqual(manifest["devDependencies"], BUILD)
