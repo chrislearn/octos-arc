@@ -53,10 +53,22 @@ class SourceIndexTests(TestCase):
             flow.spec_map = {'a': ['a.spec.ts'], 'b': ['b.spec.ts']}
             flow.repair_source_index = Mock(return_value=SourceIndex({'A.jsx': '', 'B.jsx': ''}))
             flow.requirement_source_targets = Mock(return_value={'a': {'A.jsx'}, 'b': {'B.jsx'}})
+            flow.test_verdict = {'a': True, 'b': True}
             self.assertEqual(flow.affected_regression_specs({'A.jsx'}, ['a.spec.ts']), [])
             self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']), ['a.spec.ts', 'b.spec.ts'])
             self.assertEqual(flow.affected_regression_specs({'unknown.js'}, []), ['a.spec.ts', 'b.spec.ts'])
             self.assertEqual(flow.affected_regression_specs(set(), []), [])
+            flow.spec_map['future'] = ['future.spec.ts']
+            (root / 'future.spec.ts').write_text('')
+            flow.requirement_source_targets.return_value['future'] = set()
+            self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']),
+                             ['a.spec.ts', 'b.spec.ts'])
+            self.assertEqual(flow.affected_regression_specs({'A.jsx'}, ['a.spec.ts']), [])
+            flow.test_verdict['b'] = False
+            self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']), [])
+            flow.test_verdict = {'b': True}
+            self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']),
+                             ['a.spec.ts', 'b.spec.ts'])
 
     def test_repair_memory_invalidates_on_source_or_dependency_change(self):
         with tempfile.TemporaryDirectory() as directory:

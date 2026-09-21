@@ -18,3 +18,9 @@ the earlier whole-app/no-thinking baseline changes several variables together;
 it cannot isolate React's effect without a phase-1 runtime control. The legacy
 React scaffold remains opt-in with OCTOS_ARC_REACT=1 for controlled experiments;
 fresh default apps receive no React dependencies, JSX entry or React library hints.
+
+The initial runtime probe exposed a sequential-mode regression-selection bug:
+after a shared repair, affected regression included not-yet-implemented specs.
+The probe was stopped without a final score. Affected regression now covers
+previously passing requirements plus the current target, leaving complete
+coverage to final acceptance. The paired experiment restarts from clean output.

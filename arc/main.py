@@ -2807,13 +2807,23 @@ class Flow:
         return targets
 
     def affected_regression_specs(self, changed, already_run):
-        """Unknown/global changes escalate, never reuse a cached passing verdict."""
+        """Retest affected proven behavior, not requirements still awaiting implementation.
+
+        Shared changes run the proven set together with the current target.
+        Final acceptance independently measures every requirement.
+        """
         if not changed or not self.tests_dir:
             return []
-        all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+        proven = {node for node, verdict in self.test_verdict.items() if verdict is True}
+        current = set(already_run)
+        prior_specs = {spec for node in proven for spec in self.spec_map.get(node, [])}
+        if not prior_specs - current:
+            return []
+        all_specs = sorted(prior_specs | current)
         index = self.repair_source_index()
         affected = index.affected(changed)
-        targets = self.requirement_source_targets()
+        targets = {node: paths for node, paths in self.requirement_source_targets().items()
+                   if node in proven or current & set(self.spec_map.get(node, []))}
         global_change = any(p.startswith('backend/') or p.endswith(('.json', '.html', '.css'))
                             or '/shared/' in p or Path(p).name in {'App.jsx', 'App.tsx', 'main.jsx', 'main.tsx'}
                             for p in changed)
