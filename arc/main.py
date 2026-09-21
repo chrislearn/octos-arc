@@ -2532,7 +2532,7 @@ class Flow:
         proxy.codegen_max_tokens = min([cap for cap in (phase_cap, recovery_cap) if cap] or [0])
         recovery_mode = os.environ.get("OCTOS_ARC_RECOVERY_REASONING", "none")
         if recovering and recovery_mode in {"low", "medium", "high"}:
-            mode_override = recovery_mode  # opt-in; default thinking remains off
+            mode_override = recovery_mode  # opt-in; otherwise retain the base effort
         saved_base = getattr(self, "base_reasoning_mode", proxy.mode)
         if mode_override:
             self.base_reasoning_mode = mode_override

@@ -25,7 +25,7 @@ class GenericTemplateTests(unittest.TestCase):
 
     def test_installs_only_missing_generic_files_and_fills_ports(self):
         files = install_generic_template(self.root, m.BUNDLE_DIR, 34123, [34124, 34125])
-        self.assertEqual(files, ["backend/server.js", "backend/lib/store.js", "backend/lib/collection.js",
+        self.assertEqual(files, ["frontend/package.json", "backend/server.js", "backend/lib/store.js", "backend/lib/collection.js",
                                  "backend/lib/errors.js", "backend/lib/query.js",
                                  "frontend/build.mjs", "frontend/vite.config.mjs",
                                  "frontend/src/index.html", "frontend/src/app.js", "frontend/src/style.css",
