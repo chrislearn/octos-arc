@@ -117,3 +117,29 @@ Node 22.23.2; git diff --check passed. Read-only replay on the previous generate
 application identified duplicate collection owners and the layout/storage update
 boundary; diagnostic evidence stayed inside its 8000-character budget. This is
 diagnostic coverage, not evidence of an improved benchmark score.
+
+## Follow-up benchmark: regression, not an improved baseline
+
+Frozen 74cf42c9, artifact arc-output/v7-react-contracts-bookstack-qACLTr.
+Same DeepSeek v4 Flash / reasoning low / React Bookstack / 3600-second limit.
+Independent grade: 3/34, versus 20/34 at 2d656e69. No grader infrastructure error.
+Generation exited normally after 2833.339 seconds; independent grading added
+327.798 seconds. Known tokens 1,248,940 (+26.77%), cache hit rate 83.33%, 64 requests,
+4 missing usage records. Seven repair turns cost 1206.528 seconds; four of six
+tool repair turns changed no source. Only four requirements entered sequential
+implementation, compared with thirty before. Do not treat early exit as speedup.
+
+An invented loadTable API broke startup at login. The pre-existing startup
+fail-stop deferred thirty requirements, but successful startup recovery never
+resumed the implementation queue. Four full suites then repeated 3/34 (~1289s),
+including repeats after no source changes. Only two early generation checks ran;
+both had empty warning lists. The new advisory checks were not exercised here.
+
+Final login UI did show the user and Logout: state synchronization worked in the
+observed snapshot. The test still waited for a heading while the nickname was
+plain text (async helper fallback). No task-specific role adaptation was made.
+Priority next: bounded startup recovery that resumes pending implementation,
+verify installed API contracts, reserve tool budget for edits, and reuse complete
+measurements only when source/tests/dependencies/environment/data permit it.
+Single-run sampling/network confounders remain; these findings do not prove all
+regression was caused by the added prompt rules. See the artifact REPORT.md.
