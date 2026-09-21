@@ -5,8 +5,8 @@ Branches:
 - v7-thinking-react starts at e967760a: the React control (9/34) and subsequent fixes.
 - v7-thinking remains unchanged; the existing v7.zip is not repackaged here.
 
-This revision changes only the React branch. No new paid model benchmark was
-started; the previous 9/34 result measures the pre-fix revision, not these fixes.
+This revision changes only the React branch. The initial implementation was
+unit-tested; the subsequent requested model benchmark is recorded below.
 
 ## Changes
 
@@ -43,3 +43,33 @@ Validation: 711 tests, 18 skipped, all remaining passed with Node 22.23.2;
 git diff --check passed. New regressions cover malformed/missing FILE endings,
 all-or-nothing format rejection, protocol markers in source, startup repair
 selection, blocker clearing, and rejecting invalid initial data without persistence.
+
+## Requested React retest
+
+Frozen revision: 2d656e69. Artifact: arc-output/v7-react-fix-bookstack-6OYEP0.
+DeepSeek v4 Flash, reasoning low, Bookstack, React blueprint, sequential single
+requirements, 3600-second generation limit, unchanged official tests. Independent
+single-worker grading took another 158.037 seconds and passed 20/34 (no grader
+infrastructure error), versus 9/34 for the previous React revision 28c9b390.
+
+Known tokens fell from 1,890,234 to 985,195 (-47.88%). Repair turns fell 22 to 14;
+repair time fell 2016.631 to 929.852 seconds; tool repair turns with no source
+change fell 17 to 2. Both runs reached the one-hour generation deadline.
+Input cache hit rate fell 65.43% to 55.08%, despite lower absolute token usage.
+Missing usage records fell 100 to 10: these are not complete billing totals,
+and improved upstream reliability is a material confounder.
+
+No local build/start failures or format rejections occurred in the new run.
+The strict parser/startup fail-stop protections were not exercised by this model
+run; do not infer causality from their absence. Initial passes were 11/29 measured
+nodes versus 7/31; entered nodes were 30/34 versus 32/34. Final-phase repair time
+was still not protected, and the last four requirements were not entered.
+
+Remaining final failures: login; save/cancel book edits; save page, save/delete
+draft, create chapter, read/edit page navigation; recent views, favorites and
+recent-update navigation (14 total). Several downstream checks fail at shared
+navigation rather than proving an independent defect in each downstream feature.
+Inspect shared React auth state and asynchronous navigation/accessible names,
+and enforce a hard feature-generation cutoff before final repair next.
+The historical HTML baseline remains higher at 27/34; this run does not show
+React outperforming HTML. See the artifact REPORT.md for full comparison.
