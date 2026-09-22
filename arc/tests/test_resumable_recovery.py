@@ -85,6 +85,20 @@ class HelperContractTests(TestCase):
 
 
 class RepairBudgetTests(TestCase):
+    def test_implementation_notice_is_bounded_and_preserves_tool_results(self):
+        data = {'messages': [{'role': 'tool', 'tool_call_id': 'edit1', 'content': 'edit succeeded'}],
+                'tools': [{'type': 'function', 'function': {'name': 'edit_file'}}]}
+        body = json.dumps(data).encode()
+        self.assertEqual(reserve_edit_budget(body, 1, 8, 'implement'), body)
+        result = reserve_edit_budget(body, 2, 8, 'implement')
+        result = json.loads(reserve_edit_budget(result, 6, 8, 'implement'))
+        self.assertEqual(result['messages'][0], data['messages'][0])
+        self.assertEqual(result['tools'], data['tools'])
+        self.assertEqual(len(result['messages']), 2)
+        self.assertIn('Implementation execution budget: 2 upstream requests remain',
+                      result['messages'][-1]['content'])
+        self.assertEqual(reserve_edit_budget(body, 8, 8, 'implement'), body)
+
     def test_midpoint_notice_keeps_tools_and_does_not_accumulate(self):
         data = {'messages': [{'role': 'user', 'content': 'fix'}],
                 'tools': [{'type': 'function', 'function': {'name': 'edit_file'}}]}

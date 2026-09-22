@@ -100,10 +100,12 @@ class CheckpointBaselineTests(unittest.TestCase):
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         self.assertEqual(flow.last_checkpoint_sha, "later")
+        self.assertEqual(flow.healthy_checkpoint["summary"].passed, 2)
         flow = self._flow([2], "clean")
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         self.assertEqual(flow.last_checkpoint_sha, "clean")
+        self.assertEqual(flow.healthy_checkpoint["summary"].passed, 2)
 
 
 class FirstPassMetricTests(unittest.TestCase):

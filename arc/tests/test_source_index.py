@@ -42,6 +42,25 @@ class SourceIndexTests(TestCase):
         failure = SimpleNamespace(message='TypeError: note.tags.map is not a function', action_errors=[])
         self.assertEqual(failure_groups({'a': [failure], 'b': [failure]}, {'a': {'A.jsx'}, 'b': {'B.jsx'}}), [['a', 'b']])
 
+    def test_identical_accessibility_locator_merges_downstream_failures(self):
+        first = SimpleNamespace(message='Timeout', action_errors=[
+            "waiting for getByRole('button', { name: /my account/i }).first()"])
+        last = SimpleNamespace(message='Timeout', action_errors=[
+            "waiting for getByRole('button', { name: /my account/i }).last()"])
+        self.assertEqual(
+            failure_groups({'checkout': [first], 'address': [last]},
+                           {'checkout': {'Checkout.jsx'}, 'address': {'Address.jsx'}}),
+            [['address', 'checkout']])
+
+    def test_different_accessibility_locators_stay_separate(self):
+        account = SimpleNamespace(message='Timeout', action_errors=[
+            "waiting for getByRole('button', { name: /my account/i }).first()"])
+        home = SimpleNamespace(message='Timeout', action_errors=[
+            "waiting for getByRole('button', { name: /home/i }).first()"])
+        self.assertEqual(
+            failure_groups({'account': [account], 'home': [home]}, {}),
+            [['account'], ['home']])
+
     def test_group_coverage_fits_existing_repair_rounds(self):
         groups = [[str(i)] for i in range(7)]
         visits = {}

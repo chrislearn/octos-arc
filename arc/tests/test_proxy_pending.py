@@ -10,6 +10,19 @@ from llm_proxy import LlmProxy
 
 
 class PendingCompletionTests(unittest.TestCase):
+    def test_missing_usage_reserves_tokens_for_the_cost_guard(self):
+        proxy = LlmProxy('http://unused/v1', 'none')
+        try:
+            body = json.dumps({'model': 'm', 'messages': [{'role': 'user', 'content': 'x'}],
+                               'max_tokens': 100}).encode()
+            meta = proxy.request_meta(body)
+            proxy._log(b'{"error":{"message":"timeout"}}', 600000, body,
+                       len(body), 20, status=502, meta=meta)
+            self.assertEqual(proxy.total_tokens, (len(body) + 2) // 3 + 100)
+            self.assertEqual(proxy.estimated_tokens, proxy.total_tokens)
+        finally:
+            proxy.server.server_close()
+
     def test_absolute_budget_blocks_tool_requests_even_without_usage_log(self):
         class Response:
             status = 200

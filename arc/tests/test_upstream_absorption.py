@@ -98,12 +98,14 @@ class ProxyCompatibilityTests(unittest.TestCase):
                         self.assertIn(b"data:", response.read())
                 self.assertEqual(proxy.routes, [])
                 self.assertEqual(proxy.total_requests, 3)
-                self.assertEqual(proxy.total_tokens, 8)
+                self.assertGreater(proxy.estimated_tokens, 0)
+                self.assertEqual(proxy.total_tokens, 8 + proxy.estimated_tokens)
             finally:
                 proxy.stop()
             records = [json.loads(line) for line in logfile.read_text().splitlines()]
             self.assertEqual([r["status"] for r in records], [404, 200, 200])
             self.assertEqual([r["model"] for r in records], ["unavailable", "original", "original"])
+            self.assertEqual(records[0]["guard_token_estimate"], proxy.estimated_tokens)
         self.assertEqual([p for p, _ in received], ["/custom/v4/chat/completions"] * 3)
         self.assertEqual(received[1][1]["thinking"], {"type": "enabled"})
         self.assertEqual(received[1][1]["temperature"], 0.7)
@@ -164,6 +166,19 @@ class SchedulingTests(unittest.TestCase):
             flow.runner = object()
             flow.tests_dir = root
             self.assertEqual(flow.final_phase_reserve(), 750)
+
+    def test_final_phase_starts_when_remaining_time_reaches_the_reserve(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+                os.environ, {"OCTOS_ARC_FINAL_PHASE_SECONDS": "600"}, clear=True):
+            root = Path(tmp)
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.n_nodes = 10
+            flow.runner = object()
+            flow.tests_dir = root
+            flow.remaining = lambda: 601
+            self.assertFalse(flow.final_phase_due())
+            flow.remaining = lambda: 600
+            self.assertTrue(flow.final_phase_due())
 
     def test_measured_duration_median_and_phase_classification(self):
         self.assertEqual(repair_seconds([], 300), 300)

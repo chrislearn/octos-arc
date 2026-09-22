@@ -114,7 +114,10 @@ class FrontendAssetTests(unittest.TestCase):
                                         "devDependencies": {"vite": "2.0.0"}}))
         calls.clear()
         self.assertIsNone(server.build())
-        self.assertEqual([cmd[0][:2] for cmd in calls], [["npm", "install"], ["npm", "run"]])
+        # A manifest-only declaration change can use the installed tree until
+        # source actually imports the new package. A lock change still forces
+        # installation immediately (covered above).
+        self.assertEqual([cmd[0][:2] for cmd in calls], [["npm", "run"]])
 
     @unittest.skipUnless(shutil.which("npm"), "npm is required for the real frontend build check")
     def test_real_frontend_build_can_use_a_local_dev_dependency(self):

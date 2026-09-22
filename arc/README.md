@@ -23,7 +23,7 @@ python3 arc/run-task-local.py arc/tasks/smoke--counter --name try1
 # 3. 用平台原版 Playwright 测试打分（首次会自动装 Playwright）
 python3 arc/grade-local.py arc/arc-output/try1 smoke--counter
 python3 arc/metrics.py arc/arc-output/try1        # 轮数 / Token / 费用 / 耗时 / 节点状态 / 打分，一行表格
-python3 -m unittest discover -s arc/tests -t arc  # 编排器纯函数的单元测试
+(cd arc && python3 -m unittest discover -s tests -p 'test_*.py')  # 编排器纯函数的单元测试
 
 # 4. 改一处：main.py 的提示词 / 环境变量，octos_stdio.py 的启动参数，或 crates/ 里的内核
 #    改完回到第 2、3 步，改前改后各跑一次，比数字
@@ -95,9 +95,11 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_ARC_FINAL_PHASE_SECONDS` | 自动：通常 600 s，且不超过阶段预算 25% | 大于 2 节点的任务在总预算内为最终全套测量、聚类修复和复测保留的时间；不延长总运行上限，设为 0 可关闭 |
 | `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
 | `OCTOS_ARC_WHOLE_APP_WAVE_NODES` / `OCTOS_ARC_CODEGEN_OUTPUT_TOKENS` | 6 / 输出上限的 60% | 波次同时受输入及估计输出预算限制；超预算先拆分，不先消耗一次截断请求 |
-| `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` | 0（关闭） | 逐请求检查的累计 token 阈值；达到后不再发上游请求，已在途请求可能超出，依赖供应商 usage 计量 |
+| `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` | 0（关闭） | 逐请求检查的累计 token 阈值；provider usage 缺失时按请求输入和最大输出额度保守预留，达到后不再发上游请求；平台私有计量口径仍不可由客户端精确重建 |
 | `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 小题 5、大于 2 节点 3 / 工具模式 300 s | 每节点验收修复轮上限；单请求代码修复默认以 60 s 为最低准入时间，再按近期实测耗时调高。显式设置的最低时间始终保留 |
 | `OCTOS_FINAL_REPAIR_ROUNDS` / `OCTOS_FINAL_SUITE_PASSES` | 3 / 默认由整轮成本守卫决定 | 每次全套验收最多 3 轮修复；默认不再以 3 个验收周期为固定终点，只有全绿、显式时间/token/轮次守卫或不足以完成“测量→修复→复测”时停止。可显式设置周期硬上限 |
+| `OCTOS_ARC_PARTIAL_CONFIRM_RATIO` / `OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES` | 0.9 / 3 | 首次全套验收接近全绿且时间足够时，在改代码前对未改动应用确认一次；用于识别失败项轮换，不影响普通低分 suite |
+| `OCTOS_ARC_NO_WRITE_SECONDS` | 180 s | 结构化编辑至少消耗一半请求且仍未尝试写入时，达到该时长（或用完 75% 请求）后关闭继续读取/搜索，只保留写入工具或精确阻塞报告 |
 | `OCTOS_ARC_DEGENERATE_MAX_TOKENS` | 8192 | 检出大量空改动或重复 EDIT 后，本次运行后续无工具代码请求的输出上限；首次请求和设计不受影响，0 关闭；波次规划同步缩小预算 |
 | `OCTOS_ARC_RECOVERY_REASONING` | none | 检出上述生成退化后，可显式选择 low/medium/high；默认仍关闭 thinking，不自动开启 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |

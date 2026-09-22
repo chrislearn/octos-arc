@@ -58,6 +58,8 @@ Environment (all optional):
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
     OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 2)
+    OCTOS_ARC_PARTIAL_CONFIRM_RATIO / OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES  near-green confirmation (0.9 / 3)
+    OCTOS_ARC_NO_WRITE_SECONDS  elapsed structured-edit time before late read tools close (180; after half the requests)
     OCTOS_ARC_DEGENERATE_MAX_TOKENS  codegen ceiling after repeated/no-op output (8192; 0 disables)
     OCTOS_ARC_RECOVERY_REASONING  optional reasoning after degeneration (none by default)
     OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 1; no batching)
@@ -95,7 +97,7 @@ from acceptance import (  # noqa: E402
     failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
-    startup_error_digest)
+    startup_error_digest, backend_error_digest)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
                      incomplete_blocks, normalize_bare_file_reply, prepare_edit_files, safe_relative_path,
                      source_protocol_errors, write_files)
@@ -389,6 +391,121 @@ def valid_app_design(design) -> dict | None:
     if not any(design.get(k) for k in ("data_model", "routes", "pages")):
         return None
     return design
+
+
+def _relaxed_json(text: str) -> str:
+    """Remove only common JSON presentation mistakes outside string values.
+
+    Design replies are still schema-validated by ``valid_app_design``. This is
+    deliberately narrower than accepting JavaScript: comments and dangling
+    commas are recoverable, while single quotes, identifiers and expressions
+    are not. The scanner is string-aware so URLs containing ``//`` survive.
+    """
+    out: list[str] = []
+    index = 0
+    quoted = False
+    escaped = False
+    while index < len(text):
+        char = text[index]
+        if quoted:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            index += 1
+            continue
+        if char == '"':
+            quoted = True
+            out.append(char)
+            index += 1
+            continue
+        if text.startswith("//", index):
+            newline = text.find("\n", index + 2)
+            index = len(text) if newline < 0 else newline
+            continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            if end < 0:
+                return text
+            index = end + 2
+            continue
+        out.append(char)
+        index += 1
+    uncommented = "".join(out)
+    out = []
+    quoted = False
+    escaped = False
+    for index, char in enumerate(uncommented):
+        if quoted:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+        elif char == ",":
+            following = index + 1
+            while following < len(uncommented) and uncommented[following].isspace():
+                following += 1
+            if following < len(uncommented) and uncommented[following] in "}]":
+                continue
+        out.append(char)
+    return "".join(out)
+
+
+def parse_app_design_reply(reply: str) -> dict | None:
+    """Find and validate one design object, with a bounded local recovery pass."""
+    candidates: list[str] = []
+    for match in re.finditer(r"```(?:json)?\s*(.*?)\s*```", reply or "", re.S | re.I):
+        candidates.append(match.group(1))
+
+    # Code fences are optional. Extract balanced top-level objects instead of
+    # greedily joining unrelated braces in surrounding prose.
+    start = None
+    depth = 0
+    quoted = False
+    escaped = False
+    for index, char in enumerate(reply or ""):
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+        elif char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}" and depth:
+            depth -= 1
+            if depth == 0 and start is not None:
+                candidates.append(reply[start:index + 1])
+                start = None
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        for serialized in (candidate, _relaxed_json(candidate)):
+            try:
+                design = valid_app_design(json.loads(serialized))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if design is not None:
+                return design
+    return None
 
 
 def _design_catalog(design: dict) -> list[str]:
@@ -1773,7 +1890,7 @@ Use the supplied acceptance specification and helpers below as read-only evidenc
 """
 
 REPAIR_PROMPT = """\
-Classify the observed failure before editing: build/load, runtime exception, HTTP failure, missing requirement precondition, stale UI, or locator timing/semantics. A timeout alone cannot distinguish these. Compare prior actions, responses and the rendered snapshot. Keep unknown causes unknown; combine failures only with concrete shared exception/source/data-owner evidence, not a common helper line. Preserve semantic links/actions instead of adapting roles to a helper fallback. Check storage-to-state-to-consumer updates without reload; verify fresh and existing stores separately without resetting data.
+Classify the observed failure before editing: build/load, runtime exception, HTTP failure, missing requirement precondition, stale UI, or locator timing/semantics. A timeout alone cannot distinguish these. Compare prior actions, responses and the rendered snapshot. Keep unknown causes unknown; combine failures only with concrete shared exception/source/data-owner/locator-gate evidence, not a common helper line. When a quoted spec explicitly selects a role and accessible name, that role/name is part of the interaction contract: use a native control that matches it instead of overriding the evidence with a preferred semantic element. When no requirement or spec selects a role, do not change semantics merely because a generic helper tried a fallback. Check storage-to-state-to-consumer updates without reload; verify fresh and existing stores separately without resetting data.
 Fix frontend/ and/or backend/ so the failing tests listed below pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. For a failed post-action assertion, trace the preceding actions and identify the element and record actually acted on. With repeated controls, inspect locator scope, ordering, visibility, and hover/focus state before assuming a storage or rendering failure. Preserve keyboard access and the required interaction semantics when resolving ambiguity. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 """ + PORT_RULES + """
@@ -1975,6 +2092,11 @@ class Flow:
         self.batched_groups: dict[str, tuple[str, ...]] = {}
         self.batch_first_pass: dict[str, bool] = {}
         self.checkpoint_regressions: set[str] = set()
+        # Last checkpoint where every tracked, previously verified behaviour
+        # passed together.  `last_checkpoint_sha` is also the diff baseline;
+        # this richer record lets a later catastrophic checkpoint restore that
+        # measured tree instead of building more features on broad damage.
+        self.healthy_checkpoint: dict | None = None
         self.impl_failed: list[str] = []
         self.pending_corrections: list[str] = []
         # Why the last codegen prompt could not be built; read by log_codegen_fallback.
@@ -2021,6 +2143,11 @@ class Flow:
         desired = max(600.0, 2 * measurement + 2 * self.repair_minimum())
         return min(desired, available * 0.25)
 
+    def final_phase_due(self) -> bool:
+        """Stop admitting leaves when their reserved full-suite window begins."""
+        reserve = self.final_phase_reserve()
+        return bool(reserve and self.remaining() <= reserve)
+
     def final_retry_admission(self) -> float:
         """Budget needed to measure, repair, then preserve a final measurement."""
         return 2 * self.final_measurement_reserve() + self.repair_minimum()
@@ -2037,7 +2164,7 @@ class Flow:
                (self.max_total_tokens_abs > 0 and tokens >= self.max_total_tokens_abs)
         if over and not self._wound_down_logged:
             self._wound_down_logged = True
-            log(f"[guard] cost guard tripped: {tokens} billable tokens, {self.turn_count} turns "
+            log(f"[guard] cost guard tripped: {tokens} observed/reserved tokens, {self.turn_count} turns "
                 f"(limits {self.max_total_tokens} / {self.max_turns} / abs {self.max_total_tokens_abs}); no further repair turns")
         return bool(over)
 
@@ -2622,14 +2749,7 @@ class Flow:
         deadline = time.monotonic() + self.design_timeout
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
-        def parse_design(reply):
-            found = re.search(r"```json\s*(\{.*?\})\s*```", reply or "", re.S) or re.search(r"(\{.*\})", reply or "", re.S)
-            try:
-                return valid_app_design(json.loads(found.group(1))) if found else None
-            except json.JSONDecodeError:
-                return None
-
-        design = parse_design(text) if ok else None
+        design = parse_app_design_reply(text) if ok else None
         retry_seconds = min(120, int(deadline - time.monotonic()), int(self.remaining()))
         if ok and not design and retry_seconds >= 30 and not self.wound_down():
             log("[flow] application design: invalid schema/JSON; one bounded format retry")
@@ -2639,7 +2759,7 @@ class Flow:
                 "Use compact entries and no code, prose or FILE blocks.\n",
                 retry_seconds, "application design (format retry)", system=APP_DESIGN_SYSTEM,
                 spec_chars=len(outline))
-            design = parse_design(text) if ok else None
+            design = parse_app_design_reply(text) if ok else None
         if not design:
             log("[flow] application design: no usable JSON object in the reply; nodes proceed without one")
             return None
@@ -3133,14 +3253,20 @@ class Flow:
         """
         before = {str(p.relative_to(self.output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in app_source_files(self.output_dir, exts=None)}
+        # Scope is keyed by the original prompt, before memory/index additions.
+        scope = self.edit_scope(prompt)
         if phase_for_label(label) == 'repair':
             prompt += self.repair_memory_context(prompt)
         from source_index import SourceIndex
         sources = {str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
                    for p in app_source_files(self.output_dir)}
-        prompt += "\n" + SourceIndex(sources).render(quoted_paths(prompt)) + "\n"
+        index = SourceIndex(sources)
+        prompt += "\n" + index.render(scope) + "\n"
+        related = index.related(scope)
         retained = 0
-        for rel in sorted(quoted_paths(prompt)):
+        # Select by relevance, but leave retained quotations in their original
+        # stable order for prefix reuse. Never discard failure/spec evidence.
+        for rel in sorted(quoted_paths(prompt), key=lambda p: (p not in scope, p not in related, p)):
             path = self.output_dir / rel
             if path.is_file():
                 content = path.read_text(encoding="utf-8", errors="replace").rstrip()
@@ -3155,6 +3281,8 @@ class Flow:
         prompt = prompt.replace("Output: complete FILE blocks for changed files only; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.",
                                 "Use tools for necessary changes only; finish when the requirements are satisfied.")
         prompt += ("\nThis is a tool-editing turn, not a text codegen response. Do not emit FILE/EDIT blocks or diffs. "
+                   "The relevant acceptance spec and helper code are already quoted in this prompt; do not search, "
+                   "list or read other acceptance files or future requirements. "
                    "Quoted source is the current disk snapshot; use it directly without redundant reads. "
                    "For unquoted files read current ranges, then use edit_file with path, old_string, new_string for small changes; "
                    "use write_file for new files or a necessary short full rewrite. Batch independent small calls. "
@@ -3170,7 +3298,10 @@ class Flow:
         saved_cap = getattr(proxy, "tool_max_tokens", 0)
         saved_compaction = getattr(proxy, "compact_reads", False)
         proxy.compact_reads = True
-        proxy.extra_drop_tools = saved | self.SHELL_TOOLS | {"diff_edit", "apply_patch"}
+        # SourceIndex already supplies the complete app file catalog. Glob was
+        # used in a measured repair only to scan all future acceptance specs,
+        # exhausting its deadline without an edit; targeted grep/read remains.
+        proxy.extra_drop_tools = saved | self.SHELL_TOOLS | {"diff_edit", "apply_patch", "glob"}
         proxy.tool_max_tokens = max(1024, int(os.environ.get("OCTOS_ARC_EDIT_MAX_TOKENS", "4096")))
         started = time.monotonic()
         try:
@@ -3186,11 +3317,12 @@ class Flow:
         self.last_codegen_no_change = ok and not self.last_codegen_written
         self.last_codegen_outcome = "applied" if ok and self.last_codegen_written else "unchanged" if ok else "tool_incomplete"
         self.remember_repair(label, prompt, self.last_codegen_outcome)
-        if phase_for_label(label) == 'implement' and self.last_codegen_written:
+        if self.last_codegen_written:
             self.generation_batch_check(label)
         self.metric("structured_edit", label=label, outcome=self.last_codegen_outcome,
                     elapsed_seconds=round(time.monotonic() - started, 3),
-                    changed_files=len(self.last_codegen_written))
+                    changed_files=len(self.last_codegen_written),
+                    retained_source_chars=retained, scope_files=len(scope))
         # Do not feed final tool prose into the FILE protocol-retry detector.
         return ok, "" if ok else "Structured editing incomplete; inspect current files before continuing. " + text[-300:]
 
@@ -3504,7 +3636,7 @@ class Flow:
             return
         tot = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
                "prompt_cache_hit_tokens": 0, "total_tokens": 0, "request_bytes": 0, "response_bytes": 0,
-               "sse_chunks": 0, "no_usage": 0}
+               "sse_chunks": 0, "no_usage": 0, "guard_token_estimate": 0}
         missing: list[dict] = []
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
@@ -3516,7 +3648,8 @@ class Flow:
                 tot[k] += int(rec.get(k) or 0)
             if rec.get("no_usage"):
                 missing.append({key: rec.get(key) for key in
-                                ("label", "phase", "status", "elapsed_ms", "request_bytes", "response_bytes")})
+                                ("label", "phase", "status", "elapsed_ms", "request_bytes", "response_bytes",
+                                 "guard_token_estimate")})
         log(f"[usage] provider totals: {json.dumps(tot)}")
         prompt = tot["prompt_tokens"]
         hit = tot["prompt_cache_hit_tokens"]
@@ -3556,6 +3689,8 @@ class Flow:
                 return RunSummary(error=err)
             summary = self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
                                       wall_timeout=max(1, min(900, int(self.remaining()))))
+            if not summary.all_passed:
+                summary.server_errors = backend_error_digest(server.tail(5000))
             expected = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts")) if self.tests_dir else []
             if grader_like and sorted(specs) == expected and self.suite_is_measured(summary, specs):
                 self.last_suite_seconds = time.monotonic() - started
@@ -4771,12 +4906,79 @@ class Flow:
         if grouped:
             self.queue_checkpoint_evidence(summary)
             regressed = self.repair_regressions(index, specs, verified, tracked, summary, grouped, workers)
+            latest_summary = getattr(self, "_checkpoint_repair_summary", summary)
+            latest_grouped = getattr(self, "_checkpoint_repair_grouped", grouped)
+            # A successful repair's measurement, rather than the failing
+            # pre-repair observation, becomes the next healthy baseline.
+            summary, grouped = latest_summary, latest_grouped
+            if regressed and self.restore_catastrophic_checkpoint(
+                    index, latest_summary, latest_grouped, verified, tracked):
+                # The healthy baseline is deliberately retained.  Nodes added
+                # since it are marked unresolved and will be measured/repaired
+                # by later checkpoints or the final suite.
+                return
         if not regressed:
             # The tree the suite agreed with: the next suite repair quotes what
             # changed since it first. A checkpoint still regressed keeps the
             # previous baseline, so the files that introduced the regression
             # stay in the diff until it is fixed.
             self.last_checkpoint_sha = self.head()
+            sha = self.last_checkpoint_sha
+            if sha:
+                self.healthy_checkpoint = {
+                    "sha": sha,
+                    "summary": summary,
+                    "verified": {node: list(paths) for node, paths in verified.items()},
+                }
+
+    def restore_catastrophic_checkpoint(self, index: int, summary: RunSummary, grouped: dict,
+                                        verified: dict, tracked: set) -> bool:
+        """Restore a measured healthy checkpoint after a broad failed repair.
+
+        Losing one or two checks may be flakiness or a productive intermediate
+        edit.  A large drop below the *absolute pass count* of the previous
+        healthy checkpoint is different: even counting every newly introduced
+        spec as lost, the older tree is known to pass more behaviours.  The
+        default threshold is 25% of that healthy pass count (at least four), so
+        normal oscillation keeps its chance to recover while failures such as
+        68 -> 39 do not poison all later work.
+        """
+        healthy = getattr(self, "healthy_checkpoint", None)
+        if not healthy or not healthy.get("sha") or summary.error or summary.killed:
+            return False
+        baseline = healthy["summary"]
+        minimum_drop = int(os.environ.get(
+            "OCTOS_ARC_CHECKPOINT_ROLLBACK_DROP",
+            str(max(4, (baseline.passed + 3) // 4))))
+        drop = baseline.passed - summary.passed
+        newly_broken = {node for node in grouped if node and node not in healthy["verified"]}
+        if drop < minimum_drop or len(grouped) < 3:
+            return False
+        self.restore_app(healthy["sha"])
+        self.commit(f"chore: restore healthy checkpoint after regression {index}")
+        healthy_nodes = set(healthy["verified"])
+        for node in healthy_nodes:
+            tracked.discard(node)
+            self.test_verdict[node] = True
+            if node in grouped:
+                self.mark("test_passed", node, "restored the last healthy checkpoint after broad regression")
+        rolled_back = sorted(node for node in verified if node not in healthy_nodes)
+        for node in rolled_back:
+            tracked.add(node)
+            self.test_verdict[node] = False
+            self.mark("test_failed", node, "rolled back with a catastrophic regression; requires remeasurement")
+        self.pending_corrections.append(
+            f"Checkpoint {index} fell {drop} passes below the last healthy checkpoint after repair. "
+            f"The harness restored that measured tree. Re-implement the rolled-back behaviours with targeted "
+            f"edits and preserve the restored contracts: {', '.join(rolled_back) or 'none'}."
+        )
+        self.metric("checkpoint_rollback", checkpoint=index, drop=drop,
+                    baseline_passed=baseline.passed, observed_passed=summary.passed,
+                    failing_nodes=sorted(node for node in grouped if node),
+                    newly_broken=sorted(newly_broken), rolled_back=rolled_back)
+        log(f"[acceptance] checkpoint {index}: catastrophic regression {baseline.passed} -> "
+            f"{summary.passed}; restored healthy checkpoint {healthy['sha'][:8]}")
+        return True
 
     def queue_checkpoint_evidence(self, summary: RunSummary) -> None:
         """Bound checkpoint evidence, keeping both ends when source context is large."""
@@ -4843,13 +5045,22 @@ class Flow:
             log(f"[acceptance] checkpoint {index} after repair: {summary.passed}/{summary.total}; "
                 f"still regressed {sorted(node for node in grouped if node)}")
             for node in verified:
+                previous = self.test_verdict.get(node)
                 if node and node not in grouped:
                     tracked.discard(node)
                     self.test_verdict[node] = True
+                    if previous is not True:
+                        self.mark("test_passed", node,
+                                  "previously regressed behavior passed after checkpoint repair")
                 elif node:
                     tracked.add(node)
                     self.test_verdict[node] = False
+                    if previous is not False:
+                        self.mark("test_failed", node,
+                                  "behavior failed after checkpoint repair")
 
+        self._checkpoint_repair_summary = summary
+        self._checkpoint_repair_grouped = grouped
         if repaired and grouped:
             # corrections_text consumed the initial checkpoint evidence. Keep
             # the latest still-failing observations for the next implementation.
@@ -4930,7 +5141,8 @@ class Flow:
                     summary = measured_suite()
                     force_tool_repair = True
                     last_repair_mode = ""
-            if summary.all_passed and self.suite_is_measured(summary, all_specs):
+            initially_green = summary.all_passed and self.suite_is_measured(summary, all_specs)
+            if initially_green:
                 # A single lucky 32/32 did not reproduce in the platform's next
                 # clean run (Keep 62886df9bde1: 32/32 -> 30/32). Confirmation
                 # uses the unchanged app and costs no model tokens.
@@ -4948,6 +5160,37 @@ class Flow:
                         break
                     log(f"[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: "
                         f"{confirmed.passed}/{confirmed.total}")
+            # A near-green suite can be flaky without ever producing a lucky
+            # all-green round. Confirm the first high-scoring partial result on
+            # the unchanged tree before spending a repair turn. Limit this to
+            # a few failures and require enough time to confirm, repair and
+            # remeasure; ordinary low-scoring suites keep their existing path.
+            partial_ratio = float(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_RATIO", "0.9"))
+            partial_max = max(0, int(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES", "3")))
+            partial_failed = max(0, summary.total - summary.passed)
+            if (attempt == 0 and attempt < rounds and not initially_green and 0 < partial_ratio <= 1
+                    and not summary.all_passed and self.suite_is_measured(summary, all_specs)
+                    and summary.total and summary.passed / summary.total >= partial_ratio
+                    and 0 < partial_failed <= partial_max
+                    and self.remaining() >= self.final_retry_admission()):
+                first_partial = summary
+                confirmed = measured_suite()
+                if self.suite_is_measured(confirmed, all_specs):
+                    owners = {Path(path).name: node for node, paths in self.spec_map.items()
+                              for path in (paths or [])}
+                    passed_a_round |= {owners.get(Path(r.file or "").name)
+                                       for r in first_partial.results if r.ok} - {None}
+                    changed = failure_signature(first_partial) != failure_signature(confirmed)
+                    log(f"[acceptance] near-green unchanged confirmation: "
+                        f"{confirmed.passed}/{confirmed.total}; failing set "
+                        f"{'changed (unstable)' if changed else 'reproduced'}")
+                    self.metric("acceptance_confirmation", scope="final_suite", confirmation="near_green",
+                                first_passed=first_partial.passed, confirmed_passed=confirmed.passed,
+                                total=confirmed.total, failing_set_changed=changed)
+                    summary = confirmed
+                else:
+                    log("[acceptance] near-green unchanged confirmation had no complete verdict; "
+                        "retaining the first measured result")
             if summary.error and summary.killed:
                 log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
                 break
@@ -4973,6 +5216,35 @@ class Flow:
                           for path in (paths or [])}
                 passed_a_round |= {owners.get(Path(r.file or "").name)
                                    for r in summary.results if r.ok} - {None}
+                if (best is not None and wrote_last and not restored_this_round and best.get("sha")
+                        and summary.passed == best["passed"]):
+                    current_failed = frozenset((Path(r.file or "").name, r.title)
+                                               for r in summary.results if not r.ok)
+                    best_failed = frozenset((Path(r.file or "").name, r.title)
+                                            for r in best["summary"].results if not r.ok)
+                    if current_failed != best_failed:
+                        newly_broken = sorted(current_failed - best_failed)
+                        newly_fixed = sorted(best_failed - current_failed)
+                        self.restore_app(best["sha"])
+                        restored_this_round = True
+                        force_tool_repair = True
+                        last_repair_mode = ""
+                        self.pending_corrections.append(
+                            "The previous repair kept the same pass count but exchanged failures: it fixed "
+                            f"{', '.join(f'{f}:{t}' for f, t in newly_fixed[:4]) or 'some prior failures'} while "
+                            f"breaking {', '.join(f'{f}:{t}' for f, t in newly_broken[:4]) or 'other passing tests'}. "
+                            "The harness restored the previously measured best state. Target its remaining failure "
+                            "without regressing the passing set.")
+                        log("[acceptance] full suite: equal-score repair exchanged failing tests; "
+                            "restoring the previously measured best state")
+                        self.metric("repair_oscillation", scope="final_suite", passed=summary.passed,
+                                    newly_broken=[list(x) for x in newly_broken],
+                                    newly_fixed=[list(x) for x in newly_fixed])
+                        summary, grouped = best["summary"], best["grouped"]
+                        failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+                        failures += self.interference_note(grouped, passed_alone, summary.stores_written)
+                        failures += self.intermittent_note(grouped, passed_a_round)
+                        failures += self.worker_parity_note(workers)
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             self.metric("acceptance", scope="final_suite", round=attempt, passed=summary.passed,
@@ -5514,6 +5786,13 @@ class Flow:
                     preimplemented: set[str] = set()
                     for index, node in enumerate(ordered, 1):
                         node_id = str(node.get("id"))
+                        if self.final_phase_due():
+                            log(f"[flow] entering reserved final phase with {self.remaining():.0f}s left; "
+                                f"deferring {node_id} and later leaves to full-suite measurement")
+                            self.metric("final_phase_started", after_nodes=index - 1,
+                                        deferred_nodes=[str(n.get('id')) for n in ordered[index - 1:]],
+                                        remaining_seconds=round(self.remaining(), 3))
+                            break
                         if self.time_up():
                             log(f"[flow] time budget exhausted; skipping {node_id}")
                             self.mark("implementation_started", node_id)

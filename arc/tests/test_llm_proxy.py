@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from llm_proxy import BUDGET_NOTICE, destream_request, enforce_turn_budget, ensure_max_tokens, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
+from llm_proxy import BUDGET_NOTICE, WRITE_DECISION_NOTICE, destream_request, enforce_turn_budget, ensure_max_tokens, force_write_decision, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
 
 
 class InjectTests(unittest.TestCase):
@@ -151,6 +151,27 @@ class TurnBudgetTests(unittest.TestCase):
         self.assertEqual(out["messages"][-1], {"role": "user", "content": BUDGET_NOTICE})
         again = json.loads(enforce_turn_budget(json.dumps(out).encode(), 7, 6))
         self.assertEqual(sum(1 for m in again["messages"] if m.get("content") == BUDGET_NOTICE), 1)
+
+    def test_should_close_read_tools_late_in_a_no_write_structured_turn(self):
+        tools = [{"type": "function", "function": {"name": name}}
+                 for name in ("read_file", "grep", "edit_file", "write_file")]
+        body = json.dumps({"messages": [
+            {"role": "assistant", "tool_calls": [{"id": "r1", "function": {
+                "name": "read_file", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "r1", "content": "source"},
+        ], "tools": tools}).encode()
+        out = json.loads(force_write_decision(body, used=6, budget=8, elapsed=20))
+        self.assertEqual([t["function"]["name"] for t in out["tools"]], ["edit_file", "write_file"])
+        self.assertEqual(out["messages"][-1]["content"], WRITE_DECISION_NOTICE)
+
+    def test_should_keep_reads_before_threshold_or_after_a_write_attempt(self):
+        tools = [{"type": "function", "function": {"name": name}}
+                 for name in ("read_file", "edit_file")]
+        early = json.dumps({"messages": [], "tools": tools}).encode()
+        self.assertIs(force_write_decision(early, used=3, budget=8, elapsed=20), early)
+        written = json.dumps({"messages": [{"role": "assistant", "tool_calls": [{"id": "w", "function": {
+            "name": "edit_file", "arguments": "{}"}}]}], "tools": tools}).encode()
+        self.assertIs(force_write_decision(written, used=7, budget=8, elapsed=999), written)
 
 
 class MaxTokensTests(unittest.TestCase):

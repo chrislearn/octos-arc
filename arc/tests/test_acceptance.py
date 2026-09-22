@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from acceptance import (
+    backend_error_digest,
     clip_ends,
     failure_summaries,
     isolated_install_env,
@@ -101,6 +102,21 @@ class ReportTests(unittest.TestCase):
         summary = summarize_report(report(("slow one", "timedOut", "Test timeout of 10000ms exceeded.", ["page.reload"], 10000)))
         text = failure_summaries(summary)
         self.assertIn("timed out", text.lower())
+
+    def test_should_include_bounded_backend_exception_in_failed_evidence(self):
+        output = "\n> app@1 start\n> node server.js\nlistening on 3000\n" \
+                 "TypeError: users.find is not a function\n    at login (/app/auth.js:12:20)\n"
+        error = backend_error_digest(output)
+        self.assertIn("TypeError: users.find is not a function", error)
+        self.assertNotIn("listening on", error)
+        summary = summarize_report(report(("login", "failed", "locator timed out", [], 10000)))
+        summary.server_errors = error
+        evidence = failure_summaries(summary)
+        self.assertIn("Backend runtime exception", evidence)
+        self.assertIn("/app/auth.js:12", evidence)
+
+    def test_should_not_report_normal_backend_output_as_an_exception(self):
+        self.assertEqual(backend_error_digest("listening on 3000\nGET / 200"), "")
 
 
 if __name__ == "__main__":
@@ -893,6 +909,30 @@ class BuildFailureEvidenceTests(unittest.TestCase):
 
     def test_should_leave_short_output_untouched(self):
         self.assertEqual(clip_ends("  short build log  ", 600), "short build log")
+
+    def test_should_build_before_installing_newly_declared_unused_packages(self):
+        from acceptance import AppServer
+        with tempfile.TemporaryDirectory(prefix='deferred-install-') as folder:
+            root = Path(folder)
+            frontend = root / 'frontend'; backend = root / 'backend'
+            frontend.mkdir(); backend.mkdir()
+            (frontend / 'package.json').write_text(
+                '{"name":"f","private":true,"scripts":{"build":"mock"},'
+                '"dependencies":{"existing":"1.0.0"}}')
+            (backend / 'package.json').write_text(
+                '{"name":"b","private":true,"scripts":{"start":"node server.js"}}')
+            (backend / 'server.js').write_text('')
+            calls = []
+            server = AppServer(root, 3999, lambda _: None)
+            server._run = lambda command, cwd, timeout: (calls.append(command) or (0, ''))
+            self.assertIsNone(server.build())
+            self.assertEqual([call[:2] for call in calls], [['npm', 'install'], ['npm', 'run']])
+            (frontend / 'package.json').write_text(
+                '{"name":"f","private":true,"scripts":{"build":"mock"},'
+                '"dependencies":{"existing":"1.0.0","declared-but-unused":"1.0.0"}}')
+            calls.clear()
+            self.assertIsNone(server.build())
+            self.assertEqual(calls, [['npm', 'run', 'build']])
 
     def test_should_report_the_cause_of_a_real_failed_build(self):
         from acceptance import AppServer

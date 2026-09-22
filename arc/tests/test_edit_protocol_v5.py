@@ -58,6 +58,7 @@ class EditProtocolTests(TestCase):
         def run(value, *a, **kw):
             observed.append(value)
             self.assertIn('diff_edit', self.flow.llm_proxy.extra_drop_tools)
+            self.assertIn('glob', self.flow.llm_proxy.extra_drop_tools)
             p.write_text('const after = 2;')
             return False, 'timeout'
         self.flow.turn = run
@@ -67,6 +68,7 @@ class EditProtocolTests(TestCase):
         self.assertEqual(self.flow.last_codegen_outcome, 'tool_incomplete')
         self.assertNotIn('const before', observed[0])
         self.assertIn('Acceptance: keep the button.', observed[0])
+        self.assertIn('do not search, list or read other acceptance files', observed[0])
         self.assertEqual(self.flow.llm_proxy.extra_drop_tools, {'original'})
 
     def test_tool_configuration_restored_on_failure(self):
@@ -91,6 +93,40 @@ class EditProtocolTests(TestCase):
         prompt = '--- frontend/src/App.jsx ---\n' + p.read_text() + '\n--- frontend/src/Small.jsx ---\n' + target.read_text() + '\n'
         self.flow.bind_edit_scope(prompt, '', {'frontend/src/Small.jsx'})
         self.assertFalse(self.flow.use_structured_edits(prompt, 'suite repair'))
+
+    def test_retained_context_prioritizes_bound_scope_before_alphabetical_files(self):
+        other = self.source('/* unrelated */' + 'a' * 10000)
+        target = other.parent / 'ZTarget.jsx'
+        target.write_text('/* target */' + 'z' * 10000)
+        prompt = ('--- frontend/src/App.jsx ---\n' + other.read_text() + '\n'
+                  '--- frontend/src/ZTarget.jsx ---\n' + target.read_text() + '\n'
+                  'Acceptance evidence: keep the required link semantics.')
+        self.flow.bind_edit_scope(prompt, '', {'frontend/src/ZTarget.jsx'})
+        # Memory changes the prompt hash: capture ownership before appending it.
+        self.flow.repair_memory_context = Mock(return_value='\nPrevious observation\n')
+        self.flow.turn = Mock(return_value=(True, 'done'))
+        self.flow.structured_edit_turn(prompt, 90, 'repair')
+        sent = self.flow.turn.call_args.args[0]
+        self.assertIn(target.read_text(), sent)
+        self.assertNotIn(other.read_text(), sent)
+        self.assertIn('Acceptance evidence: keep the required link semantics.', sent)
+        self.assertIn('Previous observation', sent)
+
+    def test_structured_repairs_check_partial_writes_but_not_unchanged_turns(self):
+        for ok in (True, False):
+            with self.subTest(ok=ok):
+                p = self.source('const before = 1;')
+                self.flow.generation_batch_check = Mock()
+                def edit(*args, **kwargs):
+                    p.write_text('const after = ;')
+                    return ok, 'done' if ok else 'timeout'
+                self.flow.turn = edit
+                self.flow.structured_edit_turn('', 90, 'repair')
+                self.flow.generation_batch_check.assert_called_once_with('repair')
+                self.flow.generation_batch_check.reset_mock()
+                self.flow.turn = Mock(return_value=(ok, 'no changes'))
+                self.flow.structured_edit_turn('', 90, 'repair')
+                self.flow.generation_batch_check.assert_not_called()
 
     def test_local_request_cap_is_incomplete_not_success_or_run_exhaustion(self):
         f = self.flow

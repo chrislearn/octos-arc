@@ -48,9 +48,13 @@ class SourceIndex:
 
 
 def failure_groups(grouped, targets):
-    """Merge concrete identical runtime errors or explicit feature ownership.
+    """Merge concrete identical runtime errors, locator gates, or ownership.
 
     Generic assertion/timeouts alone never demonstrate a shared root cause.
+    An identical role/name locator does: several scenarios blocked on the same
+    named navigation control are usually downstream victims of one missing or
+    incorrectly exposed entry point.  This is stronger than a shared helper
+    frame, which says only where the test library noticed the timeout.
     Unknown ownership does not demonstrate a shared cause. The group selector
     can still fit several independent groups in one bounded turn.
     This is scheduling evidence, not a diagnosis.
@@ -64,6 +68,17 @@ def failure_groups(grouped, targets):
                 match = re.search(r'(?:ReferenceError: .+ is not defined|TypeError: .+|SyntaxError: .+|ERR_MODULE_NOT_FOUND.*)', line)
                 if match:
                     keys.add('runtime:' + re.sub(r'\x1b\[[0-9;]*m', '', match.group()).strip())
+                # Playwright call logs render the exact contract that blocked,
+                # for example: waiting for getByRole('button', { name: /my account/i }).first().
+                # Keep role/name (or the corresponding text/label selector),
+                # discard only first/last/nth selection so downstream tests of
+                # the same shared gate land in one repair group.
+                clean = re.sub(r'\x1b\[[0-9;]*m', '', line)
+                locator = re.search(
+                    r"waiting for (getBy(?:Role|Text|Label|Placeholder|TestId)\(.{1,240}?\))"
+                    r"(?:\.(?:first|last|nth)\([^)]*\))?(?:\s|$)", clean)
+                if locator:
+                    keys.add('locator:' + re.sub(r'\s+', ' ', locator.group(1)).strip())
         if not keys:
             keys = {'unknown:' + node}
         merged = {node}

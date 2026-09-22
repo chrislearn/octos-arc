@@ -139,6 +139,26 @@ class AppDesignTurnTests(unittest.TestCase):
             self.assertTrue((Path(folder) / ".arc" / "design" / "app.json").is_file())
             self.assertFalse(flow.driver.tools_disabled)   # scope restored
 
+    def test_should_recover_json_comments_locally_without_a_second_request(self):
+        with tempfile.TemporaryDirectory() as folder:
+            reply = json.dumps(DESIGN, indent=2).replace(
+                '"purpose": "create user"',
+                '"purpose": "create user" // model explanation',
+            )
+            flow, ordered = self._flow(folder, reply)
+            design = flow.app_design(TREE, ordered)
+            self.assertEqual(design, DESIGN)
+            self.assertEqual(len(flow.calls), 1)
+
+    def test_should_find_design_after_unrelated_prose_braces(self):
+        reply = "Use {one owner} per record.\n" + json.dumps(DESIGN)
+        self.assertEqual(m.parse_app_design_reply(reply), DESIGN)
+
+    def test_relaxed_parser_preserves_comment_markers_inside_strings(self):
+        design = dict(DESIGN, notes="fetch https://example.test/a//b before save")
+        reply = json.dumps(design)[:-1] + ", // harmless trailing note\n}"
+        self.assertEqual(m.parse_app_design_reply(reply), design)
+
     def test_should_continue_without_a_design_when_the_reply_has_no_json(self):
         with tempfile.TemporaryDirectory() as folder:
             flow, ordered = self._flow(folder, "dry run: no model call; nothing written.")

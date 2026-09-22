@@ -588,6 +588,84 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(flow.test_verdict.values()))
 
+    def test_should_confirm_a_near_green_partial_suite_before_repairing(self):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        names = [f"REQ-{n}" for n in range(10)]
+        for name in names:
+            (root / "t" / f"{name}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {name: [f"{name}.spec.ts"] for name in names}; flow.spec_map[None] = []
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "w")
+        flow.test_verdict = {name: False for name in names}
+        flow.pending_corrections = []; flow.requirement_nodes = {}
+        rounds = iter([
+            [True] * 9 + [False],                 # first 9/10
+            [True] * 8 + [False, True],           # unchanged 9/10, failure rotated
+            [True] * 10,                          # repaired
+        ])
+        calls = []
+        def run_specs(*args, **kwargs):
+            oks = next(rounds)
+            calls.append(oks)
+            rows = [TestOutcome(title=name, ok=ok, status="passed" if ok else "failed",
+                                duration_ms=1, file=f"{name}.spec.ts", message="missing")
+                    for name, ok in zip(names, oks)]
+            return RunSummary(passed=sum(oks), total=len(oks), results=rows)
+        flow.run_specs = run_specs
+        flow.head = lambda: "sha"; flow.commit = Mock(return_value=True); flow.restore_app = Mock()
+        flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000; flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.suite_repair_turn = Mock(return_value=("tools", ""))
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1",
+                                        "OCTOS_ARC_FINAL_CONFIRM_RUNS": "1"}):
+            flow.final_acceptance()
+        self.assertEqual(len(calls), 3)
+        self.assertIn("already passed in an earlier round", flow.suite_repair_turn.call_args.args[2])
+        self.assertTrue(flow.final_suite_green)
+
+    def test_should_restore_best_when_a_repair_only_exchanges_equal_score_failures(self):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        names = ["REQ-1", "REQ-2", "REQ-3"]
+        for name in names:
+            (root / "t" / f"{name}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {name: [f"{name}.spec.ts"] for name in names}; flow.spec_map[None] = []
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "w")
+        flow.test_verdict = {name: False for name in names}
+        flow.pending_corrections = []; flow.requirement_nodes = {}
+        outcomes = iter([[True, True, False], [True, False, True]])
+        def run_specs(*args, **kwargs):
+            oks = next(outcomes)
+            rows = [TestOutcome(title=name, ok=ok, status="passed" if ok else "failed",
+                                duration_ms=1, file=f"{name}.spec.ts", message="missing")
+                    for name, ok in zip(names, oks)]
+            return RunSummary(passed=sum(oks), total=len(oks), results=rows)
+        flow.run_specs = run_specs
+        flow.head = lambda: "shaBEST"; flow.commit = Mock(return_value=True)
+        flow.restore_app = Mock(); flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000; flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.suite_repair_turn = Mock(return_value=("tools", ""))
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+            flow.final_acceptance()
+        flow.restore_app.assert_called_once_with("shaBEST")
+        self.assertTrue(any("exchanged failures" in note for note in flow.pending_corrections))
+        self.assertTrue(flow.test_verdict["REQ-2"])
+        self.assertFalse(flow.test_verdict["REQ-3"])
+
     def test_should_restore_catastrophic_codegen_regression_before_tool_repair(self):
         import argparse, tempfile
         from pathlib import Path
@@ -1603,13 +1681,16 @@ class CheckpointRepairTests(unittest.TestCase):
         return flow
 
     def test_should_repair_a_regression_before_the_next_node(self):
-        from unittest.mock import patch
+        from unittest.mock import Mock, patch
         flow = self._flow([1, 2])  # checkpoint finds one broken, the repair fixes it
+        flow.mark = Mock()
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         self.assertEqual(flow.turn.call_count, 1)
         self.assertIn("checkpoint 2 repair", flow.turn.call_args.args[2])
         self.assertTrue(all(flow.test_verdict.values()))
+        flow.mark.assert_any_call(
+            "test_passed", "REQ-2", "previously regressed behavior passed after checkpoint repair")
 
     def test_should_not_repair_when_nothing_regressed(self):
         from unittest.mock import patch
@@ -1633,6 +1714,49 @@ class CheckpointRepairTests(unittest.TestCase):
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         flow.turn.assert_not_called()
+
+    def test_should_restore_a_healthy_checkpoint_after_a_catastrophic_drop(self):
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary
+        flow = self._flow([1, 1])
+        flow.healthy_checkpoint = {
+            "sha": "healthy-sha",
+            "summary": RunSummary(passed=20, total=20),
+            "verified": {"REQ-1": ["REQ-1.spec.ts"]},
+        }
+        flow.restore_app = Mock()
+        flow.metric = Mock()
+        flow.mark = Mock()
+        flow._checkpoint_repair_summary = RunSummary(passed=10, total=22)
+        flow._checkpoint_repair_grouped = {
+            "REQ-1": [], "REQ-2": [], "REQ-3": [], "REQ-4": []}
+        # Supply the post-repair observation through the real repair helper's
+        # output attributes without spending model turns in this unit test.
+        def repair(*args, **kwargs):
+            return True
+        flow.repair_regressions = repair
+        flow.spec_map.update({"REQ-3": ["REQ-3.spec.ts"], "REQ-4": ["REQ-4.spec.ts"]})
+        flow.test_verdict.update({"REQ-3": True, "REQ-4": True})
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+            flow.regression_checkpoint(2, 8)
+        flow.restore_app.assert_called_once_with("healthy-sha")
+        self.assertTrue(flow.test_verdict["REQ-1"])
+        self.assertFalse(flow.test_verdict["REQ-2"])
+
+    def test_should_not_restore_for_an_ordinary_checkpoint_dip(self):
+        from unittest.mock import Mock
+        from acceptance import RunSummary
+        flow = self._flow([])
+        flow.healthy_checkpoint = {
+            "sha": "healthy-sha", "summary": RunSummary(passed=20, total=20),
+            "verified": {"REQ-1": ["REQ-1.spec.ts"]}}
+        flow.restore_app = Mock(); flow.metric = Mock()
+        restored = flow.restore_catastrophic_checkpoint(
+            8, RunSummary(passed=17, total=22),
+            {"REQ-1": [], "REQ-2": [], "REQ-3": []},
+            {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"]}, set())
+        self.assertFalse(restored)
+        flow.restore_app.assert_not_called()
 
 
 class InlineSourceBudgetTests(unittest.TestCase):

@@ -59,6 +59,26 @@ def startup_error_digest(error: str, limit: int = 700) -> str:
     return "\n".join(lines)[-limit:]
 
 
+def backend_error_digest(output: str, limit: int = 1200) -> str:
+    """Return the last backend exception, excluding ordinary server chatter.
+
+    HTTP diagnostics identify a failing endpoint but a generic 500 response
+    intentionally hides implementation details. The generated server writes
+    those details to its private process log; preserve one bounded exception
+    before that temporary log is removed so repair can fix the demonstrated
+    cause instead of guessing from the UI symptom.
+    """
+    if limit <= 0:
+        return ""
+    lines = [line.rstrip() for line in _ANSI.sub("", output or "").splitlines()]
+    marker = re.compile(r"(?:^|\b)(?:TypeError|ReferenceError|SyntaxError|RangeError|"
+                        r"UnhandledPromiseRejection|ERR_[A-Z_]+|Error):")
+    starts = [index for index, line in enumerate(lines) if marker.search(line)]
+    if not starts:
+        return ""
+    return clip_ends("\n".join(lines[starts[-1]:]).strip(), limit)
+
+
 def spec_node_id(rel_path: str) -> str | None:
     """`REQ-1.2-user-login.spec.ts` -> `REQ-1.2`; non-spec files -> None."""
     name = Path(rel_path).name
@@ -146,6 +166,7 @@ class RunSummary:
     killed: bool = False      # the test runner itself was killed (OOM); not a verdict
     load_errors: list[str] = field(default_factory=list)  # Playwright top-level errors
     stores_written: list[str] = field(default_factory=list)  # files this run left changed on disk
+    server_errors: str = ""  # bounded backend exception observed during a failed run
 
     def slow(self, threshold_ms: int) -> list[str]:
         return [r.title for r in self.results if r.duration_ms >= threshold_ms]
@@ -326,6 +347,8 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
                            "names the test could see):\n" + indented)
         if r.action_errors:
             blocks[-1] += "\n  Browser diagnostics (helpers may have recovered; correlate with the final failure):\n" + "\n".join(r.action_errors)[:4000]
+    if blocks and summary.server_errors:
+        blocks.append("Backend runtime exception observed during this failed run:\n" + summary.server_errors)
     return "\n".join(blocks)
 
 
@@ -835,6 +858,16 @@ class AppServer:
         issues = scaffold_issues(self.project)
         if issues:
             return "generic scaffold route checks failed:\n" + "\n".join(issues[:8])
+        # A model can declare a package before any source imports it. When an
+        # existing dependency tree still builds the current source, installing
+        # that unused declaration here only burns the node deadline. The final
+        # platform install still follows package.json; locally, install on the
+        # first build that actually needs the changed dependency set.
+        frontend_built = False
+        try:
+            (frontend / "dist").mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         for part in (frontend, backend):
             manifest = part / "package.json"
             try:
@@ -847,29 +880,44 @@ class AppServer:
             deps = any(config.get(key) for key in ("dependencies", "devDependencies", "optionalDependencies"))
             modules = part / "node_modules"
             stamp = modules / ".arc-manifest-sha256"
+            lock_stamp = modules / ".arc-lock-sha256"
             # npm install may update the lock; fingerprint the resulting state
             # after installation to avoid a redundant second install next build.
             def dependency_digest():
                 lock = part / 'package-lock.json'
                 return hashlib.sha256(manifest.read_bytes() + b'\0' +
                                       (lock.read_bytes() if lock.is_file() else b'')).hexdigest()
+            def lock_digest():
+                lock = part / 'package-lock.json'
+                return hashlib.sha256(lock.read_bytes() if lock.is_file() else b'').hexdigest()
             digest = dependency_digest()
             if deps and (not modules.is_dir() or not stamp.is_file() or stamp.read_text().strip() != digest):
+                # Only a manifest-only change is safe to defer. A changed lock
+                # file is an explicit resolved dependency-tree change and must
+                # invalidate the install cache immediately.
+                same_lock = (lock_stamp.is_file()
+                             and lock_stamp.read_text().strip() == lock_digest())
+                if (part == frontend and modules.is_dir() and stamp.is_file()
+                        and same_lock and config.get("scripts", {}).get("build")):
+                    rc, out = self._run(["npm", "run", "build"], frontend, 120)
+                    if rc == 0:
+                        frontend_built = True
+                        self.log("[acceptance] current frontend source builds with installed dependencies; "
+                                 "deferred install of newly declared, unused packages")
+                        continue
                 rc, out = self._run(["npm", "install", "--include=dev", "--include=optional", "--no-audit", "--no-fund"], part, 600)
                 if rc != 0:
                     return f"{part.name} `npm install` failed:\n{out}"
                 modules.mkdir(exist_ok=True)
                 stamp.write_text(dependency_digest())
+                lock_stamp.write_text(lock_digest())
         # Cloud c17bc1b44d26: a one-line copy build failed because dist/ did not
         # exist yet. The grader builds from a fresh checkout too, so make the
         # target directory exist before every build (harmless when it does).
-        try:
-            (frontend / "dist").mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
-        rc, out = self._run(["npm", "run", "build"], frontend, 600)
-        if rc != 0:
-            return f"frontend `npm run build` failed:\n{out}"
+        if not frontend_built:
+            rc, out = self._run(["npm", "run", "build"], frontend, 600)
+            if rc != 0:
+                return f"frontend `npm run build` failed:\n{out}"
         remote = external_browser_assets(frontend, built=True)
         if remote:
             return "built frontend uses external browser assets; bundle them locally instead:\n" + "\n".join(remote[:8])

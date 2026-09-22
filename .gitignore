@@ -195,4 +195,8 @@ tsconfig.tsbuildinfo
 workshop.env
 # pack.sh 的产物（含内核时 36M），每次打包都变；不进版本库
 /octos-arc-bundle.zip
+# ARC local run/grade evidence may contain platform acceptance specs and logs.
+# Keep it available for local diagnosis, never publish it in repository history.
+/arc/.arc/
+/arc/diagnostics/
 .test_data

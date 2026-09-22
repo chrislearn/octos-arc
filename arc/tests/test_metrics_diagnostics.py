@@ -13,7 +13,7 @@ class MetricsDiagnosticTests(unittest.TestCase):
             (root / '.arc').mkdir()
             usage = [dict(phase='implement', prompt_tokens=100, completion_tokens=20,
                           reasoning_tokens=10, prompt_cache_hit_tokens=50, elapsed_ms=500),
-                     dict(phase='repair', no_usage=True, elapsed_ms=100)]
+                     dict(phase='repair', no_usage=True, guard_token_estimate=200, elapsed_ms=100)]
             flow = [dict(kind='acceptance', scope='node', passed=1, total=1),
                     dict(kind='acceptance', scope='whole_app', round=0, passed=2, total=3),
                     dict(kind='acceptance', scope='final_suite', round=0, passed=3, total=3),
@@ -25,6 +25,7 @@ class MetricsDiagnosticTests(unittest.TestCase):
             self.assertEqual(data['billed']['total_tokens'], 120)  # reasoning is already in completion
             self.assertEqual(data['billed']['input_cache_hit_ratio'], 0.5)
             self.assertEqual(data['billed']['missing_usage_requests'], 1)
+            self.assertEqual(data['billed']['cost_guard_tokens'], 320)
             self.assertEqual(data['by_phase']['implement']['completion_tokens'], 20)
             self.assertEqual(data['diagnostics']['first_whole_app_measurement']['passed'], 2)
             self.assertEqual(data['diagnostics']['repair_seconds'], 4.5)

@@ -80,7 +80,7 @@ def summarize(output_dir: Path) -> dict:
     except (OSError, json.JSONDecodeError, AttributeError):
         pass
     billed = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "cache_hit": 0,
-              "reasoning_tokens": 0, "missing_usage_requests": 0}
+              "reasoning_tokens": 0, "missing_usage_requests": 0, "guard_token_estimate": 0}
     by_phase = {}
     for rec in _iter_jsonl(arc / "llm-usage.jsonl"):
         billed["requests"] += int(rec.get("requests") or 1)  # kernel-session turns carry their LLM-call count
@@ -89,12 +89,14 @@ def summarize(output_dir: Path) -> dict:
         billed["cache_hit"] += int(rec.get("prompt_cache_hit_tokens") or 0)
         billed["reasoning_tokens"] += int(rec.get("reasoning_tokens") or 0)
         billed["missing_usage_requests"] += int(bool(rec.get("no_usage")))
+        billed["guard_token_estimate"] += int(rec.get("guard_token_estimate") or 0)
         phase = by_phase.setdefault(rec.get("phase") or "unknown", {
             "requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "elapsed_ms": 0})
         phase["requests"] += 1
         for key in ("prompt_tokens", "completion_tokens", "elapsed_ms"):
             phase[key] += int(rec.get(key) or 0)
     billed["total_tokens"] = billed["prompt_tokens"] + billed["completion_tokens"]
+    billed["cost_guard_tokens"] = billed["total_tokens"] + billed["guard_token_estimate"]
     billed["input_cache_hit_ratio"] = (billed["cache_hit"] / billed["prompt_tokens"]
                                        if billed["prompt_tokens"] else None)
     diagnostics = list(_iter_jsonl(arc / "flow-metrics.jsonl"))

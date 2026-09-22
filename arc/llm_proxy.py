@@ -371,11 +371,22 @@ def trim_request(body: bytes, drop_tools: set[str] = DROP_TOOLS) -> bytes:
 
 BUDGET_NOTICE = ("Tool budget for this turn is exhausted. Do not call any more tools: reply now with a one-line "
                  "summary of what you changed. The harness will build and test the app.")
+WRITE_DECISION_NOTICE = ("Read-only exploration is now closed for this turn: use the source and evidence already "
+                         "collected to make a focused application edit with an available write tool. If the cause "
+                         "is still genuinely unknown, stop and report the precise missing fact instead of reading "
+                         "more files or claiming a fix.")
+WRITE_TOOLS = {"write_file", "edit_file", "create_file", "append_file", "apply_patch", "diff_edit"}
 
 
-def reserve_edit_budget(body: bytes, used: int, budget: int) -> bytes:
+def reserve_edit_budget(body: bytes, used: int, budget: int, phase: str = 'repair') -> bytes:
     """Mid-turn guidance retains tools and never authorizes guessing an edit."""
-    if budget < 4 or used < budget // 2 or used >= budget:
+    # A tool request can itself spend a minute reasoning before returning a
+    # batch. Waiting until half of an eight-request turn allowed three broad
+    # reads plus two test-directory scans to consume the whole node deadline.
+    # Start reserving at the first quarter while still leaving enough requests
+    # to inspect one genuinely missing dependency and apply the edit.
+    reserve_at = max(1, (budget + 3) // 4)
+    if budget < 4 or used < reserve_at or used >= budget:
         return body
     try:
         data = json.loads(body)
@@ -383,7 +394,7 @@ def reserve_edit_budget(body: bytes, used: int, budget: int) -> bytes:
         return body
     if not isinstance(data, dict) or not data.get('tools') or not isinstance(data.get('messages'), list):
         return body
-    prefix = 'Repair execution budget: '
+    prefix = 'Implementation execution budget: ' if phase == 'implement' else 'Repair execution budget: '
     messages = [m for m in data['messages'] if not (m.get('role') == 'user'
                 and isinstance(m.get('content'), str) and m['content'].startswith(prefix))]
     messages.append({'role': 'user', 'content': prefix + f'{budget - used} upstream requests remain. '
@@ -414,6 +425,48 @@ def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
     if not msgs or msgs[-1].get("role") != "user" or msgs[-1].get("content") != BUDGET_NOTICE:
         msgs.append({"role": "user", "content": BUDGET_NOTICE})
     data["messages"] = msgs
+    return json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
+def force_write_decision(body: bytes, used: int, budget: int, elapsed: float,
+                         elapsed_limit: float = 180.0) -> bytes:
+    """After a long read-only structured-edit turn, close further read tools.
+
+    The current completion still has every offered write tool, so this is not a
+    guessed edit or a hard cancellation. It spends the remaining request on an
+    evidence-backed edit or a precise blocker instead of another broad read. A
+    turn that attempted a write remains unrestricted because it may need to
+    inspect an anchor after an edit failure.
+    """
+    if budget < 4 or used < max(2, (budget + 1) // 2):
+        return body
+    request_limit = max(3, (3 * budget + 3) // 4)
+    if used < request_limit and elapsed < elapsed_limit:
+        return body
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(data, dict) or not isinstance(data.get("messages"), list) \
+            or not isinstance(data.get("tools"), list):
+        return body
+    called = set()
+    for message in data["messages"]:
+        for call in message.get("tool_calls", []) or []:
+            function = call.get("function") or {}
+            if isinstance(function.get("name"), str):
+                called.add(function["name"])
+    if called & WRITE_TOOLS:
+        return body
+    kept = [tool for tool in data["tools"]
+            if ((tool.get("function") or {}).get("name") or tool.get("name")) in WRITE_TOOLS]
+    if not kept:
+        return body
+    data["tools"] = kept
+    messages = [m for m in data["messages"] if not (
+        m.get("role") == "user" and m.get("content") == WRITE_DECISION_NOTICE)]
+    messages.append({"role": "user", "content": WRITE_DECISION_NOTICE})
+    data["messages"] = messages
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
@@ -653,9 +706,11 @@ class LlmProxy:
         self.budget_hits = 0
         self.hard_budget_exhausted = False
         self.compact_reads = False
-        # Run-wide billable usage (prompt + completion), for the flow's cost guard.
+        # Run-wide cost-guard usage: exact provider tokens when present, plus a
+        # conservative reserve for requests that returned no usage block.
         self.total_requests = 0
         self.total_tokens = 0
+        self.estimated_tokens = 0
         # Explicit absolute cap is enforced before EVERY upstream completion,
         # including requests inside a tool turn. In-flight usage may overshoot.
         self.max_total_tokens_abs = int(os.environ.get("OCTOS_ARC_MAX_TOTAL_TOKENS_ABS", "0"))
@@ -688,8 +743,14 @@ class LlmProxy:
                         used = proxy.turn_requests
                         proxy.turn_requests += 1
                         upstream_used = proxy.turn_upstream_requests
-                    if proxy.phase == 'repair' and not proxy.no_tools:
-                        body = reserve_edit_budget(body, upstream_used, proxy.turn_budget)
+                    if proxy.phase in {'implement', 'repair'} and not proxy.no_tools:
+                        body = reserve_edit_budget(body, upstream_used, proxy.turn_budget, proxy.phase)
+                    if proxy.compact_reads and proxy.phase in {'implement', 'repair'} and not proxy.no_tools:
+                        elapsed = max(0.0, time.monotonic() - getattr(
+                            proxy, "turn_started_at", time.monotonic()))
+                        body = force_write_decision(
+                            body, upstream_used, proxy.turn_budget, elapsed,
+                            float(os.environ.get("OCTOS_ARC_NO_WRITE_SECONDS", "180")))
                     capped = enforce_turn_budget(body, used, proxy.turn_budget)
                     if capped is not body:
                         proxy.budget_hits += 1
@@ -852,6 +913,7 @@ class LlmProxy:
             self.turn_requests = 0
             self.turn_upstream_requests = 0
             self.hard_budget_exhausted = False
+            self.turn_started_at = time.monotonic()
 
     def enable_edit_preflight(self) -> str:
         """Private transport of complete args to the trusted ARC hook.
@@ -969,13 +1031,25 @@ class LlmProxy:
                 rec["error"] = error[:300]
         if status is not None:
             rec["status"] = status
-        with self._lock:
-            self.total_requests += 1
-            self.total_tokens += int(rec.get("prompt_tokens") or 0) + int(rec.get("completion_tokens") or 0)
-        if not self.log_path:
-            return
         rec["request_bytes"], rec["response_bytes"] = req_bytes, resp_bytes
         rec.update(meta if meta is not None else self.request_meta(request_body))
+        exact = int(rec.get("prompt_tokens") or 0) + int(rec.get("completion_tokens") or 0)
+        estimated = 0
+        if rec.get("no_usage"):
+            # A request that timed out is not known to be free. Charge a
+            # conservative input estimate and reserve its advertised output
+            # allowance when generation may have happened before disconnect.
+            estimated = (req_bytes + 2) // 3
+            output_limit = rec.get("output_limit")
+            if (status is None or status == 200 or status >= 500) and isinstance(output_limit, int):
+                estimated += max(0, output_limit)
+            rec["guard_token_estimate"] = estimated
+        with self._lock:
+            self.total_requests += 1
+            self.total_tokens += exact + estimated
+            self.estimated_tokens += estimated
+        if not self.log_path:
+            return
         with self._lock:
             try:
                 with self.log_path.open("a", encoding="utf-8") as fh:
