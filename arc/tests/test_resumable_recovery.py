@@ -1,7 +1,12 @@
 import json
+import shutil
+import subprocess
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest import skipUnless
+from unittest.mock import Mock, patch
 
 from acceptance import RunSummary, TestOutcome
 from generation_checks import helper_import_errors
@@ -111,3 +116,239 @@ class RepairBudgetTests(TestCase):
         self.assertEqual(len(result['messages']), 2)
         self.assertIn('3 upstream requests remain', result['messages'][-1]['content'])
         self.assertIn('Do not guess', result['messages'][-1]['content'])
+
+
+class RecoveryControlTests(TestCase):
+    """Task-neutral recovery sequences; no application-specific fixtures."""
+
+    def setUp(self):
+        whole_tests.WholeAppTests.setUp(self)
+        f = self.flow
+        f.runner = SimpleNamespace(root=self.root, work_dir=self.root / 'prepared')
+        f.driver = Mock()
+        f.head = Mock(return_value='buildable')
+        f.record_tests = Mock()
+        f.remember_delivery_checkpoint = Mock()
+        f.metric = Mock()
+        f.restore_app = Mock()
+        f.snapshot_sources = Mock()
+        f.sources_text = Mock(return_value='')
+        f.repair_requirements = Mock(return_value='')
+        f.repair_minimum = Mock(return_value=0)
+        f.time_up = Mock(return_value=False)
+        f.final_phase_due = Mock(return_value=False)
+        f.remaining = Mock(return_value=10000)
+        f.regression_checkpoint = Mock()
+        f.batch_codegen = Mock(return_value=False)
+
+    @staticmethod
+    def summary(passed=0, ids=('A', 'B', 'C')):
+        return RunSummary(passed=passed, total=len(ids), results=[
+            TestOutcome(n, i < passed, 'passed' if i < passed else 'failed', 1,
+                        file=n + '.spec.ts', message='' if i < passed else 'missing control')
+            for i, n in enumerate(ids)])
+
+    def queue_with_startup_failure(self):
+        f = self.flow
+        entered = []
+        def implement(node, *args, **kwargs):
+            entered.append(node['id'])
+            if node['id'] == 'A':
+                f._unresolved_startup_error = 'missing module export'
+        f.node_cycle = Mock(side_effect=implement)
+        f.recover_sequential_startup = Mock(return_value=False)
+        return entered
+
+    def test_suite_recovery_resumes_pending_queue_even_when_no_feature_passes(self):
+        f = self.flow
+        entered = self.queue_with_startup_failure()
+        f.run_specs = Mock(side_effect=[RunSummary(error='missing module export'), self.summary()])
+        f.last_repair_changed = True
+        f.suite_repair_turn = Mock(return_value=('tools', 'fixed import'))
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '1'}):
+            f.implement_sequential(self.tree, self.nodes, set())
+        self.assertEqual(entered, ['A', 'B', 'C'])
+        self.assertEqual(f.run_specs.call_count, 2)
+        f.suite_repair_turn.assert_called_once()
+        self.assertFalse(f.suite_repair_turn.call_args.kwargs['prefer_codegen'])
+        self.assertEqual(f._unresolved_startup_error, '')
+        self.assertEqual(f.test_verdict, {'A': False, 'B': False, 'C': False})
+        self.assertFalse(f.final_suite_green)
+
+    def test_incomplete_suite_does_not_release_the_queue(self):
+        f = self.flow
+        entered = self.queue_with_startup_failure()
+        f.run_specs = Mock(return_value=self.summary(1, ('A',)))
+        f.last_repair_changed = True
+        f.suite_repair_turn = Mock(return_value=('tools', 'still incomplete'))
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '1'}):
+            f.implement_sequential(self.tree, self.nodes, set())
+        self.assertEqual(entered, ['A'])
+        self.assertFalse(f.final_startup_recovered)
+        self.assertEqual(f.run_specs.call_count, 2)
+        deferred = [c.kwargs for c in f.metric.call_args_list if c.args[0] == 'implementation_deferred']
+        self.assertEqual(deferred[0]['remaining_nodes'], ['B', 'C'])
+
+    def test_deferred_recovery_obeys_budget_and_final_phase_guards(self):
+        f = self.flow
+        f.final_acceptance = Mock()
+        for field, value in [('time_up', True), ('wound_down', True),
+                             ('final_phase_due', True), ('remaining', 10)]:
+            with self.subTest(field=field), patch.object(f, field, Mock(return_value=value)):
+                self.assertFalse(f.recover_deferred_startup('A'))
+        f.final_acceptance.assert_not_called()
+
+    def test_queue_respects_final_reserve_after_recovery(self):
+        f = self.flow
+        entered = self.queue_with_startup_failure()
+        def recover(node_id):
+            f._unresolved_startup_error = ''
+            f.final_phase_due.return_value = True
+            return True
+        f.recover_deferred_startup = Mock(side_effect=recover)
+        f.implement_sequential(self.tree, self.nodes, set())
+        self.assertEqual(entered, ['A'])
+        deferred = [c.kwargs for c in f.metric.call_args_list if c.args[0] == 'final_phase_started']
+        self.assertEqual(deferred[0]['deferred_nodes'], ['B', 'C'])
+
+    def rollback_flow(self, restored_summary):
+        f = self.flow
+        f.repair_rounds = 1
+        f.run_specs = Mock(side_effect=[self.summary(0, ('A',)),
+                                       RunSummary(error='build failed'), restored_summary])
+        f.node_repair_turn = Mock(return_value=True)
+        return f
+
+    def test_build_regression_restores_and_remeasures_zero_pass_state(self):
+        f = self.rollback_flow(self.summary(0, ('A',)))
+        self.assertFalse(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 1000))
+        f.restore_app.assert_called_once_with('buildable')
+        self.assertEqual(f.run_specs.call_count, 3)
+        self.assertEqual(f._unresolved_startup_error, '')
+        self.assertEqual(f.record_tests.call_count, 2)
+        self.assertEqual(f.record_tests.call_args.args[2].passed, 0)
+
+    def test_failed_rollback_verification_stays_unknown(self):
+        f = self.rollback_flow(RunSummary(error='still broken'))
+        self.assertIsNone(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 1000))
+        f.restore_app.assert_called_once()
+        self.assertEqual(f._unresolved_startup_error, 'still broken')
+        f.record_tests.assert_called_once()
+
+    @skipUnless(shutil.which('node') and shutil.which('git'), 'requires Node and Git')
+    def test_real_import_breakage_restores_buildable_zero_pass_snapshot(self):
+        from arcbench_agent_runtime.gitops import GitClient
+        f = self.flow
+        front = self.root / 'frontend'
+        front.mkdir()
+        module = front / 'helper.mjs'
+        module.write_text('export default 1;\n')
+        entry = front / 'main.mjs'
+        entry.write_text("import value from './helper.mjs'; console.log(value);\n")
+        git = GitClient(SimpleNamespace(project_dir=self.root), Mock())
+        git.ensure_repo()
+        f.runtime = SimpleNamespace(git=git)
+        f.head = main.Flow.head.__get__(f)
+        f.commit = main.Flow.commit.__get__(f)
+        f.restore_app = Mock(wraps=main.Flow.restore_app.__get__(f))
+        f.repair_rounds = 1
+        observed = []
+        def measure(*args, **kwargs):
+            result = subprocess.run(['node', str(entry)], capture_output=True, text=True, timeout=10)
+            observed.append(result.returncode)
+            return RunSummary(error=result.stderr) if result.returncode else self.summary(0, ('A',))
+        def break_import(*args):
+            module.write_text('export const value = 1;\n')
+            (front / 'untracked.mjs').write_text('throw Error("partial repair");')
+            return True
+        f.run_specs = Mock(side_effect=measure)
+        f.node_repair_turn = Mock(side_effect=break_import)
+        self.assertFalse(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 1000))
+        self.assertEqual(observed, [0, 1, 0])
+        f.restore_app.assert_called_once()
+        self.assertEqual(module.read_text(), 'export default 1;\n')
+        self.assertFalse((front / 'untracked.mjs').exists())
+        self.assertEqual(f._unresolved_startup_error, '')
+
+    def test_rollback_without_measurement_budget_cannot_claim_recovery(self):
+        f = self.rollback_flow(self.summary(1, ('A',)))
+        def repair(*args):
+            f.remaining.return_value = 20
+            return True
+        f.node_repair_turn.side_effect = repair
+        self.assertIsNone(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 1000))
+        f.restore_app.assert_called_once()
+        self.assertEqual(f.run_specs.call_count, 2)
+        self.assertEqual(f._unresolved_startup_error, 'build failed')
+
+    def test_never_restore_an_unmeasured_initial_state(self):
+        f = self.flow
+        f.repair_rounds = 0
+        f.run_specs = Mock(return_value=RunSummary(error='initial build failed'))
+        self.assertIsNone(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 1000))
+        f.restore_app.assert_not_called()
+
+    def test_one_noop_can_recover_without_remeasuring_unchanged_sources(self):
+        f = self.flow
+        f.run_specs = Mock(side_effect=[self.summary(), self.summary(3), self.summary(3)])
+        changed = iter([False, True])
+        def repair(*args, **kwargs):
+            f.last_repair_changed = next(changed)
+            return 'tools', 'repair'
+        f.suite_repair_turn = Mock(side_effect=repair)
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '1', 'OCTOS_FINAL_SUITE_PASSES': '3'}):
+            f.final_acceptance_passes()
+        self.assertEqual(f.run_specs.call_count, 3)  # baseline + green + green confirmation
+        self.assertEqual(f.suite_repair_turn.call_count, 2)
+        self.assertFalse(f.suite_repair_turn.call_args.kwargs['prefer_codegen'])
+        self.assertTrue(f.final_suite_green)
+        self.assertTrue(any(c.kwargs.get('reused_measurement') for c in f.metric.call_args_list))
+
+    def test_two_noops_stop_without_duplicate_measurements(self):
+        f = self.flow
+        f.run_specs = Mock(return_value=self.summary())
+        f.last_repair_changed = False
+        f.suite_repair_turn = Mock(return_value=('tools', 'no edit'))
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '3', 'OCTOS_FINAL_SUITE_PASSES': '100'}):
+            f.final_acceptance_passes()
+        f.run_specs.assert_called_once()
+        self.assertEqual(f.suite_repair_turn.call_count, 2)
+        self.assertFalse(f.final_suite_green)
+
+    def test_progress_before_noop_does_not_discard_the_changed_approach(self):
+        f = self.flow
+        f.run_specs = Mock(side_effect=[self.summary(1), self.summary(2), self.summary(3), self.summary(3)])
+        changes = iter([True, False, True])
+        def repair(*args, **kwargs):
+            f.last_repair_changed = next(changes)
+            return 'tools', 'repair'
+        f.suite_repair_turn = Mock(side_effect=repair)
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '3', 'OCTOS_FINAL_SUITE_PASSES': '3'}):
+            f.final_acceptance_passes()
+        self.assertEqual(f.run_specs.call_count, 4)
+        self.assertEqual(f.suite_repair_turn.call_count, 3)
+        self.assertTrue(f.final_suite_green)
+
+    def test_explicit_pass_limit_still_stops_after_one_noop(self):
+        f = self.flow
+        f.run_specs = Mock(return_value=self.summary())
+        f.last_repair_changed = False
+        f.suite_repair_turn = Mock(return_value=('tools', 'no edit'))
+        with patch.dict('os.environ', {'OCTOS_FINAL_SUITE_PASSES': '1'}):
+            f.final_acceptance_passes()
+        f.run_specs.assert_called_once()
+        f.suite_repair_turn.assert_called_once()
+
+    def test_source_changes_between_passes_invalidate_cached_measurement(self):
+        f = self.flow
+        f.test_verdict = {'A': False}
+        summary = self.summary()
+        f.app_source_digest = Mock(side_effect=['changed'])
+        def final(**kwargs):
+            f.final_repair_no_change = True
+            f._final_retry_measurement = (summary, 'old')
+        f.final_acceptance = Mock(side_effect=final)
+        with patch.dict('os.environ', {'OCTOS_FINAL_SUITE_PASSES': '3'}):
+            f.final_acceptance_passes()
+        self.assertEqual(f.final_acceptance.call_count, 2)
+        self.assertTrue(all(not c.kwargs for c in f.final_acceptance.call_args_list))

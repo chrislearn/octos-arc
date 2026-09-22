@@ -682,6 +682,24 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
     return rec
 
 
+def terminal_account_error(status: int, payload: bytes) -> bool:
+    """Latch explicit account failures; ordinary rate limits remain retryable."""
+    if status in {401, 402}:
+        return True
+    if status not in {403, 429}:
+        return False
+    try:
+        error = json.loads(payload).get('error', {})
+    except (ValueError, AttributeError, UnicodeError):
+        return False
+    if not isinstance(error, dict):
+        return False
+    codes = {str(error.get(k, '')).lower() for k in ('code', 'type')}
+    return bool(codes & {'insufficient_quota', 'insufficient_balance', 'invalid_api_key',
+                         'authentication_error'}) or any(term in str(error.get('message', '')).lower()
+                         for term in ('quota exhausted', 'balance too low', 'balance is exhausted'))
+
+
 class LlmProxy:
     def __init__(self, upstream_base: str, mode: str, log_path: Path | None = None, host: str = "127.0.0.1",
                  dump_dir: Path | None = None, dump_limit: int = 3, destream: bool = True, trim: bool = True,
@@ -723,6 +741,8 @@ class LlmProxy:
         self._dumped = 0
         self._lock = threading.Lock()
         self._inflight: dict[tuple, Future] = {}
+        self._terminal_accounts: dict[tuple, tuple] = {}
+        self.terminal_blocked_requests = 0
         proxy = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -825,7 +845,15 @@ class LlmProxy:
         # all forwarded headers; never share across distinct requests or phases.
         key = (method, path, body, tuple(sorted((k.lower(), v) for k, v in headers.items())), self.phase) \
             if method == "POST" and path.rstrip("/").endswith("/chat/completions") else None
+        # Account failures survive phase/model/input changes, but never cross
+        # credentials or provider endpoints. Keep credentials out of diagnostics.
+        account = (self.upstream, tuple(sorted((k.lower(), v) for k, v in headers.items()
+                   if k.lower() in {'authorization', 'x-api-key', 'api-key',
+                                    'openai-organization', 'openai-project'})))
         with self._lock:
+            if key is not None and account in self._terminal_accounts:
+                self.terminal_blocked_requests += 1
+                return self._terminal_accounts[account]
             future = self._inflight.get(key) if key is not None else None
             if (key is not None and future is None and self.turn_budget > 0
                     and self.turn_upstream_requests >= self.turn_budget):
@@ -889,6 +917,9 @@ class LlmProxy:
             except Exception as exc:  # noqa: BLE001
                 result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
             status, payload, _ = result
+            if key is not None and terminal_account_error(status, payload):
+                with self._lock:
+                    self._terminal_accounts[account] = result
             if (status == 200 and getattr(self, "edit_arguments_dir", None)
                     and meta.get("turn_serial") == self.turn_serial):
                 self.retain_edit_arguments(payload)

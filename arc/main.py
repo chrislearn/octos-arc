@@ -1401,7 +1401,7 @@ def permanent_provider_error(text: str) -> bool:
     lowered = text.lower()
     codes = re.findall(r"\bhttp(?:/\d(?:\.\d)?)?\s+(\d{3})\b", lowered)
     return any(code in {"401", "402", "403"} for code in codes) or any(term in lowered for term in (
-        "insufficient_balance", "quota exhausted", "balance is exhausted", "invalid_api_key",
+        "insufficient_balance", "insufficient_quota", "quota exhausted", "balance is exhausted", "invalid_api_key",
         "authentication failed", "unauthorized"))
 
 
@@ -3622,6 +3622,9 @@ class Flow:
         proxy = getattr(self, "llm_proxy", None)
         if proxy:
             proxy.stop()
+            blocked = getattr(proxy, 'terminal_blocked_requests', 0)
+            if blocked:
+                log(f'[usage] terminal account guard blocked {blocked} local retries; no upstream requests sent')
         self.log_usage_summary()
 
     def log_usage_summary(self) -> None:
@@ -3938,9 +3941,28 @@ class Flow:
             repair_applied = True
         # Failed repairs can leave dirty files without changing HEAD. Restore the files,
         # even when the current commit already equals the best recorded commit.
-        if best_passed > 0 and best_sha:
+        startup_regression = bool(getattr(self, '_unresolved_startup_error', '') and best_passed >= 0)
+        if best_sha and (best_passed > 0 or startup_regression):
             self.restore_app(best_sha)
             self.commit(f"{node_id}: keep best acceptance state {best_passed}")
+            if startup_regression:
+                # A buildable 0/N state still protects the rest of the app.
+                # Restoring source is not itself a measured recovery verdict.
+                self.pending_corrections.append(
+                    "The last repair broke application startup. Restored the last measured buildable "
+                    "state; the current feature may still fail. Preserve shared imports and exports.")
+                if self.time_up() or self.remaining() < 30:
+                    return None
+                restored = self.run_specs(specs)
+                complete = self.suite_is_measured(restored, specs)
+                self._unresolved_startup_error = '' if complete else (
+                    restored.error or '\n'.join(restored.load_errors) or 'Incomplete rollback verification')
+                self.metric('startup_rollback', node_id=node_id, measured=complete,
+                            passed=restored.passed, total=restored.total)
+                if complete:
+                    self.record_tests(node_id, specs, restored)
+                    return restored.passed == restored.total
+                return None
         return False if best_passed >= 0 else None
 
     # -- per node ---------------------------------------------------------
@@ -4284,6 +4306,50 @@ class Flow:
             "running first full suite")
         return wave > 0
 
+    def implement_sequential(self, tree: dict, ordered: list[dict], unchanged: set[str]) -> None:
+        """Keep the dependency-ordered queue alive across bounded startup recovery."""
+        batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "1"))
+        batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
+        preimplemented: set[str] = set()
+        for index, node in enumerate(ordered, 1):
+            node_id = str(node.get("id"))
+            if self.final_phase_due():
+                log(f"[flow] entering reserved final phase with {self.remaining():.0f}s left; "
+                    f"deferring {node_id} and later leaves to full-suite measurement")
+                self.metric("final_phase_started", after_nodes=index - 1,
+                            deferred_nodes=[str(n.get('id')) for n in ordered[index - 1:]],
+                            remaining_seconds=round(self.remaining(), 3))
+                break
+            if self.time_up():
+                log(f"[flow] time budget exhausted; skipping {node_id}")
+                self.mark("implementation_started", node_id)
+                self.mark("implementation_failed", node_id, "skipped: time budget exhausted")
+                self.impl_failed.append(node_id)
+                continue
+            if node_id in unchanged:
+                self.regression_cycle(node)
+            else:
+                group = batch_starts.get(node_id)
+                if group and not any(member in unchanged for member in group):
+                    group_nodes = [ordered[index - 1 + offset] for offset in range(len(group))]
+                    if self.batch_codegen(group_nodes):
+                        preimplemented.update(group)
+                self.node_cycle(node, ordered, index, len(ordered),
+                                preimplemented=node_id in preimplemented)
+            if getattr(self, '_unresolved_startup_error', ''):
+                self.driver.end_scope("node")
+                if (self.recover_sequential_startup(node_id)
+                        or self.recover_deferred_startup(node_id)):
+                    self.regression_checkpoint(index, len(ordered))
+                    self.driver.end_scope("node")
+                    continue
+                log("[flow] unresolved build/start/load failure: deferring new features to final repair")
+                self.metric("implementation_deferred", reason="unresolved_startup", after_node=node_id,
+                            remaining_nodes=[str(n.get('id')) for n in ordered[index:]])
+                break
+            self.regression_checkpoint(index, len(ordered))
+            self.driver.end_scope("node")
+
     def recover_sequential_startup(self, node_id: str) -> bool:
         """Repair infrastructure locally, measure the active node, then resume.
 
@@ -4371,6 +4437,19 @@ class Flow:
         self.turn(tool_prompt, left, "whole application startup repair (tools)")
         committed = self.commit("fix: whole application startup preflight (tools)")
         return self.last_turn_changed if isinstance(self.last_turn_changed, bool) else committed
+
+    def recover_deferred_startup(self, node_id: str) -> bool:
+        """Use bounded suite recovery without losing the pending implementation queue."""
+        if (self.runner is None or not self.tests_dir or self.time_up() or self.wound_down()
+                or self.final_phase_due() or self.remaining() < self.final_retry_admission()):
+            return False
+        self._force_final_tool_repair = True
+        self.final_acceptance(startup_recovery_only=True)
+        recovered = self.final_startup_recovered
+        self.metric('startup_recovery', node_id=node_id, strategy='suite', resumed=recovered)
+        if recovered:
+            log(f"[flow] suite recovered startup at {node_id}; resuming remaining requirements")
+        return recovered
 
     def whole_app_first_suite(self, ordered: list[dict]) -> set[str] | None:
         """Measure the generated app once; return only leaves needing repair.
@@ -5067,13 +5146,20 @@ class Flow:
             self.queue_checkpoint_evidence(summary)
         return bool(grouped)
 
-    def final_acceptance(self) -> None:
+    def final_acceptance(self, *, initial_summary: RunSummary | None = None,
+                         startup_recovery_only: bool = False) -> None:
         """Run EVERY spec file together against one server with the configured workers.
         Per-node runs cannot see cross-node interference through shared server
-        state; this pass can, and it repairs the nodes whose tests fail."""
+        state; this pass can, and it repairs the nodes whose tests fail.
+        Startup-only recovery returns at the first complete measurement so the
+        caller can resume implementation. A retry may reuse a failure report
+        only after its caller has verified the application sources are unchanged.
+        """
         self.final_repair_no_change = False
         self.final_suite_progress = False
         self.final_suite_green = False
+        self.final_startup_recovered = False
+        self._final_retry_measurement = None
         force_tool_repair = bool(getattr(self, "_force_final_tool_repair", False))
         self._force_final_tool_repair = False
         if self.runner is None or not self.tests_dir:
@@ -5119,7 +5205,21 @@ class Flow:
         last_repair_mode = ""
         for attempt in range(rounds + 1):
             restored_this_round = False
-            summary = measured_suite()
+            reused_measurement = attempt == 0 and initial_summary is not None
+            summary = initial_summary if reused_measurement else measured_suite()
+            if reused_measurement:
+                log("[acceptance] reusing unchanged application measurement for a changed repair approach")
+            if startup_recovery_only and self.suite_is_measured(summary, all_specs):
+                # Functional failures in unimplemented leaves must not consume
+                # the recovery budget or prevent the sequential queue resuming.
+                grouped = nodes_for_failures(summary.results, self.spec_map)
+                self.record_full_suite(summary, grouped)
+                self.remember_delivery_checkpoint(summary, grouped)
+                self.metric('acceptance', scope='startup_suite', round=attempt,
+                            passed=summary.passed, total=summary.total, verdict='measured')
+                self._unresolved_startup_error = ''
+                self.final_startup_recovered = True
+                return
             if (best is not None and last_repair_mode == "codegen" and wrote_last
                     and self.suite_is_measured(summary, all_specs) and best["passed"] - summary.passed >= 3):
                 # A one-request rewrite that breaks several previously passing
@@ -5168,7 +5268,8 @@ class Flow:
             partial_ratio = float(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_RATIO", "0.9"))
             partial_max = max(0, int(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES", "3")))
             partial_failed = max(0, summary.total - summary.passed)
-            if (attempt == 0 and attempt < rounds and not initially_green and 0 < partial_ratio <= 1
+            if (attempt == 0 and not reused_measurement and attempt < rounds
+                    and not initially_green and 0 < partial_ratio <= 1
                     and not summary.all_passed and self.suite_is_measured(summary, all_specs)
                     and summary.total and summary.passed / summary.total >= partial_ratio
                     and 0 < partial_failed <= partial_max
@@ -5249,6 +5350,7 @@ class Flow:
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             self.metric("acceptance", scope="final_suite", round=attempt, passed=summary.passed,
                         total=summary.total, after_applied_repair=wrote_last and not restored_this_round,
+                        reused_measurement=reused_measurement,
                         restored_before_measurement=restored_this_round,
                         verdict="measured" if measured else "unknown", error=summary.error,
                         load_errors=summary.load_errors)
@@ -5355,6 +5457,7 @@ class Flow:
                 slow="", smoke=self.smoke_port, port=self.web_port)
             # One codegen request first; a round that reproduced the previous failures
             # is the changed approach, and that one uses tools.
+            before_repair_digest = self.app_source_digest()
             last_repair_mode, unfinished = self.suite_repair_turn(
                 f"full-suite repair {attempt + 1}/{rounds}", failing if measured else [], failures,
                 min(self.suite_repair_timeout(), max(1, self.remaining() - self.final_measurement_reserve())),
@@ -5365,6 +5468,8 @@ class Flow:
             wrote_last = effective if isinstance(effective, bool) else committed
             if effective is False:
                 self.final_repair_no_change = True
+                if self.app_source_digest() == before_repair_digest:
+                    self._final_retry_measurement = (summary, before_repair_digest)
                 self._force_final_tool_repair = True
                 self.pending_corrections.append(
                     "The previous full-suite repair changed no application source. Do not only describe a fix: "
@@ -5374,6 +5479,7 @@ class Flow:
                 break
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
         if best is not None and best["sha"] and last_passed < best["passed"]:
+            self._final_retry_measurement = None
             log(f"[acceptance] full suite: last round {last_passed} < best {best['passed']}; restoring the best state")
             self.restore_app(best["sha"])
             self.record_full_suite(best["summary"], best["grouped"])
@@ -5418,6 +5524,8 @@ class Flow:
         # full-suite repair passes. Each pass already contains several repairs.
         passes = max(1, int(configured_passes)) if configured_passes is not None else 3
         stalled_passes = 0
+        unchanged_passes = 0
+        retry_measurement = None
         for attempt in range(passes):
             # Admission for measurement is distinct from admission for repair.
             # The old 3 * 300s floor skipped even the first measurement in a
@@ -5432,7 +5540,11 @@ class Flow:
                     break
                 log(f"[flow] full suite still failing with {self.remaining():.0f}s left; "
                     f"pass {attempt + 1}/{passes}")
-            self.final_acceptance()
+            if retry_measurement and retry_measurement[1] == self.app_source_digest():
+                self.final_acceptance(initial_summary=retry_measurement[0])
+            else:
+                self.final_acceptance()
+            retry_measurement = None
             if self.driver:
                 self.driver.end_scope("node")
             if (getattr(self, "final_suite_green", False)
@@ -5443,8 +5555,21 @@ class Flow:
                     f"{self.final_retry_admission():.0f}s needed to measure, repair, and remeasure")
                 break
             if getattr(self, "final_repair_no_change", False) is True:
-                log("[flow] full-suite repair made no source change; stopping duplicate repair/measurement passes")
-                break
+                unchanged_passes = (1 if getattr(self, 'final_suite_progress', False) is True
+                                    else unchanged_passes + 1)
+                if unchanged_passes >= 2:
+                    log("[flow] two final passes ended without effective edits; stopping repair loop")
+                    break
+                retry_measurement = getattr(self, '_final_retry_measurement', None)
+                self._force_final_tool_repair = True
+                self.pending_corrections.append(
+                    "The previous final repair made no effective application edit. Use the retained failure "
+                    "evidence to fix one concrete blocking cause with a targeted edit; avoid broad rereads.")
+                if getattr(self, 'final_suite_progress', False) is True:
+                    stalled_passes = 0
+                log("[flow] final repair unchanged; allowing one bounded changed approach")
+                continue
+            unchanged_passes = 0
             if getattr(self, "final_suite_progress", False) is not True:
                 stalled_passes += 1
                 if stalled_passes >= 2:
@@ -5577,7 +5702,7 @@ class Flow:
         """
         best = getattr(self, "delivery_checkpoint", None)
         if not best or best["summary"].passed <= 0:
-            return False
+            return self.measure_provider_stop(error)
         try:
             self.commit("chore: preserve interrupted repair before provider-stop recovery")
             dirty = self.runtime.git.run(["status", "--porcelain", "--", "frontend", "backend"], check=False)
@@ -5596,6 +5721,58 @@ class Flow:
         except Exception as exc:  # recovery must not hide the original provider error
             log(f"[flow] provider-stop recovery failed: {exc}")
             return False
+
+    def measure_provider_stop(self, error: Exception) -> bool:
+        """Turn sequential progress into a delivery observation without an LLM.
+
+        Partial checkpoint scores are never promoted to full-suite verdicts.
+        Preserve interrupted work before considering the older healthy tree.
+        """
+        if self.runner is None or not self.tests_dir or self.runtime is None:
+            return False
+        specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob('*.spec.ts'))
+        if not specs or self.remaining() < 30:
+            return False
+        original = None
+        restored = False
+        try:
+            self.commit('chore: preserve interrupted implementation before provider-stop measurement')
+            dirty = self.runtime.git.run(['status', '--porcelain', '--', 'frontend', 'backend'], check=False)
+            original = self.head()
+            if not original or dirty.returncode or dirty.stdout.strip():
+                return False
+            healthy = getattr(self, 'healthy_checkpoint', None)
+            candidates = [original]
+            if healthy and healthy.get('sha') and healthy['sha'] != original:
+                candidates.append(healthy['sha'])
+            for sha in candidates:
+                if self.remaining() < 30:
+                    break
+                if sha != original:
+                    restored = True
+                    self.restore_app(sha)
+                summary = self.run_specs(specs, workers=1, grader_like=True)
+                if not self.suite_is_measured(summary, specs) or summary.passed <= 0:
+                    continue
+                grouped = nodes_for_failures(summary.results, self.spec_map)
+                self.remember_delivery_checkpoint(summary, grouped)
+                self.test_verdict.clear()
+                self.record_full_suite(summary, grouped)
+                self.commit('chore: deliver measured implementation after provider stop')
+                self.metric('provider_stop', recovered=True, measured=True,
+                            passed=summary.passed, total=summary.total, error=str(error)[:300])
+                log(f'[flow] provider stopped; measured delivery {summary.passed}/{summary.total}; no model calls')
+                restored = False  # The measured fallback is now the delivery artifact.
+                return True
+        except Exception as exc:
+            log(f'[flow] provider-stop measurement failed: {exc}')
+        finally:
+            if restored and original:
+                try:
+                    self.restore_app(original)
+                except Exception as exc:
+                    log(f'[flow] provider-stop original source restore failed: {exc}')
+        return False
 
     def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
         """Per-node verdicts and traceability from one full-suite round."""
@@ -5781,46 +5958,7 @@ class Flow:
                         self.mark("implementation_started", node_id)
                         self.mark("implementation_done", node_id, "existing application; acceptance pending")
                 elif not self.whole_app_experiment(tree, ordered):
-                    batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "1"))
-                    batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
-                    preimplemented: set[str] = set()
-                    for index, node in enumerate(ordered, 1):
-                        node_id = str(node.get("id"))
-                        if self.final_phase_due():
-                            log(f"[flow] entering reserved final phase with {self.remaining():.0f}s left; "
-                                f"deferring {node_id} and later leaves to full-suite measurement")
-                            self.metric("final_phase_started", after_nodes=index - 1,
-                                        deferred_nodes=[str(n.get('id')) for n in ordered[index - 1:]],
-                                        remaining_seconds=round(self.remaining(), 3))
-                            break
-                        if self.time_up():
-                            log(f"[flow] time budget exhausted; skipping {node_id}")
-                            self.mark("implementation_started", node_id)
-                            self.mark("implementation_failed", node_id, "skipped: time budget exhausted")
-                            self.impl_failed.append(node_id)
-                            continue
-                        if node_id in unchanged:
-                            self.regression_cycle(node)
-                        else:
-                            group = batch_starts.get(node_id)
-                            if group and not any(member in unchanged for member in group):
-                                group_nodes = [ordered[index - 1 + offset] for offset in range(len(group))]
-                                if self.batch_codegen(group_nodes):
-                                    preimplemented.update(group)
-                            self.node_cycle(node, ordered, index, len(ordered),
-                                            preimplemented=node_id in preimplemented)
-                        if getattr(self, '_unresolved_startup_error', ''):
-                            self.driver.end_scope("node")
-                            if self.recover_sequential_startup(node_id):
-                                self.regression_checkpoint(index, len(ordered))
-                                self.driver.end_scope("node")
-                                continue
-                            log("[flow] unresolved build/start/load failure: deferring new features to final repair")
-                            self.metric("implementation_deferred", reason="unresolved_startup", after_node=node_id,
-                                        remaining_nodes=[str(n.get('id')) for n in ordered[index:]])
-                            break
-                        self.regression_checkpoint(index, len(ordered))
-                        self.driver.end_scope("node")
+                    self.implement_sequential(tree, ordered, unchanged)
 
                 self.final_acceptance_passes()
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]

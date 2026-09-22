@@ -211,3 +211,51 @@ assert.equal(records.filter(r => matchesFlags(r, {disabled:false})).length, 3);
         result = subprocess.run(['node', '-e', script, str(m.BUNDLE_DIR / 'blueprints/query.js')],
                                 capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+class SequentialProviderStopTests(unittest.TestCase):
+    setUp = DeliveryCheckpointTests.setUp
+    summary = DeliveryCheckpointTests.summary
+
+    def configure_measurement(self):
+        f = self.flow
+        f.runner = Mock()
+        f.remaining = Mock(return_value=120)
+        f.turn = Mock(side_effect=AssertionError('no model calls after quota'))
+        f.run_specs = Mock(return_value=self.summary())
+        return f
+
+    def test_current_partial_implementation_gets_full_measurement(self):
+        f = self.configure_measurement()
+        f.test_verdict = {'stale': True}
+        self.assertTrue(f.recover_provider_stop(m.PermanentProviderError('insufficient_quota')))
+        f.run_specs.assert_called_once_with(['A.spec.ts', 'B.spec.ts'], workers=1, grader_like=True)
+        self.assertEqual(f.test_verdict, {'A': True, 'B': False})
+        f.restore_app.assert_not_called()
+        f.turn.assert_not_called()
+
+    def test_unbuildable_current_tree_falls_back_to_measured_healthy_tree(self):
+        f = self.configure_measurement()
+        f.healthy_checkpoint = {'sha': 'healthy', 'summary': self.summary(2)}
+        f.run_specs.side_effect = [RunSummary(error='build failed'), self.summary()]
+        self.assertTrue(f.recover_provider_stop(RuntimeError('quota')))
+        f.restore_app.assert_called_once_with('healthy')
+        self.assertEqual(f.run_specs.call_count, 2)
+        self.assertFalse(f.test_verdict['B'])  # old partial pass is not reused
+
+    def test_incomplete_fallback_restores_interrupted_sources(self):
+        f = self.configure_measurement()
+        f.healthy_checkpoint = {'sha': 'healthy', 'summary': self.summary(2)}
+        f.run_specs.return_value = RunSummary(error='runner interrupted', killed=True)
+        self.assertFalse(f.recover_provider_stop(RuntimeError('quota')))
+        self.assertEqual([c.args[0] for c in f.restore_app.call_args_list], ['healthy', 'verified-sha'])
+        self.assertIsNone(getattr(f, 'delivery_checkpoint', None))
+
+    def test_low_budget_and_dirty_preservation_skip_measurement(self):
+        f = self.configure_measurement()
+        f.remaining.return_value = 29
+        self.assertFalse(f.recover_provider_stop(RuntimeError('quota')))
+        f.remaining.return_value = 120
+        self.git.run.return_value.stdout = '?? frontend/new.js'
+        self.assertFalse(f.recover_provider_stop(RuntimeError('quota')))
+        f.run_specs.assert_not_called()
+        f.restore_app.assert_not_called()

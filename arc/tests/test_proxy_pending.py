@@ -131,3 +131,33 @@ class PendingCompletionTests(unittest.TestCase):
                 self.assertEqual(upstream.call_count, 2)
         finally:
             proxy.server.server_close()
+
+class TerminalAccountTests(unittest.TestCase):
+    def test_quota_latches_across_turn_inputs_but_not_credentials(self):
+        class Response:
+            status = 429
+            headers = {}
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self): return b'{"error":{"type":"insufficient_quota"}}'
+        proxy = LlmProxy('http://unused/v1', 'none')
+        self.addCleanup(proxy.server.server_close)
+        with patch('llm_proxy.urllib.request.urlopen', return_value=Response()) as upstream:
+            proxy._request_upstream('POST', '/chat/completions', b'{}', {'Authorization': 'a'})
+            proxy.phase = 'repair'
+            proxy._request_upstream('POST', '/chat/completions', b'{"model":"other"}', {'authorization': 'a'})
+            self.assertEqual(upstream.call_count, 1)
+            self.assertEqual(proxy.total_requests, 1)
+            self.assertEqual(proxy.terminal_blocked_requests, 1)
+            proxy._request_upstream('POST', '/chat/completions', b'{}', {'Authorization': 'b'})
+            self.assertEqual(upstream.call_count, 2)
+
+    def test_rate_limits_and_model_permission_errors_do_not_latch(self):
+        from llm_proxy import terminal_account_error
+        for status, body in [(429, b'{"error":{"type":"rate_limit_exceeded"}}'),
+                             (403, b'{"error":{"code":"model_not_allowed"}}'),
+                             (429, b'not json'), (429, b'{"error":null}'),
+                             (200, b'{"error":{"type":"insufficient_quota"}}')]:
+            self.assertFalse(terminal_account_error(status, body))
+        for status in (401, 402):
+            self.assertTrue(terminal_account_error(status, b'account unavailable'))
