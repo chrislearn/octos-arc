@@ -18,6 +18,7 @@ import hashlib
 import ipaddress
 import os
 import re
+import socket
 import threading
 import tempfile
 import time
@@ -30,7 +31,7 @@ from pathlib import Path
 from reply_quality import StreamRepetitionGuard
 
 
-def collect_codegen_stream(response, deadline: float | None = None) -> tuple[bytes, str | None]:
+def _collect_codegen_stream(response, deadline: float | None = None, progress=None) -> tuple[bytes, str | None]:
     """Collect SSE incrementally; close the connection on strong repetition.
 
     Report interruption as length, NEVER stop/success. Missing provider usage
@@ -38,6 +39,7 @@ def collect_codegen_stream(response, deadline: float | None = None) -> tuple[byt
     Only the tool-less codegen path calls this; native tool deltas are untouched.
     """
     guard = StreamRepetitionGuard()
+    reasoning_guard = StreamRepetitionGuard()
     text, reasoning, usage, finish = "", "", None, None
     identity = {}
     aborted = None
@@ -59,18 +61,22 @@ def collect_codegen_stream(response, deadline: float | None = None) -> tuple[byt
             raise ValueError("upstream codegen SSE error")
         if event.get("usage"):
             usage = event["usage"]
+        grew = False
         for choice in event.get("choices", []):
             if choice.get("index", 0) != 0:
                 raise ValueError("multiple codegen choices are unsupported")
             delta = choice.get("delta") or {}
             if delta.get("tool_calls"):
                 raise ValueError("unexpected tools in tool-less codegen stream")
+            grew = grew or bool((delta.get("content") or "").strip() or (delta.get("reasoning_content") or "").strip())
             text += delta.get("content") or ""
             reasoning += delta.get("reasoning_content") or ""
             finish = choice.get("finish_reason") or finish
-        aborted = "response_size_limit" if len(text) + len(reasoning) > 2_000_000 else guard.check(text)
+        aborted = "response_size_limit" if len(text) + len(reasoning) > 2_000_000 else (guard.check(text) or reasoning_guard.check(reasoning))
         if aborted:
             break
+        if grew and progress is not None:
+            progress()
     if aborted or not finish:
         aborted = aborted or "incomplete_stream"
         finish = "length"
@@ -83,6 +89,76 @@ def collect_codegen_stream(response, deadline: float | None = None) -> tuple[byt
     if aborted:
         result["arc_stream_stop"] = aborted
     return json.dumps(result, ensure_ascii=False).encode(), aborted
+
+
+def collect_codegen_stream(response, deadline: float | None = None, lease=None) -> tuple[bytes, str | None]:
+    """Bound both silent socket reads and heartbeats without extending on them.
+
+    urllib's socket timeout alone cannot stop an endless heartbeat stream. A
+    watchdog shuts down the owned socket, unblocking readline even mid-event.
+    In-memory responses use the same checks without needing a watchdog thread.
+    """
+    done = threading.Event()
+    first_deadline = time.monotonic() + 300
+    last = [None]
+    reason = [None]
+    sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+
+    def expired():
+        now = time.monotonic()
+        if lease is not None:
+            if lease.remaining() <= 0:
+                return "turn_deadline"
+        elif deadline is not None and now >= deadline:
+            return "turn_deadline"
+        if last[0] is None and now >= first_deadline:
+            return "stream_first_output_timeout"
+        if last[0] is not None and now - last[0] >= 120:
+            return "stream_idle_timeout"
+        return None
+
+    def progress():
+        last[0] = time.monotonic()
+        if lease is not None:
+            lease.progress()
+
+    def watch():
+        while not done.wait(0.2):
+            reason[0] = expired()
+            if reason[0]:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                return
+
+    def lines():
+        try:
+            for raw in response:
+                reason[0] = reason[0] or expired()
+                if reason[0]:
+                    break
+                yield raw
+        except (OSError, ValueError):
+            reason[0] = reason[0] or expired()
+            if not reason[0]:
+                raise
+
+    worker = threading.Thread(target=watch, daemon=True) if sock is not None else None
+    if worker is not None:
+        worker.start()
+    try:
+        payload, stopped = _collect_codegen_stream(lines(), progress=progress)
+        if reason[0]:
+            data = json.loads(payload)
+            data["arc_stream_stop"] = reason[0]
+            data["choices"][0]["finish_reason"] = "length"
+            return json.dumps(data, ensure_ascii=False).encode(), reason[0]
+        return payload, stopped
+    finally:
+        done.set()
+        if worker is not None:
+            worker.join()
 
 HOP_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding"}
 
@@ -903,10 +979,11 @@ class LlmProxy:
             meta = self.request_meta(body)   # attribution fixed at issue time, not at response time
             try:
                 deadline = getattr(self, "turn_deadline", None)
+                lease = getattr(self, "progress_deadline", None)
                 request_timeout = min(600, max(1, deadline - time.monotonic())) if deadline else 600
-                with open_upstream(req, timeout=request_timeout) as resp:
+                with open_upstream(req, timeout=min(300, max(request_timeout, 120)) if guarded_stream and lease is not None else request_timeout) as resp:
                     if guarded_stream and "text/event-stream" in resp.headers.get("Content-Type", ""):
-                        payload, stopped = collect_codegen_stream(resp, deadline)
+                        payload, stopped = collect_codegen_stream(resp, deadline, lease)
                         meta["stream_guard"] = stopped or "completed"
                         result = resp.status, payload, {"Content-Type": "application/json"}
                     else:

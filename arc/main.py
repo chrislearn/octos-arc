@@ -94,9 +94,9 @@ from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     workers_for_memory, process_cwd, workspace_contains, free_owned_ports,
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, clip_ends, container_memory_limit, ensure_playwright,
-    failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
+    failure_signature, failure_summaries, failure_source_context, locator_role_mismatch, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
-    mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
+    mutated_by_tests, store_changes_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
     startup_error_digest, backend_error_digest)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
                      incomplete_blocks, normalize_bare_file_reply, prepare_edit_files, safe_relative_path,
@@ -107,6 +107,7 @@ from reply_quality import prune_degenerate_edits  # noqa: E402
 from repair_context import diagnosed_failure_evidence as balanced_failure_evidence  # noqa: E402
 from generic_template import generic_template_active, install_generic_template  # noqa: E402
 from web_stack import recommended_capabilities, stack_note  # noqa: E402
+from progress_timeout import ProgressDeadline
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
 from web_checks import scaffold_issues  # noqa: E402
@@ -1537,14 +1538,14 @@ class OctosDriver:
         deadline = time.monotonic() + max(0, timeout)
         ok, text = False, "octos turn timed out"
         for attempt in range(1, attempts + 1):
-            remaining = deadline - time.monotonic()
+            remaining = self.progress_deadline.remaining() if getattr(self, "progress_deadline", None) else deadline - time.monotonic()
             if remaining <= 0:
                 break
             ok, text = fn(remaining)
             if ok or not self._transient(text) or attempt == attempts:
                 break
             wait = 30 * attempt
-            if wait >= deadline - time.monotonic():
+            if wait >= (self.progress_deadline.remaining() if getattr(self, "progress_deadline", None) else deadline - time.monotonic()):
                 log("[driver] remaining turn budget cannot accommodate retry backoff")
                 break
             log(f"[driver] transient error, retry {attempt + 1}/{attempts} after {wait}s: {text[:200]}")
@@ -1556,10 +1557,15 @@ class OctosDriver:
         deadline = time.monotonic() + timeout
         try:
             session = self._get_session()
+            session.progress_deadline = getattr(self, "progress_deadline", None)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False, "octos turn timed out"
-            return session.run_turn(prompt, timeout=remaining)
+            result = session.run_turn(prompt, timeout=remaining)
+            if not result[0] and "octos turn timed out" in result[1].lower():
+                # A persistent session must not keep generating after its lease ends.
+                self.close()
+            return result
         except Exception as exc:  # noqa: BLE001
             self.close()
             if self.tools_disabled:
@@ -1607,7 +1613,9 @@ UI behavior follows the requirement and the current application:
 - A control repeated once per item needs an accessible name that says which item it acts on. Identical names across items leave a name-based lookup resolving to an arbitrary one, and a control that stays exposed after the pointer leaves its item makes that worse.
 - Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input.
 - Derive state ownership and persistence from requirements: distinguish per-view, per-session and shared data. Do not reset persisted user data on startup. For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it. Provide a loading state when initialization is asynchronous.
+- Treat required built-in/default records and their accessible navigation names as invariants when the requirements say they are fixed. If users may rename or remove other records, distinguish those from the protected record in both server validation and UI; do not let an edit to shared data silently rename an unrelated required destination.
 - Treat a UI action as a state transition: mount usable editor/dialog controls synchronously before the first await. Isolate background controls for modal dialogs, not ordinary inline editors or non-modal menus. A browser click does not await an async event listener. After a mutation, await persistence and refresh (or apply a consistent optimistic update) before exposing stale state as final; handle failure without losing the user's edits. Derive Save/Cancel/autosave transitions from requirements; cancelling a draft must not commit it.
+- For nested editors, menus and dialogs, define which layer owns outside click, Escape and focus transitions. A child's Escape should not close or save its parent unless that is the required action. A controlled dialog's onOpenChange must not turn an incidental close/open signal into a premature commit; verify the editor remains mounted and editable after its entry gesture.
 - Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
 - Specify ownership/keys and atomic command effects (including undo) from requirements; related mutations must commit together in one store update or database transaction, not separate file writes. Validate authoritatively on the server. Date-only values are calendar dates, not UTC instants; persist expiry deadlines across reloads, anchor countdowns to server time, and use a task-provided reference date only when explicitly required. Keep editable rich-text regions labeled (role=textbox, aria-multiline=true); use native select for a native selection contract, not a visually similar custom menu.
 - Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
@@ -1615,7 +1623,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "15-explicit-migration-contract"
+APP_DESIGN_PROMPT_VERSION = "16-protected-state-and-dialog-lifecycle"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate; "
@@ -1647,6 +1655,7 @@ Reply with ONE JSON object (at most 150 lines, no prose) that every requirement 
  "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}}
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
 For each lifecycle view, specify which records the API returns and which filters the client applies; a client cannot recover records already excluded by the server. Specify absent versus false query values, compatible filter combinations, and inverse transitions (remove/restore, assign/unassign). For composite editors, state whether selection commits immediately or on Save, how Done/Cancel/Escape behave, and which owner retains the draft after a failed save. Do not invent lifecycle states not required by the task.
+In contracts, identify required built-in records and stable accessible destinations separately from user-editable records. For nested menus/dialogs, assign ownership of Escape, outside click and focus changes; closing a child must not commit or dismiss its parent unless explicitly required. Include a short interaction sequence that a full-suite run should preserve after another feature mutates shared state.
 Give every expanded editor a visible completion action: Save for explicit commits or Close/Done for autosave; Escape/outside click supplements that action, never replaces it. Moving focus within the editor is not completion. Distinguish raw response JSON from Response objects; no helper-invented result envelope unless explicitly implemented on the backend.
 In notes, preserve required entry gestures and action placement (record click, direct action, menu action). Distinguish available catalogue choices from initially selected values; optional actions must follow user intent, not unconditional fixture-derived defaults.
 Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Put those owners in modules. App.jsx owns routing/composition; normally keep each application module below 18000 characters by extracting cohesive pages, reusable record views/editors and API/state modules before they become a monolith. Split layouts only when requirements differ; do not create pass-through modules merely to meet a number. Keep this concrete and minimal, not a configurable application framework.
@@ -1670,7 +1679,7 @@ Collection API: const {collection} = require('../lib/collection'); do not call t
 Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes.
 From backend/routes/: require('../lib/store') exports read(name,fallback), write(name,value), update(name,fallback,synchronousChange). Prefer require('../lib/collection').collection(name,{idKey,initial,migrations,normalize}) for ordinary CRUD instead of regenerating persistence; it exports all/list/get/create/patch/remove/transact. initial applies only to a new store; persist changes to existing data via versioned migrations up(data) mutating data.items synchronously, preserving __arcMigrations. Never reseed deleted records. Optional normalize(record) returns an object with the SAME id on reads/create/patch and before/after transact; choose defaults from requirements, not fixtures. Reads do not persist normalization. transact(items => result) synchronously mutates one collection in one write; duplicate/missing IDs and async callbacks fail. Atomicity is single-store/single-process only; cross-store effects need one aggregate or transactional storage. require('../lib/errors').HttpError(status,message) gives explicit 4xx {error:message}; 5xx details are hidden. Define domain validation, authorization and messages from requirements.
 Optional require('../lib/query') exports optionalBoolean(value) (missing/true/false, invalid => 400) and matchesFlags(record,flags) (strict booleans, undefined ignored). Whitelist fields, resolve view defaults once, combine filters, and enforce ownership separately; clients cannot recover server-excluded rows.
-Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (204 => null) or an Error with {error} message and numeric status; no {ok,value} envelope. React uses main.jsx/App.jsx. Plain scaffold uses app.js, shared/dom.js (escapeHtml) and shared/router.js (startRouter(render), arc.spa=true). Optional build.mjs/vite.config.mjs: build is "node build.mjs"; bundle JSX/local assets. frontend/public copies to dist root. Define fields, pages, sessions and seed data from the task. Do not output FILE blocks for unchanged shared helpers.
+Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (empty successful response => null), or throws an Error with server message and numeric status on HTTP/JSON failure; no Response methods or {ok,value} envelope. Plain object/array request bodies are JSON-encoded; FormData/URLSearchParams bodies keep their native encoding. React uses main.jsx/App.jsx. Plain scaffold uses app.js, shared/dom.js (escapeHtml) and shared/router.js (startRouter(render), arc.spa=true). Optional build.mjs/vite.config.mjs: build is "node build.mjs"; bundle JSX/local assets. frontend/public copies to dist root. Define fields, pages, sessions and seed data from the task. Do not output FILE blocks for unchanged shared helpers.
 """
 
 TASK_NEUTRAL_HELPERS = {
@@ -1890,8 +1899,9 @@ Use the supplied acceptance specification and helpers below as read-only evidenc
 """
 
 REPAIR_PROMPT = """\
-Classify the observed failure before editing: build/load, runtime exception, HTTP failure, missing requirement precondition, stale UI, or locator timing/semantics. A timeout alone cannot distinguish these. Compare prior actions, responses and the rendered snapshot. Keep unknown causes unknown; combine failures only with concrete shared exception/source/data-owner/locator-gate evidence, not a common helper line. When a quoted spec explicitly selects a role and accessible name, that role/name is part of the interaction contract: use a native control that matches it instead of overriding the evidence with a preferred semantic element. When no requirement or spec selects a role, do not change semantics merely because a generic helper tried a fallback. Check storage-to-state-to-consumer updates without reload; verify fresh and existing stores separately without resetting data.
+Classify the observed failure before editing: build/load, runtime exception, HTTP failure, missing requirement precondition, stale UI, or locator timing/semantics. A timeout alone cannot distinguish these. Compare prior actions, responses, the rendered snapshot and any persisted-store change summary. Store changes describe the whole run, not which test caused them. Keep unknown causes unknown; combine failures only with concrete shared exception/source/data-owner/locator-gate evidence, not a common helper line. When a quoted spec explicitly selects a role and accessible name, that role/name is part of the interaction contract: use a native control that matches it instead of overriding the evidence with a preferred semantic element. When no requirement or spec selects a role, do not change semantics merely because a generic helper tried a fallback. Check storage-to-state-to-consumer updates without reload; verify fresh and existing stores separately without resetting data.
 Fix frontend/ and/or backend/ so the failing tests listed below pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. For a failed post-action assertion, trace the preceding actions and identify the element and record actually acted on. With repeated controls, inspect locator scope, ordering, visibility, and hover/focus state before assuming a storage or rendering failure. Preserve keyboard access and the required interaction semantics when resolving ambiguity. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
+If one behavior passes alone but fails in the suite, inspect shared-state mutations and protected default records before changing selectors. For an editor that disappears or saves old content, inspect its entry click, onOpenChange, nested menu Escape and focus transitions in order. Under a hard request cap, prioritize one causal source edit with existing evidence before broad additional reading; a diagnosis with no changed source cannot be verified by the next acceptance run.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 """ + PORT_RULES + """
 {sources}
@@ -2282,7 +2292,26 @@ class Flow:
         execution_mode = "codegen" if proxy is not None and getattr(proxy, "no_tools", False) else "tools"
         before_sources = self.app_source_digest() if execution_mode == "tools" else None
         self.turn_count += 1
-        ok, text = self.driver.run(prompt, max(1, int(timeout)), monitor)
+        # Only the guarded tool-free SSE path exposes trustworthy upstream progress.
+        lease = None
+        if (proxy is not None and getattr(proxy, "no_tools", False)
+                and proxy.phase in {"implement", "repair"}
+                and os.environ.get("OCTOS_ARC_STREAM_GUARD", "1") != "0"):
+            slack = max(0, self.remaining() - self.final_measurement_reserve() - timeout)
+            extension = min(120, timeout * 0.25, slack)
+            lease = ProgressDeadline(timeout, extension=extension)
+            log(f"[flow] {label}: streaming progress grace ≤{extension:.0f}s; idle limit 120s")
+        self.driver.progress_deadline = lease
+        if proxy is not None:
+            proxy.progress_deadline = lease
+        try:
+            ok, text = self.driver.run(prompt, max(1, int(timeout)), monitor)
+        finally:
+            if lease is not None:
+                lease.close()
+            self.driver.progress_deadline = None
+            if proxy is not None:
+                proxy.progress_deadline = None
         if proxy is not None and getattr(proxy, "hard_budget_exhausted", False) is True:
             ok, text = False, "local_turn_budget_exhausted: partial edits retained; acceptance must measure them."
         elapsed = time.time() - t0
@@ -3703,6 +3732,8 @@ class Flow:
             # Ask before restoring: afterwards there is nothing left to compare.
             if summary is not None:
                 summary.stores_written = mutated_by_tests(git_run)
+                summary.store_changes = store_changes_by_tests(git_run, self.output_dir,
+                                                               summary.stores_written)
             restore_worktree(git_run)
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
@@ -3788,7 +3819,8 @@ class Flow:
         return True
 
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
-                        rebuild_prompt=None, initial_summary: RunSummary | None = None) -> bool | None:
+                        rebuild_prompt=None, initial_summary: RunSummary | None = None,
+                        source_versions: dict | None = None) -> bool | None:
         """Returns True/False for a real verdict, None when no local run happened.
         `rebuild_prompt(failures)` (optional) yields a full re-implementation
         prompt; it is used only before any behavior has passed verification.
@@ -3799,7 +3831,9 @@ class Flow:
         rewrite_used = False
         previous_failures = None
         repair_applied = False
-        initial_versions = self.repair_source_index().versions
+        prior_regressed = False
+        checked_failed_versions = set()
+        initial_versions = source_versions if source_versions is not None else self.repair_source_index().versions
         self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
         for attempt in range(self.repair_rounds + 1):
             summary = initial_summary if attempt == 0 and initial_summary is not None else self.run_specs(specs)
@@ -3811,7 +3845,7 @@ class Flow:
             self._unresolved_startup_error = infrastructure_error
             self.verify_repair_memory(summary, measured)
             if infrastructure_error:
-                log(f"[acceptance] {node_id} infrastructure error: {infrastructure_error[:300]}")
+                log(f"[acceptance] {node_id} infrastructure error: {startup_error_digest(infrastructure_error, 1200)}")
                 failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 2200)}\n  Steps: npm run build -> npm start"
                 passed = 0
             else:
@@ -3847,23 +3881,121 @@ class Flow:
             for line in (failures or "").splitlines():
                 if line.strip().startswith(("Failed at:", "Observation:")):
                     log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")
-            if measured and passed == summary.total:
+            # A new feature can fail while its shared-file edit also breaks an
+            # already proven feature. Probe each new source version, rather
+            # than waiting for the new feature to pass or for a checkpoint.
+            if measured:
                 current_versions = self.repair_source_index().versions
                 changed = {p for p in initial_versions.keys() | current_versions.keys()
                            if initial_versions.get(p) != current_versions.get(p)}
-                regression_specs = self.affected_regression_specs(changed, specs) if repair_applied else []
+                regression_specs = self.affected_regression_specs(changed, specs) if repair_applied or source_versions is not None else []
+                if passed < summary.total:
+                    version_key = tuple(sorted((p, current_versions.get(p)) for p in changed))
+                    if version_key in checked_failed_versions:
+                        regression_specs = []
+                    else:
+                        checked_failed_versions.add(version_key)
+                affected_count = len(regression_specs)
+                if passed < summary.total and regression_specs:
+                    # The current spec was just measured. Probe a rotating,
+                    # bounded set of proven specs so a failing global edit does
+                    # not consume the entire node budget; checkpoints cover the
+                    # remaining proven behavior together.
+                    prior_specs = sorted(set(regression_specs) - set(specs))
+                    cap = max(1, int(os.environ.get('OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS', '8')))
+                    if len(prior_specs) > cap:
+                        cursor = getattr(self, '_failed_regression_cursor', 0) % len(prior_specs)
+                        regression_specs = (prior_specs[cursor:] + prior_specs[:cursor])[:cap]
+                        self._failed_regression_cursor = cursor + cap
+                    else:
+                        regression_specs = prior_specs
                 if regression_specs and not self.wound_down() and self.remaining() > self.final_measurement_reserve():
                     regression = self.run_specs(regression_specs, grader_like=True)
                     self.metric("acceptance", scope="affected_regression", node_id=node_id,
                                 passed=regression.passed, total=regression.total,
+                                checked_specs=len(regression_specs), affected_specs=affected_count,
                                 changed_files=sorted(changed))
                     if not regression.all_passed or not self.suite_is_measured(regression, regression_specs):
+                        prior_regressed = False
+                        for prior, paths in self.spec_map.items():
+                            if not prior or not paths or not set(paths) <= set(regression_specs):
+                                continue
+                            rows = [r for r in regression.results if any(
+                                str(r.file or '').replace('\\', '/') == p or
+                                str(r.file or '').replace('\\', '/').endswith('/' + p) for p in paths)]
+                            local = RunSummary(results=rows, total=len(rows), passed=sum(r.ok for r in rows),
+                                               error=regression.error, killed=regression.killed,
+                                               load_errors=regression.load_errors)
+                            if self.suite_is_measured(local, paths):
+                                self.test_verdict[prior] = local.all_passed
+                                self.record_tests(prior, paths, local)
+                                if not local.all_passed:
+                                    if prior != node_id and self.test_verdict.get(prior) is False:
+                                        prior_regressed = True
+                                    self.mark('test_failed', prior, 'affected behavior failed after application changes')
+                            else:
+                                self.test_verdict[prior] = None
+                        regression_evidence = balanced_failure_evidence(
+                            failure_summaries(regression) or regression.error or "Incomplete regression verdict", 4000)
                         self.pending_corrections.append("Related regression checks after the targeted repair:\n" +
-                            balanced_failure_evidence(failure_summaries(regression) or regression.error or "Incomplete regression verdict", 4000))
-                        # Do not certify a repair that broke its surrounding behaviour.
+                                                        regression_evidence)
+                        if passed == summary.total:
+                            # Do not certify a repair that broke its surrounding behaviour.
+                            return False
+                        if prior_regressed:
+                            failures += "\nPreviously passing behavior regressed after this edit:\n" + regression_evidence
+                            log(f"[acceptance] {node_id}: shared-file edit regressed proven behavior; "
+                                "including it in the local repair")
+                if passed == summary.total:
+                    self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
+                    return True
+            # A helper that chooses a role before a route/list finishes loading
+            # can wait for the wrong element even though the requested name is
+            # visible at failure. Confirm the same spec once before a costly
+            # repair. Repeated identical evidence is deferred to the suite,
+            # where related loading failures can be diagnosed together.
+            failed_rows = [row for row in summary.results if not row.ok]
+            if (attempt == 0 and measured and failed_rows and not prior_regressed and len(specs) <= 2
+                    and all(locator_role_mismatch(row) for row in failed_rows)
+                    and deadline - time.time() >= 90
+                    and self.remaining() >= self.final_phase_reserve() + self.repair_minimum() + 90):
+                confirmation = self.run_specs(specs)
+                confirmed = self.suite_is_measured(confirmation, specs)
+                self.metric('locator_race_recheck', node_id=node_id,
+                            first_passed=summary.passed, recheck_passed=confirmation.passed,
+                            confirmed=confirmed)
+                if confirmed and confirmation.all_passed:
+                    # One lucky pass is not enough to certify a flaky route.
+                    if (deadline - time.time() >= 30 and
+                            self.remaining() >= self.final_phase_reserve() + 30):
+                        stable = self.run_specs(specs)
+                        stable_measured = self.suite_is_measured(stable, specs)
+                        self.metric('locator_race_recheck', node_id=node_id, repeat=True,
+                                    recheck_passed=stable.passed, confirmed=stable_measured)
+                        if stable_measured and stable.all_passed:
+                            self.record_tests(node_id, specs, stable)
+                            log(f"[acceptance] {node_id}: two independent rechecks passed after a "
+                                "locator-role race; accepting with later suite coverage")
+                            self.commit(f"{node_id} (accepted after recheck): {stable.passed}/{stable.total}")
+                            return True
+                        confirmation = stable
+                        confirmed = stable_measured
+                    else:
+                        self.pending_corrections.append(
+                            f"{node_id}: locator-role failure passed one independent recheck, but there was "
+                            "insufficient time for a second confirmation. Preserve the UI and remeasure it "
+                            "with the later suite before treating this as fixed.")
                         return False
-                self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
-                return True
+                if (confirmed and confirmation.passed == summary.passed
+                        and all(locator_role_mismatch(row) for row in confirmation.results if not row.ok)):
+                    self.pending_corrections.append(
+                        f"{node_id}: repeated locator-role mismatch while the named target was visible. "
+                        "Check route/data readiness and the actual accessible role before changing feature logic. "
+                        "The local repair was deferred to leave time for shared checkpoint diagnosis.")
+                    log(f"[acceptance] {node_id}: repeated locator-role mismatch; deferring local repair")
+                    return False
+                if confirmed:
+                    failures += "\nIndependent recheck (use the newer evidence when diagnosing):\n" + failure_summaries(confirmation)
             if measured and passed > best_passed:
                 if best_passed >= 0:
                     self.commit(f"{node_id} (repair {attempt}): {passed}/{summary.total} pass")
@@ -4654,6 +4786,7 @@ class Flow:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
+        source_versions = dict(self.repair_source_index().versions)
         self.refused_paths = set()
         if index > 1:
             reap_workspace_processes(self.output_dir, log)
@@ -4840,7 +4973,8 @@ class Flow:
                     + "Rewrite the files for this node completely (full write_file for each file, not edits), "
                     "fixing the root causes above.\n")
 
-        verdict = self.acceptance_loop(node_id, specs, deadline, rebuild_prompt=rebuild_prompt)
+        verdict = self.acceptance_loop(node_id, specs, deadline, rebuild_prompt=rebuild_prompt,
+                                       source_versions=source_versions)
         self.test_verdict[node_id] = verdict
         if verdict is True:
             self.mark("test_passed", node_id, f"{len(specs)} acceptance spec file(s) pass locally")
@@ -4956,15 +5090,32 @@ class Flow:
         self.checkpoint_regressions = tracked
         verified = {node: self.spec_map.get(node, []) for node, verdict in self.test_verdict.items()
                     if verdict is True or node in tracked}
+        # Revisit a bounded rotating backlog: otherwise an early failure can
+        # disappear from every checkpoint until the final suite.
+        backlog = [node for node, verdict in self.test_verdict.items()
+                   if verdict is False and node not in verified and self.spec_map.get(node)]
+        cursor = getattr(self, '_checkpoint_backlog_cursor', 0)
+        limit = max(0, int(os.environ.get('OCTOS_ARC_CHECKPOINT_BACKLOG', '4')))
+        selected = (backlog[cursor % len(backlog):] + backlog[:cursor % len(backlog)])[:limit] if backlog else []
+        self._checkpoint_backlog_cursor = cursor + len(selected)
+        verified.update({node: self.spec_map[node] for node in selected})
         specs = sorted({spec for paths in verified.values() for spec in paths})
         if len(specs) < 2:
             return
         workers = workers_for_final(getattr(self, "mem_limit", None),
                                     self.final_workers())
         summary = self.run_specs(specs, workers=workers, grader_like=True)
-        if summary.error or summary.killed:
-            log(f"[acceptance] checkpoint {index}: no reliable verdict; {summary.error or 'runner killed'}")
+        if not self.suite_is_measured(summary, specs):
+            log(f"[acceptance] checkpoint {index}: no reliable verdict; {summary.error or 'incomplete, interrupted or unloaded results'}")
             return
+        all_specs = {spec for paths in self.spec_map.values() for spec in paths}
+        self.metric('checkpoint_coverage', checkpoint=index, checked_specs=len(specs),
+                    total_specs=len(all_specs), unobserved_specs=len(all_specs - set(specs)),
+                    backlog_selected=selected, backlog_remaining=max(0, len(backlog) - len(selected)))
+        log(f'[acceptance] checkpoint {index} coverage: {len(specs)}/{len(all_specs)} specs; '
+            f'{len(all_specs - set(specs))} not observed in this checkpoint')
+        for node in selected:
+            tracked.add(node)
         grouped = nodes_for_failures(summary.results, verified)
         log(f"[acceptance] checkpoint {index}: {summary.passed}/{summary.total}; "
             f"regressed nodes {sorted(node for node in grouped if node)}")
@@ -4990,12 +5141,21 @@ class Flow:
             # A successful repair's measurement, rather than the failing
             # pre-repair observation, becomes the next healthy baseline.
             summary, grouped = latest_summary, latest_grouped
+            tracked.difference_update(selected)  # rotating backlog is not a permanent regression set
+            if not self.suite_is_measured(summary, specs):
+                # A repair changed the tree, but its report is incomplete.
+                # Neither old passes nor the apparent score drop describe it.
+                tracked.update(verified)
+                for node in verified:
+                    self.test_verdict[node] = None
+                return
             if regressed and self.restore_catastrophic_checkpoint(
                     index, latest_summary, latest_grouped, verified, tracked):
                 # The healthy baseline is deliberately retained.  Nodes added
                 # since it are marked unresolved and will be measured/repaired
                 # by later checkpoints or the final suite.
                 return
+        tracked.difference_update(selected)
         if not regressed:
             # The tree the suite agreed with: the next suite repair quotes what
             # changed since it first. A checkpoint still regressed keeps the
@@ -5009,6 +5169,7 @@ class Flow:
                     "summary": summary,
                     "verified": {node: list(paths) for node, paths in verified.items()},
                 }
+        self.remember_delivery_checkpoint(summary, grouped)
 
     def restore_catastrophic_checkpoint(self, index: int, summary: RunSummary, grouped: dict,
                                         verified: dict, tracked: set) -> bool:
@@ -5088,6 +5249,7 @@ class Flow:
         # extra request where codegen fails.
         rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "2"))
         repaired = False
+        focused = set()
         for attempt in range(rounds):
             reserve = self.final_phase_reserve()
             if (not grouped or self.remaining() < self.repair_minimum() + reserve
@@ -5097,8 +5259,18 @@ class Flow:
             # lent to this turn by a stale sample.
             available = self.remaining() - reserve
             failing_ids = sorted(node for node in grouped if node)
+            cap = max(1, int(os.environ.get('OCTOS_ARC_CHECKPOINT_REPAIR_NODES', '4')))
+            # A broad suite failure does not fit a single bounded edit turn.
+            # Rotate focus when a previous group remains stuck; always verify
+            # the entire checkpoint afterwards to detect collateral regressions.
+            failing_ids = sorted(failing_ids, key=lambda node: (node in focused, node))[:cap]
+            focused.update(failing_ids)
             failing = failing_ids or ["the regressed behaviours"]
-            failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+            outcomes = [row for node in failing_ids for row in grouped[node]]
+            evidence = RunSummary(results=outcomes) if outcomes else summary
+            failures = failure_summaries(evidence) + failure_source_context(evidence, self.tests_dir)
+            failures += self.store_change_note(summary)
+            before_passed, before_signature = summary.passed, failure_signature(summary)
             repaired = True
             tool_prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
@@ -5108,16 +5280,22 @@ class Flow:
                 smoke=self.smoke_port, port=self.web_port)
             # The first round is one codegen request; a second round, if configured,
             # is the changed approach.
+            # A checkpoint interrupts implementation; past runs spent 5-15
+            # minutes in one no-change tool turn. Keep each attempt bounded so
+            # the next nodes and the reserved final measurement still run.
+            checkpoint_cap = max(60, int(os.environ.get('OCTOS_ARC_CHECKPOINT_REPAIR_TIMEOUT', '300')))
             self.suite_repair_turn(f"checkpoint {index} repair {attempt + 1}/{rounds}", failing_ids, failures,
-                                   min(self.suite_repair_timeout(), max(1, available)),
+                                   min(self.suite_repair_timeout(), checkpoint_cap, max(1, available)),
                                    tool_prompt=tool_prompt, prefer_codegen=attempt == 0)
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
             if getattr(self, "last_repair_changed", None) is False:
                 log(f"[acceptance] checkpoint {index}: no source changes; skipping duplicate acceptance")
                 break
             observed = self.run_specs(specs, workers=workers, grader_like=True)
-            if observed.error or observed.killed:
+            if not self.suite_is_measured(observed, specs):
                 self.queue_checkpoint_evidence(summary)
+                self._checkpoint_repair_summary = observed
+                self._checkpoint_repair_grouped = grouped
                 return True
             summary = observed
             grouped = nodes_for_failures(summary.results, verified)
@@ -5137,6 +5315,11 @@ class Flow:
                     if previous is not False:
                         self.mark("test_failed", node,
                                   "behavior failed after checkpoint repair")
+            if (grouped and set(grouped).issubset(focused) and summary.passed <= before_passed
+                    and failure_signature(summary) == before_signature):
+                log(f"[acceptance] checkpoint {index}: repair changed files but the same failures remain; "
+                    "saving the next repair turn for later evidence")
+                break
 
         self._checkpoint_repair_summary = summary
         self._checkpoint_repair_grouped = grouped
@@ -5445,6 +5628,7 @@ class Flow:
                     failures += self.worker_parity_note(workers)
                     failing = active
                     self.metric("repair_group", active=active, groups=clusters)
+            failures += self.store_change_note(summary)
             failures += self.unfinished_repair_note(unfinished)
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
@@ -5660,6 +5844,17 @@ class Flow:
                      "the next.")
         return note
 
+    @staticmethod
+    def store_change_note(summary: RunSummary) -> str:
+        """Make suite side effects visible to repair without exposing values."""
+        changes = getattr(summary, 'store_changes', None) or []
+        if not changes:
+            return ""
+        return ("\n\nPersisted JSON changed during this test run (structural diff from the "
+                "pre-run snapshot, not attribution to a particular test): " +
+                "; ".join(changes) + ". Compare these records with required initial "
+                "state and the actions that preceded each failure; do not reset user data to fix a collision.")
+
     def remember_delivery_checkpoint(self, summary: RunSummary, grouped: dict) -> None:
         """Keep a source snapshot only after a complete, usable suite observation.
 
@@ -5863,6 +6058,10 @@ class Flow:
         ordered: list[dict] = []
         watchdog_stop = threading.Event()
         try:
+            from generation_checks import adapter_fingerprint
+            provenance = adapter_fingerprint(BUNDLE_DIR)
+            self.metric('adapter_provenance', **provenance)
+            log(f"[flow] adapter source sha256={provenance['sha256']} ({provenance['scope']})")
             previous = previous_requirement_records(self.output_dir)
             tree = load_requirement_tree(self.req_dir)
             self.runtime.traceability.store_requirement_tree(tree)

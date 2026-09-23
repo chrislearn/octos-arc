@@ -16,6 +16,11 @@ class LocalConfigTests(unittest.TestCase):
         self.assertEqual(self.config('api_key: "test-key"\nbase_url=https://example.invalid/v1\nmodel=test'),
                          {'OPENAI_API_KEY': 'test-key', 'OPENAI_BASE_URL': 'https://example.invalid/v1', 'MODEL': 'test'})
 
+    def test_optional_visual_model_from_local_test_config(self):
+        config = self.config('api_key=secret\nbase_url=https://example.invalid/v1\n'
+                             'model=test\nvisual_model=visual-test')
+        self.assertEqual(config['VISUAL_MODEL'], 'visual-test')
+
     def test_shell_expressions_are_plain_data(self):
         self.assertEqual(self.config('api_key=$(do-not-run)\nbase_url=https://example.invalid')['OPENAI_API_KEY'],
                          '$(do-not-run)')

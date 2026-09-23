@@ -119,12 +119,18 @@ def stack_note(output_dir: Path | None) -> str:
              "Add exact dependencies to package.json only; npm install updates the lockfile. Never emit or hand-edit lockfile blocks.",
              "Optional pinned recommendations (not installed; add only when needed, never all by default):"]
     try:
+        from generation_checks import raw_request_adapter
+        request_source = (output_dir / "frontend/src/shared/request.js").read_text()
+        current_request = request_source == (Path(__file__).parent / "blueprints/frontend-request.js").read_text()
         current_adapter = ((output_dir / "frontend/src/shared/interactions.jsx").read_text() ==
-                           (Path(__file__).parent / "blueprints/react-interactions.jsx").read_text())
+                           (Path(__file__).parent / "blueprints/react-interactions.jsx").read_text() and
+                           raw_request_adapter(request_source))
     except OSError:
         current_adapter = False
     if current_adapter:
-        lines.insert(1, "Local adapters from './shared/interactions.jsx': DialogSurface({title,description,children,...contentProps}) goes INSIDE Dialog.Root and supplies Portal/Overlay/Content with event isolation; do not add another Content around it. Style via style/className. useAsyncAction() returns {run,pending,error}. Both requestJson(url,options) and run(action) resolve to the raw data or reject; NEITHER adds an {ok,value} envelope. Example: try { const record = await run(() => requestJson(url,options)); applyRecord(record); close(); } catch {}. Display error?.message, disable duplicate submission and keep the owner mounted during save; application code guards navigation/cancellation. Direct reads: const items = await requestJson(url); setItems(items). Do not test result.ok or read result.value unless the backend explicitly returns those fields.")
+        response_note = ("Empty successful JSON responses resolve to null; HTTP and malformed-JSON failures reject with error.status. "
+                         if current_request else "204 responses resolve to null; HTTP failures reject with error.status. ")
+        lines.insert(1, "Local adapters from './shared/interactions.jsx': DialogSurface({title,description,children,...contentProps}) goes INSIDE Dialog.Root and supplies Portal/Overlay/Content with event isolation; do not add another Content around it. Style via style/className. useAsyncAction() returns {run,pending,error}. Both requestJson(url,options) and run(action) resolve to the raw data or reject; NEITHER adds an {ok,value} envelope. " + response_note + "Example: try { const record = await run(() => requestJson(url,options)); applyRecord(record); close(); } catch {}. Display error?.message, disable duplicate submission and keep the owner mounted during save; application code guards navigation/cancellation. Direct reads: const items = await requestJson(url); setItems(items). Do not call .json() on the result or test result.ok/read result.value unless the backend explicitly returns those fields.")
     for name, (_, frontend, backend, hint) in CAPABILITIES.items():
         if name not in selected:
             continue

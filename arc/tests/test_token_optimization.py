@@ -117,7 +117,7 @@ class TokenOptimizationTests(unittest.TestCase):
             (self.root / "backend/server.js").write_text("// CURRENT_SOURCE\n")
             return True, "implemented"
         flow.codegen_turn = Mock(side_effect=implement)
-        def accept(node_id, specs, deadline, rebuild_prompt):
+        def accept(node_id, specs, deadline, rebuild_prompt, source_versions=None):
             rebuilt.append(rebuild_prompt("current failure"))
             return False
         flow.acceptance_loop = accept
@@ -174,7 +174,7 @@ class TokenOptimizationTests(unittest.TestCase):
         flow = self.node_flow()
         flow.codegen_context_chars = lambda: 6000
         flow.codegen_turn = Mock(return_value=(True, "implemented"))
-        def accept(node_id, specs, deadline, rebuild_prompt):
+        def accept(node_id, specs, deadline, rebuild_prompt, source_versions=None):
             prompt = rebuild_prompt("oversized failure " * 500)
             self.assertIn("oversized failure", prompt)
             self.assertFalse(flow.codegen_mode())
@@ -282,8 +282,10 @@ class RepairContractTests(unittest.TestCase):
                     flow.regression_checkpoint(2, 8)
                 self.assertEqual(len(flow.pending_corrections), 1)
                 self.assertIn("REQ-2", flow.pending_corrections[0])
-                self.assertTrue(flow.test_verdict["REQ-1"])
-                self.assertFalse(flow.test_verdict["REQ-2"])
+                # Historical failure evidence survives, but changed sources
+                # with an incomplete report have no current verified verdict.
+                self.assertIsNone(flow.test_verdict["REQ-1"])
+                self.assertIsNone(flow.test_verdict["REQ-2"])
 
 
 class PrefixAndCorrectionBudgetTests(unittest.TestCase):

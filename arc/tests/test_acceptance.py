@@ -8,6 +8,7 @@ from acceptance import (
     backend_error_digest,
     clip_ends,
     failure_summaries,
+    locator_role_mismatch,
     isolated_install_env,
     map_specs_to_nodes,
     playwright_version_hint,
@@ -117,6 +118,24 @@ class ReportTests(unittest.TestCase):
 
     def test_should_not_report_normal_backend_output_as_an_exception(self):
         self.assertEqual(backend_error_digest("listening on 3000\nGET / 200"), "")
+
+    def test_locator_role_mismatch_is_diagnostic_only_and_requires_visible_name(self):
+        from acceptance import TestOutcome, RunSummary
+        row = TestOutcome("shelf", False, "timedOut", 30000,
+                          message="Locator: getByRole('button', { name: /Shelf\\s+4\\.4\\.2/i })",
+                          rendered_page='- link "Shelf 4.4.2"\n- button "Other"',
+                          action_errors=['Browser observation (diagnostic only):\nPage URL at failure: '
+                                         'http://localhost:3000/shelves'])
+        self.assertIn("visible link", locator_role_mismatch(row))
+        summary = RunSummary(results=[row], total=1)
+        evidence = failure_summaries(summary)
+        self.assertIn("Diagnostic: Locator waited", evidence)
+        self.assertIn("Page URL at failure: http://localhost:3000/shelves", evidence)
+        row.rendered_page = '- button "Shelf 4.4.2"'
+        self.assertEqual(locator_role_mismatch(row), "")
+        row.rendered_page = '- link "Shelf 4.4.2"'
+        row.action_errors.append('Browser observation (diagnostic only):\nTypeError: price.toFixed is not a function')
+        self.assertEqual(locator_role_mismatch(row), "")
 
 
 if __name__ == "__main__":
@@ -1069,6 +1088,21 @@ class MutatedStoresTests(unittest.TestCase):
         (root / "backend" / "server.js").write_text("v2 (a repair edit)")
         snapshot_worktree(run)  # the edit is part of the snapshot, not of the run
         self.assertEqual(mutated_by_tests(run), [])
+
+    def test_store_change_summary_tracks_record_fields_without_values(self):
+        from acceptance import mutated_by_tests, snapshot_worktree, store_changes_by_tests
+        root, run = self._repo()
+        path = root / 'backend' / 'data' / 'notes.json'
+        path.write_text('{"items":[{"id":"default","name":"Reminders","count":1}]}')
+        snapshot_worktree(run)
+        path.write_text('{"items":[{"id":"default","name":"Projects","count":1},'
+                        '{"id":"new","name":"Personal"}]}')
+        files = mutated_by_tests(run)
+        changes = store_changes_by_tests(run, root, files)
+        self.assertIn('backend/data/notes.json.items[id=default].name changed', changes)
+        self.assertIn('backend/data/notes.json.items[id=new] added', changes)
+        self.assertNotIn('Projects', ' '.join(changes))
+        self.assertEqual(store_changes_by_tests(run, root, ['frontend/src/App.jsx']), [])
 
 
 class StallDetectionTests(unittest.TestCase):

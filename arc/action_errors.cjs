@@ -12,7 +12,13 @@ module.exports = class ActionErrors {
         if (!line.startsWith(prefix)) continue;
         try {
           const message = JSON.parse(line.slice(prefix.length));
-          if (typeof message === 'string' && errors.length < 8)
+          if (typeof message !== 'string') continue;
+          // Keep the failure route even when eight earlier console/request
+          // observations filled the diagnostic allowance.
+          if (message.startsWith('Page URL at failure:'))
+            errors.unshift({order:-2, duration:Number.MAX_SAFE_INTEGER,
+              text:'Browser observation (diagnostic only):\n'+clip(message,1600)});
+          else if (errors.length < 8)
             errors.push({order:errors.length, duration:Number.MAX_SAFE_INTEGER,
               text:'Browser observation (diagnostic only):\n'+clip(message,1600)});
         } catch (_) { /* Optional diagnostics cannot change the verdict. */ }

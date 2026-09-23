@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 def api_environment(path: Path) -> dict[str, str]:
     names = {'api_key': 'OPENAI_API_KEY', 'openai_api_key': 'OPENAI_API_KEY',
              'base_url': 'OPENAI_BASE_URL', 'openai_base_url': 'OPENAI_BASE_URL',
-             'model': 'MODEL'}
+             'model': 'MODEL', 'visual_model': 'VISUAL_MODEL'}
     result = {}
     for line_number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
         if not line.strip() or line.lstrip().startswith('#'):

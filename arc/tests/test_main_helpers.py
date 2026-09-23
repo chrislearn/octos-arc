@@ -5,6 +5,52 @@ from main import OctosDriver, describe_node, folder_descendants, inline_sources,
 import main as m
 
 
+class LocatorRaceAdmissionTests(unittest.TestCase):
+    def flow_and_failure(self):
+        from unittest.mock import Mock
+        from acceptance import RunSummary, TestOutcome
+        flow = Mock(spec=m.Flow)
+        flow.runner = object()
+        flow.repair_rounds = 2
+        flow.batched_groups = {}
+        flow.tests_dir = None
+        flow.pending_corrections = []
+        flow.head.return_value = 'current'
+        flow.repair_source_index.return_value.versions = {}
+        flow.codegen_mode.return_value = True
+        flow.remaining.return_value = 600
+        flow.final_phase_reserve.return_value = 0
+        flow.repair_minimum.return_value = 60
+        flow.suite_is_measured.return_value = True
+        row = TestOutcome('shelf', False, 'timedOut', 30000, file='REQ-1.spec.ts',
+                          message="Locator: getByRole('button', { name: /Shelf\\s+4/i })",
+                          rendered_page='- link "Shelf 4"')
+        failed = RunSummary(total=1, passed=0, results=[row])
+        return flow, failed
+
+    def test_repeat_role_mismatch_defers_costly_local_repair(self):
+        import time
+        flow, failed = self.flow_and_failure()
+        flow.run_specs.side_effect = [failed, failed]
+        verdict = m.Flow.acceptance_loop(flow, 'REQ-1', ['REQ-1.spec.ts'], time.time() + 300)
+        self.assertFalse(verdict)
+        self.assertEqual(flow.run_specs.call_count, 2)
+        flow.node_repair_turn.assert_not_called()
+        self.assertIn('repeated locator-role mismatch', flow.pending_corrections[0])
+
+    def test_two_green_rechecks_are_required_for_timing_sensitive_pass(self):
+        from acceptance import RunSummary, TestOutcome
+        import time
+        flow, failed = self.flow_and_failure()
+        passed = RunSummary(total=1, passed=1, results=[
+            TestOutcome('shelf', True, 'passed', 1000, file='REQ-1.spec.ts')])
+        flow.run_specs.side_effect = [failed, passed, passed]
+        verdict = m.Flow.acceptance_loop(flow, 'REQ-1', ['REQ-1.spec.ts'], time.time() + 300)
+        self.assertTrue(verdict)
+        self.assertEqual(flow.run_specs.call_count, 3)
+        flow.node_repair_turn.assert_not_called()
+
+
 def node(node_id, description, deps=()):
     return {"id": node_id, "type": "ATOMIC", "name": node_id, "description": description,
             "dependencies": list(deps), "scenarios": [{"name": "s", "steps": [{"keyword": "GIVEN", "content": "x"}]}]}
@@ -1158,6 +1204,7 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:
             flow = Mock(spec=m.Flow)
+            flow.repair_source_index.return_value.versions = {}
             flow.output_dir = Path(directory)
             flow.req_dir = Path(directory)
             flow.spec_map = {'feature': ['feature.spec.ts'] if specs else []}
@@ -1458,6 +1505,14 @@ class InterferenceNoteTests(unittest.TestCase):
         self.assertIn("backend/data/notes.json", note)
         self.assertNotIn("changed on disk", m.Flow.interference_note({"REQ-5.1": []}, {"REQ-5.1"}, []))
 
+    def test_store_change_note_is_bounded_structural_evidence(self):
+        from acceptance import RunSummary
+        summary = RunSummary(store_changes=['backend/data/labels.json.items[id=default].name changed'])
+        note = m.Flow.store_change_note(summary)
+        self.assertIn('labels.json.items[id=default].name changed', note)
+        self.assertIn('not attribution to a particular test', note)
+        self.assertEqual(m.Flow.store_change_note(RunSummary()), '')
+
     def test_should_name_only_the_behaviours_that_passed_alone(self):
         note = m.Flow.interference_note({"REQ-5.1": [], "REQ-2.7.4": [], None: []},
                                         {"REQ-5.1", "REQ-3.2"})
@@ -1727,7 +1782,10 @@ class CheckpointRepairTests(unittest.TestCase):
         flow.restore_app = Mock()
         flow.metric = Mock()
         flow.mark = Mock()
-        flow._checkpoint_repair_summary = RunSummary(passed=10, total=22)
+        from acceptance import TestOutcome
+        flow._checkpoint_repair_summary = RunSummary(passed=1, total=4, results=[
+            TestOutcome(f'REQ-{i}', i == 1, 'passed' if i == 1 else 'failed', 1,
+                        file=f'REQ-{i}.spec.ts') for i in range(1, 5)])
         flow._checkpoint_repair_grouped = {
             "REQ-1": [], "REQ-2": [], "REQ-3": [], "REQ-4": []}
         # Supply the post-repair observation through the real repair helper's
@@ -1737,6 +1795,10 @@ class CheckpointRepairTests(unittest.TestCase):
         flow.repair_regressions = repair
         flow.spec_map.update({"REQ-3": ["REQ-3.spec.ts"], "REQ-4": ["REQ-4.spec.ts"]})
         flow.test_verdict.update({"REQ-3": True, "REQ-4": True})
+        from acceptance import TestOutcome
+        flow.run_specs = lambda specs, **kw: RunSummary(passed=1, total=len(specs), results=[
+            TestOutcome(spec, i == 0, 'passed' if i == 0 else 'failed', 1, file=spec)
+            for i, spec in enumerate(specs)])
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         flow.restore_app.assert_called_once_with("healthy-sha")

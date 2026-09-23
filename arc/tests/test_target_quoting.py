@@ -67,6 +67,7 @@ class MustIncludeRankingTests(unittest.TestCase):
 class RefusalRetryTests(unittest.TestCase):
     def _flow(self, root):
         flow = Mock(spec=m.Flow)
+        flow.repair_source_index.return_value.versions = {}
         flow.output_dir = root; flow.req_dir = root
         flow.spec_map = {"REQ-9": ["REQ-9.spec.ts"]}
         flow.node_budget_cap = 300; flow.remaining.return_value = 600

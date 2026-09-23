@@ -171,6 +171,28 @@ await assert.rejects(requestJson('/api/items'), error =>
 globalThis.fetch = async () => new Response(JSON.stringify({items: []}),
   {status: 200, headers: {'Content-Type': 'application/json'}});
 assert.deepEqual(await requestJson('/api/items'), {items: []});
+globalThis.fetch = async () => new Response(null, {status: 204});
+assert.equal(await requestJson('/api/items'), null);
+globalThis.fetch = async () => new Response('', {status: 200});
+assert.equal(await requestJson('/api/items'), null);
+globalThis.fetch = async () => new Response('{bad json', {status: 200});
+await assert.rejects(requestJson('/api/items'), error =>
+  error.message === 'Invalid JSON response (HTTP 200)' && error.status === 200);
+globalThis.fetch = async () => new Response(JSON.stringify({error: {message: 'nested failure'}}),
+  {status: 409, headers: {'Content-Type': 'application/json'}});
+await assert.rejects(requestJson('/api/items'), error =>
+  error.message === 'nested failure' && error.status === 409);
+globalThis.fetch = async (_url, options) => {
+  assert.equal(options.headers.has('Content-Type'), false);
+  return new Response(JSON.stringify({ok: true}), {status: 200});
+};
+assert.deepEqual(await requestJson('/api/items', {body: new URLSearchParams({a: 'b'})}), {ok: true});
+globalThis.fetch = async (_url, options) => {
+  assert.equal(options.headers.get('Content-Type'), 'application/json');
+  assert.equal(options.body, '{"name":"Ada"}');
+  return new Response(JSON.stringify({name: 'Ada'}), {status: 201});
+};
+assert.deepEqual(await requestJson('/api/items', {method: 'POST', body: {name: 'Ada'}}), {name: 'Ada'});
 """
         result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=self.root,
                                 capture_output=True, text=True)

@@ -146,6 +146,29 @@ class EditProtocolTests(TestCase):
         f.restore_protected.assert_called_once()
         self.assertFalse(f.metric.call_args.kwargs['ok'])
 
+    def test_progress_grace_preserves_measurement_reserve_and_is_closed(self):
+        f = self.flow
+        proxy = SimpleNamespace(mode='none', extra_drop_tools=set(), no_tools=True,
+                                begin_turn=Mock(), hard_budget_exhausted=False)
+        f.llm_proxy = proxy
+        f.remaining = Mock(return_value=240)
+        f.final_measurement_reserve = Mock(return_value=120)
+        f.metric = Mock()
+        f.restore_protected = Mock(return_value=[])
+        leases = []
+        def run(*args):
+            lease = proxy.progress_deadline
+            self.assertIs(lease, f.driver.progress_deadline)
+            self.assertAlmostEqual(lease.hard - lease.base, 20)
+            leases.append(lease)
+            return True, 'done'
+        f.driver = SimpleNamespace(run=run)
+        with patch.dict(os.environ, {'OCTOS_ARC_STREAM_GUARD': '1'}):
+            f.turn('repair', 100, 'node repair')
+        self.assertTrue(leases[0].closed)
+        self.assertIsNone(proxy.progress_deadline)
+        self.assertIsNone(f.driver.progress_deadline)
+
     def test_suite_does_not_bypass_hard_cap_or_start_one_second_fallback(self):
         for reason, spent in [('local_turn_budget_exhausted', 20), ('timeout', 299)]:
             with self.subTest(reason=reason):

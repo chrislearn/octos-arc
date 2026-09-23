@@ -48,7 +48,8 @@ def startup_error_digest(error: str, limit: int = 700) -> str:
                     "the build configuration to hide a source parse error.")
             return (line + "\n" + hint + "\n" + "\n".join(lines)[-1000:])[:limit]
     marker = re.compile(r"(?:SyntaxError|ReferenceError|TypeError|RangeError|MODULE_NOT_FOUND|EADDRINUSE|"
-                        r"Cannot find module|error TS\d+|Error:|ERROR\])")
+                        r"Cannot find module|Could not resolve|does not export|is not exported|"
+                        r"\.[jt]sx?:\d+:\d+|error TS\d+|Error:|ERROR\])")
     for i, line in enumerate(lines):
         if marker.search(line):
             # Keep file/line context, but never crowd out the exception.
@@ -166,6 +167,7 @@ class RunSummary:
     killed: bool = False      # the test runner itself was killed (OOM); not a verdict
     load_errors: list[str] = field(default_factory=list)  # Playwright top-level errors
     stores_written: list[str] = field(default_factory=list)  # files this run left changed on disk
+    store_changes: list[str] = field(default_factory=list)  # bounded structural JSON changes
     server_errors: str = ""  # bounded backend exception observed during a failed run
 
     def slow(self, threshold_ms: int) -> list[str]:
@@ -303,6 +305,49 @@ def _clip_lines(text: str, max_chars: int) -> str:
     return "\n".join(kept).strip()
 
 
+_ROLE_LOCATOR = re.compile(
+    r'''getByRole\(['"](?P<role>[a-z]+)['"],\s*\{\s*name:\s*(?P<name>/[^/\n]{1,100}/i?|['"][^'"\n]{1,100}['"])''',
+    re.I)
+_VISIBLE_ROLE = re.compile(r'''(?m)^\s*-\s+(?P<role>[a-z]+)\s+"(?P<name>[^"\n]+)"''', re.I)
+
+
+def locator_role_mismatch(outcome: TestOutcome) -> str:
+    """Flag a narrow locator race candidate, never a functional pass verdict.
+
+    A helper may choose a button before async navigation/list data settles,
+    while the failure snapshot later contains the named link or heading. Only
+    literal names and simple escaped-space/dot regexes are interpreted here;
+    arbitrary test regexes stay opaque and must be diagnosed by the model.
+    """
+    if outcome.ok or not outcome.rendered_page:
+        return ""
+    if any(re.search(r'\b(?:TypeError|ReferenceError|SyntaxError|Request HTTP [45]\d\d)\b', e)
+           for e in outcome.action_errors):
+        return ""  # A demonstrated app/runtime error is stronger evidence.
+    match = _ROLE_LOCATOR.search(outcome.message)
+    if not match:
+        return ""
+    raw = match['name']
+    if raw.startswith('/'):
+        name = raw[1:raw.rfind('/')].strip('^$')
+        if not re.fullmatch(r'(?:[\w .-]|\\[.s]|\+)+', name):
+            return ""
+        name = name.replace(r'\s+', ' ').replace(r'\.', '.')
+    else:
+        name = raw[1:-1]
+    name = ' '.join(name.casefold().split())
+    if len(name) < 3:
+        return ""
+    for visible in _VISIBLE_ROLE.finditer(outcome.rendered_page):
+        actual = ' '.join(visible['name'].casefold().split())
+        if visible['role'].casefold() != match['role'].casefold() and name in actual:
+            return (f"Locator waited for {match['role']} named {name!r}, but the failure snapshot "
+                    f"shows a visible {visible['role']} named {visible['name']!r}. "
+                    "This may be a route/data timing race in a role-selecting test helper; "
+                    "recheck the same spec before changing application semantics.")
+    return ""
+
+
 def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: int = 900,
                       max_snapshots: int = 18000) -> str:
     """Four-field digest of every failed test — the only thing the model sees."""
@@ -340,6 +385,16 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
         steps_src = r.steps or _call_log_steps(r.message)
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")
+        mismatch = locator_role_mismatch(r)
+        if mismatch:
+            blocks[-1] += "\n  Diagnostic: " + mismatch
+        urls = [m.group(1) for error in r.action_errors for m in
+                re.finditer(r'(?m)^Page URL at failure: (https?://[^\s?#]+)', error)]
+        if urls:
+            blocks[-1] += "\n  Page URL at failure: " + urls[-1]
+        runtime = [e for e in r.action_errors if e.startswith('Browser observation (diagnostic only):')]
+        if runtime:
+            blocks[-1] += "\n  Browser observation: " + " | ".join(runtime)[:1200]
         if r.rendered_page and snapshots_left > 0:
             snapshots_left -= 1
             indented = "\n".join("    " + line for line in _clip_lines(r.rendered_page, per_snapshot).splitlines())
@@ -774,6 +829,76 @@ def mutated_by_tests(git_run: Callable[[list[str]], object],
     return sorted({line.strip() for line in out.splitlines() if line.strip()})[:12]
 
 
+def store_changes_by_tests(git_run: Callable[[list[str]], object], root: Path,
+                           files: list[str]) -> list[str]:
+    """Describe persisted JSON changes against the staged pre-test snapshot.
+
+    Values are deliberately omitted: field names and stable record IDs are
+    enough to reveal a shared-state collision without echoing user data into a
+    repair prompt. Only small, generated data files are inspected.
+    """
+    changes: list[str] = []
+
+    def compare(before, after, path):
+        if len(changes) >= 8 or before == after:
+            return
+        if isinstance(before, dict) and isinstance(after, dict):
+            for key in sorted(before.keys() | after.keys()):
+                if len(changes) >= 8:
+                    break
+                field = f"{path}.{key}" if path else str(key)
+                if key not in before:
+                    changes.append(f"{field} added")
+                elif key not in after:
+                    changes.append(f"{field} removed")
+                else:
+                    compare(before[key], after[key], field)
+        elif isinstance(before, list) and isinstance(after, list):
+            def indexed(items):
+                if not all(isinstance(item, dict) and isinstance(item.get('id'), (str, int))
+                           for item in items):
+                    return None
+                result = {str(item['id']): item for item in items}
+                return result if len(result) == len(items) else None
+            old, new = indexed(before), indexed(after)
+            if old is not None and new is not None:
+                for key in sorted(old.keys() | new.keys()):
+                    if len(changes) >= 8:
+                        break
+                    visible_id = (key if re.fullmatch(r'[A-Za-z0-9_-]{1,60}', key)
+                                  else '#' + hashlib.sha256(key.encode()).hexdigest()[:10])
+                    field = f"{path}[id={visible_id}]"
+                    if key not in old:
+                        changes.append(f"{field} added")
+                    elif key not in new:
+                        changes.append(f"{field} removed")
+                    else:
+                        compare(old[key], new[key], field)
+            else:
+                changes.append(f"{path} array changed (length {len(before)}->{len(after)})")
+        else:
+            changes.append(f"{path} changed")
+
+    for rel in files[:4]:
+        if not (rel.startswith('backend/data/') and rel.endswith('.json')):
+            continue
+        target = root / rel
+        try:
+            if target.stat().st_size > 1_000_000:
+                continue
+            staged = git_run(['show', f':{rel}'])
+            if getattr(staged, 'returncode', 1) != 0:
+                continue
+            before = json.loads(staged.stdout)
+            after = json.loads(target.read_text(encoding='utf-8'))
+            compare(before, after, rel)
+        except (OSError, ValueError, TypeError):
+            continue
+        if len(changes) >= 8:
+            break
+    return changes[:8]
+
+
 def restore_worktree(git_run: Callable[[list[str]], object], parts: tuple[str, ...] = ("frontend", "backend")) -> None:
     """Return tracked files to the staged snapshot and drop files a test run
     created; ignored build outputs (node_modules, dist) are left alone."""
@@ -812,12 +937,13 @@ def robustness_probe(port: int, proc: subprocess.Popen | None = None, timeout: f
                     continue
                 alive = False
             return (f"GET {path} got no HTTP response ({error.__class__.__name__}); "
-                    f"backend {'still running' if alive else 'CRASHED (process exited)'} — unknown paths must "
-                    f"return 404, never throw")
+                    f"backend {'still running' if alive else 'CRASHED (process exited)'}; "
+                    f"check listener readiness and configured port {port}, then inspect server logs. "
+                    f"No HTTP status was received; a route-handler failure is not established.")
         time.sleep(0.2)
         if proc is not None and proc.poll() is not None:
-            return f"backend process exited (rc={proc.returncode}) right after GET {path} — an unhandled exception " \
-                   f"in the static/API handler; missing files must return 404 and the process must never die"
+            return f"backend process exited (rc={proc.returncode}) right after GET {path}; " \
+                   f"inspect server logs for the exit cause; request timing alone does not establish an unhandled exception"
     return None
 
 

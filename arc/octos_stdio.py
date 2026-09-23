@@ -199,7 +199,8 @@ class OctosStdioSession:
 
         chunks: list[str] = []
         while True:
-            remaining = deadline - time.monotonic()
+            lease = getattr(self, "progress_deadline", None)
+            remaining = lease.remaining() if lease is not None else deadline - time.monotonic()
             if remaining <= 0:
                 return False, "octos turn timed out"
             if self.proc.poll() is not None:

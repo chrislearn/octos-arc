@@ -71,6 +71,15 @@ export function register() {
     try { await use(context); }
     finally {
       if (testInfo.status !== testInfo.expectedStatus) {
+        // The URL is needed to distinguish a missing control from a transition
+        // that had not mounted yet. Keep path only; queries can carry secrets.
+        for (const page of context.pages().slice(0, 2)) {
+          try {
+            const url = new URL(page.url());
+            console.error('__OCTOS_PAGE_ERROR__' + JSON.stringify(
+              `Page URL at failure: ${url.origin}${url.pathname}`));
+          } catch (_) { /* A page may already have closed. */ }
+        }
         for (const shape of responseShapes.values()) {
           if (shape && remaining-- > 0) console.error('__OCTOS_PAGE_ERROR__' + JSON.stringify(shape));
         }

@@ -562,10 +562,11 @@ class RegressionCheckpointTests(unittest.TestCase):
             flow.remaining=lambda:1000; flow.min_repair_seconds=300; flow.mem_limit=None
             flow.test_verdict={'old':True,'new':True,'future':None,'broken':False}
             flow.spec_map={key:[key+'.spec.ts'] for key in flow.test_verdict}
-            flow.pending_corrections=[]; flow.mark=Mock()
+            flow.pending_corrections=[]; flow.mark=Mock(); flow.metric=Mock(); flow.remember_delivery_checkpoint=Mock()
             flow.run_specs=Mock(return_value=RunSummary(passed=1,total=2,results=[
+                TestOutcome('new behavior',True,'passed',1,file='new.spec.ts'),
                 TestOutcome('old behavior',False,'failed',1,file='old.spec.ts',message='handler undefined')]))
-            with patch.dict('os.environ',{'OCTOS_ARC_REGRESSION_CHECKPOINT':'4','OCTOS_ARC_FINAL_WORKERS':'4'}):
+            with patch.dict('os.environ',{'OCTOS_ARC_REGRESSION_CHECKPOINT':'4','OCTOS_ARC_FINAL_WORKERS':'4','OCTOS_ARC_CHECKPOINT_BACKLOG':'0'}):
                 flow.repair_regressions = lambda *a, **k: None  # covered by CheckpointRepairTests
                 flow.regression_checkpoint(4,12)
             flow.run_specs.assert_called_once_with(['new.spec.ts','old.spec.ts'],workers=4,grader_like=True)
@@ -576,13 +577,15 @@ class RegressionCheckpointTests(unittest.TestCase):
             flow.run_specs.reset_mock()
             flow.run_specs.return_value = RunSummary(passed=1,total=1,results=[
                 TestOutcome('new behavior',True,'passed',1,file='new.spec.ts')])
-            flow.regression_checkpoint(8,32)
+            with patch.dict('os.environ', {'OCTOS_ARC_CHECKPOINT_BACKLOG': '0'}):
+                flow.regression_checkpoint(8,32)
             self.assertIn('old.spec.ts', flow.run_specs.call_args.args[0])
             self.assertIs(flow.test_verdict['old'],False)  # absent results cannot prove recovery
             flow.run_specs.return_value = RunSummary(passed=2,total=2,results=[
                 TestOutcome('old behavior',True,'passed',1,file='old.spec.ts'),
                 TestOutcome('new behavior',True,'passed',1,file='new.spec.ts')])
-            flow.regression_checkpoint(16,32)
+            with patch.dict('os.environ', {'OCTOS_ARC_CHECKPOINT_BACKLOG': '0'}):
+                flow.regression_checkpoint(16,32)
             self.assertIs(flow.test_verdict['old'],True)
             self.assertNotIn('broken.spec.ts', flow.run_specs.call_args.args[0])
 

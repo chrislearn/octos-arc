@@ -104,6 +104,10 @@ class WebStackTests(unittest.TestCase):
         path = self.root / 'frontend/src/shared/interactions.jsx'
         path.write_text('// application-owned adapter with a different contract')
         self.assertNotIn('NEITHER adds an {ok,value} envelope', stack_note(self.root))
+        path.write_text((m.BUNDLE_DIR / 'blueprints/react-interactions.jsx').read_text())
+        request = self.root / 'frontend/src/shared/request.js'
+        request.write_text('// application-owned response adapter with a different contract')
+        self.assertNotIn('NEITHER adds an {ok,value} envelope', stack_note(self.root))
 
     def test_evolution_app_is_not_migrated(self):
         flow = self.flow()

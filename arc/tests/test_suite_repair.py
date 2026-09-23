@@ -104,7 +104,7 @@ class SuiteRepairTurnTests(unittest.TestCase):
 
 
 class CheckpointRoundsTests(unittest.TestCase):
-    def test_should_spend_one_codegen_round_then_one_tool_round_by_default(self):
+    def test_should_stop_when_codegen_changes_files_but_failures_do_not_move(self):
         from unittest.mock import patch
         import test_main_helpers as helpers
         flow = helpers.CheckpointRepairTests()._flow([1, 1, 1])   # codegen round and tool round both miss
@@ -117,9 +117,8 @@ class CheckpointRoundsTests(unittest.TestCase):
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         self.assertEqual(flow.codegen_turn.call_count, 1)
-        self.assertEqual(flow.turn.call_count, 1)
+        self.assertEqual(flow.turn.call_count, 0)
         self.assertIn("checkpoint 2 repair 1/2", flow.codegen_turn.call_args.args[2])
-        self.assertIn("checkpoint 2 repair 2/2", flow.turn.call_args.args[2])
 
     def test_should_stop_after_the_codegen_round_when_it_takes(self):
         from unittest.mock import patch
