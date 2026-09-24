@@ -10,6 +10,38 @@ from llm_proxy import LlmProxy
 
 
 class PendingCompletionTests(unittest.TestCase):
+    def test_models_probe_closes_provider_circuit_without_a_completion(self):
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        proxy = LlmProxy('http://unused/v1', 'none')
+        self.addCleanup(proxy.server.server_close)
+        proxy._upstream_failures = 3
+        proxy._provider_headers = {'Authorization': 'Bearer example'}
+        with patch('llm_proxy.urllib.request.urlopen', return_value=Response()) as upstream:
+            self.assertTrue(proxy.probe_provider())
+        self.assertFalse(proxy.provider_unavailable)
+        self.assertEqual(upstream.call_args.args[0].full_url, 'http://unused/v1/models')
+
+    def test_token_free_502_retries_once_then_counts_only_successful_request(self):
+        class Response:
+            status = 200
+            headers = {}
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self):
+                return b'{"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1}}'
+        proxy = LlmProxy('http://unused/v1', 'none')
+        self.addCleanup(proxy.server.server_close)
+        proxy.begin_turn(3)
+        with patch('llm_proxy.urllib.request.urlopen', side_effect=[TimeoutError('temporary'), Response()]) as upstream:
+            status, _, _ = proxy._request_upstream('POST', '/chat/completions', b'{}', {})
+        self.assertEqual(status, 200)
+        self.assertEqual(upstream.call_count, 2)
+        self.assertEqual(proxy.turn_upstream_requests, 1)
+        self.assertFalse(proxy.provider_unavailable)
+
     def test_missing_usage_reserves_tokens_for_the_cost_guard(self):
         proxy = LlmProxy('http://unused/v1', 'none')
         try:
@@ -123,12 +155,15 @@ class PendingCompletionTests(unittest.TestCase):
     def test_upstream_error_is_released_for_later_retry(self):
         proxy = LlmProxy('http://unused/v1', 'none')
         try:
+            proxy.begin_turn(3)
             with patch('llm_proxy.urllib.request.urlopen', side_effect=TimeoutError('upstream timed out')) as upstream:
                 for _ in range(2):
                     status, _, _ = proxy._request_upstream('POST', '/chat/completions', b'{}', {})
                     self.assertEqual(status, 502)
                     self.assertFalse(proxy._inflight)
-                self.assertEqual(upstream.call_count, 2)
+                self.assertEqual(upstream.call_count, 4)  # one immediate retry per token-free 502
+                self.assertEqual(proxy.turn_upstream_requests, 0)
+                self.assertTrue(proxy.provider_unavailable)
         finally:
             proxy.server.server_close()
 

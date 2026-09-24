@@ -205,6 +205,12 @@ class RepairOutcomeTests(unittest.TestCase):
             return True, "no edit"
         self.flow.turn = Mock(side_effect=tool_noop)
 
+    def prepare_final_suite(self):
+        (self.root / 'R.spec.ts').touch()
+        self.flow.tests_dir = self.root
+        self.flow.runner = SimpleNamespace(timeout_ms=30000)
+        self.flow.spec_map = {'R': ['R.spec.ts']}
+
     def test_noop_node_repair_falls_back_then_stops_without_retesting(self):
         self.assertFalse(self.flow.node_repair_turn("R", "missing control", 300, "R repair", lambda: "repair"))
         self.flow.turn.assert_called_once()
@@ -337,6 +343,7 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertEqual(flow.repair_durations["codegen"], [])
 
     def test_noop_final_pass_allows_only_one_changed_approach(self):
+        self.prepare_final_suite()
         flow = self.flow
         flow.remaining = lambda: 10000
         flow.time_up = lambda: False
@@ -350,6 +357,7 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertTrue(flow._force_final_tool_repair)
 
     def test_noop_final_pass_stops_when_another_complete_attempt_will_not_fit(self):
+        self.prepare_final_suite()
         flow = self.flow
         flow.remaining = lambda: 250
         flow.time_up = lambda: False
@@ -360,6 +368,7 @@ class RepairOutcomeTests(unittest.TestCase):
         flow.final_acceptance.assert_called_once()
 
     def test_final_passes_stop_after_two_stalls_even_with_source_changes(self):
+        self.prepare_final_suite()
         flow = self.flow
         flow.remaining = lambda: 50000
         flow.time_up = lambda: False
@@ -372,6 +381,7 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertEqual(flow.final_acceptance.call_count, 2)
 
     def test_default_final_pass_cap_does_not_scale_with_tree(self):
+        self.prepare_final_suite()
         flow = self.flow
         flow.remaining = lambda: 50000
         flow.time_up = lambda: False
@@ -385,6 +395,7 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertEqual(flow.final_acceptance.call_count, 3)
 
     def test_final_pass_progress_resets_stall_counter(self):
+        self.prepare_final_suite()
         flow = self.flow
         flow.remaining = lambda: 50000
         flow.time_up = lambda: False

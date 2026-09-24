@@ -83,6 +83,35 @@ class MeasuredRepairTests(TestCase):
         f.final_acceptance_passes()
         f.final_acceptance.assert_called_once()
 
+    def test_large_unentered_suite_keeps_a_bounded_delivery_checkpoint(self):
+        f = self.flow
+        for i in range(4, 34):
+            name = f'N{i}'
+            (f.tests_dir / f'{name}.spec.ts').write_text('test("pending", () => {});')
+            f.spec_map[name] = [f'{name}.spec.ts']
+        f.test_verdict = {'A': True, 'B': True}
+        f.runner = SimpleNamespace(timeout_ms=30000)
+        f.remaining = Mock(return_value=350)
+        f.run_specs = Mock(return_value=RunSummary(passed=2, total=2, results=[
+            TestOutcome(n, True, 'passed', 1, file=f'{n}.spec.ts') for n in ('A', 'B')]))
+        f.record_tests = Mock()
+        f.metric = Mock()
+        f.final_acceptance = Mock()
+        f.final_acceptance_passes()
+        f.run_specs.assert_called_once()
+        self.assertEqual(set(f.run_specs.call_args.args[0]), {'A.spec.ts', 'B.spec.ts'})
+        f.final_acceptance.assert_not_called()
+        self.assertTrue(f.test_verdict['A'] and f.test_verdict['B'])
+
+    def test_timeout_only_full_suite_preserves_earlier_node_verdicts(self):
+        f = self.flow
+        f.run_specs = Mock(return_value=RunSummary(error='playwright run exceeded 300s'))
+        f.metric = Mock()
+        f.test_verdict = {'A': True, 'B': False, 'C': None}
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '0'}):
+            f.final_acceptance()
+        self.assertEqual(f.test_verdict, {'A': True, 'B': False, 'C': None})
+
     def test_initial_phase_caps_leave_generation_and_thinking_unchanged(self):
         f = self.flow
         proxy = SimpleNamespace(mode='none', codegen_max_tokens=77)
@@ -94,7 +123,7 @@ class MeasuredRepairTests(TestCase):
         with patch.dict('os.environ', {}, clear=True):
             for label in ('application design', 'A implement', 'A repair'):
                 f.text_turn('', 30, label)
-        self.assertEqual(observed, [(4096, 'none'), (0, 'none'), (8192, 'none')])
+        self.assertEqual(observed, [(8192, 'none'), (0, 'none'), (8192, 'none')])
         self.assertEqual(proxy.codegen_max_tokens, 77)
         with patch.dict('os.environ', {'OCTOS_ARC_REPAIR_MAX_TOKENS': '4096'}):
             f.text_turn('', 30, 'A repair')
@@ -103,6 +132,21 @@ class MeasuredRepairTests(TestCase):
         with patch.dict('os.environ', {}, clear=True):
             f.text_turn('', 30, 'application design')
         self.assertEqual(observed[-1][0], 16000)
+
+    def test_reasoning_off_for_all_implementation_is_opt_in(self):
+        f = self.flow
+        proxy = SimpleNamespace(mode='low', codegen_max_tokens=0)
+        f.llm_proxy = proxy
+        f.driver = SimpleNamespace(without_tools=nullcontext)
+        f.base_reasoning_mode = 'low'
+        seen = []
+        f.turn = lambda *a, **kw: seen.append(f.base_reasoning_mode) or (True, '')
+        with patch.dict('os.environ', {'OCTOS_ARC_IMPLEMENT_REASONING_ALL': '1',
+                                       'OCTOS_ARC_IMPLEMENT_REASONING': 'none'}):
+            f.text_turn('', 30, 'A implement')
+            f.text_turn('', 30, 'A repair')
+        self.assertEqual(seen, ['none', 'low'])
+        self.assertEqual(f.base_reasoning_mode, 'low')
 
     def test_contracts_describe_generic_invariants_not_fixture_values(self):
         for invariant in ('<Outlet/>', 'opacity:0 alone', 'onOpenChange(false)', 'owning record ID'):

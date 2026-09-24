@@ -40,6 +40,32 @@ class GenerationChecksTests(TestCase):
         self.assertFalse(any('DIALOG_CLOSE_SAVE' in warning for warning in
                              contract_warnings(sources, ['frontend/src/Editor.jsx'])))
 
+    def test_dynamic_detail_link_without_route_is_reported(self):
+        sources = {
+            'frontend/src/App.jsx': '<Routes><Route path="/repos/:repo/pulls" element={<Pulls />} /></Routes>',
+            'frontend/src/Pulls.jsx': '<Link to={`${basePath}/pulls/${pr.number}`}>Open</Link>',
+        }
+        changed = ['frontend/src/Pulls.jsx']
+        self.assertTrue(any('ROUTE_LINK' in warning for warning in contract_warnings(sources, changed)))
+        sources['frontend/src/App.jsx'] = (
+            '<Routes><Route path="/repos/:repo/pulls/:pullNumber" '
+            'element={<PullDetail />} /></Routes>')
+        self.assertFalse(any('ROUTE_LINK' in warning for warning in contract_warnings(sources, changed)))
+
+    def test_frontend_api_call_without_matching_backend_route_is_reported(self):
+        sources = {
+            'backend/routes/repos.js': "app.get('/api/repos/:owner/:repo', getRepo);",
+            'frontend/src/Repo.jsx': (
+                'requestJson(`/api/repos/${owner}/${repo}`); '
+                'requestJson(`/api/repos/${owner}/${repo}/pulls`);'),
+        }
+        warnings = contract_warnings(sources, ['frontend/src/Repo.jsx'])
+        self.assertEqual(sum('API_CALL' in warning for warning in warnings), 1)
+        self.assertIn('/pulls', next(warning for warning in warnings if 'API_CALL' in warning))
+        sources['backend/routes/repos.js'] += "\napp.get('/api/repos/:owner/:repo/pulls', getPulls);"
+        self.assertFalse(any('API_CALL' in warning for warning in
+                             contract_warnings(sources, ['frontend/src/Repo.jsx'])))
+
     def test_native_interactive_nesting_warns_without_rejecting_component_composition(self):
         sources = {'frontend/src/Form.jsx': (
             '<label htmlFor="phone">Phone <input id="phone" />'

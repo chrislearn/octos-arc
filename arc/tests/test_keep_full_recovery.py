@@ -131,7 +131,7 @@ class KeepFullRecoveryTests(TestCase):
                                        'OCTOS_ARC_DEGENERATE_MAX_TOKENS': '8192'}):
             f.text_turn('prompt', 30, 'A repair')
             f.text_turn('prompt', 30, 'application design')
-        self.assertEqual(observed, [('none', 8192), ('low', 8192), ('none', 4096)])
+        self.assertEqual(observed, [('none', 8192), ('low', 8192), ('none', 8192)])
         self.assertEqual(f.base_reasoning_mode, 'none')
         self.assertEqual(proxy.codegen_max_tokens, 123)
         self.assertFalse(proxy.no_tools)

@@ -156,6 +156,17 @@ class TokenOptimizationTests(unittest.TestCase):
         flow.turn.assert_not_called()
         flow.acceptance_loop.assert_called_once()
 
+    def test_incomplete_node_without_specs_restores_prior_application(self):
+        flow = self.node_flow()
+        flow.spec_map = {}
+        flow.runner = None
+        flow.head = Mock(return_value='prior-commit')
+        flow.restore_app = Mock()
+        flow.codegen_turn = Mock(return_value=(False, 'local_turn_budget_exhausted'))
+        flow.node_cycle(helpers.node('REQ-1', 'Search'), [], 1, 1)
+        flow.restore_app.assert_called_once_with('prior-commit')
+        self.assertIn('REQ-1', flow.impl_failed)
+
     def test_truncated_generation_uses_one_compact_codegen_retry_when_app_fails(self):
         flow = self.node_flow()
         flow.runner = object()

@@ -101,6 +101,8 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_ARC_PARTIAL_CONFIRM_RATIO` / `OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES` | 0.9 / 3 | 首次全套验收接近全绿且时间足够时，在改代码前对未改动应用确认一次；用于识别失败项轮换，不影响普通低分 suite |
 | `OCTOS_ARC_NO_WRITE_SECONDS` | 180 s | 结构化编辑至少消耗一半请求且仍未尝试写入时，达到该时长（或用完 75% 请求）后关闭继续读取/搜索，只保留写入工具或精确阻塞报告 |
 | `OCTOS_ARC_DEGENERATE_MAX_TOKENS` | 8192 | 检出大量空改动或重复 EDIT 后，本次运行后续无工具代码请求的输出上限；首次请求和设计不受影响，0 关闭；波次规划同步缩小预算 |
+| `OCTOS_ARC_IMPLEMENT_REASONING_ALL` / `OCTOS_ARC_IMPLEMENT_REASONING` | 0 / 空 | A/B 实验开关：同时设置为 `1` 和 `none` 时，仅实现轮关闭推理，设计与修复维持基础设置；默认行为不变 |
+| `OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS` | 16 | 新需求失败且改动共享源码时，即时复测此前已通过用例的上限；超出部分轮换并由检查点覆盖 |
 | `OCTOS_ARC_RECOVERY_REASONING` | none | 检出上述生成退化后，可显式选择 low/medium/high；默认仍关闭 thinking，不自动开启 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |
 | `OCTOS_DESIGN_TURN` / `OCTOS_DESIGN_MODE` | 1 / separate | 0 = 跳过设计轮；`inline` = 设计 JSON 在实现轮开头写出，不单开一轮（TB 上更省钱但更慢，见 CHANGELOG R7/R8） |
@@ -124,14 +126,15 @@ Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Be
 触发后停止进一步修复，但不是立即杀死进程。需要逐请求停止时配置绝对 token 阈值；在途请求仍可能超出。
 
 生成退化恢复只删除无字节变化的 EDIT 和长周期重复尾部，保留的改动仍须通过唯一锚点检查与真实验收。
+无法应用的代码回复保存在运行目录 `.arc/rejected-replies/`，供定位格式和写入拒绝原因；完整、成对的少数 FILE 标记变体会先规范化，再经过原有路径与写入守卫。
 部分写入不会被记为通过：先测试，再只修实际缺失部分；某一波次失败不会放弃后续所有需求。
 `analyze-run.py <output_dir>` 汇总实际 usage、阶段成本和重复输出；`replay-codegen.py` 可做有界单请求诊断，
 `apply-replay.py` 仅把已完成的回复应用到独立 Git 快照，不能修改源运行。回放请求另计费用。
 
 ### 同题内按步骤选择模型
 
-v5.3 重新打包版默认关闭 thinking：`OCTOS_ARC_REASONING=none`，不再根据任务大小自动开启。
-规划、生成和修复均沿用关闭状态。需要开启时显式设置 `OCTOS_ARC_REASONING=low`（或 `medium`/`high`）；
+当前代码默认使用 `OCTOS_ARC_REASONING=low`；设置 `none` 可关闭 thinking，或设置 `medium`/`high` 调整强度。
+规划、生成和修复通常沿用这一基础设置；实现轮单独关闭可用上表的 A/B 开关，默认不启用。
 `auto` 可恢复原先按任务大小选择的规则。显式的阶段覆盖或模型路由参数仍优先；不同供应商是否支持关闭取决于其 API。
 
 `OCTOS_ARC_MODEL_ROUTES` 接受有序 JSON 规则。同一题的不同节点、首轮与修复可以使用不同模型；匹配依据只有阶段、完整消息与工具定义的字符数、工具/图片能力，不按题名分支。第一条匹配的规则生效，无匹配则保留原请求模型；不配置时保持原行为。上下文字符数按完整消息与工具定义的紧凑 JSON 计算（Unicode 字符，不是 token）。

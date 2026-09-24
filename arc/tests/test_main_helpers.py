@@ -601,6 +601,14 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
         return flow
 
+    def test_no_local_specs_skip_unmeasured_final_passes(self):
+        from unittest.mock import Mock
+        flow = self._flow([1])
+        flow.runner = None
+        flow.final_acceptance = Mock()
+        flow.final_acceptance_passes()
+        flow.final_acceptance.assert_not_called()
+
     def test_should_keep_original_requirements_in_full_suite_repairs(self):
         from unittest.mock import Mock, patch
         flow = self._flow([1, 2])
@@ -1180,6 +1188,82 @@ class RuntimeCacheProvenanceTests(unittest.TestCase):
             self.assertEqual((cache/'source-url.txt').read_text(), url)
 
 class FailedGenerationAcceptanceTests(unittest.TestCase):
+    def test_provider_outage_defers_unwritten_node_without_a_failed_verdict(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+        from llm_proxy import LlmProxy
+        with tempfile.TemporaryDirectory() as directory:
+            flow = Mock(spec=m.Flow)
+            flow.output_dir = Path(directory)
+            flow.req_dir = Path(directory)
+            flow.spec_map = {'feature': ['feature.spec.ts']}
+            flow.test_verdict = {}
+            flow.head.return_value = 'base'
+            flow.repair_source_index.return_value.versions = {}
+            flow.node_budget_cap = flow.node_timeout = 300
+            flow.remaining.return_value = 600
+            flow.implement_fraction = .7
+            flow.smoke_port, flow.web_port = 3001, 3000
+            flow.design_enabled = flow.evolution = False
+            flow.has_app.return_value = True
+            flow.codegen_mode.return_value = False
+            flow.turn.return_value = (False, 'HTTP 503 temporarily unavailable')
+            flow.runner = Mock()
+            flow.impl_failed = []
+            flow.pending_corrections = []
+            for method in ['ancestors_text', 'tests_prompt_for', 'perf_text', 'ui_contract',
+                           'verify_text', 'corrections_text']:
+                getattr(flow, method).return_value = ''
+            proxy = LlmProxy('http://unused/v1', 'none')
+            self.addCleanup(proxy.server.server_close)
+            proxy._upstream_failures = 3
+            flow.llm_proxy = proxy
+            m.Flow.node_cycle(flow, node('feature', 'Extension'), [], 1, 1)
+            self.assertIsNone(flow.test_verdict['feature'])
+            self.assertFalse(flow.impl_failed)
+            flow.acceptance_loop.assert_not_called()
+
+    def test_failed_extension_restores_pre_node_source_after_proven_regression(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+        from acceptance import RunSummary, TestOutcome
+        with tempfile.TemporaryDirectory() as directory:
+            flow = Mock(spec=m.Flow)
+            flow.output_dir = Path(directory)
+            flow.req_dir = Path(directory)
+            flow.spec_map = {'feature': ['feature.spec.ts'], 'prior': ['prior.spec.ts']}
+            flow.test_verdict = {'prior': True}
+            flow.head.return_value = 'goodsha'
+            flow.repair_source_index.return_value.versions = {}
+            flow.node_budget_cap = flow.node_timeout = 300
+            flow.remaining.return_value = 600
+            flow.final_measurement_reserve.return_value = 120
+            flow.implement_fraction = .7
+            flow.smoke_port, flow.web_port = 3001, 3000
+            flow.design_enabled = flow.evolution = False
+            flow.has_app.return_value = True
+            flow.codegen_mode.return_value = False
+            flow.turn.return_value = (False, 'no files')
+            flow.runner = Mock()
+            flow.impl_failed = []
+            flow.pending_corrections = []
+            for method in ['ancestors_text', 'tests_prompt_for', 'perf_text', 'ui_contract',
+                           'verify_text', 'corrections_text']:
+                getattr(flow, method).return_value = ''
+            def failed(*args, **kwargs):
+                flow.test_verdict['prior'] = False
+                return False
+            flow.acceptance_loop.side_effect = failed
+            flow.run_specs.return_value = RunSummary(passed=1, total=1, results=[
+                TestOutcome('prior', True, 'passed', 1, file='prior.spec.ts')])
+            flow.suite_is_measured.return_value = True
+            m.Flow.node_cycle(flow, node('feature', 'Extension'), [], 1, 1)
+            flow.restore_app.assert_called_once_with('goodsha')
+            self.assertTrue(flow.test_verdict['prior'])
+            self.assertFalse(flow.test_verdict['feature'])
+
     def test_should_verify_existing_app_after_generation_returns_no_files(self):
         self.check_existing_app(True, True)
 

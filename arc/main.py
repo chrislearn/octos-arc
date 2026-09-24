@@ -99,7 +99,7 @@ from acceptance import (  # noqa: E402
     mutated_by_tests, store_changes_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
     startup_error_digest, backend_error_digest)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
-                     incomplete_blocks, normalize_bare_file_reply, prepare_edit_files, safe_relative_path,
+                     incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, prepare_edit_files, safe_relative_path,
                      source_protocol_errors, write_files)
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
@@ -2275,7 +2275,9 @@ class Flow:
             base_mode = getattr(self, "base_reasoning_mode", proxy.mode)
             impl_mode = os.environ.get("OCTOS_ARC_IMPLEMENT_REASONING", "")  # auto already gives "none" to 1-node tasks
             is_implement = label.endswith(" implement") or label.startswith("skeleton")
-            proxy.mode = impl_mode if (impl_mode and is_implement and self.minimal_mode(getattr(self, "n_nodes", 99))) else base_mode
+            impl_all = os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL') == '1'
+            proxy.mode = impl_mode if (impl_mode and is_implement and
+                                       (impl_all or self.minimal_mode(getattr(self, "n_nodes", 99)))) else base_mode
             if request_budget is None:
                 # Repairs are measured after bounded work, not allowed unlimited
                 # context growth. Creation keeps its independent default.
@@ -2693,10 +2695,14 @@ class Flow:
         mode_override = self.codegen_reasoning(spec_chars)
         saved_cap = getattr(proxy, "codegen_max_tokens", 0)
         phase = phase_for_label(label)
+        if phase == 'implement' and os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL') == '1':
+            experiment_mode = os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING', '')
+            if experiment_mode in {'none', 'low', 'medium', 'high'}:
+                mode_override = experiment_mode
         recovering = getattr(self, "codegen_degenerated", False) and phase != "design"
         phase_cap = max(0, int(os.environ.get("OCTOS_ARC_REPAIR_MAX_TOKENS", "8192"))) if phase == "repair" else 0
         if phase == "design":
-            design_default = max(4096, min(16384, 128 * getattr(self, "n_nodes", 32)))
+            design_default = max(8192, min(16384, 128 * getattr(self, "n_nodes", 32)))
             phase_cap = max(0, int(os.environ.get("OCTOS_ARC_DESIGN_MAX_TOKENS", str(design_default))))
         recovery_cap = self.generation_recovery_cap() if recovering and phase == "implement" else (
             max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0)
@@ -2780,14 +2786,26 @@ class Flow:
                                   spec_chars=len(outline))
         design = parse_app_design_reply(text) if ok else None
         retry_seconds = min(120, int(deadline - time.monotonic()), int(self.remaining()))
-        if ok and not design and retry_seconds >= 30 and not self.wound_down():
-            log("[flow] application design: invalid schema/JSON; one bounded format retry")
+        if ((ok and not design) or (not ok and 'output_truncated' in text)) \
+                and retry_seconds >= 30 and not self.wound_down():
+            log("[flow] application design: incomplete or invalid JSON; one bounded format retry")
+            # Repeating the full 60k-character outline encourages another
+            # oversized reply. A compact shared contract is more useful than
+            # losing the entire design because one leaf was too detailed.
+            compact_outline = tree_outline(tree, max_chars=8000)
+            retry_prompt = (stack_note(self.output_dir) +
+                            'Create a compact shared web application contract for this requirement tree. '
+                            'Return ONLY one valid JSON object, at most 3500 characters, with keys '
+                            'data_model (object), routes (array), pages (array), notes (string). '
+                            'List at most 8 shared API routes and 8 shared pages; later implementation '
+                            'turns receive the detailed leaf requirements. Each route needs method and '
+                            'absolute path; each page needs an absolute path. Keep one consistent naming '
+                            'scheme for users, organizations, repositories and sessions. No markdown or prose.\n'
+                            + compact_outline)
             ok, text = self.text_turn(
-                prompt + "\nThe preceding reply was not a valid design object. Return ONLY the JSON object "
-                "with data_model (object), routes/pages/modules/contracts (arrays of objects), notes (string). "
-                "Use compact entries and no code, prose or FILE blocks.\n",
+                retry_prompt,
                 retry_seconds, "application design (format retry)", system=APP_DESIGN_SYSTEM,
-                spec_chars=len(outline))
+                spec_chars=len(compact_outline))
             design = parse_app_design_reply(text) if ok else None
         if not design:
             log("[flow] application design: no usable JSON object in the reply; nodes proceed without one")
@@ -3071,6 +3089,20 @@ class Flow:
         self.last_repair_changed = True if self.last_repair_changed else changed
         return "tools", text
 
+    def save_rejected_reply(self, label: str, outcome: str, reply: str) -> None:
+        """Retain an unapplied model reply for local format diagnosis."""
+        if not reply.strip():
+            return
+        try:
+            folder = self.output_dir / '.arc' / 'rejected-replies'
+            folder.mkdir(parents=True, exist_ok=True)
+            name = re.sub(r'[^\w.-]+', '-', label).strip('-')[:80] or 'reply'
+            path = folder / f'{time.time_ns()}-{name}-{outcome}.txt'
+            path.write_text(reply, encoding='utf-8')
+            log(f'[codegen] rejected reply retained at {path.relative_to(self.output_dir)}')
+        except OSError as exc:
+            log(f'[codegen] could not retain rejected reply: {exc}')
+
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
                      system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
                      raw_target: str | None = None, defer_shared_refusals: bool = False,
@@ -3089,8 +3121,11 @@ class Flow:
             if len(prompt) + len(memory) + len(format_instructions) <= self.codegen_context_chars():
                 prompt += memory
         started = time.monotonic()
+        raw_reply = ""
         def result(ok: bool, text: str, outcome: str):
             self.last_codegen_outcome = outcome
+            if not ok and raw_reply:
+                self.save_rejected_reply(label, outcome, raw_reply)
             self.remember_repair(label, prompt, outcome)
             if self.last_codegen_written:
                 self.generation_batch_check(label)
@@ -3119,6 +3154,7 @@ class Flow:
             if retained:
                 text, truncated = retained, True
                 log(f"[codegen] {label}: recovering only terminated blocks from truncated response")
+        raw_reply = text if ok or truncated else ""
         if (ok or truncated) and not raw_target:
             text, quality = prune_degenerate_edits(text)
             degenerated = (quality['cycle_trimmed'] or quality['repeated_edit_blocks'] >= 8
@@ -3135,12 +3171,12 @@ class Flow:
         files = parse_file_blocks(text) if ok or truncated else {}
         edits = parse_edit_blocks(text) if ok or truncated else []
         if ok and not files and not edits:
-            normalized = normalize_bare_file_reply(text)
+            normalized = normalize_paired_file_reply(text) or normalize_bare_file_reply(text)
             if normalized:
                 text = normalized
                 files = parse_file_blocks(text)
-                self.metric("protocol_normalized", label=label, format="bare_file_sections", files=len(files))
-                log(f"[codegen] {label}: normalized completed bare FILE sections; applying normal write guards")
+                self.metric("protocol_normalized", label=label, format="paired_or_bare_file_sections", files=len(files))
+                log(f"[codegen] {label}: normalized complete FILE sections; applying normal write guards")
         if ok and not files and not edits and text.strip() == "<<<NO CHANGE>>>":
             self.last_codegen_no_change = True
             log(f"[codegen] {label}: existing implementation declared complete; acceptance will verify it")
@@ -3902,7 +3938,7 @@ class Flow:
                     # not consume the entire node budget; checkpoints cover the
                     # remaining proven behavior together.
                     prior_specs = sorted(set(regression_specs) - set(specs))
-                    cap = max(1, int(os.environ.get('OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS', '8')))
+                    cap = max(1, int(os.environ.get('OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS', '16')))
                     if len(prior_specs) > cap:
                         cursor = getattr(self, '_failed_regression_cursor', 0) % len(prior_specs)
                         regression_specs = (prior_specs[cursor:] + prior_specs[:cursor])[:cap]
@@ -4445,6 +4481,20 @@ class Flow:
         preimplemented: set[str] = set()
         for index, node in enumerate(ordered, 1):
             node_id = str(node.get("id"))
+            proxy = getattr(self, 'llm_proxy', None)
+            if isinstance(proxy, LlmProxy) and proxy.provider_unavailable:
+                allowance = max(0, min(90, self.remaining() - self.final_phase_reserve()))
+                until = time.monotonic() + allowance
+                while proxy.provider_unavailable and time.monotonic() < until:
+                    if proxy.probe_provider(timeout=min(10, max(1, until - time.monotonic()))):
+                        log('[proxy] upstream recovered; resuming node queue')
+                        break
+                    log('[proxy] upstream unavailable; leaving new nodes pending while probing /models')
+                    time.sleep(min(15, max(0, until - time.monotonic())))
+                if proxy.provider_unavailable:
+                    self.metric('provider_circuit', decision='defer', after_nodes=index - 1,
+                                pending_nodes=[str(n.get('id')) for n in ordered[index - 1:]])
+                    break
             if self.final_phase_due():
                 log(f"[flow] entering reserved final phase with {self.remaining():.0f}s left; "
                     f"deferring {node_id} and later leaves to full-suite measurement")
@@ -4479,7 +4529,8 @@ class Flow:
                 self.metric("implementation_deferred", reason="unresolved_startup", after_node=node_id,
                             remaining_nodes=[str(n.get('id')) for n in ordered[index:]])
                 break
-            self.regression_checkpoint(index, len(ordered))
+            if not (isinstance(proxy, LlmProxy) and proxy.provider_unavailable):
+                self.regression_checkpoint(index, len(ordered))
             self.driver.end_scope("node")
 
     def recover_sequential_startup(self, node_id: str) -> bool:
@@ -4785,6 +4836,10 @@ class Flow:
                    *, preimplemented: bool = False) -> None:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
+        before_sha = self.head()
+        proven_before = {prior for prior, value in self.test_verdict.items() if value is True}
+        self.last_codegen_written = []
+        self.last_turn_changed = False
         self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
         source_versions = dict(self.repair_source_index().versions)
         self.refused_paths = set()
@@ -4915,6 +4970,13 @@ class Flow:
                 retry_time = min(self.node_timeout, deadline - time.time())
                 if retry_time > 0:
                     ok, text = self.turn(retry, retry_time, f"{node_id} implement (retry)")
+        proxy = getattr(self, 'llm_proxy', None)
+        if (not ok and isinstance(proxy, LlmProxy) and proxy.provider_unavailable
+                and not self.last_codegen_written and self.last_turn_changed is not True):
+            self.test_verdict[node_id] = None
+            self.metric('implementation_deferred', reason='provider_unavailable', node_id=node_id)
+            log(f'[flow] {node_id}: upstream unavailable before any source edit; node remains pending')
+            return
         timed_out = (not ok) and "timed out" in text.lower()
         if ok and not self.has_app():
             # v6-counter: one package.json missing after the turn. Do not give
@@ -4924,7 +4986,14 @@ class Flow:
                 "Your turn ended without both frontend/package.json and backend/package.json (with `build` and "
                 "`start` scripts) on disk; the harness could not even build the app. Create the missing files.")
         can_verify_existing = self.has_app() and self.runner is not None and bool(specs)
-        if not ok and not timed_out and not can_verify_existing:
+        if not ok and not can_verify_existing:
+            # A hard cap or timeout can leave tool edits half applied. Without
+            # executable acceptance there is no evidence that the partial node
+            # works, so keep the last committed application for later nodes.
+            if before_sha and self.has_app():
+                self.restore_app(before_sha)
+                self.metric('incomplete_node_rollback', node_id=node_id,
+                            reason='no_local_acceptance', restored=before_sha)
             self.mark("implementation_failed", node_id, text[-500:])
             self.impl_failed.append(node_id)
             return
@@ -4976,6 +5045,33 @@ class Flow:
         verdict = self.acceptance_loop(node_id, specs, deadline, rebuild_prompt=rebuild_prompt,
                                        source_versions=source_versions)
         self.test_verdict[node_id] = verdict
+        regressed_proven = sorted(prior for prior in proven_before if self.test_verdict.get(prior) is False)
+        if verdict is not True and regressed_proven and before_sha:
+            # A failed extension has no verified value that justifies shipping
+            # known damage to previously passing behavior. Return to the exact
+            # pre-node source commit even when the final suite cannot finish.
+            self.restore_app(before_sha)
+            self.commit(f"{node_id}: restore verified behavior after failed extension")
+            prior_specs = sorted({spec for prior in regressed_proven for spec in self.spec_map.get(prior, [])})
+            restored = (self.run_specs(prior_specs, grader_like=True) if prior_specs
+                        and self.remaining() > self.final_measurement_reserve() + 30 else None)
+            if restored is not None and self.suite_is_measured(restored, prior_specs):
+                for prior in regressed_proven:
+                    paths = self.spec_map.get(prior, [])
+                    rows = [row for row in restored.results if any(
+                        str(row.file or '').replace('\\', '/') == path or
+                        str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths)]
+                    local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+                    self.test_verdict[prior] = local.all_passed if self.suite_is_measured(local, paths) else None
+                    if self.test_verdict[prior] is not None:
+                        self.record_tests(prior, paths, local)
+            else:
+                for prior in regressed_proven:
+                    self.test_verdict[prior] = None  # source restored; behavior not remeasured
+            self.metric('failed_extension_rollback', node_id=node_id, restored=before_sha,
+                        regressed_nodes=regressed_proven)
+            log(f"[acceptance] {node_id}: failed extension regressed {regressed_proven}; "
+                f"restored pre-node source {before_sha[:8]}")
         if verdict is True:
             self.mark("test_passed", node_id, f"{len(specs)} acceptance spec file(s) pass locally")
             try:
@@ -5483,6 +5579,14 @@ class Flow:
             if not measured:
                 error = summary.error or "\n".join(summary.load_errors) or "Incomplete acceptance report; not all specs produced results"
                 log(f"[acceptance] full suite has no complete verdict: {error[:300]}")
+                if summary.killed or re.search(r'time(?:d)?\s*out|budget exhausted|exceeded', error, re.I):
+                    # A timed-out 0/0 says nothing about application behavior.
+                    # Keep individually measured verdicts and the last safe
+                    # source; repairing from an empty functional report would
+                    # risk replacing working features.
+                    self.metric('acceptance', scope='final_suite', round=attempt,
+                                passed=0, total=0, verdict='unknown', error=error[:300])
+                    break
                 for node_id in self.spec_map:
                     if node_id:
                         self.test_verdict[node_id] = None
@@ -5703,6 +5807,9 @@ class Flow:
 
     def final_acceptance_passes(self) -> None:
         """Bound final repair passes independently of the overall task size."""
+        if self.runner is None or not self.tests_dir:
+            log('[acceptance] no local specs available; skipping unmeasured full-suite repair passes')
+            return
         configured_passes = os.environ.get("OCTOS_FINAL_SUITE_PASSES")
         # A large implementation allowance is not permission for hundreds of
         # full-suite repair passes. Each pass already contains several repairs.
@@ -5710,6 +5817,49 @@ class Flow:
         stalled_passes = 0
         unchanged_passes = 0
         retry_measurement = None
+        if self.runner is not None and self.tests_dir:
+            all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob('*.spec.ts'))
+            proven_specs = sorted({spec for node, verdict in self.test_verdict.items() if verdict is True
+                                   for spec in self.spec_map.get(node, [])})
+            timeout_s = max(1, getattr(self.runner, 'timeout_ms', 30000) / 1000)
+            workers = max(1, self.final_workers())
+            proven_estimated = max(30, 1.2 * len(proven_specs) * timeout_s / workers)
+            if (proven_specs and len(proven_specs) < len(all_specs)
+                    and self.remaining() >= proven_estimated + 20):
+                observed = self.run_specs(proven_specs, workers=self.final_workers(), grader_like=True)
+                measured = self.suite_is_measured(observed, proven_specs)
+                self.metric('acceptance', scope='entered_final_checkpoint', passed=observed.passed,
+                            total=observed.total, checked_specs=len(proven_specs),
+                            unentered_specs=len(all_specs) - len(proven_specs),
+                            verdict='measured' if measured else 'unknown')
+                if measured:
+                    for node, verdict in list(self.test_verdict.items()):
+                        if verdict is not True:
+                            continue
+                        paths = self.spec_map.get(node, [])
+                        rows = [row for row in observed.results if any(
+                            str(row.file or '').replace('\\', '/') == path or
+                            str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths)]
+                        local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+                        self.test_verdict[node] = local.all_passed if self.suite_is_measured(local, paths) else None
+                        if self.test_verdict[node] is not None:
+                            self.record_tests(node, paths, local)
+                log(f'[acceptance] entered final checkpoint: {observed.passed}/{observed.total} '
+                    f'over {len(proven_specs)} previously passing specs')
+            proxy = getattr(self, 'llm_proxy', None)
+            if isinstance(proxy, LlmProxy) and proxy.provider_unavailable:
+                log('[acceptance] provider circuit open; preserving measured source without final model repairs')
+                return
+            unresolved = len(all_specs) - len(proven_specs)
+            if unresolved >= 5:
+                estimated = 90 + 1.2 * unresolved * timeout_s / workers
+                if self.remaining() < max(self.final_measurement_reserve(), estimated):
+                    log(f'[acceptance] full suite deferred: {unresolved} unverified specs may require '
+                        f'{estimated:.0f}s; {self.remaining():.0f}s remains. Keeping entered-node verdicts.')
+                    self.metric('acceptance', scope='full_suite_admission', decision='deferred',
+                                unverified_specs=unresolved, estimated_seconds=round(estimated),
+                                remaining_seconds=round(self.remaining()))
+                    return
         for attempt in range(passes):
             # Admission for measurement is distinct from admission for repair.
             # The old 3 * 300s floor skipped even the first measurement in a
@@ -6164,10 +6314,23 @@ class Flow:
                 final_ok = None
                 if undecided and self.runner is None and not self.time_up() and not self.wound_down():
                     log(f"[flow] final check turn for nodes without a local verdict: {undecided}")
-                    final_ok, _ = self.turn(FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
-                                                                      tests=self.tests_prompt_for(None),
-                                                                      performance=self.perf_text(), ui=self.ui_contract()),
-                                            self.node_timeout, "final check")
+                    # With no executable specs, an unbounded verification turn
+                    # cannot produce a measured verdict. Preserve time for the
+                    # deterministic startup rehearsal and final grading.
+                    check_cap = max(30, int(os.environ.get('OCTOS_ARC_NO_SPEC_FINAL_CHECK_SECONDS', '180')))
+                    from generation_checks import contract_warnings
+                    sources = self.repair_source_index().sources
+                    wiring = [item for item in contract_warnings(sources, sources)
+                              if item.startswith(('ROUTE_LINK', 'API_CALL'))]
+                    if wiring:
+                        log(f'[flow] final static wiring audit: {len(wiring)} potential gap(s)')
+                    audit = ('\nStatic wiring findings to inspect and fix if confirmed:\n' +
+                             '\n'.join(wiring) + '\n') if wiring else ''
+                    final_prompt = FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
+                                                             tests=self.tests_prompt_for(None),
+                                                             performance=self.perf_text(), ui=self.ui_contract()) + audit
+                    final_ok, _ = self.turn(final_prompt,
+                                            min(self.node_timeout, check_cap, max(1, self.remaining())), "final check")
                     self.commit("chore: final verification pass")
                 rehearsed = self.rehearsal()
                 if rehearsed and any(value is None for value in self.test_verdict.values()) and self.runner is not None:

@@ -150,6 +150,19 @@ class AppDesignTurnTests(unittest.TestCase):
             self.assertEqual(design, DESIGN)
             self.assertEqual(len(flow.calls), 1)
 
+    def test_truncated_design_gets_one_bounded_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, ordered = self._flow(folder, '')
+            flow.text_turn = Mock(side_effect=[(False, 'output_truncated'),
+                                               (True, json.dumps(DESIGN))])
+            self.assertEqual(flow.app_design(TREE, ordered), DESIGN)
+            self.assertEqual(flow.text_turn.call_count, 2)
+            self.assertLessEqual(flow.text_turn.call_args.args[1], 120)
+            first = flow.text_turn.call_args_list[0].args[0]
+            retry = flow.text_turn.call_args_list[1].args[0]
+            self.assertLess(len(retry), len(first))
+            self.assertIn('at most 3500 characters', retry)
+
     def test_should_find_design_after_unrelated_prose_braces(self):
         reply = "Use {one owner} per record.\n" + json.dumps(DESIGN)
         self.assertEqual(m.parse_app_design_reply(reply), DESIGN)

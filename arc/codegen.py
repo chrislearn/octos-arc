@@ -123,6 +123,55 @@ def normalize_bare_file_reply(text: str) -> str | None:
     return "\n".join(output)
 
 
+def normalize_paired_file_reply(text: str) -> str | None:
+    """Repair only a whole reply of complete, consistently paired FILE blocks.
+
+    This is deliberately narrower than parsing arbitrary prose: no valid block,
+    EDIT envelope, unsafe/duplicate path, unmatched marker or surrounding text
+    may be present. Normal write guards still decide whether files are applied.
+    """
+    if parse_file_blocks(text) or parse_edit_blocks(text):
+        return None
+    patterns = (
+        (re.compile(r"(?m)^<FILE\s+([^<>\n]+)>\r?\n", re.I),
+         re.compile(r"(?m)^<END FILE>[ \t]*(?=\r?\n|\Z)", re.I)),
+        (re.compile(r"(?m)^<::\s*<FILE\s+([^<>\n]+)>\s*:::>\r?\n", re.I),
+         re.compile(r"(?m)^<::\s*<END FILE>\s*:::>[ \t]*(?=\r?\n|\Z)", re.I)),
+    )
+    stripped = text.strip()
+    for opening, closing in patterns:
+        first = opening.search(stripped)
+        if not first:
+            continue
+        preface = stripped[:first.start()]
+        if (len(preface) > 1000 or re.search(r"(?im)^(?:\s*```|\s*(?:<|<<<)?(?:FILE|EDIT|END FILE)\b)", preface)):
+            continue
+        pos, output, seen = first.start(), [], set()
+        while pos < len(stripped):
+            head = opening.match(stripped, pos)
+            if not head:
+                break
+            path = safe_relative_path(head[1])
+            if (not path or path != head[1].strip() or path in seen
+                    or not re.fullmatch(r"(?:frontend|backend)/[\w./-]+", path)):
+                break
+            end = closing.search(stripped, head.end())
+            if not end:
+                break
+            body = stripped[head.end():end.start()].rstrip("\r\n")
+            if (not body.strip() or re.search(r"(?m)^\s*(?:<FILE\b|<::\s*<FILE\b|<<<FILE\b)", body, re.I)):
+                break
+            output.append(f"<<<FILE {path}>>>\n{body}\n<<<END FILE>>>")
+            seen.add(path)
+            pos = end.end()
+            separator = re.match(r'(?:\r?\n)+', stripped[pos:])
+            if separator:
+                pos += separator.end()
+        if output and pos == len(stripped):
+            return "\n".join(output)
+    return None
+
+
 def parse_edit_blocks(text: str) -> list[tuple[str, str, str]]:
     """Parse exact edits in response order; only project-relative paths qualify."""
     edits = []

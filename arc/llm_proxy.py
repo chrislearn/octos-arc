@@ -797,6 +797,8 @@ class LlmProxy:
         self.turn_budget = 0
         self.turn_requests = 0
         self.turn_upstream_requests = 0
+        self._upstream_failures = 0
+        self._provider_headers: dict[str, str] = {}
         self.budget_hits = 0
         self.hard_budget_exhausted = False
         self.compact_reads = False
@@ -896,10 +898,16 @@ class LlmProxy:
                     pass  # A timed-out client may have retried while upstream was pending.
 
             def do_POST(self):
-                self._forward("POST")
+                try:
+                    self._forward("POST")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass  # Kernel abandoned the request after its turn ended.
 
             def do_GET(self):
-                self._forward("GET")
+                try:
+                    self._forward("GET")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
 
         self.server = ThreadingHTTPServer((host, 0), Handler)
         self.server.daemon_threads = True
@@ -977,23 +985,42 @@ class LlmProxy:
                                          headers=headers, method=method)
             t0 = time.time()
             meta = self.request_meta(body)   # attribution fixed at issue time, not at response time
-            try:
-                deadline = getattr(self, "turn_deadline", None)
-                lease = getattr(self, "progress_deadline", None)
-                request_timeout = min(600, max(1, deadline - time.monotonic())) if deadline else 600
-                with open_upstream(req, timeout=min(300, max(request_timeout, 120)) if guarded_stream and lease is not None else request_timeout) as resp:
-                    if guarded_stream and "text/event-stream" in resp.headers.get("Content-Type", ""):
-                        payload, stopped = collect_codegen_stream(resp, deadline, lease)
-                        meta["stream_guard"] = stopped or "completed"
-                        result = resp.status, payload, {"Content-Type": "application/json"}
-                    else:
-                        result = resp.status, resp.read(), resp.headers
-            except urllib.error.HTTPError as exc:
-                result = exc.code, exc.read(), exc.headers
-                exc.close()
-            except Exception as exc:  # noqa: BLE001
-                result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
+            for upstream_attempt in range(2):
+                may_have_generated = False
+                try:
+                    deadline = getattr(self, "turn_deadline", None)
+                    lease = getattr(self, "progress_deadline", None)
+                    request_timeout = min(600, max(1, deadline - time.monotonic())) if deadline else 600
+                    with open_upstream(req, timeout=min(300, max(request_timeout, 120)) if guarded_stream and lease is not None else request_timeout) as resp:
+                        may_have_generated = resp.status == 200
+                        if guarded_stream and "text/event-stream" in resp.headers.get("Content-Type", ""):
+                            payload, stopped = collect_codegen_stream(resp, deadline, lease)
+                            meta["stream_guard"] = stopped or "completed"
+                            result = resp.status, payload, {"Content-Type": "application/json"}
+                        else:
+                            result = resp.status, resp.read(), resp.headers
+                except urllib.error.HTTPError as exc:
+                    result = exc.code, exc.read(), exc.headers
+                    exc.close()
+                except Exception as exc:  # noqa: BLE001
+                    result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
+                failure = (result[0] >= 500 and not may_have_generated
+                           and usage_record(result[1], 0, self.mode) is None)
+                with self._lock:
+                    self._upstream_failures = self._upstream_failures + 1 if failure else 0
+                    if failure:
+                        self._provider_headers = {k: v for k, v in headers.items()
+                                                  if k.lower() in {'authorization', 'x-api-key', 'api-key',
+                                                                   'openai-organization', 'openai-project'}}
+                if not failure or upstream_attempt or (deadline and deadline - time.monotonic() < 5):
+                    break
+                time.sleep(1)
             status, payload, _ = result
+            if (key is not None and status >= 500 and not may_have_generated
+                    and usage_record(payload, 0, self.mode) is None):
+                with self._lock:
+                    self.turn_upstream_requests = max(0, self.turn_upstream_requests - 1)
+                    self.turn_requests = max(0, self.turn_requests - 1)
             if key is not None and terminal_account_error(status, payload):
                 with self._lock:
                     self._terminal_accounts[account] = result
@@ -1012,6 +1039,29 @@ class LlmProxy:
             if key is not None:
                 with self._lock:
                     self._inflight.pop(key, None)
+
+    @property
+    def provider_unavailable(self) -> bool:
+        with self._lock:
+            return self._upstream_failures >= 3
+
+    def probe_provider(self, timeout: float = 10) -> bool:
+        """A token-free health check before admitting another node."""
+        with self._lock:
+            headers = dict(self._provider_headers)
+        try:
+            req = urllib.request.Request(self.upstream + self.forward_path('/v1/models'), headers=headers)
+            with open_upstream(req, timeout=timeout) as resp:
+                healthy = resp.status < 500
+        except urllib.error.HTTPError as exc:
+            healthy = exc.code < 500
+            exc.close()
+        except Exception:
+            healthy = False
+        if healthy:
+            with self._lock:
+                self._upstream_failures = 0
+        return healthy
 
     def begin_turn(self, budget: int) -> None:
         with self._lock:

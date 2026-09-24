@@ -126,14 +126,14 @@ class CoverageTests(unittest.TestCase):
         f.repair_rounds = 0
         f.codegen_mode = Mock(return_value=False)
         f.repair_source_index = Mock(return_value=SimpleNamespace(versions={'frontend/App.jsx': 'new'}))
-        prior = [f'B{i}.spec.ts' for i in range(12)]
+        prior = [f'B{i}.spec.ts' for i in range(20)]
         f.affected_regression_specs = Mock(return_value=prior + ['A.spec.ts'])
         f.spec_map = {'A': ['A.spec.ts'], **{f'B{i}': [spec] for i, spec in enumerate(prior)}}
-        f.test_verdict = {f'B{i}': True for i in range(12)}
+        f.test_verdict = {f'B{i}': True for i in range(20)}
         f.run_specs = Mock(side_effect=lambda specs, **kw: observed(specs, ['A.spec.ts']))
         self.assertFalse(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 300,
                                            source_versions={'frontend/App.jsx': 'old'}))
-        self.assertEqual(len(f.run_specs.call_args_list[1].args[0]), 8)
+        self.assertEqual(len(f.run_specs.call_args_list[1].args[0]), 16)
         self.assertNotIn('A.spec.ts', f.run_specs.call_args_list[1].args[0])
 
     def test_backlog_does_not_grow_the_permanent_regression_set(self):

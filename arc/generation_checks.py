@@ -117,6 +117,80 @@ def _bounded_run(command, cwd, timeout):
         return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
+def route_link_warnings(sources, changed):
+    """Flag dynamic in-app links with no matching React Router route.
+
+    This is deliberately advisory: a router may be assembled dynamically. It
+    catches the common case where a generated list links to a detail page that
+    was written but never registered in the route table.
+    """
+    route_paths = set()
+    for path, source in sources.items():
+        if path.startswith('frontend/') and path.endswith(('.jsx', '.tsx')):
+            route_paths.update(re.findall(r'''<Route\b[^>]*\bpath\s*=\s*['"]([^'"\n]+)['"]''', source))
+    if not route_paths:
+        return []
+    warnings = []
+    for path in sorted(changed):
+        if not path.startswith('frontend/') or not path.endswith(('.jsx', '.tsx')):
+            continue
+        source = sources.get(path, '')
+        # Only inspect JSX Link destinations and navigate() template literals.
+        # The dynamic value's name need not match the route parameter's name.
+        destinations = re.findall(r'''\bto\s*=\s*\{\s*`([^`]+)`''', source)
+        destinations += re.findall(r'''\bnavigate\s*\(\s*`([^`]+)`''', source)
+        for destination in destinations:
+            for segment in re.findall(r'/([A-Za-z][A-Za-z0-9_-]*)/\$\{[^}]+\}', destination):
+                if any(re.search(r'/' + re.escape(segment) + r'/(?:[:*][A-Za-z][\w-]*|\*)'
+                                 r'(?:/|$)', route) for route in route_paths):
+                    continue
+                warning = (f'ROUTE_LINK (heuristic): {path} links to a dynamic /{segment}/… page, '
+                           f'but no React Router path contains /{segment}/:param or /{segment}/*path. '
+                           'Register the detail route or verify that another router handles the link.')
+                if warning not in warnings:
+                    warnings.append(warning)
+    return warnings[:4]
+
+
+def api_call_warnings(sources, changed):
+    """Point out literal frontend API calls with no registered Express path."""
+    routes = []
+    for path, source in sources.items():
+        if path.startswith('backend/') and path.endswith(('.js', '.cjs')):
+            routes.extend(re.findall(
+                r'''\b(?:app|router)\.(?:get|post|put|patch|delete)\(\s*['"](/api/[^'"\n]+)['"]''', source))
+    if not routes:
+        return []
+
+    def segments(path):
+        return [part for part in path.split('?', 1)[0].strip('/').split('/') if part]
+
+    def matches(call, route):
+        requested, declared = segments(call), segments(route)
+        if declared and declared[-1].startswith('*'):
+            return (len(requested) >= len(declared) - 1 and
+                    all(a == b or a.startswith(':') or a.startswith('*') or b == '{}'
+                        for a, b in zip(declared[:-1], requested)))
+        return (len(requested) == len(declared) and
+                all(a == b or a.startswith(':') or a.startswith('*') or b == '{}'
+                    for a, b in zip(declared, requested)))
+
+    warnings = []
+    for path in sorted(changed):
+        if not path.startswith('frontend/') or not path.endswith(('.js', '.jsx', '.ts', '.tsx')):
+            continue
+        source = sources.get(path, '')
+        for call in re.findall(r'''\b(?:requestJson|fetch)\s*\(\s*[`'"](/api/[^`'"\n]+)[`'"]''', source):
+            normalized = re.sub(r'\$\{[^}]+\}', '{}', call)
+            if any(matches(normalized, route) for route in routes):
+                continue
+            warning = (f'API_CALL (heuristic): {path} calls {call}, but no Express route has a '
+                       'matching /api path. Check the route owner, HTTP method and mount prefix.')
+            if warning not in warnings:
+                warnings.append(warning)
+    return warnings[:4]
+
+
 def contract_warnings(sources, changed):
     """Bounded source hints, never proof of a bug or grounds to reject a write.
 
@@ -127,7 +201,7 @@ def contract_warnings(sources, changed):
     from source_index import SourceIndex
     index = SourceIndex(sources)
     affected = index.affected(set(changed))
-    warnings = []
+    warnings = route_link_warnings(sources, changed) + api_call_warnings(sources, changed)
     # These contracts are known only while the bundled helpers are unchanged.
     # A generated app may deliberately replace either helper with different
     # semantics, so never guess its return type from the function name alone.

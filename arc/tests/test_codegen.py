@@ -2,10 +2,37 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codegen import incomplete_blocks, normalize_bare_file_reply, parse_edit_blocks, parse_file_blocks, prepare_edit_files, write_files
+from codegen import incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, parse_edit_blocks, parse_file_blocks, prepare_edit_files, write_files
 
 
 class ParseTests(unittest.TestCase):
+    def test_strictly_paired_alternate_file_envelopes(self):
+        for raw in ('We will update two files.\n\n<FILE backend/a.js>\nmodule.exports = 1;\n<END FILE>\n'
+                    '<FILE frontend/src/a.jsx>\nexport default 1;\n<END FILE>',
+                    '<::<FILE backend/a.js>:::>\nmodule.exports = 1;\n<:: <END FILE> :::>'):
+            with self.subTest(raw=raw):
+                normalized = normalize_paired_file_reply(raw)
+                self.assertIn('backend/a.js', parse_file_blocks(normalized))
+
+    def test_alternate_envelope_rejects_mixed_or_incomplete_replies(self):
+        for raw in ('<FILE backend/a.js>\nx\n<END FILE>\nunfinished',
+                    '<FILE backend/a.js>\nx\n<END FILE>\n<FILE backend/b.js>\ny',
+                    '<FILE backend/a.js>\nx\n<END FILE>\n<FILE backend/a.js>\ny\n<END FILE>',
+                    '<FILE ../secret>\nx\n<END FILE>',
+                    '<<<FILE backend/a.js>>>\nx\n<<<END FILE>>>'):
+            with self.subTest(raw=raw):
+                self.assertIsNone(normalize_paired_file_reply(raw))
+
+    def test_rejected_reply_is_retained_outside_application_sources(self):
+        import main
+        with tempfile.TemporaryDirectory() as folder:
+            flow = object.__new__(main.Flow)
+            flow.output_dir = Path(folder)
+            flow.save_rejected_reply('REQ-1 implement', 'no_blocks', '<FILE backend/a.js>\nx')
+            saved = list((Path(folder) / '.arc' / 'rejected-replies').glob('*.txt'))
+            self.assertEqual(len(saved), 1)
+            self.assertEqual(saved[0].read_text(), '<FILE backend/a.js>\nx')
+
     def test_completed_bare_file_sections_have_a_deterministic_envelope(self):
         raw = "FILE backend/routes/example.js\nmodule.exports = app => {};\n\nFILE frontend/src/View.jsx\nexport default () => <p>View</p>;"
         self.assertEqual(parse_file_blocks(normalize_bare_file_reply(raw)), {
