@@ -1545,6 +1545,14 @@ pub struct GatewaySettings {
     /// for OpenAI-compatible servers. `None` → nothing added. #2172.
     #[serde(default)]
     pub llm_sampling_params: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Total HTTP timeout (seconds) for one non-streaming LLM request.
+    /// `None` keeps `DEFAULT_LLM_TIMEOUT_SECS`. Same knob as the host config's
+    /// `gateway.llm_timeout_secs`, for profile-backed (serve/stdio) sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_timeout_secs: Option<u64>,
+    /// HTTP connect timeout (seconds) for LLM requests. `None` keeps the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_connect_timeout_secs: Option<u64>,
     /// Per-profile watchdog override. `None` inherits the system monitor default.
     #[serde(default)]
     pub watchdog_enabled: Option<bool>,
@@ -2845,6 +2853,10 @@ pub(crate) fn config_from_profile(
             llm_temperature: profile.config.gateway.llm_temperature,
             // #2172: same for the sampler passthrough (repeat_penalty, …).
             llm_sampling_params: profile.config.gateway.llm_sampling_params.clone(),
+            // Without these a profile session always used the fixed 300 s
+            // client timeout, cutting off slow non-streaming completions.
+            llm_timeout_secs: profile.config.gateway.llm_timeout_secs,
+            llm_connect_timeout_secs: profile.config.gateway.llm_connect_timeout_secs,
             ..Default::default()
         }),
         fallback_models,
@@ -3885,6 +3897,36 @@ mod tests {
             ..profile
         };
         assert!(!config_from_profile(&off, None, None).format_after_edit);
+    }
+
+    #[test]
+    fn should_thread_llm_timeouts_when_profile_gateway_sets_them() {
+        // A profile-backed (stdio/serve) session built its provider with the
+        // fixed 300 s DEFAULT_LLM_TIMEOUT_SECS because config_from_profile
+        // dropped the timeout knobs: a slow non-streaming completion was cut
+        // off client-side while the provider was still generating.
+        let profile: UserProfile = serde_json::from_value(serde_json::json!({
+            "id": "slow-provider",
+            "name": "Slow Provider",
+            "enabled": false,
+            "config": {"gateway": {"llm_timeout_secs": 900, "llm_connect_timeout_secs": 15}},
+            "created_at": Utc::now(),
+            "updated_at": Utc::now(),
+        }))
+        .expect("profile json with gateway timeouts");
+        let gateway = config_from_profile(&profile, None, None)
+            .gateway
+            .expect("profile config always carries a gateway section");
+        assert_eq!(gateway.llm_timeout_secs, Some(900));
+        assert_eq!(gateway.llm_connect_timeout_secs, Some(15));
+
+        let unset = UserProfile {
+            config: ProfileConfig::default(),
+            ..profile
+        };
+        let gateway = config_from_profile(&unset, None, None).gateway.unwrap();
+        assert_eq!(gateway.llm_timeout_secs, None);
+        assert_eq!(gateway.llm_connect_timeout_secs, None);
     }
 
     #[test]

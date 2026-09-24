@@ -397,6 +397,8 @@ impl OpenAIProvider {
     pub fn with_http_timeout(mut self, timeout_secs: u64, connect_timeout_secs: u64) -> Self {
         self.client = crate::provider::build_http_client(timeout_secs, connect_timeout_secs);
         self.stream_client = crate::provider::build_streaming_http_client(connect_timeout_secs);
+        // `chat()` sets this per request, which overrides the client timeout.
+        self.chat_timeout = std::time::Duration::from_secs(timeout_secs);
         self
     }
 
@@ -2551,6 +2553,46 @@ mod tests {
     /// The body string that `is_image_modality_error` recognises as an image-
     /// modality 400 (matches the `"does not support image"` arm).
     const IMAGE_MODALITY_400_BODY: &str = r#"{"error":{"message":"This model does not support image input","type":"invalid_request_error"}}"#;
+
+    #[tokio::test]
+    async fn should_apply_http_timeout_to_non_streaming_chat_when_overridden() {
+        // `with_http_timeout` only swapped the client, while `chat()` sets a
+        // per-request timeout from `chat_timeout` (fixed at the 300 s default),
+        // and a per-request timeout overrides the client's: a configured
+        // `llm_timeout_secs` could therefore never change a non-streaming call.
+        use crate::{LlmCallPolicy, with_llm_call_policy};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(std::time::Duration::from_secs(10))
+                    .set_body_string("{}"),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = OpenAIProvider::new("test-key", "gpt-4o")
+            .with_base_url(server.uri())
+            .with_http_timeout(1, 1);
+        assert_eq!(provider.chat_timeout, std::time::Duration::from_secs(1));
+        let started = std::time::Instant::now();
+        let result = with_llm_call_policy(LlmCallPolicy::FailFast, async {
+            provider
+                .chat(&[Message::user("hi")], &[], &ChatConfig::default())
+                .await
+        })
+        .await;
+        assert!(result.is_err(), "a stalled request must time out");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the configured 1 s timeout must win over the 300 s default, took {:?}",
+            started.elapsed()
+        );
+    }
 
     #[tokio::test]
     async fn should_not_retry_text_only_when_failfast_on_image_modality_400_stream() {

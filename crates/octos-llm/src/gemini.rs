@@ -330,9 +330,9 @@ impl LlmProvider for GeminiProvider {
             .client
             .post(&url)
             .header("Content-Type", "application/json")
-            .timeout(std::time::Duration::from_secs(
-                crate::provider::DEFAULT_LLM_TIMEOUT_SECS,
-            ))
+            // The client carries the total timeout (DEFAULT_LLM_TIMEOUT_SECS
+            // unless `with_http_timeout` overrides it); a per-request value
+            // here would silently override that configuration.
             .json(&request);
         let response = self.apply_auth(req).await?.send().await.wrap_err_with(|| {
             crate::provider::transport_error_message(
@@ -2307,6 +2307,34 @@ mod lane_attributed_operational_errors {
             .await;
         let provider = GeminiProvider::new("key", "gemini-test").with_base_url(server.uri());
         (server, provider)
+    }
+
+    #[tokio::test]
+    async fn should_apply_http_timeout_to_non_streaming_chat_when_overridden() {
+        // A hard-coded per-request 300 s timeout overrode the client timeout
+        // that `with_http_timeout` installs, so `llm_timeout_secs` was inert.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(std::time::Duration::from_secs(10))
+                    .set_body_string("{}"),
+            )
+            .mount(&server)
+            .await;
+        let provider = GeminiProvider::new("key", "gemini-test")
+            .with_base_url(server.uri())
+            .with_http_timeout(1, 1);
+        let started = std::time::Instant::now();
+        let result = provider
+            .chat(&[Message::user("hi")], &[], &ChatConfig::default())
+            .await;
+        assert!(result.is_err(), "a stalled request must time out");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the configured 1 s timeout must win, took {:?}",
+            started.elapsed()
+        );
     }
 
     #[tokio::test]
