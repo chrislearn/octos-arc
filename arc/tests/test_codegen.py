@@ -49,6 +49,14 @@ class ParseTests(unittest.TestCase):
                     'FILE frontend/a.js\nx\n<<<EDIT backend/b.js>>>'):
             with self.subTest(raw=raw):
                 self.assertIsNone(normalize_bare_file_reply(raw))
+    def test_should_accept_a_file_header_with_two_closing_brackets(self):
+        # v7.17 run 0892dfbc3f83: one `<<<FILE path>>` typo discarded a whole
+        # three-file reply, including an unrelated build fix.
+        reply = ("<<<FILE a.js>>>\nconst a = 1;\n<<<END FILE>>>\n"
+                 "<<<FILE b.jsx>>\nexport default 1;\n<<<END FILE>>>\n<<<NO CHANGE>>>")
+        self.assertFalse(incomplete_blocks(reply))
+        self.assertEqual(parse_file_blocks(reply), {"a.js": "const a = 1;\n", "b.jsx": "export default 1;\n"})
+
     def test_should_extract_blocks_and_confine_paths(self):
         text = ("Here you go.\n<<<FILE backend/server.js>>>\nconst x = 1;\n<<<END FILE>>>\n"
                 "<<<FILE frontend/src/index.html >>>\n<p>hi</p>\n<<<END FILE>>>\n"

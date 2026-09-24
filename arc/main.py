@@ -4479,7 +4479,8 @@ class Flow:
                    or getattr(self, "last_codegen_no_change", False) is True):
             return ok, text
         format_error = (text.startswith("codegen reply contained no ")
-                        or text.startswith("mixed FILE and EDIT blocks"))
+                        or text.startswith("mixed FILE and EDIT blocks")
+                        or text.startswith("Incomplete FILE/EDIT output"))
         correction = ("\nThe preceding answer was discarded without writing files: " + text[:240] +
                       "\nReturn ONLY complete <<<FILE ...>>> blocks, with exact "
                       "<<<END FILE>>> terminators. One block per path. "
@@ -4815,6 +4816,14 @@ class Flow:
         self.whole_app_deferred_ids = set()
         attempts = 0
         requests_before = getattr(self, "whole_app_generation_requests", 0)
+        # Files a reply rewrote without seeing them, per wave position: one
+        # refused in two different waves is a shared owner the model keeps
+        # extending, so later waves quote it instead of paying a requote.
+        refusal_starts: dict[str, set[int]] = {}
+        # Files named by a confirmed source-check error stay quoted until a
+        # later check clears them; otherwise their fix is refused forever.
+        self._wave_error_files = set()
+        marked: set[str] = set()
         while start < len(ordered):
             if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
                 log("[flow] whole-app waves: insufficient budget; measuring any partial application")
@@ -4822,7 +4831,8 @@ class Flow:
             # Files an earlier attempt at this position wrote or had refused:
             # a split or same-wave retry must see them whole, or its rewrite
             # of a file it never saw is refused again.
-            carry: set[str] = set()
+            carry: set[str] = set()      # written by an earlier attempt here: quote when it fits
+            required: set[str] = set()   # refused here: the retry must see it whole
             requoted: set[tuple[str, ...]] = set()
             size = min(max_nodes, len(ordered) - start)
             if start + size < len(ordered):
@@ -4852,8 +4862,11 @@ class Flow:
                                            "within the shared application. Preserve previously generated "
                                            "features and their data contracts. Do not defer a listed requirement "
                                            "to a later wave.\n\n" + global_context + details}
+                hot = {rel for rel, starts in refusal_starts.items() if len(starts) >= 2}
+                required_now = {rel for rel in required | hot | self._wave_error_files
+                                if (self.output_dir / rel).is_file()}
                 targets = set(self.whole_app_wave_targets(ids, spec, details))
-                targets |= {rel for rel in carry if (self.output_dir / rel).is_file()}
+                targets |= {rel for rel in carry if (self.output_dir / rel).is_file()} | required_now
                 relationships = ""
                 if targets:
                     relationships = ("\nCurrent wave dependency/interface map. Files outside the exact target "
@@ -4867,7 +4880,7 @@ class Flow:
                     # rewrite; the rest stay ranked by relevance and are quoted
                     # when they fit, instead of losing the whole leaf.
                     minimal = ({rel for rel in targets if Path(rel).name in COMPOSITION_FILES}
-                               | (targets & set(getattr(self, "refused_paths", ()) or ())) | (targets & carry))
+                               | (targets & set(getattr(self, "refused_paths", ()) or ())) | required_now)
                     if minimal < targets:
                         log(f"[flow] whole-app wave {wave + 1}: focused closure for {ids} did not fit "
                             f"{prompt_cap}/{source_cap} prompt/source chars; retrying with "
@@ -4905,6 +4918,12 @@ class Flow:
                             source_chars=self.codegen_budget.get("source_block"),
                             prompt_cap=prompt_cap, source_cap=source_cap)
                 attempts += 1
+                for node_id in ids:
+                    if node_id not in marked:
+                        marked.add(node_id)
+                        self.mark("design_started", node_id)
+                        self.mark("design_done", node_id, "covered by whole-application design")
+                        self.mark("implementation_started", node_id, f"whole-app wave {wave + 1}")
                 self._generation_gate_result = None
                 before_wave = self.head()
                 ok, text = self.whole_app_generation_turn(prompt, timeout,
@@ -4933,6 +4952,13 @@ class Flow:
                     start += size
                     break
                 carry |= set(getattr(self, "last_codegen_written", ()) or ())
+                gate = getattr(self, "_generation_gate_result", None)
+                if isinstance(gate, dict):
+                    self._wave_error_files = {
+                        match.group(1) for error in gate.get("errors") or []
+                        if (match := re.match(r"\s*([\w@./-]+\.[A-Za-z0-9]+):", str(error)))}
+                for rel in getattr(self, "last_codegen_refused", ()) or ():
+                    refusal_starts.setdefault(rel, set()).add(start)
                 applied = bool(getattr(self, "last_codegen_written", [])
                                or getattr(self, "last_codegen_no_change", False) is True)
                 gaps = self.whole_app_wave_gaps(ids) if applied else []
@@ -4957,7 +4983,7 @@ class Flow:
                         # Quote them whole and ask again now, while the
                         # feature context is hot, instead of a later repair.
                         requoted.add(tuple(ids))
-                        carry |= refused_now
+                        required |= refused_now
                         self.metric("wave_requote", wave=wave + 1, node_ids=ids, paths=sorted(refused_now))
                         log(f"[flow] whole-app wave {wave + 1}: requoting {', '.join(sorted(refused_now))} "
                             "whole for one same-wave retry")
@@ -4981,6 +5007,9 @@ class Flow:
                     break
                 self.commit(f"whole application wave {wave + 1} (experimental implement)")
                 self.whole_app_generated_ids.update(ids)
+                for node_id in ids:
+                    self.mark("implementation_done", node_id,
+                              f"implemented by whole-app wave {wave + 1}; verification pending")
                 clean_waves += 1
                 if clean_waves >= 2:
                     max_nodes = min(configured_max_nodes, max_nodes * 2)

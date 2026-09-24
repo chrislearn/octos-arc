@@ -77,6 +77,17 @@ class GenerationChecksTests(TestCase):
         self.assertFalse(any('API_CALL' in warning for warning in
                              contract_warnings(sources, ['frontend/src/Repo.jsx'])))
 
+    def test_should_ignore_api_calls_inside_comments(self):
+        sources = {
+            'backend/routes/users.js': "app.get('/api/users', list);",
+            'frontend/src/shared/request.js': (
+                "// Example: const items = await requestJson('/api/items'); setItems(items).\n"
+                "/* fetch('/api/other') is documented here */\n"
+                "export async function requestJson(url, options = {}) { return fetch(url, options); }"),
+        }
+        self.assertFalse(any('API_CALL' in warning for warning in
+                             contract_warnings(sources, ['frontend/src/shared/request.js'])))
+
     def test_frontend_api_method_must_match_backend_method(self):
         sources = {
             'backend/routes/items.js': "app.get('/api/items', listItems);",

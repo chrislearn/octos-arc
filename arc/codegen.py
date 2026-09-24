@@ -34,11 +34,13 @@ _REPLACEMENT_BODY = r"(?:(?!^[ \t]*<<<(?:FILE|EDIT|END EDIT|SEARCH|REPLACE)\b).)
 # A malformed terminator must not borrow the next file's terminator. FILE
 # headers/terminators are reserved at line starts; inline strings remain valid.
 _FILE_BODY = r"(?:(?!^[ \t]*<<<(?:FILE|END FILE)\b).)*?"
-FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n"
+# Models occasionally close a header with `>>`; the path cannot contain `>`
+# and the header must end the line, so accepting it is unambiguous.
+FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>?\r?\n"
                         rf"(?P<body>{_FILE_BODY})(?:\r?\n)?"
                         rf"^{_END_FILE}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
 EDIT_BLOCK = re.compile(
-    r"<<<EDIT\s+(?P<path>[^\n>]+?)\s*>>>\r?\n"
+    r"<<<EDIT\s+(?P<path>[^\n>]+?)\s*>>>?\r?\n"
     rf"<<<SEARCH>>>\r?\n(?P<search>{_EDIT_BODY})(?:\r?\n)?^"
     rf"<<<REPLACE>>>\r?\n(?P<replacement>{_REPLACEMENT_BODY})(?:\r?\n)?^{_END_EDIT}[ \t]*(?=\r?\n|\Z)", re.S | re.M)
 

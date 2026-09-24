@@ -38,6 +38,7 @@ class WholeAppTests(unittest.TestCase):
         self.flow.remaining = Mock(return_value=4000)
         self.flow.wound_down = Mock(return_value=False)
         self.flow.commit = Mock()
+        self.flow.events = Mock()  # a real run always has the platform event client
         # Generation tests below mock the list of written paths rather than
         # writing those files. Batch-check behavior has dedicated tests; do not
         # run a real scaffold build against a fictional mock write here.
@@ -789,6 +790,117 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual(len(gaps), 1)
         self.assertTrue(gaps[0].startswith("ROUTE_CONFLICT"))
 
+    def _applied(self, written=("frontend/src/feature.js",), refused=()):
+        flow = self.flow
+        flow.last_codegen_written = list(written)
+        flow.last_codegen_no_change = False
+        flow.last_codegen_refused = set(refused)
+        flow.last_codegen_outcome = "applied"
+        return True, "files"
+
+    def test_should_report_node_progress_while_waves_run(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.whole_app_wave_gaps = Mock(side_effect=[[], ["incomplete"], []])
+        flow.mark = Mock()
+        seen = []
+
+        def generated(*args, **kwargs):
+            seen.append([call.args[:2] for call in flow.mark.call_args_list])
+            return self._applied()
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertIn(("implementation_started", "A"), seen[0])
+        marks = [call.args[:2] for call in flow.mark.call_args_list]
+        self.assertIn(("implementation_done", "A"), marks)
+        self.assertIn(("implementation_done", "C"), marks)
+        self.assertIn(("implementation_started", "B"), marks)
+        self.assertNotIn(("implementation_done", "B"), marks)
+
+    def test_should_not_require_files_the_previous_attempt_wrote_in_the_minimal_closure(self):
+        flow = self.flow
+        big = self.root / "frontend/src/Big.jsx"
+        big.parent.mkdir(parents=True, exist_ok=True)
+        big.write_text("// written by the two-leaf attempt")
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx"})
+        flow.whole_app_wave_gaps = Mock(side_effect=[["incomplete group"]] + [[]] * 6)
+        prompts = iter(["group prompt", None, "leaf prompt", "leaf prompt", "leaf prompt", "leaf prompt"])
+        flow.codegen_implement_prompt = Mock(side_effect=lambda *a, **k: next(prompts))
+        flow.whole_app_generation_turn = Mock(side_effect=lambda *a, **k: self._applied(["frontend/src/Big.jsx"]))
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "2"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        minimal = flow.codegen_implement_prompt.call_args_list[2].kwargs["must_include"]
+        self.assertEqual(minimal, {"frontend/src/App.jsx"})
+        self.assertNotIn("A", flow.whole_app_deferred_ids)
+
+    def test_should_quote_files_with_source_check_errors_until_fixed(self):
+        flow = self.flow
+        broken = self.root / "frontend/src/pages/Repos.jsx"
+        broken.parent.mkdir(parents=True, exist_ok=True)
+        broken.write_text("import {requestJson} from '../../shared/request.js';")
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx", "frontend/src/Big.jsx"})
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        prompts = iter(["p", None, "p", None, "p"])
+        flow.codegen_implement_prompt = Mock(side_effect=lambda *a, **k: next(prompts))
+        calls = []
+
+        def generated(*args, **kwargs):
+            calls.append(1)
+            flow._generation_gate_result = {"errors": [
+                "frontend/src/pages/Repos.jsx: relative import ../../shared/request.js resolves to missing "
+                "frontend/shared/request.js."] if len(calls) == 1 else [], "warnings": []}
+            return self._applied()
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        second_leaf_minimal = flow.codegen_implement_prompt.call_args_list[2].kwargs["must_include"]
+        self.assertIn("frontend/src/pages/Repos.jsx", second_leaf_minimal)
+        third_leaf_minimal = flow.codegen_implement_prompt.call_args_list[4].kwargs["must_include"]
+        self.assertNotIn("frontend/src/pages/Repos.jsx", third_leaf_minimal)
+
+    def test_should_keep_quoting_a_file_refused_in_two_waves(self):
+        flow = self.flow
+        hot = self.root / "backend/lib/auth.js"
+        hot.parent.mkdir(parents=True, exist_ok=True)
+        hot.write_text("module.exports = {};")
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        refusal = "write guard refused required existing file(s): backend/lib/auth.js"
+        flow.whole_app_wave_gaps = Mock(side_effect=[[refusal], [], [refusal], [], []])
+        replies = iter([["backend/lib/auth.js"], [], ["backend/lib/auth.js"], [], []])
+        flow.whole_app_generation_turn = Mock(side_effect=lambda *a, **k: self._applied(refused=next(replies)))
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        first_c_prompt = flow.codegen_implement_prompt.call_args_list[4].kwargs["must_include"]
+        self.assertIn("backend/lib/auth.js", first_c_prompt)
+
+    def test_should_retry_format_once_when_a_reply_has_an_incomplete_block(self):
+        flow = self.flow
+        replies = iter([(False, "Incomplete FILE/EDIT output: no changes were applied. Return complete "
+                                "blocks with exact terminators; never nest FILE headers."),
+                        (True, "files")])
+
+        def turn(*args, **kwargs):
+            ok, text = next(replies)
+            flow.last_codegen_written = ["frontend/src/feature.js"] if ok else []
+            flow.last_codegen_no_change = False
+            return ok, text
+
+        flow.codegen_turn = Mock(side_effect=turn)
+        flow.codegen_context_chars = Mock(return_value=90000)
+        ok, _ = flow.whole_app_generation_turn("prompt", 600, "whole application wave 1", spec_chars=10)
+        self.assertTrue(ok)
+        self.assertEqual(flow.codegen_turn.call_count, 2)
+        self.assertIn("format retry", flow.codegen_turn.call_args.args[2])
+
     def test_should_fail_only_the_node_that_owns_a_final_seed_gap(self):
         flow = self.flow
         seeds = {"B": ["SEED_DATA B: required initial literal \"Acme\" is absent"]}
@@ -856,6 +968,7 @@ class WholeAppTests(unittest.TestCase):
                 self.addCleanup(temp.cleanup)
                 root = Path(temp.name)
                 flow = m.Flow(argparse.Namespace(web_port=3000), root, requirement_dir)
+                flow.events = Mock()
                 flow.tests_dir = bundle / "public-tests" / requirement_dir.name
                 specs = sorted(str(path.relative_to(flow.tests_dir))
                                for path in flow.tests_dir.rglob("*.spec.ts"))

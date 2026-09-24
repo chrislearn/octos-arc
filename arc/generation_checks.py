@@ -117,6 +117,47 @@ def _bounded_run(command, cwd, timeout):
         return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
+def _strip_js_comments(source):
+    """Blank out // and /* */ comments so documented examples are not calls.
+
+    String and template literals are kept intact (a URL's `//` is not a
+    comment); offsets are preserved by replacing comment text with spaces.
+    """
+    out, i, quote = [], 0, None
+    while i < len(source):
+        char = source[i]
+        if quote:
+            out.append(char)
+            if char == '\\' and i + 1 < len(source):
+                out.append(source[i + 1])
+                i += 2
+                continue
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in '"\'`':
+            quote = char
+            out.append(char)
+            i += 1
+            continue
+        if source.startswith('//', i):
+            end = source.find('\n', i)
+            end = len(source) if end < 0 else end
+            out.append(' ' * (end - i))
+            i = end
+            continue
+        if source.startswith('/*', i):
+            end = source.find('*/', i + 2)
+            end = len(source) if end < 0 else end + 2
+            out.append(re.sub(r'[^\n]', ' ', source[i:end]))
+            i = end
+            continue
+        out.append(char)
+        i += 1
+    return ''.join(out)
+
+
 def _route_tags(source):
     """Yield (kind, top_level_text) for <Route ...>, <Route .../> and </Route>.
 
@@ -298,7 +339,7 @@ def api_call_warnings(sources, changed):
     for path in sorted(changed):
         if not path.startswith('frontend/') or not path.endswith(('.js', '.jsx', '.ts', '.tsx')):
             continue
-        source = sources.get(path, '')
+        source = _strip_js_comments(sources.get(path, ''))
         calls = re.finditer(
             r'''\b(?:requestJson|fetch)\s*\(\s*([`'"])(/api/[^`'"\n]+)\1''', source)
         for match in calls:
