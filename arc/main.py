@@ -121,6 +121,8 @@ from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from progress_timeout import ProgressDeadline
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
+from dataclasses import replace as dc_replace  # noqa: E402
+from scenario_tests import compile_suite as compile_derived_suite, write_suite  # noqa: E402
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
 from web_checks import scaffold_issues  # noqa: E402
@@ -3763,12 +3765,15 @@ class Flow:
         was missing, and every graded test failed."""
         if not self.tests_dir:
             return
+        self.runner = self.playwright_runner(self.tests_dir)
+
+    def playwright_runner(self, tests_dir: Path) -> AcceptanceRunner | None:
         env_extra: dict = {}
-        root = find_playwright_root(playwright_candidates(BUNDLE_DIR, self.tests_dir, self.output_dir))
+        root = find_playwright_root(playwright_candidates(BUNDLE_DIR, tests_dir, self.output_dir))
         if root is None:
             root = find_playwright_by_search(log)
         if root is None and os.environ.get("OCTOS_ARC_INSTALL_PLAYWRIGHT", "1") != "0":
-            version = playwright_version_hint(self.tests_dir)
+            version = playwright_version_hint(tests_dir)
             log(f"[acceptance] no preinstalled Playwright found; private install of @playwright/test@{version}")
             self.private_playwright = Path(tempfile.mkdtemp(prefix="octos-arc-playwright-"))
             installed = ensure_playwright(self.private_playwright, log, version=version)
@@ -3776,15 +3781,16 @@ class Flow:
                 root, env_extra = installed
         if root is None:
             log("[acceptance] Playwright unavailable; nodes will be judged by the final check only")
-            return
+            return None
         limit = container_memory_limit()
         self.mem_limit = limit
         workers = workers_for_memory(limit, int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
-        self.runner = AcceptanceRunner(root, self.tests_dir, acceptance_work_dir(root), log,
-                                       timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
-                                       workers=workers, env_extra=env_extra)
+        runner = AcceptanceRunner(root, tests_dir, acceptance_work_dir(root), log,
+                                  timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
+                                  workers=workers, env_extra=env_extra)
         log(f"[acceptance] using Playwright at {root}; workers={workers}"
             + (f" (container memory limit {limit // (1024 * 1024)} MiB)" if limit else ""))
+        return runner
 
     def snapshot_protected(self) -> None:
         """Copy the official tests dir (and requirements) so any edit the model
@@ -3900,7 +3906,8 @@ class Flow:
         return AppServer(self.output_dir, self.smoke_port, log, grader_like=grader_like,
                          extra_ports=[p for p in spec_base_ports(self.tests_dir) if p != self.web_port])
 
-    def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False) -> RunSummary:
+    def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False,
+                  runner: AcceptanceRunner | None = None) -> RunSummary:
         """Build, start, run the specs, then undo whatever the test run mutated
         (a persisted counter at -1 would otherwise be committed as the seed).
         `grader_like` starts the backend with only PORT set, as the platform does."""
@@ -3917,7 +3924,7 @@ class Flow:
                 err = server.start()
             if err is not None:
                 return RunSummary(error=err)
-            summary = self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
+            summary = (runner or self.runner).run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
                                       wall_timeout=max(1, min(900, int(self.remaining()))))
             if not summary.all_passed:
                 summary.server_errors = backend_error_digest(server.tail(5000))
@@ -4762,6 +4769,129 @@ class Flow:
             log(f"[flow] {node_id}: focused scenario/seed repair cleared the deterministic gaps")
         return remaining
 
+    # -- derived scenario checks (no official specs) ------------------------
+    def prepare_derived_tests(self, ordered: list[dict]) -> bool:
+        """Compile static Playwright checks from requirements.yaml, once.
+
+        They live under .arc/ (protected from model writes) and are re-run
+        unchanged by every derived acceptance round; no model tokens are spent.
+        """
+        if self.tests_dir or os.environ.get("OCTOS_ARC_DERIVED_TESTS", "1") == "0":
+            return False
+        files = compile_derived_suite(ordered)
+        specs = sorted(rel for rel in files if rel.endswith(".spec.ts"))
+        if not specs:
+            log("[derived] no scenario yielded a mechanical check")
+            return False
+        directory = self.output_dir / ".arc" / "derived-tests"
+        if directory.exists():
+            shutil.rmtree(directory)
+        write_suite(directory, files)
+        self.derived_tests_dir = directory
+        self.derived_spec_map = {rel[:-len(".spec.ts")]: [rel] for rel in specs}
+        checks = sum(source.count("\ntest(") + source.startswith("test(") for rel, source in files.items()
+                     if rel.endswith(".spec.ts"))
+        scripts = sum(source.count("[script]'") for source in files.values())
+        log(f"[derived] compiled {checks} static check(s) ({scripts} scenario script(s)) for "
+            f"{len(specs)}/{len(ordered)} leaves into {directory}")
+        return True
+
+    def derived_runner(self) -> AcceptanceRunner | None:
+        return self.playwright_runner(self.derived_tests_dir)
+
+    def run_derived_suite(self, runner: AcceptanceRunner) -> RunSummary:
+        """Run every derived spec in bounded chunks so one wall timeout cannot void a round."""
+        specs = sorted(path for paths in self.derived_spec_map.values() for path in paths)
+        chunk = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_CHUNK", "12")))
+        merged = RunSummary()
+        for index in range(0, len(specs), chunk):
+            if self.time_up() or self.wound_down():
+                break
+            part = self.run_specs(specs[index:index + chunk], runner=runner)
+            if part.error and not part.results:
+                merged.error = part.error
+                continue
+            merged.passed += part.passed
+            merged.total += part.total
+            merged.results += part.results
+            merged.server_errors = merged.server_errors or part.server_errors
+        return merged
+
+    def derived_repair(self, node: dict, failures: list, summary: RunSummary) -> None:
+        node_id = str(node.get("id"))
+        failed = dc_replace(summary, results=list(failures), passed=0, total=len(failures), error=None)
+        evidence = (failure_summaries(failed) + failure_source_context(failed, self.derived_tests_dir))[:9000]
+        paths = self.derived_spec_map.get(node_id) or []
+        checks = "\n".join((self.derived_tests_dir / rel).read_text(encoding="utf-8") for rel in paths)
+        spec = (self.spec_bodies(node_id) + "\n\nDERIVED SCENARIO CHECKS (generated from the requirement; fixed, "
+                "never edit them; make the application satisfy them):\n" + checks)
+        details = describe_node(node)
+        targets = self.whole_app_wave_targets([node_id], spec, details)
+        prompt_cap, source_cap = self.whole_app_budgets()
+        correction = ("Derived scenario checks failed. Each failure names the control or text the requirement "
+                      "quotes and where it was looked for. Fix the application so a user can reach and use it "
+                      "as the requirement describes:\n" + evidence)
+        prompt = self.codegen_implement_prompt(node, spec, correction, must_include=targets,
+                                               context_limit=prompt_cap, source_limit=source_cap,
+                                               focused_sources=True)
+        if prompt is None:
+            minimal = {rel for rel in targets if Path(rel).name in COMPOSITION_FILES}
+            prompt = self.codegen_implement_prompt(node, spec, correction, must_include=minimal,
+                                                   context_limit=prompt_cap, source_limit=source_cap,
+                                                   focused_sources=True)
+        if prompt is None:
+            log(f"[derived] {node_id}: repair prompt does not fit; skipped")
+            return
+        timeout = max(60, min(int(os.environ.get("OCTOS_ARC_DERIVED_REPAIR_SECONDS", "420")),
+                              int(self.remaining() - self.final_phase_reserve())))
+        write_codegen_manifests(self.output_dir)
+        ok, _ = self.codegen_turn(prompt, timeout, f"{node_id} derived-check repair", spec_chars=len(spec))
+        if getattr(self, "last_codegen_written", []):
+            self.commit(f"{node_id}: derived scenario check repair")
+
+    def derived_acceptance(self, ordered: list[dict]) -> None:
+        """Run the static derived checks, repair failing leaves, keep the best tree."""
+        if self.tests_dir or not getattr(self, "derived_tests_dir", None):
+            return
+        runner = self.derived_runner()
+        if runner is None:
+            log("[derived] Playwright unavailable; derived checks skipped")
+            return
+        rounds = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_ROUNDS", "6")))
+        by_id = {str(node.get("id")): node for node in ordered}
+        best_passed, best_sha, stale = -1, None, 0
+        self.derived_verdict = {}
+        for round_no in range(1, rounds + 1):
+            if self.wound_down() or self.remaining() < self.final_phase_reserve() + 600:
+                log("[derived] stopping: time reserved for the final check and rehearsal")
+                break
+            summary = self.run_derived_suite(runner)
+            if not summary.results:
+                log(f"[derived] round {round_no}: no results ({summary.error or 'empty'}); stopping")
+                break
+            failing = nodes_for_failures(summary.results, self.derived_spec_map)
+            failing.pop(None, None)
+            log(f"[derived] round {round_no}: {summary.passed}/{summary.total} checks pass; "
+                f"failing leaves: {', '.join(sorted(failing)) or 'none'}")
+            self.metric("derived_round", round=round_no, passed=summary.passed, total=summary.total,
+                        failing=sorted(failing))
+            if summary.passed < best_passed and best_sha:
+                log(f"[derived] round {round_no} regressed ({summary.passed} < {best_passed}); restoring best tree")
+                self.restore_app(best_sha)
+                break
+            round_verdict = {node_id: node_id not in failing for node_id in self.derived_spec_map}
+            if summary.passed > best_passed:
+                best_passed, best_sha, stale = summary.passed, self.head(), 0
+                self.derived_verdict = round_verdict
+            else:
+                stale += 1
+            if not failing or stale >= 2 or round_no == rounds:
+                break
+            for node_id in [str(node.get("id")) for node in ordered if str(node.get("id")) in failing]:
+                if self.wound_down() or self.remaining() < self.final_phase_reserve() + 600:
+                    break
+                self.derived_repair(by_id[node_id], failing[node_id], summary)
+
     @staticmethod
     def final_check_verdict(ok: bool, text: str):
         """A final check that ran out of time or requests measured nothing."""
@@ -4774,7 +4904,8 @@ class Flow:
         return False
 
     @staticmethod
-    def no_spec_node_verdict(node_id: str, rehearsed: bool, final_ok, seed_failures: dict) -> tuple[bool, str]:
+    def no_spec_node_verdict(node_id: str, rehearsed: bool, final_ok, seed_failures: dict,
+                             derived: dict | None = None) -> tuple[bool, str]:
         """Final verdict for a leaf without official specs.
 
         A missing requirement-declared seed fails only the leaf that declares
@@ -4785,6 +4916,11 @@ class Flow:
         gaps = seed_failures.get(node_id) or []
         if gaps:
             return False, "requirement-declared initial data still missing: " + "; ".join(gaps[:3])
+        result = (derived or {}).get(node_id)
+        if result is False:
+            return False, "derived scenario checks still failing; official acceptance specs unavailable"
+        if result is True:
+            return True, "derived scenario checks pass and startup rehearsal completed; official specs unavailable"
         return True, ("derived requirement-contract review and startup rehearsal completed; "
                       "official acceptance specs unavailable")
 
@@ -6873,6 +7009,7 @@ class Flow:
                 save_contracts(contract_path, self.requirement_contracts)
                 log(f"[tests] no acceptance specs found; wrote deterministic requirement contract for "
                     f"{len(ordered)} node(s) to {contract_path}")
+                self.prepare_derived_tests(ordered)
 
             self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
@@ -6935,6 +7072,7 @@ class Flow:
                     self.implement_sequential(tree, ordered, unchanged)
 
                 self.final_acceptance_passes()
+                self.derived_acceptance(ordered)
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None
                 seed_failures: dict[str, list[str]] = {}
@@ -6982,7 +7120,8 @@ class Flow:
                     if self.runner is not None and self.spec_map.get(node_id):
                         # Starting the server is not proof that a feature works.
                         continue
-                    passed, detail = self.no_spec_node_verdict(node_id, rehearsed, final_ok, seed_failures)
+                    passed, detail = self.no_spec_node_verdict(node_id, rehearsed, final_ok, seed_failures,
+                                                               getattr(self, "derived_verdict", None))
                     self.mark("test_passed" if passed else "test_failed", node_id, detail)
                     self.test_verdict[node_id] = passed
             finally:

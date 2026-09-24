@@ -991,6 +991,80 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual(flow.codegen_turn.call_count, 2)
         self.assertIn("format retry", flow.codegen_turn.call_args.args[2])
 
+    def _derived_nodes(self):
+        seed = ("The visitor starts at the application home page in a fresh unauthenticated browser session. "
+                "The seeded data is account `alice-dev`, email `a@example.test`, password `Pw-123456789!`.")
+        for node in self.nodes:
+            node["scenarios"] = [{"name": f"{node['id']}: Scenario 1", "steps": [
+                {"keyword": "GIVEN", "content": seed},
+                {"keyword": "WHEN", "content": f"The visitor clicks “Open {node['id']}”."},
+                {"keyword": "THEN", "content": f"The page shows “Done {node['id']}”."}]}]
+        return self.nodes
+
+    def test_should_compile_static_derived_tests_once_when_official_specs_are_absent(self):
+        flow = self.flow
+        flow.tests_dir = None
+        self.assertTrue(flow.prepare_derived_tests(self._derived_nodes()))
+        directory = self.root / ".arc" / "derived-tests"
+        self.assertEqual(sorted(p.name for p in directory.iterdir()),
+                         ["A.spec.ts", "B.spec.ts", "C.spec.ts", "helpers.ts"])
+        self.assertEqual(flow.derived_spec_map["B"], ["B.spec.ts"])
+        with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_TESTS": "0"}):
+            self.assertFalse(flow.prepare_derived_tests(self.nodes))
+        flow.tests_dir = self.root / "tests"
+        self.assertFalse(flow.prepare_derived_tests(self.nodes))
+
+    def _check_outcome(self, node_id, ok):
+        return TestOutcome(title=f"{node_id} check", ok=ok, status="passed" if ok else "failed",
+                           duration_ms=10, file=f"{node_id}.spec.ts", message="" if ok else "not reachable")
+
+    def test_should_repair_only_failing_derived_nodes_until_green(self):
+        flow = self.flow
+        flow.tests_dir = None
+        flow.prepare_derived_tests(self._derived_nodes())
+        flow.derived_runner = Mock(return_value=object())
+        rounds = iter([
+            RunSummary(passed=2, total=3, results=[self._check_outcome("A", True), self._check_outcome("B", False),
+                                                  self._check_outcome("C", True)]),
+            RunSummary(passed=3, total=3, results=[self._check_outcome(n, True) for n in "ABC"]),
+        ])
+        flow.run_derived_suite = Mock(side_effect=lambda runner: next(rounds))
+        flow.derived_repair = Mock()
+        flow.head = Mock(return_value="sha")
+        flow.final_phase_reserve = Mock(return_value=0)
+        flow.derived_acceptance(self.nodes)
+        self.assertEqual([call.args[0]["id"] for call in flow.derived_repair.call_args_list], ["B"])
+        self.assertEqual(flow.derived_verdict, {"A": True, "B": True, "C": True})
+
+    def test_should_roll_back_a_derived_round_that_regresses(self):
+        flow = self.flow
+        flow.tests_dir = None
+        flow.prepare_derived_tests(self._derived_nodes())
+        flow.derived_runner = Mock(return_value=object())
+        rounds = iter([
+            RunSummary(passed=2, total=3, results=[self._check_outcome("A", True), self._check_outcome("B", False),
+                                                  self._check_outcome("C", True)]),
+            RunSummary(passed=1, total=3, results=[self._check_outcome("A", False), self._check_outcome("B", False),
+                                                  self._check_outcome("C", True)]),
+        ])
+        flow.run_derived_suite = Mock(side_effect=lambda runner: next(rounds))
+        flow.derived_repair = Mock()
+        flow.head = Mock(side_effect=["good-sha", "worse-sha"])
+        flow.restore_app = Mock()
+        flow.final_phase_reserve = Mock(return_value=0)
+        with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_ROUNDS": "2"}):
+            flow.derived_acceptance(self.nodes)
+        flow.restore_app.assert_called_once_with("good-sha")
+        self.assertEqual(flow.derived_verdict, {"A": True, "B": False, "C": True})
+
+    def test_should_report_derived_check_results_in_the_no_spec_verdict(self):
+        passed, detail = m.Flow.no_spec_node_verdict("B", True, True, {}, {"B": False})
+        self.assertFalse(passed)
+        self.assertIn("derived scenario checks", detail)
+        passed, detail = m.Flow.no_spec_node_verdict("A", True, True, {}, {"A": True})
+        self.assertTrue(passed)
+        self.assertIn("derived scenario checks pass", detail)
+
     def test_should_fail_only_the_node_that_owns_a_final_seed_gap(self):
         flow = self.flow
         seeds = {"B": ["SEED_DATA B: required initial literal \"Acme\" is absent"]}
