@@ -211,6 +211,12 @@ class TransientTests(unittest.TestCase):
         self.assertTrue(ok)
         sleep.assert_called_once_with(30)
 
+class CodegenRuleTests(unittest.TestCase):
+    def test_should_ask_for_requirement_placed_uniquely_named_controls(self):
+        self.assertIn("where the requirement places it", m.CODEGEN_RULES)
+        self.assertIn("same role and name", m.CODEGEN_RULES)
+
+
 class FolderDescendantTests(unittest.TestCase):
     def test_should_map_every_folder_to_its_atomic_leaves(self):
         tree = {"id": "ROOT", "type": "FOLDER", "children": [

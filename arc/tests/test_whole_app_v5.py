@@ -380,6 +380,35 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual([call.args[1] for call in flow.mark.call_args_list
                           if call.args[0] == "implementation_done"], ["A", "B"])
 
+    def test_should_implement_partial_leaves_again_when_official_specs_are_absent(self):
+        flow = self.flow
+        flow.tests_dir = None
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_generated_ids = {"A"}
+        flow.whole_app_partial_ids = {"B"}
+        flow.whole_app_first_suite = Mock(return_value=None)
+        flow.mark = Mock()
+        flow.node_cycle = Mock()
+        flow.time_up = Mock(return_value=False)
+        flow.driver = SimpleNamespace(end_scope=Mock())
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        partial_call = flow.node_cycle.call_args_list[0]
+        self.assertEqual(partial_call.args[0], self.nodes[1])
+        self.assertFalse(partial_call.kwargs.get("preimplemented", False))
+
+    def test_should_keep_preimplemented_partial_leaves_when_official_specs_decide(self):
+        flow = self.flow
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_generated_ids = {"A"}
+        flow.whole_app_partial_ids = {"B"}
+        flow.whole_app_first_suite = Mock(return_value=None)
+        flow.mark = Mock()
+        flow.node_cycle = Mock()
+        flow.time_up = Mock(return_value=False)
+        flow.driver = SimpleNamespace(end_scope=Mock())
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        self.assertTrue(flow.node_cycle.call_args_list[0].kwargs.get("preimplemented"))
+
     def test_failed_unreached_node_is_not_treated_as_preimplemented(self):
         flow = self.flow
         flow.whole_app_codegen = Mock(return_value=True)
@@ -881,6 +910,67 @@ class WholeAppTests(unittest.TestCase):
             self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
         first_c_prompt = flow.codegen_implement_prompt.call_args_list[4].kwargs["must_include"]
         self.assertIn("backend/lib/auth.js", first_c_prompt)
+
+    def test_should_not_require_hot_files_in_the_minimal_closure(self):
+        flow = self.flow
+        hot = self.root / "backend/lib/auth.js"
+        hot.parent.mkdir(parents=True, exist_ok=True)
+        hot.write_text("module.exports = {};")
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx"})
+        refusal = "write guard refused required existing file(s): backend/lib/auth.js"
+        flow.whole_app_wave_gaps = Mock(side_effect=[[refusal], [], [refusal], [], []])
+        # A (2 prompts) and B (2 prompts) fit; C's full closure with the hot
+        # file does not, and its minimal closure must not insist on it.
+        prompts = iter(["p", "p", "p", "p", None, "p"])
+        flow.codegen_implement_prompt = Mock(side_effect=lambda *a, **k: next(prompts))
+        replies = iter([["backend/lib/auth.js"], [], ["backend/lib/auth.js"], [], []])
+        flow.whole_app_generation_turn = Mock(side_effect=lambda *a, **k: self._applied(refused=next(replies)))
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertIn("backend/lib/auth.js", flow.codegen_implement_prompt.call_args_list[4].kwargs["must_include"])
+        self.assertEqual(flow.codegen_implement_prompt.call_args_list[5].kwargs["must_include"],
+                         {"frontend/src/App.jsx"})
+        self.assertNotIn("C", flow.whole_app_deferred_ids)
+
+    def test_should_retry_no_spec_review_with_minimal_closure(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        flow.tests_dir = None
+        node = {"id": "REQ-1", "name": "Seed", "type": "ATOMIC",
+                "description": 'The system contains a note titled “Project ideas”.', "scenarios": []}
+        flow.requirement_contracts = compile_contracts([node])
+        flow.whole_app_wave_gaps = Mock(side_effect=[
+            ["source check: backend/routes/notes.js: missing import"], []])
+        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx", "frontend/src/Big.jsx",
+                                                         "backend/routes/notes.js"})
+        flow.codegen_implement_prompt = Mock(side_effect=[None, "repair prompt"])
+        flow.codegen_turn = Mock(return_value=(True, "files"))
+        flow.codegen_context_chars = Mock(return_value=90000)
+        flow.remaining = Mock(return_value=4000)
+        flow.wound_down = Mock(return_value=False)
+        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
+        self.assertEqual(flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"],
+                         {"frontend/src/App.jsx", "backend/routes/notes.js"})
+        flow.codegen_turn.assert_called_once()
+
+    def test_should_not_treat_a_timed_out_final_check_as_failure(self):
+        self.assertIsNone(m.Flow.final_check_verdict(False, "octos turn timed out"))
+        self.assertIsNone(m.Flow.final_check_verdict(False, "local_turn_budget_exhausted: partial edits"))
+        self.assertFalse(m.Flow.final_check_verdict(False, "startup failed: port in use"))
+        self.assertTrue(m.Flow.final_check_verdict(True, "all checks pass"))
+
+    def test_should_discard_the_scaffold_runtime_store_before_grading(self):
+        data = self.root / "backend/data"
+        data.mkdir(parents=True)
+        (data / "repositories.json").write_text('{"items": [{"id": "self-test-fork"}]}')
+        (self.root / "backend/server.js").write_text("'use strict';\n// Generic web entry (Express).\n")
+        self.assertTrue(self.flow.discard_runtime_store())
+        self.assertFalse(data.exists())
+        data.mkdir()
+        (self.root / "backend/server.js").write_text("// user application entry\n")
+        self.assertFalse(self.flow.discard_runtime_store())
+        self.assertTrue(data.exists())
 
     def test_should_retry_format_once_when_a_reply_has_an_incomplete_block(self):
         flow = self.flow

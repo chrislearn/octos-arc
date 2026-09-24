@@ -1741,7 +1741,7 @@ CODEGEN_RULES = """\
 Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. For each HTTP method, register literal paths before overlapping :parameter paths (DELETE /api/items/trash before DELETE /api/items/:id). For pushState links set frontend/package.json arc.spa=true. Preserve the installed frontend stack, exact dependency versions and lockfile; add task-required packages to the correct package.json. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. JSX/TSX must be bundled, not copied to dist.
 Packages: update package.json and the build script only when needed by new dependencies; keep the fixed baseline.
 Data: seed only a new store or migration; preserve edits/deletions across restarts. Use atomic aggregate updates for related state and server-side validation. Persist deadlines, distinguish calendar dates from timestamps. Label rich-text textbox regions; use native select when native selection is required.
-Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
+Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Put each named control where the requirement places it (page/settings/menu/dialog), exact text; a control said to show a value (username) shows it. No two visible controls with the same role and name. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
 Async: clicks do not await handlers. Mount usable editor/dialog controls before the first await; isolate background only for modal overlays. Await save and list refresh (or update optimistically); retain edits on failure.
 Output: complete FILE blocks for changed files only; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.
 """
@@ -4729,6 +4729,15 @@ class Flow:
         prompt = self.codegen_implement_prompt(
             node, spec, evidence=evidence, must_include=targets,
             context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
+        if prompt is None:
+            # Keep the router and the files the gaps name; the rest are quoted
+            # when they fit. Previously every such repair was skipped.
+            named = {rel for rel in targets if any(rel in gap for gap in gaps)}
+            minimal = {rel for rel in targets if Path(rel).name in COMPOSITION_FILES} | named
+            if minimal < targets:
+                prompt = self.codegen_implement_prompt(
+                    node, spec, evidence=evidence, must_include=minimal,
+                    context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
         review_cap = max(30, int(os.environ.get("OCTOS_ARC_NO_SPEC_REVIEW_SECONDS", "180")))
         available = min(review_cap, max(0, int(deadline - time.time())), max(0, int(self.remaining())))
         if prompt is None or available < 30 or self.wound_down():
@@ -4752,6 +4761,17 @@ class Flow:
         else:
             log(f"[flow] {node_id}: focused scenario/seed repair cleared the deterministic gaps")
         return remaining
+
+    @staticmethod
+    def final_check_verdict(ok: bool, text: str):
+        """A final check that ran out of time or requests measured nothing."""
+        if ok:
+            return True
+        lowered = str(text or "").lower()
+        if any(marker in lowered for marker in ("timed out", "local_turn_budget_exhausted",
+                                                 "time allowance exhausted")):
+            return None
+        return False
 
     @staticmethod
     def no_spec_node_verdict(node_id: str, rehearsed: bool, final_ok, seed_failures: dict) -> tuple[bool, str]:
@@ -4862,11 +4882,13 @@ class Flow:
                                            "within the shared application. Preserve previously generated "
                                            "features and their data contracts. Do not defer a listed requirement "
                                            "to a later wave.\n\n" + global_context + details}
+                # Hot files are preferred, never required: the set only grows,
+                # and requiring it collapsed every later wave (v7.18 d629f86de409).
                 hot = {rel for rel, starts in refusal_starts.items() if len(starts) >= 2}
-                required_now = {rel for rel in required | hot | self._wave_error_files
+                required_now = {rel for rel in required | self._wave_error_files
                                 if (self.output_dir / rel).is_file()}
                 targets = set(self.whole_app_wave_targets(ids, spec, details))
-                targets |= {rel for rel in carry if (self.output_dir / rel).is_file()} | required_now
+                targets |= {rel for rel in carry | hot if (self.output_dir / rel).is_file()} | required_now
                 relationships = ""
                 if targets:
                     relationships = ("\nCurrent wave dependency/interface map. Files outside the exact target "
@@ -5340,7 +5362,9 @@ class Flow:
                         self.mark("implementation_failed", node_id, "wave did not reach this node: time budget exhausted")
                         self.impl_failed.append(node_id)
                     else:
-                        if node_id in getattr(self, "whole_app_partial_ids", ()):
+                        if node_id in getattr(self, "whole_app_partial_ids", ()) and self.tests_dir:
+                            # Official specs decide what a partial leaf still
+                            # lacks. Without them nothing would ever finish it.
                             self.node_cycle(node, ordered, index, len(ordered), preimplemented=True)
                         else:
                             self.node_cycle(node, ordered, index, len(ordered))
@@ -6757,6 +6781,22 @@ class Flow:
             self.commit("fix: startup rehearsal repair")
         return False
 
+    def discard_runtime_store(self) -> bool:
+        """Remove the scaffold's JSON store written by our own local runs.
+
+        Grading must start from the requirement seeds, not from records our
+        self-checks created (v7.18 shipped a self-test fork repository). Only
+        the task-neutral scaffold's store is removed; an existing user app
+        keeps its data.
+        """
+        from generic_template import generic_template_active
+        data = self.output_dir / "backend" / "data"
+        if not data.is_dir() or not generic_template_active(self.output_dir):
+            return False
+        shutil.rmtree(data, ignore_errors=True)
+        log("[flow] discarded backend/data written by local runs; grading starts from seeds")
+        return True
+
     def postflight(self) -> None:
         """Hand the box back before grading starts.
 
@@ -6774,6 +6814,8 @@ class Flow:
         strays = reap_workspace_processes(self.output_dir, log)
         if strays:
             log(f"[flow] reaped {strays} leftover process(es) before grading")
+        if getattr(self, "output_dir", None) is not None:
+            self.discard_runtime_store()
 
     # -- run --------------------------------------------------------------
     def run(self) -> int:
@@ -6901,7 +6943,7 @@ class Flow:
                     # With no executable specs, an unbounded verification turn
                     # cannot produce a measured verdict. Preserve time for the
                     # deterministic startup rehearsal and final grading.
-                    check_cap = max(30, int(os.environ.get('OCTOS_ARC_NO_SPEC_FINAL_CHECK_SECONDS', '180')))
+                    check_cap = max(30, int(os.environ.get('OCTOS_ARC_NO_SPEC_FINAL_CHECK_SECONDS', '600')))
                     from generation_checks import contract_warnings
                     sources = self.repair_source_index().sources
                     wiring = [item for item in contract_warnings(sources, sources)
@@ -6920,8 +6962,12 @@ class Flow:
                     final_prompt = FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
                                                              tests=self.tests_prompt_for(None),
                                                              performance=self.perf_text(), ui=self.ui_contract()) + audit
-                    final_ok, _ = self.turn(final_prompt,
-                                            min(self.node_timeout, check_cap, max(1, self.remaining())), "final check")
+                    final_ok, final_text = self.turn(final_prompt,
+                                                     min(self.node_timeout, check_cap, max(1, self.remaining())),
+                                                     "final check")
+                    final_ok = self.final_check_verdict(final_ok, final_text)
+                    if final_ok is None:
+                        log("[flow] final check did not finish; its outcome is not a failure verdict")
                     self.commit("chore: final verification pass")
                     if not self.tests_dir:
                         seed_failures = seed_gaps_by_node(
