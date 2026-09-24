@@ -49,6 +49,20 @@ class EditProtocolTests(TestCase):
         p.write_text('short source')
         self.assertFalse(self.flow.use_structured_edits(prompt, 'wave implement'))
 
+    def test_broad_implement_scope_uses_atomic_file_protocol(self):
+        paths = set()
+        prompt = ''
+        for index in range(4):
+            path = self.root / 'frontend/src' / f'View{index}.jsx'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('x' * 13000)
+            rel = str(path.relative_to(self.root))
+            paths.add(rel)
+            prompt += f'--- {rel} ---\n{path.read_text()}\n'
+        self.flow.bind_edit_scope(prompt, '', paths)
+        self.assertFalse(self.flow.use_structured_edits(prompt, 'wave implement'))
+        self.assertTrue(self.flow.use_structured_edits(prompt, 'suite repair'))
+
     def test_tools_preserve_evidence_strip_sources_and_record_partial_writes(self):
         p = self.source('const before = 1;\n' * 1000)
         self.flow.llm_proxy = SimpleNamespace(extra_drop_tools={'original'})

@@ -1041,6 +1041,17 @@ class LlmProxy:
                     self._inflight.pop(key, None)
 
     @property
+    def upstream_pending(self) -> bool:
+        """A completion is still being generated upstream.
+
+        The kernel's HTTP client gives up after its own fixed timeout while the
+        proxy keeps waiting for a slow provider; an identical replay joins the
+        pending request instead of paying for a new one.
+        """
+        with self._lock:
+            return bool(self._inflight)
+
+    @property
     def provider_unavailable(self) -> bool:
         with self._lock:
             return self._upstream_failures >= 3

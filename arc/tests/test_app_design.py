@@ -134,7 +134,8 @@ class AppDesignTurnTests(unittest.TestCase):
             self.assertIn("REQ-1.1", prompt)
             self.assertIn("long scenario text", prompt)
             self.assertIn('"modules"', prompt)
-            self.assertIn("below 18000 characters", prompt)
+            self.assertIn("below 12000 characters", prompt)
+            self.assertIn("exactly one backend route module", prompt)
             self.assertIn("design", label)
             self.assertTrue((Path(folder) / ".arc" / "design" / "app.json").is_file())
             self.assertFalse(flow.driver.tools_disabled)   # scope restored
@@ -161,7 +162,8 @@ class AppDesignTurnTests(unittest.TestCase):
             first = flow.text_turn.call_args_list[0].args[0]
             retry = flow.text_turn.call_args_list[1].args[0]
             self.assertLess(len(retry), len(first))
-            self.assertIn('at most 3500 characters', retry)
+            self.assertIn('at most 12000 characters', retry)
+            self.assertNotIn('users, organizations, repositories', retry)
 
     def test_should_find_design_after_unrelated_prose_braces(self):
         reply = "Use {one owner} per record.\n" + json.dumps(DESIGN)

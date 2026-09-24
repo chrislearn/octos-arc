@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import Mock, patch
 
 from main import OctosDriver, describe_node, folder_descendants, inline_sources, inline_spec_text, unchanged_node_ids
 import main as m
@@ -79,6 +80,37 @@ class DescribeNodeTests(unittest.TestCase):
         self.assertIn("Depends on: REQ-1", text)
 
 
+class RequirementContractRoutingTests(unittest.TestCase):
+    def test_no_specs_use_derived_contract_in_all_prompt_paths(self):
+        import argparse
+        from pathlib import Path
+        from requirement_contracts import compile_contracts
+        flow = m.Flow(argparse.Namespace(web_port=3000), Path("."), Path("."))
+        flow.requirement_contracts = compile_contracts([node("REQ-1", "Use button named “Save”")])
+        prompt = flow.tests_prompt_for("REQ-1")
+        self.assertIn("not official Playwright tests", prompt)
+        self.assertIn("GIVEN: x", prompt)
+        self.assertIn("REQ-1", flow.spec_bodies("REQ-1"))
+
+    def test_official_specs_remain_the_exclusive_source_when_present(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from requirement_contracts import compile_contracts
+        with tempfile.TemporaryDirectory() as tmp:
+            tests = Path(tmp)
+            (tests / "REQ-1.spec.ts").write_text("test('official', () => {})")
+            flow = m.Flow(argparse.Namespace(web_port=3000), Path("."), Path("."))
+            flow.tests_dir = tests
+            flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], None: []}
+            flow.requirement_contracts = compile_contracts([node("REQ-1", "derived marker")])
+            prompt = flow.tests_prompt_for("REQ-1")
+            self.assertIn("PUBLIC ACCEPTANCE TESTS", prompt)
+            self.assertNotIn("DERIVED REQUIREMENT", prompt)
+            self.assertIn("official", flow.spec_bodies("REQ-1"))
+            self.assertNotIn("derived marker", flow.spec_bodies("REQ-1"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -111,6 +143,73 @@ class TransientTests(unittest.TestCase):
         self.assertTrue(OctosDriver._transient("HTTP 503 Service Temporarily Unavailable"))
         self.assertTrue(OctosDriver._transient("failed to send streaming request"))
 
+    def test_transient_recovery_window_can_stop_expensive_replays(self):
+        driver = object.__new__(OctosDriver)
+        driver.progress_deadline = None
+        driver.close = Mock()
+        calls = []
+
+        def unavailable(remaining):
+            calls.append(remaining)
+            return False, "HTTP 503 Service Temporarily Unavailable"
+
+        with patch.dict(os.environ, {"OCTOS_ARC_TRANSIENT_RETRY_SECONDS": "0"}):
+            ok, _ = driver._run_with_retries(unavailable, 1000)
+        self.assertFalse(ok)
+        self.assertEqual(len(calls), 1)
+
+    def test_each_transient_replay_has_its_own_shorter_deadline(self):
+        driver = object.__new__(OctosDriver)
+        driver.progress_deadline = None
+        driver.close = Mock()
+        calls = []
+
+        def flaky(remaining):
+            calls.append(remaining)
+            return (False, "HTTP 503 temporarily unavailable") if len(calls) == 1 else (True, "ok")
+
+        clock = [0, 0, 10, 20, 30, 40, 50]
+        with patch.dict(os.environ, {"OCTOS_ARC_TRANSIENT_RETRY_SECONDS": "240",
+                                    "OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS": "75"}), \
+                patch("main.time.monotonic", side_effect=clock), patch("main.time.sleep"):
+            ok, _ = driver._run_with_retries(flaky, 1000)
+        self.assertTrue(ok)
+        self.assertEqual(calls, [1000, 75])
+
+
+    def test_should_rejoin_pending_upstream_without_backoff_when_client_times_out(self):
+        driver = object.__new__(OctosDriver)
+        driver.progress_deadline = None
+        driver.close = Mock()
+        driver.upstream_pending = Mock(return_value=True)
+        calls = []
+
+        def client_timeout(remaining):
+            calls.append(remaining)
+            return ((False, "runtime_error: failed to send request to openai@127/model")
+                    if len(calls) == 1 else (True, "ok"))
+
+        with patch("main.time.sleep") as sleep:
+            ok, _ = driver._run_with_retries(client_timeout, 1000)
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(call.args[0] <= 1 for call in sleep.call_args_list))
+
+    def test_should_keep_backoff_when_no_upstream_request_is_pending(self):
+        driver = object.__new__(OctosDriver)
+        driver.progress_deadline = None
+        driver.close = Mock()
+        driver.upstream_pending = Mock(return_value=False)
+        calls = []
+
+        def unavailable(remaining):
+            calls.append(remaining)
+            return (False, "HTTP 503 temporarily unavailable") if len(calls) == 1 else (True, "ok")
+
+        with patch("main.time.sleep") as sleep:
+            ok, _ = driver._run_with_retries(unavailable, 1000)
+        self.assertTrue(ok)
+        sleep.assert_called_once_with(30)
 
 class FolderDescendantTests(unittest.TestCase):
     def test_should_map_every_folder_to_its_atomic_leaves(self):
@@ -1387,6 +1486,42 @@ class ToolFreeExecutionTests(unittest.TestCase):
         session._send.side_effect = [{'profile_id': 'profile'}, {}]
         OctosStdioSession.bootstrap_profile(session, 'openai', 'fake', None, None, tools_disabled=True)
         session._patch_profile_config.assert_called_once_with({'tool_policy': {'deny': ['*']}})
+
+    def test_should_patch_profile_llm_timeout_when_one_is_configured(self):
+        from unittest.mock import Mock
+        from octos_stdio import OctosStdioSession
+        session = Mock(spec=OctosStdioSession)
+        session._send.side_effect = [{'profile_id': 'profile'}, {}]
+        OctosStdioSession.bootstrap_profile(session, 'openai', 'fake', None, None, llm_timeout_secs=900)
+        session._patch_profile_config.assert_called_once_with({'gateway': {'llm_timeout_secs': 900}})
+
+    def test_should_merge_gateway_fields_into_existing_profile_gateway(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        from octos_stdio import OctosStdioSession
+        with tempfile.TemporaryDirectory() as tmp:
+            session = object.__new__(OctosStdioSession)
+            session.data_dir = Path(tmp)
+            session.profile_id = 'arc-1'
+            path = Path(tmp) / 'profiles' / 'arc-1.json'
+            path.parent.mkdir()
+            path.write_text(json.dumps({'config': {'gateway': {'max_history': 7}}}))
+            session._patch_profile_config({'gateway': {'llm_timeout_secs': 900}, 'tool_policy': {'deny': ['*']}})
+            config = json.loads(path.read_text())['config']
+        self.assertEqual(config['gateway'], {'max_history': 7, 'llm_timeout_secs': 900})
+        self.assertEqual(config['tool_policy'], {'deny': ['*']})
+
+    def test_should_give_octos_a_client_timeout_longer_than_the_proxy_wait(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('OCTOS_ARC_LLM_TIMEOUT_SECONDS', None)
+            env = m.build_octos_env(Path(tmp))
+            config = json.loads((Path(tmp) / 'config.json').read_text())
+        self.assertEqual(config['gateway']['llm_timeout_secs'], 900)
+        self.assertEqual(env['_ARC_LLM_TIMEOUT_SECS'], '900')
 
     def test_should_use_restricted_stdio_even_when_chat_was_selected(self):
         from unittest.mock import Mock, patch

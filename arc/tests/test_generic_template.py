@@ -61,6 +61,15 @@ assert.deepEqual(collection('entries', {initial, migrations}).all(), [{id:'a', t
         self.assertEqual(install_generic_template(self.root, m.BUNDLE_DIR, 1, []), [])
         self.assertIn("34123", (self.root / "backend/server.js").read_text())
 
+    def test_should_ship_a_compact_task_neutral_base_stylesheet(self):
+        css = (m.BUNDLE_DIR / "blueprints" / "frontend-style.css").read_text()
+        for selector in ("button", "input", "select", "textarea", "label", "table", "nav a",
+                         "[role=\"alert\"]", "[role=\"dialog\"]", ":focus-visible"):
+            self.assertIn(selector, css)
+        self.assertLess(len(css), 4000)
+        for word in ("github", "repositor", "issue", "pull", "organization"):
+            self.assertNotIn(word, css.lower())
+
     def test_prepare_build_installs_scaffold_only_for_fresh_codegen(self):
         (self.root / "api.spec.ts").write_text("const base = 'http://localhost:34124';\n")
         flow = m.Flow(argparse.Namespace(web_port=34123), self.root, self.root)

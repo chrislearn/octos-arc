@@ -117,7 +117,8 @@ class OctosStdioSession:
 
     def bootstrap_profile(self, provider: str, model: str, base_url: str | None,
                           api_key_env: str | None, timeout: float = 60.0,
-                          hooks: list | None = None, tools_disabled: bool = False) -> None:
+                          hooks: list | None = None, tools_disabled: bool = False,
+                          llm_timeout_secs: int | None = None) -> None:
         """Create a solo profile and select its LLM (serve mode has no config-
         file default profile like `octos chat` does, so we onboard one).
 
@@ -140,6 +141,10 @@ class OctosStdioSession:
         fields = {"hooks": hooks} if hooks else {}
         if tools_disabled:
             fields["tool_policy"] = {"deny": ["*"]}
+        if llm_timeout_secs:
+            # Without it the profile runtime keeps the kernel's fixed 300 s
+            # client timeout while the local proxy is still waiting upstream.
+            fields["gateway"] = {"llm_timeout_secs": int(llm_timeout_secs)}
         if fields:
             # The solo ProfileRuntime builds its HookExecutor from the profile's
             # own config (config_from_profile), not from the host config.json or
@@ -172,7 +177,14 @@ class OctosStdioSession:
                 continue
             try:
                 data = _json.loads(path.read_text(encoding="utf-8"))
-                data.setdefault("config", {}).update(fields)
+                config = data.setdefault("config", {})
+                for key, value in fields.items():
+                    # Section fields (gateway) merge; replacing the section
+                    # would drop settings the profile already carries.
+                    if isinstance(value, dict) and isinstance(config.get(key), dict) and key != "tool_policy":
+                        config[key] = {**config[key], **value}
+                    else:
+                        config[key] = value
                 path.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
                 return
             except (OSError, ValueError) as exc:

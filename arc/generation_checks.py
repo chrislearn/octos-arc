@@ -117,6 +117,91 @@ def _bounded_run(command, cwd, timeout):
         return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
+def _route_tags(source):
+    """Yield (kind, top_level_text) for <Route ...>, <Route .../> and </Route>.
+
+    JSX attributes such as element={<Page />} contain '>' characters, so the
+    tag end is found at brace depth zero instead of the first '>'.
+    """
+    for match in re.finditer(r'<Route\b|</Route\s*>', source):
+        if match.group(0).startswith('</'):
+            yield 'close', ''
+            continue
+        depth, quote, i, top = 0, None, match.end(), []
+        while i < len(source):
+            char = source[i]
+            if quote:
+                if char == quote:
+                    quote = None
+                if depth == 0:
+                    top.append(char)
+            elif char in '"\'' and depth == 0:
+                quote = char
+                top.append(char)
+            elif char == '{':
+                depth += 1
+            elif char == '}':
+                depth = max(0, depth - 1)
+            elif char == '>' and depth == 0:
+                break
+            elif depth == 0:
+                top.append(char)
+            i += 1
+        text = ''.join(top)
+        yield ('self' if text.rstrip().endswith('/') else 'open'), text
+
+
+def nested_route_paths(source):
+    """Absolute paths of React Router routes, composing relative children."""
+    paths, stack = set(), ['']
+    for kind, text in _route_tags(source):
+        if kind == 'close':
+            if len(stack) > 1:
+                stack.pop()
+            continue
+        declared = re.search(r'''\bpath\s*=\s*['"]([^'"\n]+)['"]''', text)
+        parent = stack[-1]
+        if declared:
+            value = declared.group(1)
+            full = value if value.startswith('/') else parent.rstrip('/') + '/' + value
+            paths.add(full)
+        else:
+            full = parent
+        if kind == 'open':
+            stack.append(full)
+    return paths
+
+
+def route_conflict_warnings(sources, changed):
+    """Identical Express method/path shapes registered twice: only the first is live.
+
+    backend/server.js requires backend/routes/*.js in sorted order, so a later
+    module's handler for the same method and parameter shape is unreachable.
+    """
+    registrations = {}
+    for path in sorted(sources):
+        if not path.startswith('backend/') or not path.endswith(('.js', '.cjs')):
+            continue
+        for method, route in re.findall(
+                r'''\bapp\.(get|post|put|patch|delete)\(\s*['"](/api/[^'"\n]+)['"]''',
+                sources[path], re.I):
+            shape = '/'.join(':' if part.startswith(':') else part
+                             for part in route.split('?', 1)[0].rstrip('/').split('/'))
+            registrations.setdefault((method.upper(), shape), []).append((path, route))
+    changed = set(changed)
+    warnings = []
+    for (method, _), owners in sorted(registrations.items()):
+        files = list(dict.fromkeys(owner for owner, _ in owners))
+        if len(owners) < 2 or not changed & set(files):
+            continue
+        shown = next(route for owner, route in owners if owner in changed)
+        where = ' and '.join(files) if len(files) > 1 else f'{files[0]} (twice)'
+        warnings.append(f'ROUTE_CONFLICT: {method} {shown} is registered in {where}; Express serves only '
+                        f'the first registration ({owners[0][0]}). Keep exactly one owner module for this '
+                        'method and path.')
+    return warnings[:4]
+
+
 def route_link_warnings(sources, changed):
     """Flag dynamic in-app links with no matching React Router route.
 
@@ -128,8 +213,40 @@ def route_link_warnings(sources, changed):
     for path, source in sources.items():
         if path.startswith('frontend/') and path.endswith(('.jsx', '.tsx')):
             route_paths.update(re.findall(r'''<Route\b[^>]*\bpath\s*=\s*['"]([^'"\n]+)['"]''', source))
+            route_paths.update(nested_route_paths(source))
     if not route_paths:
         return []
+    def segments(value):
+        # A template may append a query conditionally to an otherwise valid
+        # route, e.g. `/items/${id}${filter ? '?filter=x' : ''}`. Query
+        # expressions do not add pathname segments. Optional chaining
+        # (`${repo?.name}`) and `??` are values, not ternaries.
+        value = re.sub(r"\$\{[^{}]{0,300}\?(?![.?])[^{}]{0,300}:[^{}]{0,300}\}", "", value)
+        return [part for part in value.split('?', 1)[0].strip('/').split('/') if part]
+
+    def matches(destination, route):
+        requested, declared = segments(destination), segments(route)
+        if requested and re.fullmatch(r'\$\{[^}]*path[^}]*\}', requested[0], re.I):
+            # `${basePath}/pulls/${id}` deliberately stands for an arbitrary
+            # route prefix.  The literal suffix must still be registered.
+            requested = requested[1:]
+            if len(declared) < len(requested):
+                return False
+            declared = declared[-len(requested):] if requested else []
+        if len(requested) != len(declared):
+            return False
+        for actual, pattern in zip(requested, declared):
+            dynamic_actual = bool(re.fullmatch(r'\$\{[^}]+\}', actual))
+            dynamic_pattern = pattern.startswith((':', '*'))
+            # A runtime value cannot be assumed to equal a static route
+            # segment.  Conversely a static destination is valid through a
+            # parameterized route segment.
+            if dynamic_actual and not dynamic_pattern:
+                return False
+            if not dynamic_actual and not (dynamic_pattern or actual == pattern):
+                return False
+        return True
+
     warnings = []
     for path in sorted(changed):
         if not path.startswith('frontend/') or not path.endswith(('.jsx', '.tsx')):
@@ -139,26 +256,28 @@ def route_link_warnings(sources, changed):
         # The dynamic value's name need not match the route parameter's name.
         destinations = re.findall(r'''\bto\s*=\s*\{\s*`([^`]+)`''', source)
         destinations += re.findall(r'''\bnavigate\s*\(\s*`([^`]+)`''', source)
+        destinations += re.findall(r'''\bto\s*=\s*['"]([^'"\n]+)['"]''', source)
         for destination in destinations:
-            for segment in re.findall(r'/([A-Za-z][A-Za-z0-9_-]*)/\$\{[^}]+\}', destination):
-                if any(re.search(r'/' + re.escape(segment) + r'/(?:[:*][A-Za-z][\w-]*|\*)'
-                                 r'(?:/|$)', route) for route in route_paths):
-                    continue
-                warning = (f'ROUTE_LINK (heuristic): {path} links to a dynamic /{segment}/… page, '
-                           f'but no React Router path contains /{segment}/:param or /{segment}/*path. '
-                           'Register the detail route or verify that another router handles the link.')
-                if warning not in warnings:
-                    warnings.append(warning)
+            if not destination.startswith('/') and not destination.startswith('${'):
+                continue
+            if any(matches(destination, route) for route in route_paths):
+                continue
+            warning = (f'ROUTE_LINK (heuristic): {path} links to {destination}, but no React Router '
+                       'path has the same static segments and parameter shape. Register the route or '
+                       'verify that another router handles the link.')
+            if warning not in warnings:
+                warnings.append(warning)
     return warnings[:4]
 
 
 def api_call_warnings(sources, changed):
-    """Point out literal frontend API calls with no registered Express path."""
+    """Point out literal frontend API calls with no matching Express method/path."""
     routes = []
     for path, source in sources.items():
         if path.startswith('backend/') and path.endswith(('.js', '.cjs')):
-            routes.extend(re.findall(
-                r'''\b(?:app|router)\.(?:get|post|put|patch|delete)\(\s*['"](/api/[^'"\n]+)['"]''', source))
+            routes.extend((method.upper(), route) for method, route in re.findall(
+                r'''\b(?:app|router)\.(get|post|put|patch|delete)\(\s*['"](/api/[^'"\n]+)['"]''',
+                source, re.I))
     if not routes:
         return []
 
@@ -180,12 +299,26 @@ def api_call_warnings(sources, changed):
         if not path.startswith('frontend/') or not path.endswith(('.js', '.jsx', '.ts', '.tsx')):
             continue
         source = sources.get(path, '')
-        for call in re.findall(r'''\b(?:requestJson|fetch)\s*\(\s*[`'"](/api/[^`'"\n]+)[`'"]''', source):
+        calls = re.finditer(
+            r'''\b(?:requestJson|fetch)\s*\(\s*([`'"])(/api/[^`'"\n]+)\1''', source)
+        for match in calls:
+            call = match.group(2)
+            # Method is normally a literal in the immediately following
+            # options object. Bound the scan so another request cannot lend its
+            # method to this one; nested body objects remain harmless.
+            options = source[match.end():match.end() + 800].split(');', 1)[0]
+            next_call = re.search(r'''\b(?:requestJson|fetch)\s*\(''', options)
+            if next_call:
+                options = options[:next_call.start()]
+            method_match = re.search(r'''\bmethod\s*:\s*['"](GET|POST|PUT|PATCH|DELETE)['"]''',
+                                     options or '', re.I)
+            method = method_match.group(1).upper() if method_match else 'GET'
             normalized = re.sub(r'\$\{[^}]+\}', '{}', call)
-            if any(matches(normalized, route) for route in routes):
+            if any(method == route_method and matches(normalized, route)
+                   for route_method, route in routes):
                 continue
-            warning = (f'API_CALL (heuristic): {path} calls {call}, but no Express route has a '
-                       'matching /api path. Check the route owner, HTTP method and mount prefix.')
+            warning = (f'API_CALL (heuristic): {path} calls {method} {call}, but no Express route has a '
+                       'matching method and /api path. Check the route owner, HTTP method and mount prefix.')
             if warning not in warnings:
                 warnings.append(warning)
     return warnings[:4]
@@ -201,7 +334,8 @@ def contract_warnings(sources, changed):
     from source_index import SourceIndex
     index = SourceIndex(sources)
     affected = index.affected(set(changed))
-    warnings = route_link_warnings(sources, changed) + api_call_warnings(sources, changed)
+    warnings = (route_link_warnings(sources, changed) + api_call_warnings(sources, changed)
+                + route_conflict_warnings(sources, changed))
     # These contracts are known only while the bundled helpers are unchanged.
     # A generated app may deliberately replace either helper with different
     # semantics, so never guess its return type from the function name alone.

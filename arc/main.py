@@ -54,6 +54,7 @@ Environment (all optional):
     OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (default codegen budget; 0 = off)
     OCTOS_ARC_MAX_TOKENS      minimum max_tokens the proxy enforces on chat requests (32768; kernel arc.11 sends 4096)
     OCTOS_ARC_CODEGEN         "0" disables one-request codegen turns for one-node tasks (default on)
+    OCTOS_ARC_WHOLE_APP       auto (default: no-spec fresh builds) | 1 (also measured specs) | 0 (disabled)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -65,6 +66,16 @@ Environment (all optional):
     OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 1; no batching)
     OCTOS_ARC_SOURCE_STABILITY_ORDER  "0" restores path order instead of low-churn-first quoted sources
     OCTOS_ARC_GENERIC_TEMPLATE  "0" disables the task-neutral Express/store scaffold (default on in v4)
+    OCTOS_ARC_REQUIREMENT_CONTRACT_CHARS  prompt budget for deterministic no-spec contracts (12000/node, 30000/final)
+    OCTOS_ARC_NO_SPEC_EDIT_REQUESTS  structured-edit request budget without official specs (default 12)
+    OCTOS_ARC_NO_SPEC_REVIEW_SECONDS  maximum focused repair time after a scenario/seed audit (default 180)
+    OCTOS_ARC_TRANSIENT_RETRY_SECONDS  time allowed after the first provider error for retries (default 240)
+    OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS  cap for each request after the first provider error (default 180)
+    OCTOS_ARC_WHOLE_APP_PROMPT_CHARS  input cap for each generation wave (default 60000)
+    OCTOS_ARC_WHOLE_APP_SOURCE_CHARS  full-source budget inside a wave (default 36000)
+    OCTOS_ARC_LLM_TIMEOUT_SECONDS  kernel HTTP timeout per LLM request; must exceed the proxy wait (default 900)
+    OCTOS_ARC_BLOCK_ROUTE_WARNINGS  "1" makes a wave's own ROUTE_LINK warnings block completion (default advisory)
+    OCTOS_ARC_PRIME_GENERATION_BUILD  "0" skips the one-time dependency/build preflight (default on)
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
     OCTOS_GUARD               "0" logs guard findings without injecting them
 """
@@ -110,6 +121,8 @@ from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from progress_timeout import ProgressDeadline
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
+from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
+                                   seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
 from web_checks import scaffold_issues  # noqa: E402
 
 BUNDLE_DIR = Path(__file__).resolve().parent
@@ -394,6 +407,16 @@ def valid_app_design(design) -> dict | None:
     return design
 
 
+def app_design_coverage(design: dict | None) -> set[str]:
+    """Atomic requirement ids explicitly assigned to a design artifact."""
+    covered: set[str] = set()
+    for kind in ("routes", "pages", "contracts"):
+        for item in (design or {}).get(kind) or []:
+            if isinstance(item, dict):
+                covered.update(str(value) for value in item.get("requirements") or [] if value)
+    return covered
+
+
 def _relaxed_json(text: str) -> str:
     """Remove only common JSON presentation mistakes outside string values.
 
@@ -582,7 +605,10 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
         if not contract.get("requirements"):
             append_entry(core, "contracts", contract)
     terms = spec_terms(spec_text)
-    req_ids = set(re.findall(r"\bREQ-\d+(?:\.\d+)*\b", spec_text))
+    # Public exercises use dotted IDs while the hackathon catalogue uses
+    # hyphenated descendants (REQ-2-3, REQ-2-3-1).  Both must select the
+    # routes/pages explicitly owned by the active requirement.
+    req_ids = set(re.findall(r"\bREQ-\d+(?:(?:\.|-)\d+)*\b", spec_text))
 
     def related(item) -> bool:
         owners = set(item.get("requirements") or [])
@@ -613,11 +639,11 @@ def app_design_context(design: dict | None, spec_text: str, cap: int) -> str:
     return stable + node_slice
 
 
-def describe_node(node: dict) -> str:
+def describe_node(node: dict, *, include_scenarios: bool = True) -> str:
     lines = [f"ID: {node.get('id')}", f"Name: {node.get('name', '')}"]
     if node.get("description"):
         lines.append(f"Description: {node['description']}")
-    scenarios = node.get("scenarios") or []
+    scenarios = (node.get("scenarios") or []) if include_scenarios else []
     if scenarios:
         lines.append("Scenarios:")
         for sc in scenarios:
@@ -989,7 +1015,8 @@ def render_source_selection(scored: list[tuple], selected: list[int], stable_ord
 
 def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order: bool = False,
                            max_output_chars: int | None = None,
-                           change_counts: dict[str, int] | None = None) -> str | None:
+                           change_counts: dict[str, int] | None = None,
+                           max_priority: float | None = None) -> str | None:
     """Select by relevance/content budget, then enforce the serialized budget.
 
     `max_chars` counts file contents; `max_output_chars` (when given) bounds the
@@ -1000,7 +1027,9 @@ def select_source_snapshot(scored: list[tuple], max_chars: int, *, stable_order:
     relevance selection but quoting the entry and low-churn files first for prefix reuse.
     """
     selected, total = [], 0
-    for i, (_, _, size, _, _) in enumerate(scored):
+    for i, (priority, _, size, _, _) in enumerate(scored):
+        if max_priority is not None and priority > max_priority:
+            continue
         if total + size <= max_chars:
             selected.append(i)
             total += size
@@ -1231,6 +1260,16 @@ def write_profile_defaults(data_dir: Path, config_dir: Path, hooks: list[dict]) 
             pass
 
 
+def llm_timeout_secs() -> int:
+    """Kernel HTTP timeout for one non-streaming completion.
+
+    It must outlast the proxy's own upstream wait (at most 600 s): at the
+    kernel's 300 s default a slow but healthy generation was abandoned
+    client-side and replayed after a backoff.
+    """
+    return max(60, int(os.environ.get("OCTOS_ARC_LLM_TIMEOUT_SECONDS", "900")))
+
+
 def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) -> dict:
     """Prepare env + minimal config.json for non-interactive octos.
 
@@ -1260,7 +1299,7 @@ def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) 
         "memory": {"refresh": {"enabled": False}},
         # deepseek-v4 spends its default 4096 output budget on reasoning and
         # returns empty content; give it real headroom.
-        "gateway": {"max_output_tokens": 65536},
+        "gateway": {"max_output_tokens": 65536, "llm_timeout_secs": llm_timeout_secs()},
     }
     if provider not in ("openai", "deepseek", "anthropic") and base_url:
         config["base_url"] = base_url
@@ -1288,6 +1327,7 @@ def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) 
     env["_ARC_MODEL"] = model
     env["_ARC_BASE_URL"] = base_url
     env["_ARC_KEY_ENV"] = key_env
+    env["_ARC_LLM_TIMEOUT_SECS"] = str(llm_timeout_secs())
     return env
 
 
@@ -1477,6 +1517,7 @@ class OctosDriver:
                 api_key_env=self.env.get("_ARC_KEY_ENV") or None,
                 hooks=self.hooks,
                 tools_disabled=self.tools_disabled,
+                llm_timeout_secs=int(self.env.get("_ARC_LLM_TIMEOUT_SECS") or 0) or None,
             )
             self._session.open()
         return self._session
@@ -1536,16 +1577,45 @@ class OctosDriver:
 
     def _run_with_retries(self, fn, timeout: float, attempts: int = 3) -> tuple[bool, str]:
         deadline = time.monotonic() + max(0, timeout)
+        retry_deadline = None
         ok, text = False, "octos turn timed out"
         for attempt in range(1, attempts + 1):
-            remaining = self.progress_deadline.remaining() if getattr(self, "progress_deadline", None) else deadline - time.monotonic()
+            outer_remaining = (self.progress_deadline.remaining()
+                               if getattr(self, "progress_deadline", None) else deadline - time.monotonic())
+            remaining = min(outer_remaining, retry_deadline - time.monotonic()) \
+                if retry_deadline is not None else outer_remaining
+            if retry_deadline is not None:
+                # A failed large wave should not replay the same oversized
+                # request for another several minutes.  The outer recovery
+                # window controls the series; this cap controls each fresh
+                # request inside it.  The caller can then split the wave.
+                retry_attempt = max(30, int(os.environ.get(
+                    "OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS", "180")))
+                remaining = min(remaining, retry_attempt)
             if remaining <= 0:
                 break
             ok, text = fn(remaining)
             if ok or not self._transient(text) or attempt == attempts:
                 break
+            if retry_deadline is None:
+                # Do not shorten a healthy first request. Once the provider has
+                # failed, however, bound all fresh-session recovery attempts so
+                # one node cannot occupy most of the dependency queue's budget.
+                recovery = max(0, int(os.environ.get("OCTOS_ARC_TRANSIENT_RETRY_SECONDS", "240")))
+                retry_deadline = min(deadline, time.monotonic() + recovery)
             wait = 30 * attempt
-            if wait >= (self.progress_deadline.remaining() if getattr(self, "progress_deadline", None) else deadline - time.monotonic()):
+            pending = getattr(self, "upstream_pending", None)
+            if callable(pending) and pending():
+                # The kernel client timed out while the provider is still
+                # generating this request. The replay joins that pending
+                # completion; a backoff would only add idle time.
+                wait = 1
+            available = min(
+                self.progress_deadline.remaining() if getattr(self, "progress_deadline", None)
+                else deadline - time.monotonic(),
+                retry_deadline - time.monotonic(),
+            )
+            if wait >= available:
                 log("[driver] remaining turn budget cannot accommodate retry backoff")
                 break
             log(f"[driver] transient error, retry {attempt + 1}/{attempts} after {wait}s: {text[:200]}")
@@ -1623,7 +1693,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "16-protected-state-and-dialog-lifecycle"
+APP_DESIGN_PROMPT_VERSION = "18-route-prefix-ownership"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate; "
@@ -1637,6 +1707,9 @@ COLLECTION_MIGRATION_CONTRACT = (
     "Optional collection(...) migration up(data) receives a storage OBJECT; the record array is data.items, "
     "NOT data itself. Mutate data.items synchronously, return undefined, and preserve __arcMigrations. "
     "Direct store.migrate receives its own fallback-shaped object. Do not change these shared APIs.\n")
+
+# Router/composition modules every feature wave may extend; always quoted whole.
+COMPOSITION_FILES = frozenset({"App.jsx", "App.tsx", "app.js", "router.js"})
 
 APP_DESIGN_SYSTEM = "You are the architect of a small web application. Reply with one JSON object only."
 
@@ -1658,7 +1731,7 @@ For each lifecycle view, specify which records the API returns and which filters
 In contracts, identify required built-in records and stable accessible destinations separately from user-editable records. For nested menus/dialogs, assign ownership of Escape, outside click and focus changes; closing a child must not commit or dismiss its parent unless explicitly required. Include a short interaction sequence that a full-suite run should preserve after another feature mutates shared state.
 Give every expanded editor a visible completion action: Save for explicit commits or Close/Done for autosave; Escape/outside click supplements that action, never replaces it. Moving focus within the editor is not completion. Distinguish raw response JSON from Response objects; no helper-invented result envelope unless explicitly implemented on the backend.
 In notes, preserve required entry gestures and action placement (record click, direct action, menu action). Distinguish available catalogue choices from initially selected values; optional actions must follow user intent, not unconditional fixture-derived defaults.
-Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Put those owners in modules. App.jsx owns routing/composition; normally keep each application module below 18000 characters by extracting cohesive pages, reusable record views/editors and API/state modules before they become a monolith. Split layouts only when requirements differ; do not create pass-through modules merely to meet a number. Keep this concrete and minimal, not a configurable application framework.
+Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Put those owners in modules. Every atomic requirement ID must appear in at least one route, page or contract requirements list. Give every API resource prefix exactly one backend route module (for example all /api/<resource>/... handlers in backend/routes/<resource>.js, listed in modules) and never register the same method and path in two modules; a feature extends its owner module instead of appending handlers to an unrelated one. App.jsx owns routing/composition; normally keep each application module below 12000 characters by extracting cohesive pages, reusable record views/editors and API/state modules before they become a monolith. Split layouts only when requirements differ; do not create pass-through modules merely to meet a number. Keep this concrete and minimal, not a configurable application framework.
 """
 
 CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply only with <<<FILE relative/path>>> ... <<<END FILE>>> blocks using exact delimiters, or exactly <<<NO CHANGE>>> when already satisfied.
@@ -1712,6 +1785,8 @@ Requirement {node_id}: {description}
 
 Public acceptance example (implement the full requirement):
 {spec}
+Before returning files, trace each supplied GIVEN -> WHEN -> THEN: prerequisites/explicit initial records ->
+handler/API/state -> visible/persisted/error outcome. Fix missing links; never invent seed data from navigation setup.
 {size_rule}
 """
 
@@ -2084,6 +2159,7 @@ class Flow:
         self.events = None
         self.driver: OctosDriver | None = None
         self.tests_dir: Path | None = None
+        self.requirement_contracts: dict = {"version": 2, "nodes": []}
         self.spec_map: dict = {None: []}
         self.probe_summaries: dict = {}
         self.probe_count = 0  # nodes actually probed against the existing app
@@ -2479,7 +2555,10 @@ class Flow:
                 or str(row[3]) not in defaults or row[4] != defaults[str(row[3])]]
 
     def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "",
-                                 must_include: set[str] | None = None) -> str | None:
+                                 must_include: set[str] | None = None,
+                                 context_limit: int | None = None,
+                                 source_limit: int | None = None,
+                                 focused_sources: bool = False) -> str | None:
         """Budget a complete user message, preserving rules and critical corrections.
 
         Fixed rules/source order precede node-specific text and size rules. Only
@@ -2495,6 +2574,8 @@ class Flow:
         wholesale, 36 requests a node (dev-docs/token-reduction-plan.md §3.1).
         """
         limit = self.codegen_context_chars()
+        if context_limit is not None:
+            limit = min(limit, max(12000, int(context_limit)))
         if len(spec) >= limit * 0.6:
             # Cheapest refusal there is; decided before any source file is read.
             self.codegen_budget = dict(spec=len(spec), entry=0, room=0, limit=limit,
@@ -2514,8 +2595,10 @@ class Flow:
         missing_entry = missing_backend_entry(self.output_dir)
         if missing_entry:
             rules += f"Startup prerequisite: {missing_entry} is missing. Create it in this response so the configured backend start command can run.\n"
+        derived_contract = "DERIVED REQUIREMENT VERIFICATION CONTRACT" in spec
         task = CODEGEN_TASK.format(node_id=str(node.get("id")),
-            description=describe_node(node) if node.get("scenarios") or node.get("dependencies")
+            description=describe_node(node, include_scenarios=not derived_contract)
+            if node.get("scenarios") or node.get("dependencies")
             else str(node.get("description") or "").strip(), spec=spec,
             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
         existing = self.has_app()
@@ -2524,6 +2607,8 @@ class Flow:
         entry = backend_entry(self.output_dir) if existing else None
         if must_include is None:
             must_include = set(getattr(self, "refused_paths", ()))
+        else:
+            must_include = set(must_include)
         scored = scored_sources(self.output_dir, spec + "\n" + evidence, entry, must_include=must_include) if existing else []
         scored = Flow.omit_unchanged_template_libraries(self, scored, must_include)
         entry_indexes = [i for i, row in enumerate(scored)
@@ -2552,11 +2637,21 @@ class Flow:
             corrections = fitted
             room = limit - fixed - len(corrections)
             self.codegen_budget["room"] = room
-        sources = select_source_snapshot(scored, room, stable_order=True, max_output_chars=room,
-                                         change_counts=change_counts)
+        source_room = room if source_limit is None else min(room, max(8000, int(source_limit)))
+        sources = select_source_snapshot(scored, source_room, stable_order=True, max_output_chars=source_room,
+                                         change_counts=change_counts,
+                                         max_priority=3.5 if focused_sources else None)
         if sources is None or (entry is not None and str(entry.relative_to(self.output_dir)) not in quoted_paths(sources)):
             self.codegen_budget["reason"] = "serialized_sources_or_entry_exceed_budget"
             return None
+        missing_required = set(must_include) - quoted_paths(sources)
+        if missing_required:
+            self.codegen_budget["reason"] = "required_wave_sources_exceed_budget"
+            self.codegen_budget["missing_required"] = sorted(missing_required)
+            return None
+        self.codegen_budget.update(
+            fixed=fixed, source_block=len(sources), quoted_sources=len(quoted_paths(sources)),
+            required_sources=len(must_include), source_limit=source_room)
         # Rules, a design that fits whole (identical for every node), the sources in
         # stability order -- unchanged low-churn files precede frequently edited
         # ones for prefix reuse -- then the per-node design slice, if any, with the
@@ -2758,6 +2853,31 @@ class Flow:
         # what changed since it.
         self.last_checkpoint_sha = self.head()
 
+    def prime_generation_dependencies(self) -> None:
+        """Install/stamp dependencies once so per-wave checks can really build.
+
+        This is a task-neutral preflight, not acceptance: a failure is recorded
+        for the next generation turn and never substitutes for official specs.
+        """
+        if (os.environ.get("OCTOS_ARC_PRIME_GENERATION_BUILD", "1") == "0"
+                or os.environ.get("OCTOS_ARC_DRYRUN") == "1" or not self.has_app()
+                or self.wound_down() or self.remaining() < self.min_repair_seconds + 120):
+            return
+        started = time.monotonic()
+        error = self.app_server(False).build()
+        elapsed = round(time.monotonic() - started, 3)
+        self.metric("generation_build_preflight", outcome="failed" if error else "ready",
+                    elapsed_seconds=elapsed)
+        if error:
+            evidence = str(error)[-3000:]
+            self.pending_corrections.append(
+                "Generation build preflight failed. Fix this before treating later feature writes as complete:\n" +
+                evidence)
+            self._generation_gate_evidence = evidence
+            log(f"[flow] generation build preflight failed after {elapsed}s; evidence queued for codegen")
+        else:
+            log(f"[flow] generation build preflight ready in {elapsed}s; per-wave frontend builds enabled")
+
     def app_design(self, tree: dict, ordered: list[dict]) -> dict | None:
         """One request over the tree's outline -> routes, pages and data model
         the whole run implements against (OCTOS_ARC_APP_DESIGN=0 disables).
@@ -2785,32 +2905,47 @@ class Flow:
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
         design = parse_app_design_reply(text) if ok else None
+        wanted = {str(node.get("id")) for node in ordered if node.get("id")}
+        coverage_floor = max(3, int(os.environ.get("OCTOS_ARC_DESIGN_COVERAGE_MIN_NODES", "8")))
+        missing = wanted - app_design_coverage(design)
         retry_seconds = min(120, int(deadline - time.monotonic()), int(self.remaining()))
-        if ((ok and not design) or (not ok and 'output_truncated' in text)) \
+        if ((ok and not design) or (not ok and 'output_truncated' in text)
+                or (design and len(wanted) >= coverage_floor and missing)) \
                 and retry_seconds >= 30 and not self.wound_down():
-            log("[flow] application design: incomplete or invalid JSON; one bounded format retry")
+            reason = ("incomplete requirement ownership" if design and missing
+                      else "incomplete or invalid JSON")
+            log(f"[flow] application design: {reason}; one bounded contract retry")
             # Repeating the full 60k-character outline encourages another
             # oversized reply. A compact shared contract is more useful than
             # losing the entire design because one leaf was too detailed.
             compact_outline = tree_outline(tree, max_chars=8000)
             retry_prompt = (stack_note(self.output_dir) +
                             'Create a compact shared web application contract for this requirement tree. '
-                            'Return ONLY one valid JSON object, at most 3500 characters, with keys '
-                            'data_model (object), routes (array), pages (array), notes (string). '
-                            'List at most 8 shared API routes and 8 shared pages; later implementation '
-                            'turns receive the detailed leaf requirements. Each route needs method and '
-                            'absolute path; each page needs an absolute path. Keep one consistent naming '
-                            'scheme for users, organizations, repositories and sessions. No markdown or prose.\n'
+                            'Return ONLY one valid JSON object, at most 12000 characters, with keys '
+                            'data_model (object), routes (array), pages (array), modules (array), '
+                            'contracts (array), notes (string). Each route needs method, absolute path, '
+                            'purpose and requirements; each page needs absolute path, purpose and requirements. '
+                            'Every atomic requirement ID must appear in at least one route, page or contract '
+                            'requirements list. Use one consistent, requirement-derived naming scheme and '
+                            'cohesive module owners: exactly one backend route module per API resource prefix. '
+                            'No markdown or prose.\n'
                             + compact_outline)
             ok, text = self.text_turn(
                 retry_prompt,
                 retry_seconds, "application design (format retry)", system=APP_DESIGN_SYSTEM,
                 spec_chars=len(compact_outline))
-            design = parse_app_design_reply(text) if ok else None
+            retried = parse_app_design_reply(text) if ok else None
+            if retried is not None and (design is None or
+                    len(app_design_coverage(retried) & wanted) >= len(app_design_coverage(design) & wanted)):
+                design = retried
         if not design:
             log("[flow] application design: no usable JSON object in the reply; nodes proceed without one")
             return None
         self.app_design_doc = design
+        missing = wanted - app_design_coverage(design)
+        if missing and len(wanted) >= coverage_floor:
+            log(f"[flow] application design: {len(missing)}/{len(wanted)} requirement ids have no explicit "
+                "artifact owner; implementation prompts retain their full contracts")
         design_dir = self.output_dir / ".arc" / "design"
         design_dir.mkdir(parents=True, exist_ok=True)
         (design_dir / "app.json").write_text(json.dumps(design, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -3297,6 +3432,13 @@ class Flow:
             return False
         limit = max(1000, int(os.environ.get("OCTOS_ARC_EDIT_FILE_CHARS", "12000")))
         paths = self.edit_scope(prompt)
+        broad_limit = max(1, int(os.environ.get("OCTOS_ARC_STRUCTURED_SCOPE_FILES", "3")))
+        if phase == "implement" and len(paths) > broad_limit:
+            # Iterative tools scale poorly for a broad feature wave and can hit
+            # a hard request cap with mutually dependent files half-written.
+            # The bounded FILE protocol is atomic at response granularity; a
+            # focused repair can still switch back to tools afterwards.
+            return False
         for path in app_source_files(self.output_dir):
             rel = str(path.relative_to(self.output_dir))
             if path.suffix not in {".js", ".jsx", ".ts", ".tsx", ".html", ".css"}:
@@ -3370,8 +3512,19 @@ class Flow:
         proxy.tool_max_tokens = max(1024, int(os.environ.get("OCTOS_ARC_EDIT_MAX_TOKENS", "4096")))
         started = time.monotonic()
         try:
+            configured = os.environ.get("OCTOS_ARC_EDIT_REQUESTS")
+            if configured is not None:
+                request_budget = int(configured)
+            elif not self.tests_dir:
+                # No executable acceptance loop can cheaply finish a partially
+                # edited feature. Give the initial focused turn enough room to
+                # complete; official-spec runs keep the measured eight-request
+                # default and can repair from concrete failures instead.
+                request_budget = int(os.environ.get("OCTOS_ARC_NO_SPEC_EDIT_REQUESTS", "12"))
+            else:
+                request_budget = 8
             ok, text = self.turn(prompt, timeout, label + " (structured edits)", expect_verification=False,
-                                 request_budget=max(1, int(os.environ.get("OCTOS_ARC_EDIT_REQUESTS", "8"))))
+                                 request_budget=max(1, request_budget))
         finally:
             proxy.extra_drop_tools = saved
             proxy.tool_max_tokens = saved_cap
@@ -3408,7 +3561,10 @@ class Flow:
         those specs reach (see trim_helper_to_references). Without spec files
         for the node -- a suite-wide repair -- the helpers are quoted whole."""
         if not self.tests_dir:
-            return "(none)"
+            ids = None if node_id is None else [node_id]
+            return render_contracts(self.requirement_contracts, ids,
+                                    int(os.environ.get("OCTOS_ARC_REQUIREMENT_CONTRACT_CHARS", "12000")),
+                                    include_steps=True, require_all=ids is not None)
         specs = list(self.spec_map.get(node_id) or [])
         helpers = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
                          if not p.name.endswith(".spec.ts") and str(p.relative_to(self.tests_dir)) not in specs)
@@ -3432,7 +3588,9 @@ class Flow:
     def batch_spec_bodies(self, node_ids: list[str]) -> str:
         """Quote a batch's specs and reachable helpers once, not once per leaf."""
         if not self.tests_dir:
-            return "(none)"
+            return render_contracts(self.requirement_contracts, node_ids,
+                                    int(os.environ.get("OCTOS_ARC_REQUIREMENT_CONTRACT_CHARS", "30000")),
+                                    include_steps=True, require_all=True)
         specs = list(dict.fromkeys(path for node_id in node_ids for path in (self.spec_map.get(node_id) or [])))
         helpers = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
                          if not p.name.endswith(".spec.ts") and str(p.relative_to(self.tests_dir)) not in specs)
@@ -3489,7 +3647,11 @@ class Flow:
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         if not self.tests_dir:
-            return ""
+            ids = None if node_id is None else [node_id]
+            cap_default = "30000" if node_id is None else "12000"
+            return render_contracts(self.requirement_contracts, ids,
+                                    int(os.environ.get("OCTOS_ARC_REQUIREMENT_CONTRACT_CHARS", cap_default)),
+                                    include_steps=True, require_all=ids is not None)
         if skeleton:
             support = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
                              if not p.name.endswith(".spec.ts"))
@@ -4254,9 +4416,14 @@ class Flow:
         truncated whole-app reply falls through to bounded multi-node waves.
         """
         ids = [str(node.get("id")) for node in ordered]
-        if (os.environ.get("OCTOS_ARC_WHOLE_APP", "0") == "0" or self.evolution
-                or len(ids) < 3 or self.runner is None or not self.codegen_mode()
-                or not self.tests_dir or any(not self.spec_map.get(node_id) for node_id in ids)
+        setting = os.environ.get("OCTOS_ARC_WHOLE_APP", "auto").strip().lower()
+        has_official_specs = bool(self.tests_dir)
+        enabled = setting == "1" or setting == "auto" and not has_official_specs
+        has_generation_contract = (has_official_specs and self.runner is not None
+                                   and all(self.spec_map.get(node_id) for node_id in ids)) \
+            or (not has_official_specs and bool(self.requirement_contracts.get("nodes")))
+        if (not enabled or self.evolution or len(ids) < 3 or not self.codegen_mode()
+                or not has_generation_contract
                 or self.wound_down() or self.remaining() < self.min_repair_seconds + 180):
             return False
         spec = self.batch_spec_bodies(ids)
@@ -4322,7 +4489,8 @@ class Flow:
                 and retry_seconds >= 30 and not self.wound_down()
                 and self.remaining() >= self.min_repair_seconds + 120
                 and len(prompt) + len(correction) + len(FORMAT_INSTRUCTIONS) + 1
-                <= self.codegen_context_chars()):
+                <= min(self.codegen_context_chars(), getattr(self, "_whole_app_prompt_cap",
+                                                              self.codegen_context_chars()))):
             log(f"[flow] {label}: format rejected; one corrected reply before splitting")
             self.whole_app_generation_requests += 1
             result = self.codegen_turn(prompt + correction, retry_seconds, label + " (format retry)",
@@ -4344,7 +4512,11 @@ class Flow:
             return
         paths = set(changed) | set(getattr(self, '_generation_gate_paths', ()))
         result = check_batch(self.output_dir, paths, budget=30, sources=index.sources)
-        self._generation_gate_paths = paths if result['errors'] or result['deferred'] else set()
+        self._generation_gate_result = result
+        # Confirmed errors must remain visible until changed. Deferred checks
+        # are environment/budget state, not source evidence; carrying their
+        # paths forever makes every later wave re-audit unrelated files.
+        self._generation_gate_paths = paths if result['errors'] else set()
         self._generation_checked_versions = versions
         self._generation_gate_evidence = '\n'.join(result['errors'])[:4000]
         if result.get('warnings'):
@@ -4353,6 +4525,258 @@ class Flow:
         self.metric('generation_gate', label=label, **result)
         if result['errors']:
             log(f"[flow] {label}: early checks found {len(result['errors'])} issue(s); exact evidence queued for next batch")
+
+    def retain_safe_no_spec_partial(self, node_id: str) -> bool:
+        """Keep useful writes from a capped turn when no local suite exists.
+
+        A hard request cap means that the conversation is incomplete, not that
+        every written file is invalid. Preserve a partial result only after the
+        deterministic syntax/import/build gate found no source error. Confirmed
+        errors and all official-spec paths retain the established rollback and
+        acceptance behaviour.
+        """
+        changed = list(getattr(self, "last_codegen_written", ()))
+        if getattr(self, "tests_dir", None) or not changed or not self.has_app():
+            return False
+        result = getattr(self, "_generation_gate_result", None)
+        if not isinstance(result, dict) or result.get("errors"):
+            return False
+        checked = set(result.get("checked") or [])
+        if any(path.startswith("frontend/") for path in changed) and "frontend build" not in checked:
+            return False
+        backend_code = [path for path in changed
+                        if path.startswith("backend/") and Path(path).suffix in {".js", ".mjs", ".cjs"}]
+        if any("syntax " + path not in checked for path in backend_code):
+            return False
+        if any(path.endswith("package.json") for path in changed):
+            return False
+        self.pending_corrections.append(
+            f"{node_id}: the previous structured-edit turn reached its request limit after changing "
+            f"{', '.join(changed[:8])}. Early syntax/import/build checks found no source error. "
+            "Continue from the current files and finish the remaining requirement details; do not restart the module."
+        )
+        self.metric("incomplete_node_retained", node_id=node_id, changed_files=changed,
+                    checked=result.get("checked", []), deferred=result.get("deferred", []))
+        log(f"[flow] {node_id}: retaining {len(changed)} partial file edit(s); "
+            "early checks found no source error and official specs are unavailable")
+        return True
+
+    def whole_app_wave_design_items(self, ids: list[str]) -> dict[str, list[dict]]:
+        """Return design artifacts explicitly owned by this wave's leaves."""
+        design = getattr(self, "app_design_doc", None) or {}
+        wanted = set(map(str, ids))
+        selected: dict[str, list[dict]] = {"routes": [], "pages": []}
+        for kind in selected:
+            for item in design.get(kind) or []:
+                owners = set(map(str, item.get("requirements") or []))
+                if owners & wanted:
+                    selected[kind].append(item)
+        return selected
+
+    def whole_app_wave_targets(self, ids: list[str], spec: str, details: str) -> set[str]:
+        """Existing sources a feature wave is reasonably expected to edit.
+
+        Source ranking used to see only the acceptance/derived contract.  The
+        relevant route/page slice is appended later in the prompt, so shared
+        files such as App.jsx, style.css and repositories.js could be omitted
+        and then rejected by the write guard.  Promote those targets before
+        serializing the snapshot; this changes visibility, never write safety.
+        """
+        paths = [path.relative_to(self.output_dir) for path in app_source_files(self.output_dir)]
+        available = {str(path) for path in paths}
+        artifacts = self.whole_app_wave_design_items(ids)
+        design_text = json.dumps(artifacts, ensure_ascii=False)
+        evidence = spec + "\n" + details + "\n" + design_text
+        targets = spec_targets(evidence, paths) | navigation_targets(evidence, paths)
+        # App/router is the composition boundary every feature wave may extend.
+        # Quoting it consistently is cheaper than a refusal plus a replay and
+        # prevents later waves from silently dropping earlier routes.
+        targets |= {path for path in available
+                    if Path(path).name in COMPOSITION_FILES}
+        if artifacts["pages"]:
+            targets |= {path for path in available
+                        if Path(path).name == "style.css"}
+        active_terms = {term for term in spec_terms(evidence) if len(term) >= 4}
+        for module in (getattr(self, "app_design_doc", None) or {}).get("modules") or []:
+            rel = str(module.get("path") or "")
+            owned = json.dumps(module.get("owns") or [], ensure_ascii=False)
+            if rel in available and active_terms & spec_terms(owned + " " + rel):
+                targets.add(rel)
+        targets |= set(getattr(self, "refused_paths", ()))
+        return targets & available
+
+    def api_call_planned_later(self, warning: str, ids: list[str]) -> bool:
+        """An unmatched call whose design route belongs only to a later leaf.
+
+        Forward calls to planned features are expected during dependency-
+        ordered waves; the owning leaf's own guard requires the route.
+        """
+        match = re.search(r"\bcalls (GET|POST|PUT|PATCH|DELETE) (/api/\S+?),? but", warning)
+        if not match:
+            return False
+        method, call = match.group(1), match.group(2).rstrip(",")
+
+        def shape(value: str) -> list[str]:
+            value = re.sub(r"\$\{[^}]+\}", ":", value.split("?", 1)[0])
+            return [":" if part.startswith(":") else part for part in value.strip("/").split("/") if part]
+
+        settled = set(map(str, ids)) | set(getattr(self, "whole_app_generated_ids", ()) or ())
+        for route in (getattr(self, "app_design_doc", None) or {}).get("routes") or []:
+            if not isinstance(route, dict) or str(route.get("method") or "").upper() != method:
+                continue
+            if shape(str(route.get("path") or "")) != shape(call):
+                continue
+            owners = set(map(str, route.get("requirements") or []))
+            return bool(owners) and not owners & settled
+        return False
+
+    def whole_app_wave_gaps(self, ids: list[str]) -> list[str]:
+        """Deterministic reasons a wave cannot yet be declared complete.
+
+        This is deliberately narrower than functional acceptance.  It blocks
+        confirmed source errors, refused rewrites, exact design routes/pages
+        that are absent, and concrete route/API link warnings.  It does not
+        invent tests or promote advisory literal guesses into failures.
+        """
+        gaps: list[str] = []
+        refused = sorted(getattr(self, "last_codegen_refused", set()))
+        if refused:
+            gaps.append("write guard refused required existing file(s): " + ", ".join(refused))
+        gate = getattr(self, "_generation_gate_result", None)
+        if isinstance(gate, dict):
+            gaps.extend("source check: " + str(error) for error in gate.get("errors") or [])
+            current = set(getattr(self, "last_codegen_written", ()))
+            for warning in gate.get("warnings") or []:
+                value = str(warning)
+                owned = any(f": {path} " in value for path in current)
+                if value.startswith("API_CALL ") and owned:
+                    if not self.api_call_planned_later(value, ids):
+                        gaps.append(value)
+                elif value.startswith("ROUTE_CONFLICT") and any(path in value for path in current):
+                    # Statically certain: Express serves only the first
+                    # registration, so the later handler is dead code.
+                    gaps.append(value)
+                elif (value.startswith("ROUTE_LINK ") and owned and
+                      os.environ.get("OCTOS_ARC_BLOCK_ROUTE_WARNINGS", "0") == "1"):
+                    gaps.append(value)
+
+        sources = {str(path.relative_to(self.output_dir)):
+                   path.read_text(encoding="utf-8", errors="replace")
+                   for path in app_source_files(self.output_dir)}
+        if sources:
+            contracts = getattr(self, "requirement_contracts", None)
+            if not self.tests_dir and isinstance(contracts, dict):
+                # Requirement-declared initial records are part of the feature,
+                # not optional examples from a hidden test. Missing quoted
+                # identifiers are strong traceability evidence and force a
+                # focused review before this wave can be called complete.
+                gaps.extend(source_seed_gaps(contracts, sources, ids))
+            artifacts = self.whole_app_wave_design_items(ids)
+            backend = "\n".join(text for path, text in sources.items() if path.startswith("backend/"))
+            frontend_routes = "\n".join(
+                text for path, text in sources.items()
+                if path.startswith("frontend/") and Path(path).name.lower() in {
+                    "app.jsx", "app.tsx", "app.js", "app.ts", "router.js", "router.ts", "routes.jsx", "routes.tsx"})
+            for route in artifacts["routes"]:
+                method = str(route.get("method") or "").lower()
+                path = str(route.get("path") or "")
+                pattern = r"\.(?:" + re.escape(method) + r")\s*\(\s*['\"]" + re.escape(path) + r"['\"]"
+                if method and path and not re.search(pattern, backend):
+                    gaps.append(f"design route missing: {method.upper()} {path}")
+            for page in artifacts["pages"]:
+                path = str(page.get("path") or "")
+                pattern = r"<Route\b[^>]{0,600}\bpath\s*=\s*['\"]" + re.escape(path) + r"['\"]"
+                if path and frontend_routes and not re.search(pattern, frontend_routes):
+                    gaps.append(f"design page route missing: {path}")
+        return list(dict.fromkeys(gaps))[:16]
+
+    def no_spec_feature_review(self, node: dict, deadline: float) -> list[str]:
+        """Review one just-written feature against its derived scenarios.
+
+        Every no-spec feature gets the deterministic audit. A second model
+        request is conditional on concrete source/design/seed evidence, which
+        avoids doubling token use merely to ask the author whether its own code
+        is correct. The corrective turn sees the full active scenarios and the
+        exact focused source closure.
+        """
+        if getattr(self, "tests_dir", None):
+            return []
+        contracts = getattr(self, "requirement_contracts", None)
+        node_id = str(node.get("id"))
+        if not isinstance(contracts, dict) or not any(
+                str(item.get("id")) == node_id for item in contracts.get("nodes") or []):
+            return []
+        gaps = self.whole_app_wave_gaps([node_id])
+        self.metric("no_spec_feature_review", node_id=node_id,
+                    outcome="needs_repair" if gaps else "clean", gaps=gaps[:8])
+        if not gaps:
+            log(f"[flow] {node_id}: scenario/seed self-check found no deterministic gap")
+            return []
+
+        details = describe_node(node)
+        spec = self.spec_bodies(node_id)
+        targets = self.whole_app_wave_targets([node_id], spec, details)
+        relationships = self.repair_source_index().render(targets, limit=4000) if targets else ""
+        evidence = (
+            "Post-write no-spec scenario review found the concrete gaps below. Inspect the current implementation "
+            "and fix confirmed gaps only. Trace every GIVEN -> WHEN -> THEN path. For explicit initial records, "
+            "verify a fresh store contains them and an existing store is never reset or reseeded after deletion.\n"
+            + "\n".join(gaps[:10])
+            + ("\n\nCurrent feature dependency/interface map:\n" + relationships if relationships else "")
+        )
+        prompt_cap, source_cap = self.whole_app_budgets()
+        prompt = self.codegen_implement_prompt(
+            node, spec, evidence=evidence, must_include=targets,
+            context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
+        review_cap = max(30, int(os.environ.get("OCTOS_ARC_NO_SPEC_REVIEW_SECONDS", "180")))
+        available = min(review_cap, max(0, int(deadline - time.time())), max(0, int(self.remaining())))
+        if prompt is None or available < 30 or self.wound_down():
+            reason = self.codegen_budget.get("reason") if prompt is None else "insufficient review budget"
+            self.pending_corrections.append(
+                f"{node_id}: no-spec scenario review remains pending ({reason}): " + "; ".join(gaps[:6]))
+            log(f"[flow] {node_id}: scenario self-check found {len(gaps)} gap(s); repair deferred ({reason})")
+            return gaps
+
+        write_codegen_manifests(self.output_dir)
+        log(f"[flow] {node_id}: scenario self-check found {len(gaps)} concrete gap(s); "
+            f"running one focused repair ({len(prompt)} prompt chars)")
+        self.codegen_turn(prompt, available, f"{node_id} requirement contract repair", spec_chars=len(spec))
+        remaining = self.whole_app_wave_gaps([node_id])
+        self.metric("no_spec_feature_review", node_id=node_id,
+                    outcome="repaired" if not remaining else "still_incomplete", gaps=remaining[:8])
+        if remaining:
+            self.pending_corrections.append(
+                f"{node_id}: no-spec scenario review still has concrete gaps: " + "; ".join(remaining[:6]))
+            log(f"[flow] {node_id}: {len(remaining)} scenario/seed gap(s) remain for final review")
+        else:
+            log(f"[flow] {node_id}: focused scenario/seed repair cleared the deterministic gaps")
+        return remaining
+
+    @staticmethod
+    def no_spec_node_verdict(node_id: str, rehearsed: bool, final_ok, seed_failures: dict) -> tuple[bool, str]:
+        """Final verdict for a leaf without official specs.
+
+        A missing requirement-declared seed fails only the leaf that declares
+        it; the heuristic seed audit must never fail unrelated leaves.
+        """
+        if not rehearsed or final_ok is False:
+            return False, "final check or startup rehearsal failed"
+        gaps = seed_failures.get(node_id) or []
+        if gaps:
+            return False, "requirement-declared initial data still missing: " + "; ".join(gaps[:3])
+        return True, ("derived requirement-contract review and startup rehearsal completed; "
+                      "official acceptance specs unavailable")
+
+    def whole_app_budgets(self) -> tuple[int, int]:
+        """Input and full-source caps for one feature wave.
+
+        The defaults are the measured v7.15 values: at 36000 source chars 15
+        of 47 hackathon leaves already could not fit their focused closure.
+        """
+        prompt_cap = min(self.codegen_context_chars(), max(12000, int(os.environ.get(
+            "OCTOS_ARC_WHOLE_APP_PROMPT_CHARS", "60000"))))
+        source_cap = max(8000, int(os.environ.get("OCTOS_ARC_WHOLE_APP_SOURCE_CHARS", "36000")))
+        return prompt_cap, source_cap
 
     def whole_app_waves(self, tree: dict, ordered: list[dict]) -> bool:
         """Generate contiguous, dependency-ordered feature groups before testing.
@@ -4374,6 +4798,8 @@ class Flow:
         clean_waves = 0
         max_spec = min(30000, int(self.codegen_context_chars() * 0.35))
         max_details = min(24000, int(self.codegen_context_chars() * 0.25))
+        prompt_cap, source_cap = self.whole_app_budgets()
+        self._whole_app_prompt_cap = prompt_cap
         parents = {}
 
         def index_parents(node, parent=None):
@@ -4393,6 +4819,11 @@ class Flow:
             if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
                 log("[flow] whole-app waves: insufficient budget; measuring any partial application")
                 return wave > 0
+            # Files an earlier attempt at this position wrote or had refused:
+            # a split or same-wave retry must see them whole, or its rewrite
+            # of a file it never saw is refused again.
+            carry: set[str] = set()
+            requoted: set[tuple[str, ...]] = set()
             size = min(max_nodes, len(ordered) - start)
             if start + size < len(ordered):
                 # Prefer a module boundary, without changing dependency order.
@@ -4406,7 +4837,11 @@ class Flow:
                 group = ordered[start:start + size]
                 ids = [str(node.get("id")) for node in group]
                 spec = self.batch_spec_bodies(ids)
-                details = "\n\n".join(describe_node(node) for node in group)
+                # The derived contract already carries the full scenarios.
+                # Avoid a duplicate copy while keeping official-spec waves
+                # paired with their complete requirement semantics.
+                details = "\n\n".join(describe_node(node, include_scenarios=bool(self.tests_dir))
+                                      for node in group)
                 estimated = generation_tokens(group, len(spec))
                 if (len(spec) > max_spec or len(details) > max_details
                         or estimated > self.generation_output_budget()) and size > 1:
@@ -4417,41 +4852,128 @@ class Flow:
                                            "within the shared application. Preserve previously generated "
                                            "features and their data contracts. Do not defer a listed requirement "
                                            "to a later wave.\n\n" + global_context + details}
-                prompt = self.codegen_implement_prompt(combined, spec)
+                targets = set(self.whole_app_wave_targets(ids, spec, details))
+                targets |= {rel for rel in carry if (self.output_dir / rel).is_file()}
+                relationships = ""
+                if targets:
+                    relationships = ("\nCurrent wave dependency/interface map. Files outside the exact target "
+                                     "closure are listed but must remain unchanged:\n" +
+                                     self.repair_source_index().render(targets, limit=4000) + "\n")
+                prompt = self.codegen_implement_prompt(
+                    combined, spec, evidence=relationships, must_include=targets,
+                    context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
+                if prompt is None and size == 1:
+                    # Keep the composition boundary and files this leaf must
+                    # rewrite; the rest stay ranked by relevance and are quoted
+                    # when they fit, instead of losing the whole leaf.
+                    minimal = ({rel for rel in targets if Path(rel).name in COMPOSITION_FILES}
+                               | (targets & set(getattr(self, "refused_paths", ()) or ())) | (targets & carry))
+                    if minimal < targets:
+                        log(f"[flow] whole-app wave {wave + 1}: focused closure for {ids} did not fit "
+                            f"{prompt_cap}/{source_cap} prompt/source chars; retrying with "
+                            f"{len(minimal)} required file(s)")
+                        prompt = self.codegen_implement_prompt(
+                            combined, spec, evidence=relationships, must_include=minimal,
+                            context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
+                        if prompt is not None:
+                            targets = minimal
                 if prompt is None:
                     if size > 1:
+                        log(f"[flow] whole-app wave {wave + 1}: focused source closure for {ids} "
+                            f"did not fit {prompt_cap}/{source_cap} prompt/source chars; splitting group")
+                        max_nodes = min(max_nodes, (size + 1) // 2)
                         size = max(1, size // 2)
                         continue
-                    log(f"[flow] whole-app waves: {ids[0]} cannot fit alone; using node flow")
+                    log(f"[flow] whole-app waves: {ids[0]} cannot fit its focused source closure; using node flow")
                     self.whole_app_deferred_ids.update(ids)
                     start += size
                     break
+                # A previously refused file is now shown whole. Do not carry it
+                # into unrelated later waves unless this response refuses it again.
+                self.refused_paths.difference_update(quoted_paths(prompt))
                 write_codegen_manifests(self.output_dir)
                 timeout = min(int(os.environ.get("OCTOS_ARC_WHOLE_APP_TIMEOUT", "1800")),
                               max(120, self.remaining() - self.min_repair_seconds))
                 log(f"[flow] whole-app wave {wave + 1}: generating {ids} "
-                    f"({len(prompt)} prompt chars, {len(spec)} spec chars, "
+                    f"({len(prompt)} prompt chars, {len(spec)} spec chars, {len(targets)} focused sources, "
+                    f"{self.codegen_budget.get('quoted_sources', '?')} quoted / "
+                    f"{self.codegen_budget.get('source_block', '?')} source chars, "
                     f"estimated output {estimated}/{self.generation_output_budget()} tokens)")
+                self.metric("wave_prompt", wave=wave + 1, node_ids=ids, prompt_chars=len(prompt),
+                            spec_chars=len(spec), focused_sources=len(targets),
+                            quoted_sources=self.codegen_budget.get("quoted_sources"),
+                            source_chars=self.codegen_budget.get("source_block"),
+                            prompt_cap=prompt_cap, source_cap=source_cap)
                 attempts += 1
+                self._generation_gate_result = None
+                before_wave = self.head()
                 ok, text = self.whole_app_generation_turn(prompt, timeout,
                                                           f"whole application wave {wave + 1}",
                                                           spec_chars=len(spec))
-                if not ok or not (getattr(self, "last_codegen_written", [])
-                                  or getattr(self, "last_codegen_no_change", False) is True):
-                    clean_waves = 0
-                    if getattr(self, "last_codegen_written", []):
-                        self.commit(f"whole application wave {wave + 1} (partial; requires verification)")
-                        self.whole_app_partial_ids.update(ids)
-                        start += size
-                        wave += 1
-                        log(f"[flow] partial wave retained for {ids}; continuing remaining feature groups")
-                        break
+                hard_incomplete = (getattr(self, "last_codegen_outcome", "") == "tool_incomplete"
+                                   or "local_turn_budget_exhausted" in text)
+                if (hard_incomplete and getattr(self, "last_codegen_written", [])
+                        and not self.retain_safe_no_spec_partial(", ".join(ids))):
+                    # A capped multi-request edit without a clean early gate is
+                    # not a usable feature result. Roll back only this group;
+                    # later feature groups keep their wave.
+                    self.restore_app(before_wave)
+                    self.last_codegen_written = []
+                    self.last_codegen_no_change = False
+                    self.metric("wave_failover", wave=wave + 1, reason="hard_incomplete", node_ids=ids)
                     if size > 1:
-                        log(f"[flow] whole-app wave {wave + 1}: no complete write "
-                            f"({text[-120:]}); splitting group")
+                        log(f"[flow] whole-app wave {wave + 1}: capped structured edit rolled back; "
+                            "splitting the group")
                         max_nodes = min(max_nodes, (size + 1) // 2)
                         size = max(1, size // 2)
                         continue
+                    log(f"[flow] whole-app wave {wave + 1}: capped structured edit rolled back; "
+                        f"deferring {ids[0]} to targeted node flow")
+                    self.whole_app_deferred_ids.update(ids)
+                    start += size
+                    break
+                carry |= set(getattr(self, "last_codegen_written", ()) or ())
+                applied = bool(getattr(self, "last_codegen_written", [])
+                               or getattr(self, "last_codegen_no_change", False) is True)
+                gaps = self.whole_app_wave_gaps(ids) if applied else []
+                complete = ok and applied and not gaps
+                if not complete:
+                    clean_waves = 0
+                    if gaps:
+                        digest = "; ".join(gaps[:6])
+                        self.pending_corrections.append(
+                            f"Wave {', '.join(ids)} was retained but is not complete: {digest}. "
+                            "Finish only these missing contracts against the current files.")
+                        self._generation_gate_evidence = (
+                            "Wave completion guard (must resolve before declaring these requirements complete):\n" +
+                            "\n".join(gaps[:8]))[:4000]
+                        log(f"[flow] whole-app wave {wave + 1}: completion guard found "
+                            f"{len(gaps)} gap(s): {digest[:1000]}")
+                    if getattr(self, "last_codegen_written", []):
+                        self.commit(f"whole application wave {wave + 1} (partial; requires verification)")
+                    refused_now = set(getattr(self, "last_codegen_refused", ()) or ())
+                    if refused_now and tuple(ids) not in requoted:
+                        # The reply needed existing files it was not shown.
+                        # Quote them whole and ask again now, while the
+                        # feature context is hot, instead of a later repair.
+                        requoted.add(tuple(ids))
+                        carry |= refused_now
+                        self.metric("wave_requote", wave=wave + 1, node_ids=ids, paths=sorted(refused_now))
+                        log(f"[flow] whole-app wave {wave + 1}: requoting {', '.join(sorted(refused_now))} "
+                            "whole for one same-wave retry")
+                        continue
+                    if size > 1:
+                        log(f"[flow] whole-app wave {wave + 1}: incomplete group retained where safe; "
+                            "splitting requirements and checking each leaf against the current files")
+                        max_nodes = min(max_nodes, (size + 1) // 2)
+                        size = max(1, size // 2)
+                        continue
+                    if getattr(self, "last_codegen_written", []):
+                        self.whole_app_partial_ids.update(ids)
+                        wave += 1
+                        log(f"[flow] partial single-leaf wave retained for {ids}; targeted node repair remains pending")
+                    else:
+                        log(f"[flow] whole-app wave {wave + 1}: no complete write ({text[-120:]})")
                     log(f"[flow] whole-app wave {wave + 1}: deferring {ids[0]} to targeted repair; "
                         "continuing remaining feature groups")
                     self.whole_app_deferred_ids.update(ids)
@@ -4781,6 +5303,7 @@ class Flow:
             # not evidence that all features need regenerating. Preserve the
             # tree for the final suite's targeted startup-repair path.
             log("[flow] whole-app first suite unavailable; preserving generated app for final targeted repair")
+            no_official_specs = not self.tests_dir
             for index, node in enumerate(ordered, 1):
                 node_id = str(node.get("id"))
                 if node_id not in generated:
@@ -4788,15 +5311,25 @@ class Flow:
                         self.mark("implementation_failed", node_id, "wave did not reach this node: time budget exhausted")
                         self.impl_failed.append(node_id)
                     else:
-                        self.node_cycle(node, ordered, index, len(ordered))
+                        if node_id in getattr(self, "whole_app_partial_ids", ()):
+                            self.node_cycle(node, ordered, index, len(ordered), preimplemented=True)
+                        else:
+                            self.node_cycle(node, ordered, index, len(ordered))
                         self.driver.end_scope("node")
                     continue
                 self.mark("design_started", node_id)
                 self.mark("design_done", node_id, "covered by whole-application design")
                 self.mark("implementation_started", node_id)
                 self.mark("implementation_done", node_id, "implemented by whole-app generation")
-                self.mark("test_failed", node_id, "first full suite could not report reliable results")
-                self.test_verdict[node_id] = False
+                if no_official_specs:
+                    # A generated contract directs implementation but is not an
+                    # executable acceptance result. Keep this leaf pending so
+                    # the final contract review plus startup rehearsal covers it;
+                    # never report it as an official test pass or failure.
+                    self.test_verdict[node_id] = None
+                else:
+                    self.mark("test_failed", node_id, "first full suite could not report reliable results")
+                    self.test_verdict[node_id] = False
             return True
         repair_budget = self.remaining()
         repair_count = sum(str(node.get("id")) in failing for node in ordered)
@@ -4840,6 +5373,7 @@ class Flow:
         proven_before = {prior for prior, value in self.test_verdict.items() if value is True}
         self.last_codegen_written = []
         self.last_turn_changed = False
+        self._generation_gate_result = None
         self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
         source_versions = dict(self.repair_source_index().versions)
         self.refused_paths = set()
@@ -4905,7 +5439,8 @@ class Flow:
             # prompt if this leaf fails every check.
             self.current_spec_chars = len(self.spec_bodies(node_id))
             codegen_prompt = self.codegen_implement_prompt(node, self.spec_bodies(node_id), corrections)
-        elif not corrections and self.codegen_mode() and self.tiny_mode(len(self.spec_bodies(node_id))):
+        elif (not corrections and self.runner is not None and self.codegen_mode()
+              and self.tiny_mode(len(self.spec_bodies(node_id)))):
             tiny_ok = self.tiny_turn(node_id, specs, implement_timeout, node)
             self.current_spec_chars = len(self.spec_bodies(node_id))
         if tiny_ok:
@@ -4987,16 +5522,22 @@ class Flow:
                 "`start` scripts) on disk; the harness could not even build the app. Create the missing files.")
         can_verify_existing = self.has_app() and self.runner is not None and bool(specs)
         if not ok and not can_verify_existing:
-            # A hard cap or timeout can leave tool edits half applied. Without
-            # executable acceptance there is no evidence that the partial node
-            # works, so keep the last committed application for later nodes.
-            if before_sha and self.has_app():
-                self.restore_app(before_sha)
-                self.metric('incomplete_node_rollback', node_id=node_id,
-                            reason='no_local_acceptance', restored=before_sha)
-            self.mark("implementation_failed", node_id, text[-500:])
-            self.impl_failed.append(node_id)
-            return
+            if Flow.retain_safe_no_spec_partial(self, node_id):
+                # Continue through the normal commit/traceability path. The
+                # verdict remains unknown until final contract review and the
+                # grader-like startup rehearsal.
+                ok = True
+                text = "partial structured edit retained after clean early checks; final verification pending"
+            else:
+                # No executable acceptance and no clean generation gate means
+                # there is still no evidence that the partial node is safe.
+                if before_sha and self.has_app():
+                    self.restore_app(before_sha)
+                    self.metric('incomplete_node_rollback', node_id=node_id,
+                                reason='no_local_acceptance', restored=before_sha)
+                self.mark("implementation_failed", node_id, text[-500:])
+                self.impl_failed.append(node_id)
+                return
         if not ok and not timed_out:
             log(f"[flow] {node_id}: generation did not complete; testing the existing app")
             self.pending_corrections.append(
@@ -5008,6 +5549,11 @@ class Flow:
             self.driver.close()
             self.pending_corrections.append(
                 "Your implementation turn ran out of time; work in smaller steps and verify with curl early.")
+        review_gaps = (Flow.no_spec_feature_review(self, node, deadline)
+                       if ok and not getattr(self, "tests_dir", None) else [])
+        if review_gaps:
+            text = ((text or "") + "\nNo-spec scenario review remains pending: "
+                    + "; ".join(review_gaps[:6]))[-2000:]
         if inline_design:
             written = self.output_dir / ".arc" / "design" / f"{node_id}.json"
             try:
@@ -6251,7 +6797,11 @@ class Flow:
                 log(f"[tests] {len(specs)} spec files at {self.tests_dir}; mapping "
                     f"{ {k: v for k, v in self.spec_map.items() if v} }; aliases {self.aliases}")
             else:
-                log("[tests] no acceptance specs found; building from requirement text only")
+                self.requirement_contracts = compile_contracts(ordered)
+                contract_path = self.output_dir / ".arc" / "requirement-contracts.json"
+                save_contracts(contract_path, self.requirement_contracts)
+                log(f"[tests] no acceptance specs found; wrote deterministic requirement contract for "
+                    f"{len(ordered)} node(s) to {contract_path}")
 
             self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
@@ -6291,10 +6841,14 @@ class Flow:
                 octos_bin, self.output_dir, env, data_dir, int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),
                 events_log=self.output_dir / ".arc" / "octos-events.jsonl")
             self.driver.hooks = protected_hooks(protected)
+            proxy = getattr(self, "llm_proxy", None)
+            if isinstance(proxy, LlmProxy):
+                self.driver.upstream_pending = lambda: proxy.upstream_pending
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
             try:
                 self.prepare_build(tree, ordered)
+                self.prime_generation_dependencies()
                 if (self.evolution and self.runner is not None and self.tests_dir
                         and unchanged == set(node_ids) and len(node_ids) > 1):
                     # Repair-only evolution has no new leaves to generate. One
@@ -6312,6 +6866,7 @@ class Flow:
                 self.final_acceptance_passes()
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None
+                seed_failures: dict[str, list[str]] = {}
                 if undecided and self.runner is None and not self.time_up() and not self.wound_down():
                     log(f"[flow] final check turn for nodes without a local verdict: {undecided}")
                     # With no executable specs, an unbounded verification turn
@@ -6321,17 +6876,30 @@ class Flow:
                     from generation_checks import contract_warnings
                     sources = self.repair_source_index().sources
                     wiring = [item for item in contract_warnings(sources, sources)
-                              if item.startswith(('ROUTE_LINK', 'API_CALL'))]
+                              if item.startswith(('ROUTE_LINK', 'API_CALL', 'ROUTE_CONFLICT'))]
+                    literals = source_literal_gaps(self.requirement_contracts, sources) if not self.tests_dir else []
+                    seeds = source_seed_gaps(self.requirement_contracts, sources) if not self.tests_dir else []
                     if wiring:
                         log(f'[flow] final static wiring audit: {len(wiring)} potential gap(s)')
-                    audit = ('\nStatic wiring findings to inspect and fix if confirmed:\n' +
-                             '\n'.join(wiring) + '\n') if wiring else ''
+                    if literals:
+                        log(f'[flow] final requirement-literal audit: {len(literals)} potential gap(s)')
+                    if seeds:
+                        log(f'[flow] final required-seed audit: {len(seeds)} concrete gap(s)')
+                    findings = wiring + literals + seeds
+                    audit = ('\nStatic findings to inspect and fix only if confirmed (advisory, not test verdicts):\n' +
+                             '\n'.join(findings) + '\n') if findings else ''
                     final_prompt = FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
                                                              tests=self.tests_prompt_for(None),
                                                              performance=self.perf_text(), ui=self.ui_contract()) + audit
                     final_ok, _ = self.turn(final_prompt,
                                             min(self.node_timeout, check_cap, max(1, self.remaining())), "final check")
                     self.commit("chore: final verification pass")
+                    if not self.tests_dir:
+                        seed_failures = seed_gaps_by_node(
+                            self.requirement_contracts, self.repair_source_index().sources)
+                    if seed_failures:
+                        log(f"[flow] final required-seed audit: {len(seed_failures)} leaf/leaves still lack "
+                            f"declared initial data: {', '.join(sorted(seed_failures))}")
                 rehearsed = self.rehearsal()
                 if rehearsed and any(value is None for value in self.test_verdict.values()) and self.runner is not None:
                     self.final_acceptance_passes()
@@ -6339,24 +6907,32 @@ class Flow:
                     if self.runner is not None and self.spec_map.get(node_id):
                         # Starting the server is not proof that a feature works.
                         continue
-                    if rehearsed and final_ok is not False:
-                        self.mark("test_passed", node_id, "final check and startup rehearsal passed")
-                    else:
-                        self.mark("test_failed", node_id, "final check or startup rehearsal failed")
-                    self.test_verdict[node_id] = bool(rehearsed and final_ok is not False)
+                    passed, detail = self.no_spec_node_verdict(node_id, rehearsed, final_ok, seed_failures)
+                    self.mark("test_passed" if passed else "test_failed", node_id, detail)
+                    self.test_verdict[node_id] = passed
             finally:
                 watchdog_stop.set()
                 self.postflight()
             for node_id in node_ids:  # final per-node verdicts (full-suite run may have changed them)
                 if self.test_verdict.get(node_id) is True:
-                    self.mark("test_passed", node_id, "acceptance specs pass (node run and full parallel suite)")
+                    detail = ("acceptance specs pass (node run and full parallel suite)" if self.tests_dir else
+                              "derived requirement-contract review and startup rehearsal completed; "
+                              "official acceptance specs unavailable")
+                    self.mark("test_passed", node_id, detail)
                 elif self.test_verdict.get(node_id) is False:
-                    self.mark("test_failed", node_id, "acceptance specs failing")
+                    detail = ("acceptance specs failing" if self.tests_dir else
+                              "derived requirement-contract review or startup rehearsal failed; "
+                              "official acceptance specs unavailable")
+                    self.mark("test_failed", node_id, detail)
             self.mark_folders()
             self.commit("chore: traceability and acceptance state")
             failed = [i for i in node_ids if self.test_verdict.get(i) is not True]
             if failed:
                 self.events.mark_run_completed(f"completed; nodes not verified: {', '.join(failed)}")
+            elif not self.tests_dir:
+                self.events.mark_run_completed(
+                    "all requirement nodes implemented; derived contract review and startup rehearsal completed; "
+                    "official acceptance specs unavailable")
             else:
                 self.events.mark_run_completed("all requirement nodes implemented and verified")
             _reap_stray_processes("postflight", self.output_dir)

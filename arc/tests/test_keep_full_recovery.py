@@ -29,7 +29,7 @@ class KeepFullRecoveryTests(TestCase):
         self.assertEqual(f.whole_app_deferred_ids, {'A'})
         self.assertEqual(f.test_verdict, {})
 
-    def test_partial_wave_is_retained_without_repeating_each_leaf(self):
+    def test_partial_group_is_split_and_each_leaf_is_completed(self):
         f = self.flow
         f.codegen_implement_prompt = Mock(return_value='prompt')
         def generate(*args, **kwargs):
@@ -38,9 +38,9 @@ class KeepFullRecoveryTests(TestCase):
         f.codegen_turn = Mock(side_effect=generate)
         with patch.dict('os.environ', {'OCTOS_ARC_WHOLE_APP_WAVE_NODES': '2'}):
             self.assertTrue(f.whole_app_waves(self.tree, self.nodes))
-        self.assertEqual(f.codegen_turn.call_count, 2)
-        self.assertEqual(f.whole_app_partial_ids, {'A', 'B'})
-        self.assertEqual(f.whole_app_generated_ids, {'C'})
+        self.assertEqual(f.codegen_turn.call_count, 4)
+        self.assertEqual(f.whole_app_partial_ids, set())
+        self.assertEqual(f.whole_app_generated_ids, {'A', 'B', 'C'})
         self.assertEqual(f.test_verdict, {})
 
     def test_per_node_prompt_preserves_scenarios_and_dependencies(self):

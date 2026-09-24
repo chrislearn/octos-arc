@@ -38,6 +38,10 @@ class WholeAppTests(unittest.TestCase):
         self.flow.remaining = Mock(return_value=4000)
         self.flow.wound_down = Mock(return_value=False)
         self.flow.commit = Mock()
+        # Generation tests below mock the list of written paths rather than
+        # writing those files. Batch-check behavior has dedicated tests; do not
+        # run a real scaffold build against a fictional mock write here.
+        self.flow.generation_batch_check = Mock()
 
     def test_one_generation_turn_quotes_every_leaf_and_shared_helper_once(self):
         flow = self.flow
@@ -322,6 +326,45 @@ class WholeAppTests(unittest.TestCase):
                           if call.args[0] == "test_failed"], ["A", "B", "C"])
         self.assertTrue(all(flow.test_verdict[node["id"]] is False for node in self.nodes))
 
+    def test_no_spec_generation_stays_pending_until_final_contract_review(self):
+        flow = self.flow
+        flow.tests_dir = None
+        flow.runner = None
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_generated_ids = {"A", "B", "C"}
+        flow.whole_app_first_suite = Mock(return_value=None)
+        flow.mark = Mock()
+        flow.node_cycle = Mock()
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        flow.node_cycle.assert_not_called()
+        self.assertFalse(any(call.args[0] == "test_failed" for call in flow.mark.call_args_list))
+        self.assertTrue(all(flow.test_verdict[node["id"]] is None for node in self.nodes))
+
+    def test_auto_whole_app_is_no_spec_only_and_uses_derived_contract(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        flow.tests_dir = None
+        flow.runner = None
+        flow.requirement_contracts = compile_contracts(self.nodes)
+        flow.codegen_implement_prompt = Mock(return_value="complete prompt")
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/index.html"]
+            return True, "files"
+
+        flow.codegen_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
+            self.assertTrue(flow.whole_app_codegen(self.tree, self.nodes))
+        _, contract = flow.codegen_implement_prompt.call_args.args
+        self.assertIn("not official Playwright tests", contract)
+
+        flow.tests_dir = self.root / "tests"
+        flow.runner = object()
+        flow.codegen_turn.reset_mock()
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
+            self.assertFalse(flow.whole_app_codegen(self.tree, self.nodes))
+        flow.codegen_turn.assert_not_called()
+
     def test_partial_waves_only_generate_unreached_nodes_if_suite_unavailable(self):
         flow = self.flow
         flow.whole_app_codegen = Mock(return_value=True)
@@ -403,6 +446,405 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.whole_app_codegen(tree, nodes))
         flow.whole_app_waves.assert_called_once_with(tree, nodes)
         flow.codegen_turn.assert_not_called()
+
+    def test_hyphenated_requirement_id_selects_its_design_slice(self):
+        design = {
+            "data_model": {},
+            "routes": [],
+            "pages": [{"path": "/access", "purpose": "manage access",
+                       "requirements": ["REQ-2-3"]}],
+        }
+        rendered = m.app_design_context(design, "[REQ-2-3] Grant repository access", 6000)
+        self.assertIn('/access', rendered)
+
+    def test_wave_targets_include_shared_composition_and_related_modules(self):
+        flow = self.flow
+        files = {
+            "frontend/src/App.jsx": "export default function App() {}",
+            "frontend/src/style.css": ".app {}",
+            "backend/routes/repositories.js": "module.exports = app => {};",
+            "backend/lib/accessGrants.js": "module.exports = {};",
+        }
+        for rel, source in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source)
+        flow.app_design_doc = {
+            "data_model": {},
+            "routes": [{"method": "POST", "path": "/api/repositories/:owner/:repo/access",
+                        "purpose": "grant repository access", "requirements": ["REQ-2-3"]}],
+            "pages": [{"path": "/:owner/:repo/settings/access", "purpose": "repository access",
+                       "requirements": ["REQ-2-3"]}],
+            "modules": [{"path": "backend/lib/accessGrants.js", "owns": ["repository access grants"]}],
+        }
+        flow.refused_paths = {"backend/routes/repositories.js"}
+        targets = flow.whole_app_wave_targets(
+            ["REQ-2-3"], "[REQ-2-3] grant repository access", "repository access grants")
+        self.assertTrue({"frontend/src/App.jsx", "frontend/src/style.css",
+                         "backend/routes/repositories.js", "backend/lib/accessGrants.js"} <= targets)
+
+    def test_wave_guard_requires_owned_design_routes_and_pages(self):
+        flow = self.flow
+        app = self.root / "frontend/src/App.jsx"
+        app.parent.mkdir(parents=True, exist_ok=True)
+        app.write_text('<Routes><Route path="/" element={<Home />} /></Routes>')
+        route = self.root / "backend/routes/repositories.js"
+        route.parent.mkdir(parents=True, exist_ok=True)
+        route.write_text("module.exports = app => { app.get('/api/repositories', list); };")
+        flow.app_design_doc = {
+            "data_model": {},
+            "routes": [{"method": "POST", "path": "/api/repositories/:owner/:repo/access",
+                        "requirements": ["REQ-2-3"]}],
+            "pages": [{"path": "/:owner/:repo/settings/access", "requirements": ["REQ-2-3"]}],
+        }
+        flow.last_codegen_refused = set()
+        flow._generation_gate_result = None
+        gaps = flow.whole_app_wave_gaps(["REQ-2-3"])
+        self.assertTrue(any("design route missing" in gap for gap in gaps))
+        self.assertTrue(any("design page route missing" in gap for gap in gaps))
+        route.write_text("module.exports = app => { app.post('/api/repositories/:owner/:repo/access', grant); };")
+        app.write_text('<Routes><Route path="/:owner/:repo/settings/access" element={<Access />} /></Routes>')
+        self.assertEqual(flow.whole_app_wave_gaps(["REQ-2-3"]), [])
+
+    def test_wave_guard_requires_explicit_scenario_seed_literals(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        flow.tests_dir = None
+        flow.requirement_contracts = compile_contracts([{
+            "id": "REQ-SEED", "name": "Existing note", "type": "ATOMIC",
+            "description": 'The system contains a note titled “Project ideas” with initial content “Draft”.',
+            "scenarios": [{"name": "Open", "steps": [
+                {"keyword": "GIVEN", "content": "The user is on the home page."},
+                {"keyword": "WHEN", "content": "The user opens the note."},
+                {"keyword": "THEN", "content": "The editor displays the initial content."},
+            ]}],
+        }])
+        path = self.root / "backend/seed.js"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('module.exports = [{ title: "Project ideas" }];')
+        flow.last_codegen_refused = set()
+        flow._generation_gate_result = None
+        gaps = flow.whole_app_wave_gaps(["REQ-SEED"])
+        self.assertTrue(any("SEED_DATA" in gap and '"Draft"' in gap for gap in gaps))
+        path.write_text('module.exports = [{ title: "Project ideas", content: "Draft" }];')
+        self.assertEqual(flow.whole_app_wave_gaps(["REQ-SEED"]), [])
+
+    def test_clean_no_spec_feature_review_costs_no_second_model_turn(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        flow.tests_dir = None
+        node = {"id": "REQ-1", "name": "Home", "type": "ATOMIC",
+                "description": "Show the home page", "scenarios": [{"name": "Open", "steps": [
+                    {"keyword": "GIVEN", "content": "The user opens the application."},
+                    {"keyword": "THEN", "content": "The home page is visible."}]}]}
+        flow.requirement_contracts = compile_contracts([node])
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        flow.codegen_turn = Mock()
+        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
+        flow.codegen_turn.assert_not_called()
+
+    def test_seed_gap_triggers_one_focused_no_spec_repair(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        flow.tests_dir = None
+        node = {"id": "REQ-1", "name": "Seed", "type": "ATOMIC",
+                "description": 'The system contains a note titled “Project ideas”.',
+                "scenarios": []}
+        flow.requirement_contracts = compile_contracts([node])
+        flow.whole_app_wave_gaps = Mock(side_effect=[["SEED_DATA REQ-1 missing Project ideas"], []])
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.codegen_implement_prompt = Mock(return_value="repair prompt")
+        flow.codegen_turn = Mock(return_value=(True, "files"))
+        flow.codegen_context_chars = Mock(return_value=90000)
+        flow.remaining = Mock(return_value=4000)
+        flow.wound_down = Mock(return_value=False)
+        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
+        flow.codegen_turn.assert_called_once()
+        self.assertIn("requirement contract repair", flow.codegen_turn.call_args.args[2])
+
+    def test_incomplete_group_is_split_instead_of_marked_complete(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.whole_app_wave_gaps = Mock(side_effect=[["missing access route"], [], []])
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow.last_codegen_no_change = False
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "3"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertEqual(flow.whole_app_generation_turn.call_count, 3)
+        self.assertEqual(flow.whole_app_generated_ids, {"A", "B", "C"})
+        self.assertIn("missing access route", "\n".join(map(str, flow.pending_corrections)))
+
+    def test_should_keep_generating_later_leaves_when_single_leaves_stay_partial(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.whole_app_wave_gaps = Mock(return_value=["incomplete feature contract"])
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow.last_codegen_no_change = False
+            flow.last_codegen_refused = set()
+            flow.last_codegen_outcome = "applied"
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertEqual(flow.whole_app_generation_turn.call_count, 3)
+        self.assertEqual(flow.whole_app_partial_ids, {"A", "B", "C"})
+        self.assertEqual(flow.whole_app_deferred_ids, {"A", "B", "C"})
+
+    def test_should_roll_back_only_the_capped_leaf_and_continue_with_later_leaves(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        flow.head = Mock(return_value="clean-sha")
+        flow.restore_app = Mock()
+        calls = []
+
+        def generated(*args, **kwargs):
+            calls.append(args)
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow.last_codegen_no_change = False
+            flow.last_codegen_refused = set()
+            if len(calls) == 1:
+                flow.last_codegen_outcome = "tool_incomplete"
+                return False, "local_turn_budget_exhausted"
+            flow.last_codegen_outcome = "applied"
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        flow.restore_app.assert_called_once_with("clean-sha")
+        self.assertEqual(flow.whole_app_deferred_ids, {"A"})
+        self.assertEqual(flow.whole_app_generated_ids, {"B", "C"})
+
+    def test_should_retain_clean_capped_leaf_when_official_specs_are_absent(self):
+        flow = self.flow
+        flow.tests_dir = None
+        flow.batch_spec_bodies = Mock(return_value="derived contract")
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        flow.head = Mock(return_value="clean-sha")
+        flow.restore_app = Mock()
+        flow.retain_safe_no_spec_partial = Mock(return_value=True)
+
+        def capped(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow.last_codegen_no_change = False
+            flow.last_codegen_refused = set()
+            flow.last_codegen_outcome = "tool_incomplete"
+            return False, "local_turn_budget_exhausted"
+
+        flow.whole_app_generation_turn = Mock(side_effect=capped)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        flow.restore_app.assert_not_called()
+        self.assertEqual(flow.whole_app_partial_ids, {"A", "B", "C"})
+        self.assertEqual(flow.whole_app_generation_turn.call_count, 3)
+        self.assertTrue(flow.commit.called)
+
+    def test_should_requote_refused_files_once_within_the_same_wave(self):
+        flow = self.flow
+        for rel in ("backend/routes/orgs.js", "frontend/src/NewOrg.jsx"):
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("// existing")
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        refusal = "write guard refused required existing file(s): backend/routes/orgs.js"
+        flow.whole_app_wave_gaps = Mock(side_effect=[[refusal], [], [], []])
+        calls = []
+
+        def generated(*args, **kwargs):
+            calls.append(args)
+            flow.last_codegen_written = ["frontend/src/NewOrg.jsx"]
+            flow.last_codegen_no_change = False
+            flow.last_codegen_outcome = "applied"
+            flow.last_codegen_refused = {"backend/routes/orgs.js"} if len(calls) == 1 else set()
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        self.assertEqual(flow.whole_app_generation_turn.call_count, 4)
+        self.assertEqual(flow.whole_app_generated_ids, {"A", "B", "C"})
+        retry_targets = flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"]
+        self.assertTrue({"backend/routes/orgs.js", "frontend/src/NewOrg.jsx"} <= retry_targets)
+        later_targets = flow.codegen_implement_prompt.call_args_list[2].kwargs["must_include"]
+        self.assertNotIn("frontend/src/NewOrg.jsx", later_targets)
+
+    def test_should_quote_files_written_by_the_previous_attempt_when_splitting(self):
+        flow = self.flow
+        path = self.root / "frontend/src/Forgot.jsx"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("// written by the two-leaf attempt")
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.whole_app_wave_gaps = Mock(side_effect=[["design page route missing: /forgot"], [], [], []])
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/Forgot.jsx"]
+            flow.last_codegen_no_change = False
+            flow.last_codegen_refused = set()
+            flow.last_codegen_outcome = "applied"
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "2"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        split_targets = flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"]
+        self.assertIn("frontend/src/Forgot.jsx", split_targets)
+
+    def test_should_retry_with_minimal_closure_before_node_flow(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx", "backend/routes/big.js"})
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        prompts = iter([None, "wave prompt", "wave prompt", "wave prompt"])
+        flow.codegen_implement_prompt = Mock(side_effect=lambda *a, **k: next(prompts))
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow.last_codegen_no_change = False
+            flow.last_codegen_refused = set()
+            flow.last_codegen_outcome = "applied"
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        minimal = flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"]
+        self.assertEqual(minimal, {"frontend/src/App.jsx"})
+        self.assertEqual(flow.whole_app_generated_ids, {"A", "B", "C"})
+        self.assertEqual(flow.whole_app_deferred_ids, set())
+
+    def test_should_use_measured_wave_budgets_and_no_short_turn_cap_by_default(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_context_chars = Mock(return_value=200000)
+        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        flow.remaining = Mock(return_value=20000)
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow.last_codegen_no_change = False
+            flow.last_codegen_refused = set()
+            flow.last_codegen_outcome = "applied"
+            return True, "files"
+
+        flow.whole_app_generation_turn = Mock(side_effect=generated)
+        keys = ("OCTOS_ARC_WHOLE_APP_PROMPT_CHARS", "OCTOS_ARC_WHOLE_APP_SOURCE_CHARS",
+                "OCTOS_ARC_WHOLE_APP_TURN_SECONDS", "OCTOS_ARC_WHOLE_APP_TIMEOUT")
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "3"}):
+            for key in keys:
+                os.environ.pop(key, None)
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        kwargs = flow.codegen_implement_prompt.call_args.kwargs
+        self.assertEqual(kwargs["context_limit"], 60000)
+        self.assertEqual(kwargs["source_limit"], 36000)
+        self.assertGreaterEqual(flow.whole_app_generation_turn.call_args.args[1], 600)
+
+    def test_should_not_block_api_call_planned_for_a_later_leaf(self):
+        flow = self.flow
+        flow.last_codegen_refused = set()
+        flow.requirement_contracts = None
+        flow.whole_app_generated_ids = set()
+        flow.last_codegen_written = ["frontend/src/Orgs.jsx"]
+        flow.app_design_doc = {"data_model": {}, "pages": [], "routes": [
+            {"method": "POST", "path": "/api/orgs/:org/teams", "requirements": ["LATER"]}]}
+        flow._generation_gate_result = {"errors": [], "warnings": [
+            "API_CALL (heuristic): frontend/src/Orgs.jsx calls POST /api/orgs/${org}/teams, "
+            "but no Express route has a matching method and /api path."]}
+        self.assertEqual(flow.whole_app_wave_gaps(["A"]), [])
+        flow.app_design_doc["routes"][0]["requirements"] = ["A"]
+        self.assertTrue(any(gap.startswith("API_CALL") for gap in flow.whole_app_wave_gaps(["A"])))
+
+    def test_should_block_route_conflict_touching_the_current_write(self):
+        flow = self.flow
+        flow.last_codegen_refused = set()
+        flow.requirement_contracts = None
+        flow.last_codegen_written = ["backend/routes/repos.js"]
+        flow._generation_gate_result = {"errors": [], "warnings": [
+            "ROUTE_CONFLICT: GET /api/repos/:owner/:repo is registered in backend/routes/orgs.js and "
+            "backend/routes/repos.js; Express serves only the first."]}
+        gaps = flow.whole_app_wave_gaps(["A"])
+        self.assertEqual(len(gaps), 1)
+        self.assertTrue(gaps[0].startswith("ROUTE_CONFLICT"))
+
+    def test_should_fail_only_the_node_that_owns_a_final_seed_gap(self):
+        flow = self.flow
+        seeds = {"B": ["SEED_DATA B: required initial literal \"Acme\" is absent"]}
+        passed, _ = flow.no_spec_node_verdict("A", True, True, seeds)
+        self.assertTrue(passed)
+        passed, detail = flow.no_spec_node_verdict("B", True, True, seeds)
+        self.assertFalse(passed)
+        self.assertIn("Acme", detail)
+        passed, _ = flow.no_spec_node_verdict("A", False, True, seeds)
+        self.assertFalse(passed)
+        passed, _ = flow.no_spec_node_verdict("A", True, False, {})
+        self.assertFalse(passed)
+
+    def test_wave_wiring_warnings_are_current_change_scoped(self):
+        flow = self.flow
+        flow.last_codegen_refused = set()
+        flow.requirement_contracts = None
+        flow.last_codegen_written = ["frontend/src/Current.jsx"]
+        flow._generation_gate_result = {
+            "errors": [],
+            "warnings": [
+                "API_CALL (heuristic): frontend/src/Old.jsx calls POST /api/x, but no route matches.",
+                "ROUTE_LINK (heuristic): frontend/src/Current.jsx links to /future, but no route matches.",
+            ],
+        }
+        self.assertEqual(flow.whole_app_wave_gaps(["A"]), [])
+        flow._generation_gate_result["warnings"].append(
+            "API_CALL (heuristic): frontend/src/Current.jsx calls POST /api/x, but no route matches.")
+        gaps = flow.whole_app_wave_gaps(["A"])
+        self.assertEqual(len(gaps), 1)
+        self.assertIn("API_CALL", gaps[0])
+
+    def test_focused_source_budget_lists_but_does_not_quote_unrelated_large_file(self):
+        flow = self.flow
+        files = {
+            "backend/server.js": "module.exports = {};",
+            "frontend/src/App.jsx": "export default function App() { return null; }",
+            "frontend/src/style.css": ".app {}",
+            "frontend/src/Unrelated.jsx": "x" * 50000,
+        }
+        for rel, source in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source)
+        (self.root / "backend/package.json").write_text('{"scripts":{"start":"node server.js"}}')
+        (self.root / "frontend/package.json").write_text('{"scripts":{"build":"vite build"}}')
+        flow.app_design_doc = None
+        flow.codegen_context_chars = Mock(return_value=90000)
+        prompt = flow.codegen_implement_prompt(
+            {"id": "wave", "description": "Update the application route"}, "route contract",
+            must_include={"frontend/src/App.jsx", "frontend/src/style.css"},
+            context_limit=30000, source_limit=12000)
+        self.assertIsNotNone(prompt)
+        self.assertLessEqual(len(prompt + "\n" + m.FORMAT_INSTRUCTIONS), 30000)
+        self.assertNotIn("frontend/src/Unrelated.jsx", m.quoted_paths(prompt))
+        self.assertIn("frontend/src/Unrelated.jsx", prompt)
 
     def test_all_six_web_tasks_can_be_partitioned_into_bounded_prompts(self):
         bundle = Path(m.__file__).parent

@@ -24,6 +24,16 @@ class PendingCompletionTests(unittest.TestCase):
         self.assertFalse(proxy.provider_unavailable)
         self.assertEqual(upstream.call_args.args[0].full_url, 'http://unused/v1/models')
 
+    def test_should_report_upstream_pending_only_while_a_completion_is_in_flight(self):
+        from concurrent.futures import Future
+        proxy = LlmProxy('http://unused/v1', 'none')
+        self.addCleanup(proxy.server.server_close)
+        self.assertFalse(proxy.upstream_pending)
+        proxy._inflight[('POST', '/chat/completions')] = Future()
+        self.assertTrue(proxy.upstream_pending)
+        proxy._inflight.clear()
+        self.assertFalse(proxy.upstream_pending)
+
     def test_token_free_502_retries_once_then_counts_only_successful_request(self):
         class Response:
             status = 200

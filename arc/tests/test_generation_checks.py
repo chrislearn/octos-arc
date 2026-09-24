@@ -52,6 +52,17 @@ class GenerationChecksTests(TestCase):
             'element={<PullDetail />} /></Routes>')
         self.assertFalse(any('ROUTE_LINK' in warning for warning in contract_warnings(sources, changed)))
 
+    def test_dynamic_prefix_with_static_settings_suffix_requires_exact_route_shape(self):
+        sources = {
+            'frontend/src/App.jsx': '<Routes><Route path="/:owner/:repo/settings" element={<Settings />} /></Routes>',
+            'frontend/src/Settings.jsx': '<Link to={`/${owner}/${repo}/settings/access`}>Access</Link>',
+        }
+        changed = ['frontend/src/Settings.jsx']
+        self.assertTrue(any('ROUTE_LINK' in warning for warning in contract_warnings(sources, changed)))
+        sources['frontend/src/App.jsx'] = (
+            '<Routes><Route path="/:owner/:repo/settings/access" element={<Access />} /></Routes>')
+        self.assertFalse(any('ROUTE_LINK' in warning for warning in contract_warnings(sources, changed)))
+
     def test_frontend_api_call_without_matching_backend_route_is_reported(self):
         sources = {
             'backend/routes/repos.js': "app.get('/api/repos/:owner/:repo', getRepo);",
@@ -65,6 +76,66 @@ class GenerationChecksTests(TestCase):
         sources['backend/routes/repos.js'] += "\napp.get('/api/repos/:owner/:repo/pulls', getPulls);"
         self.assertFalse(any('API_CALL' in warning for warning in
                              contract_warnings(sources, ['frontend/src/Repo.jsx'])))
+
+    def test_frontend_api_method_must_match_backend_method(self):
+        sources = {
+            'backend/routes/items.js': "app.get('/api/items', listItems);",
+            'frontend/src/Items.jsx': (
+                "requestJson('/api/items'); "
+                "requestJson('/api/items', {method: 'POST', body: {name: 'x'}});"),
+        }
+        warnings = contract_warnings(sources, ['frontend/src/Items.jsx'])
+        self.assertEqual(sum('API_CALL' in warning for warning in warnings), 1)
+        self.assertIn('POST /api/items', warnings[0])
+
+    def test_conditional_query_suffix_does_not_change_route_shape(self):
+        sources = {
+            'frontend/src/App.jsx': '<Routes><Route path="/items/:id" element={<Item />} /></Routes>',
+            'frontend/src/Items.jsx': (
+                "<Link to={`/items/${id}${show ? '?view=full' : ''}`}>Open</Link>"),
+        }
+        self.assertFalse(any('ROUTE_LINK' in warning for warning in
+                             contract_warnings(sources, ['frontend/src/Items.jsx'])))
+
+    def test_should_accept_link_when_route_is_a_relative_nested_child(self):
+        sources = {
+            'frontend/src/App.jsx': (
+                '<Routes><Route path="/orgs/:orgName/teams/:teamName" element={<TeamLayout />}>'
+                '<Route index element={<Team />} />'
+                '<Route path="settings" element={<TeamSettings />} />'
+                '</Route></Routes>'),
+            'frontend/src/TeamLayout.jsx': (
+                '<Link to={`/orgs/${org}/teams/${team.name}/settings`}>Settings</Link>'),
+        }
+        self.assertFalse(any('ROUTE_LINK' in warning for warning in
+                             contract_warnings(sources, ['frontend/src/TeamLayout.jsx'])))
+        sources['frontend/src/TeamLayout.jsx'] = (
+            '<Link to={`/orgs/${org}/teams/${team.name}/members`}>Members</Link>')
+        self.assertTrue(any('ROUTE_LINK' in warning for warning in
+                            contract_warnings(sources, ['frontend/src/TeamLayout.jsx'])))
+
+    def test_should_keep_optional_chaining_segment_when_matching_route_shape(self):
+        sources = {
+            'frontend/src/App.jsx': '<Routes><Route path="/repos/:owner/:name" element={<Repo />} /></Routes>',
+            'frontend/src/Card.jsx': '<Link to={`/repos/${owner}/${repo?.name}`}>Open</Link>',
+        }
+        self.assertFalse(any('ROUTE_LINK' in warning for warning in
+                             contract_warnings(sources, ['frontend/src/Card.jsx'])))
+
+    def test_should_report_route_conflict_when_two_modules_register_same_method_and_path(self):
+        sources = {
+            'backend/routes/orgs.js': "app.get('/api/repos/:owner/:name', (req, res) => {});",
+            'backend/routes/repos.js': ("app.get('/api/repos/:owner/:repo', (req, res) => {});\n"
+                                        "app.post('/api/repos/:owner/:repo', (req, res) => {});"),
+        }
+        warnings = contract_warnings(sources, ['backend/routes/repos.js'])
+        conflicts = [w for w in warnings if w.startswith('ROUTE_CONFLICT')]
+        self.assertEqual(len(conflicts), 1)
+        self.assertIn('GET /api/repos/:owner/:repo', conflicts[0])
+        self.assertIn('backend/routes/orgs.js', conflicts[0])
+        self.assertIn('backend/routes/repos.js', conflicts[0])
+        self.assertEqual([w for w in contract_warnings(sources, ['frontend/src/Other.jsx'])
+                          if w.startswith('ROUTE_CONFLICT')], [])
 
     def test_native_interactive_nesting_warns_without_rejecting_component_composition(self):
         sources = {'frontend/src/Form.jsx': (
