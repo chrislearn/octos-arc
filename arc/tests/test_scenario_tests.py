@@ -1,3 +1,4 @@
+import re
 import unittest
 
 from scenario_tests import compile_leaf, compile_suite, suite_fixtures
@@ -86,7 +87,10 @@ class ScenarioCompilerTests(unittest.TestCase):
         compiled = compile_leaf(node, suite_fixtures([node]))
         self.assertEqual(compiled.scripts, 0)
         self.assertIn("h.signIn(page, 'alice-dev', 'Valid-password-123!')", compiled.source)
-        self.assertIn("h.expectReachable(page, 'acme-docs')", compiled.source)
+        # The public seeded repository is the entry record: open it and expect the other public seeds.
+        self.assertIn("[entry]", compiled.source)
+        self.assertIn("h.clickNamed(page, 'acme-docs')", compiled.source)
+        self.assertIn("'Acme Demo'", compiled.source)
         self.assertNotIn("secret-research", compiled.source)
 
     def test_should_start_signed_in_only_when_the_scenario_says_so(self):
@@ -275,3 +279,105 @@ class ScenarioCompilerV2Tests(unittest.TestCase):
         compiled = compile_leaf(node, suite_fixtures([node]))
         self.assertEqual(compiled.scripts, 0)
         self.assertIn("[reach]", compiled.source)
+
+
+class GeneratedFixtureValueTests(unittest.TestCase):
+    """Creating a record must not reuse the seeded account: registering
+    `alice-dev` again fails as soon as the seed exists (v9.1 run 2a839b37d3e8
+    lost REQ-1-1-2's work to that false regression)."""
+
+    def test_new_account_fields_get_generated_values_not_the_fixture(self):
+        node = leaf("REQ-1-1-1", [("Scenario 1", [
+            ("GIVEN", SEED + " The visitor clicks “Create an account”."),
+            ("WHEN", "The visitor enters a compliant username in “Username”, a compliant email in “Email”, a "
+                     "compliant password in “Password”, an identical confirmation password in “Confirm password”, "
+                     "checks “I agree” and clicks “Create account”."),
+            ("THEN", "The page shows “Welcome”."),
+        ])])
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertEqual(source.count("[script]"), 1)
+        self.assertNotIn("'alice-dev'", source.split("[script]", 1)[1])
+        username = re.search(r"h\.fillField\(page, 'Username', '([^']+)'\)", source).group(1)
+        self.assertRegex(username, r"^[a-z0-9-]{3,39}$")
+        password = re.search(r"h\.fillField\(page, 'Password', '([^']+)'\)", source).group(1)
+        self.assertGreaterEqual(len(password), 12)
+        self.assertIn(f"h.fillField(page, 'Confirm password', '{password}')", source)
+        self.assertIn("h.checkNamed(page, 'I agree')", source)
+
+    def test_existing_account_fields_still_use_the_fixture(self):
+        node = leaf("REQ-1-1-2", [("Scenario 1", [
+            ("GIVEN", SEED),
+            ("WHEN", "The visitor enters the username in “Username or email”, enters the correct password in "
+                     "“Password”, and clicks “Sign in”."),
+            ("THEN", "The page shows “Sign out”."),
+        ])])
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertIn("h.fillField(page, 'Username or email', 'alice-dev')", source)
+
+
+SHEET_SEED = ("The visitor starts at the application home page in a fresh unauthenticated browser session. "
+              "The evaluation seed contains the seeded workbook `Q3 Sales`, worksheet `Sheet1`, rows `East/1200` "
+              "and `North/800`, and cell A1 value `Region`.")
+SHEET_WHEN = ("The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry, and the requested "
+              "workflow with concrete values `East`, `1200`, `North`, and `800`. Every value is entered through a "
+              "visible, labelled control; no implementation-specific navigation is assumed.")
+SHEET_THEN = ("The application exposes the observable result for \"the requested workflow\" using the same seeded "
+              "names and values (the seeded workbook `Q3 Sales`, worksheet `Sheet1`); validation or permission "
+              "failures are shown beside the named control and do not create a partial record.")
+
+
+class TemplatedScenarioTests(unittest.TestCase):
+    """hackathon--sheet (run ef2ab916a57d, 0/100): every scenario is a template
+    ("... and the requested workflow with concrete values ...") and the contract
+    lives in the description and the seeds. One reach check per leaf let a
+    hollow app pass 24/24 locally."""
+
+    def _node(self):
+        return leaf("REQ-1-1-1", [("REQ-1-1-1 -the requested workflow", [
+            ("GIVEN", SHEET_SEED), ("WHEN", SHEET_WHEN), ("THEN", SHEET_THEN)]),
+            ("REQ-1-1-1 -the requested workflow", [
+            ("GIVEN", SHEET_SEED), ("WHEN", SHEET_WHEN), ("THEN", SHEET_THEN)])],
+            description='Each record provides a link whose accessible name is the workbook name and a button '
+                        'named "New blank workbook". The grid uses the ARIA grid role, has the accessible name '
+                        '"Worksheet grid", and grid cells use the ARIA gridcell role with their cell coordinates as '
+                        'accessible names (for example, A1).')
+
+    def test_templated_scenario_becomes_an_entry_script_from_seeds_and_contracts(self):
+        node = self._node()
+        compiled = compile_leaf(node, suite_fixtures([node]))
+        source = compiled.source
+        self.assertIn("[entry]", source)
+        self.assertIn("h.clickNamed(page, 'Q3 Sales')", source)
+        # Seed values are asserted after opening the seeded record; ranges/formulas are not.
+        self.assertIn("'East'", source)
+        self.assertIn("'1200'", source)
+        self.assertIn("h.expectCell(page, 'A1', 'Region')", source)
+        # Explicit ARIA contracts from the requirement text are asserted by role.
+        self.assertIn("h.expectRole(page, 'grid', 'Worksheet grid')", source)
+        self.assertIn("h.expectRole(page, 'gridcell', 'A1')", source)
+        self.assertIn("h.expectReachable(page, 'New blank workbook')", source)
+        self.assertNotIn("'East/1200'", source)
+
+    def test_duplicate_scenario_names_get_unique_test_titles(self):
+        node = self._node()
+        source = compile_leaf(node, suite_fixtures([node])).source
+        titles = re.findall(r"^test\('([^']+)'", source, re.M)
+        self.assertEqual(len(titles), len(set(titles)), titles)
+
+    def test_ancestor_contracts_are_used_when_given(self):
+        node = leaf("REQ-3-1-1", [("REQ-3-1-1 -the requested workflow", [
+            ("GIVEN", SHEET_SEED), ("WHEN", SHEET_WHEN), ("THEN", SHEET_THEN)])], description="Edit a cell.")
+        context = 'The active worksheet grid uses the ARIA grid role, has the accessible name "Worksheet grid".'
+        source = compile_leaf(node, suite_fixtures([node]), context=context).source
+        self.assertIn("h.expectRole(page, 'grid', 'Worksheet grid')", source)
+        files = compile_suite([node], context={"REQ-3-1-1": context})
+        self.assertIn("Worksheet grid", files["REQ-3-1-1.spec.ts"])
+
+
+class SharedContractTests(unittest.TestCase):
+    def test_folder_level_aria_contracts_apply_to_every_entry_script(self):
+        node = leaf("REQ-4-1-1", [("REQ-4-1-1 -the requested workflow", [
+            ("GIVEN", SHEET_SEED), ("WHEN", SHEET_WHEN), ("THEN", SHEET_THEN)])], description="Formulas.")
+        shared = 'The active worksheet grid uses the ARIA grid role, has the accessible name "Worksheet grid".'
+        files = compile_suite([node], shared=shared)
+        self.assertIn("h.expectRole(page, 'grid', 'Worksheet grid')", files["REQ-4-1-1.spec.ts"])

@@ -22,25 +22,32 @@ blueprints/derived-helpers.ts are at least as tolerant as the official helpers.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping
+
+from requirement_contracts import _ui_bindings
 
 HELPERS = Path(__file__).with_name("blueprints") / "derived-helpers.ts"
 
 _Q = r"(?:“(?P<q1>[^”]+)”|\"(?P<q2>[^\"]+)\")"
 _QB = r"(?:“(?P<q1>[^”]+)”|\"(?P<q2>[^\"]+)\"|`(?P<q3>[^`]+)`)"
 _ANY_LITERAL = re.compile(r"“([^”]+)”|\"([^\"]+)\"|`([^`]+)`")
-_DET = r"(?:(?:the|that|this|its|their|an?)\s+)?"
+_DET = r"(?:(?:the|that|this|its|their|an?)\s+)?(?:(?:visible|seeded|existing|first|new|selected)\s+)?"
 _CLICK_VERB = (r"\b(?:click|clicks|clicking|choose|chooses|select|selects|press|presses|activate|activates|tap|taps|"
                r"open|opens)\s+(?:on\s+)?" + _DET)
-_CONTROL_SUFFIX = r"(?:\s+(?:tab|button|link|menu item|menuitem|menu|item|option|filter|entry|control|type filter|result type|row))?"
+_CONTROL_SUFFIX = (r"(?:\s+(?:tab|button|link|menu item|menuitem|menu|item|option|filter|entry|control|type filter|"
+                   r"result type|row|workbook entry|repository entry|record))?")
 _CLICK = re.compile(_CLICK_VERB + _QB + _CONTROL_SUFFIX, re.I)
 _CLICK_MORE = re.compile(r"\s*(?P<join>,\s*(?:and\s+)?|\s+and\s+|\s+or\s+)" + _DET + _QB + _CONTROL_SUFFIX, re.I)
 _ENTER = re.compile(
     r"\b(?:enter|enters|type|types|fill|fills|input|inputs)\s+(?P<what>[^“\";,]{0,90}?)\s+(?:in|into)\s+"
     + _DET + _Q + r"(?:\s+(?:field|box|input))?", re.I)
+# "..., a compliant email in “Email”, an identical confirmation password in “Confirm password”"
+_ENTER_MORE = re.compile(
+    r"\s*,\s*(?:and\s+)?(?P<what>[^“\";,]{0,90}?)\s+(?:in|into)\s+" + _DET + _Q + r"(?:\s+(?:field|box|input))?", re.I)
 # "enters organization identifier `mobile-guild`, a display name `Mobile Guild`"
 _ENTER_VALUE = re.compile(
     r"\b(?:enter|enters|type|types|input|inputs|fill\s+in|fills\s+in)\s+(?:the\s+|an?\s+)?(?P<label>[A-Za-z][\w /-]{1,40}?)"
@@ -65,7 +72,8 @@ _CLICK_KIND = re.compile(
     r"(?:(?:public|private|matching|target|that)\s+)?(?P<kind>repository|repositories|organization|team|branch|issue|"
     r"pull request|file|member|milestone|label|commit)(?:'s|’s)?\s+(?:name|title|link|row)\b", re.I)
 _CONFIRMS = re.compile(r"\b(?:confirms?|verif(?:y|ies)|sees?|notes?)\s+that\b[^,;.]*", re.I)
-_GENERIC = re.compile(r"\bfollows?\s+the\s+visible\s+controls\s+for\s+the\b[^.;]*?\bworkflow\b", re.I)
+_GENERIC = re.compile(r"\bfollows?\s+the\s+visible\s+controls\s+for\s+the\b[^.;]*?\bworkflow\b|"
+                      r"\bthe\s+requested\s+workflow\b", re.I)
 _TO_PAGE = re.compile(r"\bto\s+(?:enter|open|reach)\s+(?:the\s+)?[\w -]{1,40}?\s+page\b", re.I)
 _ACTION_WORDS = re.compile(
     r"\b(click|clicks|choose|chooses|select|selects|press|presses|activate|tap|open|opens|enter|enters|type|"
@@ -108,8 +116,60 @@ _STATUS_WORD = re.compile(
 _STATUS_STOP = {"The", "This", "That", "After", "When", "Then", "System", "User", "Visitor", "Owner", "Admin",
                 "Page", "Both", "Each", "Its", "Their", "Only", "All", "Any", "Some", "One", "New", "Same"}
 _FIXTURE_REFERENCE = re.compile(r"\b(?:the\s+)?(?:username|account\s+name|signed[- ]in\s+user(?:'s)?\s+name)\b", re.I)
-_SEED_LIST = re.compile(r"\bseeded\s+data\s+(?:is|includes)\s+(?:the\s+existing\s+)?(?P<body>[^.]+)", re.I)
-_SEED_ITEM = re.compile(r"(?P<kind>(?:[A-Za-z-]+\s+){0,3}?)`(?P<value>[^`]+)`")
+_SEED_LIST = re.compile(r"\b(?:seeded\s+data|evaluation\s+seed|seed\s+data)\s+(?:is|includes|contains)\s+"
+                        r"(?:the\s+existing\s+|the\s+seeded\s+)?(?P<body>[^.]+)", re.I)
+# Seeds that name the record a scenario opens first (the "entry" of the app).
+_ENTRY_KINDS = re.compile(r"\b(?:workbook|repository|organization|project|document|board|book|shelf|note|page|"
+                          r"issue|pull request|team|dataset|order)\b", re.I)
+_CELL_SEED = re.compile(r"^(?P<cell>[A-Z]{1,3}[0-9]{1,4})=(?P<value>.+)$")
+_CELL_REF = re.compile(r"^[A-Z]{1,3}[0-9]{1,4}(?::[A-Z]{1,3}[0-9]{1,4})?$")
+_ARIA_ROLES = {"grid", "gridcell", "tab", "tablist", "tabpanel", "dialog", "menu", "menuitem", "button", "link",
+               "textbox", "combobox", "listbox", "option", "table", "row", "columnheader", "rowheader", "heading",
+               "region", "navigation", "banner", "alert", "status", "checkbox", "radio", "switch", "toolbar"}
+_ARIA_NAMED = re.compile(r"\b(?:ARIA\s+)?(\w+)\s+role\b[^.;]{0,120}?accessible\s+name\s+\"([^\"]+)\"", re.I)
+_ARIA_CELLS = re.compile(r"\b(\w+)\s+role\s+with\s+their\s+cell\s+coordinates\s+as\s+accessible\s+names\s*"
+                         r"\((?:for\s+example,?\s*)?([A-Z]{1,3}[0-9]{1,4})\)", re.I)
+
+
+def _aria_contracts(text: str) -> list[tuple[str, str]]:
+    """Explicit role/name promises in requirement prose ("uses the ARIA grid
+    role, has the accessible name "Worksheet grid""; "gridcell role with their
+    cell coordinates as accessible names (for example, A1)")."""
+    found: list[tuple[str, str]] = []
+    for match in _ARIA_NAMED.finditer(text):
+        role = match.group(1).lower()
+        if role in _ARIA_ROLES and (role, match.group(2)) not in found:
+            found.append((role, match.group(2)))
+    for match in _ARIA_CELLS.finditer(text):
+        role = match.group(1).lower()
+        if role in _ARIA_ROLES and (role, match.group(2)) not in found:
+            found.append((role, match.group(2)))
+    return found
+
+
+def _seed_expectations(out: "_Scenario", entry: str | None) -> tuple[list[str], list[tuple[str, str]]]:
+    """Plain seed values the app must show once the entry record is open, and
+    cell=value seeds. Ranges and formulas are structure, not visible text."""
+    values: list[str] = []
+    cells: list[tuple[str, str]] = []
+    for kind, value in out.seed_kinds:
+        if _NON_PUBLIC.search(kind) or value == entry:
+            continue
+        cell = _CELL_SEED.match(value)
+        kind_cell = re.search(r"\bcell\s+([A-Z]{1,3}[0-9]{1,4})\s+value\b", kind)
+        if cell or kind_cell:
+            ref, shown = (cell.group("cell"), cell.group("value")) if cell else (kind_cell.group(1), value)
+            if not shown.startswith("="):
+                cells.append((ref, shown))
+            continue
+        if value.startswith("=") or _CELL_REF.match(value):
+            continue
+        parts = [part.strip() for part in value.split("/")] if "/" in value and value.count("/") <= 3 else [value]
+        for part in parts:
+            if part and part not in values and not _CELL_REF.match(part) and not part.startswith("="):
+                values.append(part)
+    return values[:6], cells[:4]
+_SEED_ITEM = re.compile(r"(?P<kind>(?:[A-Za-z0-9-]+\s+){0,3}?)`(?P<value>[^`]+)`")
 _NON_PUBLIC = re.compile(r"private|secret|inaccessible|deleted|outsider|unknown|invalid|restricted", re.I)
 
 
@@ -161,21 +221,35 @@ def suite_fixtures(leaves: Iterable[Mapping]) -> Fixtures:
     return fixtures
 
 
-def _value_for(what: str, fixtures: Fixtures) -> str | None:
+_NEW_VALUE = re.compile(r"\b(?:new|compliant|unique|valid|another|fresh|different|unused|candidate)\b", re.I)
+
+
+def _generated(kind: str, scope: str) -> str:
+    """A made-up but valid value for a record the scenario creates; the same
+    within one scenario, different across scenarios."""
+    slug = hashlib.sha1(scope.encode("utf-8")).hexdigest()[:6]
+    return {"username": f"user-{slug}", "email": f"user-{slug}@example.test",
+            "password": f"Derived-pass-{slug}!"}[kind]
+
+
+def _value_for(what: str, fixtures: Fixtures, scope: str = "") -> str | None:
     literal = re.search(r"`([^`]+)`", what)
     if literal:
         return literal.group(1)
     low = what.lower()
+    fresh = bool(_NEW_VALUE.search(low))
     if "password" in low:
-        if re.search(r"\b(new|candidate|confirmation|confirm)\b", low):
-            return None
+        if fresh or re.search(r"\b(confirmation|confirm)\b", low):
+            # A new password and its confirmation are the same generated value;
+            # the fixture password is never re-entered as a "new" one.
+            return _generated("password", scope)
         return fixtures.password
     if "confirmation" in low:
         return None
     if re.search(r"\b(username|account)\b", low):
-        return fixtures.account
+        return _generated("username", scope) if fresh else fixtures.account
     if "email" in low:
-        return fixtures.email
+        return _generated("email", scope) if fresh else fixtures.email
     return None
 
 
@@ -230,13 +304,22 @@ def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario, lenient:
     for match in _ENTER.finditer(sentence):
         if not free(match.start(), match.end()):
             continue
-        value = _value_for(match.group("what"), fixtures)
-        label = _quoted(match)
-        if value is None:
-            spans.append((match.start(), match.end(), "", label))
-            out.compiled = False
-        else:
-            spans.append((match.start(), match.end(), f"await h.fillField(page, {_ts(label)}, {_ts(value)});", label))
+        items = [(match.group("what"), _quoted(match))]
+        end = match.end()
+        while True:
+            more = _ENTER_MORE.match(sentence, end)
+            if not more or not free(more.start(), more.end()):
+                break
+            items.append((more.group("what"), _quoted(more)))
+            end = more.end()
+        code = []
+        for what, label in items:
+            value = _value_for(what, fixtures, out.title)
+            if value is None:
+                out.compiled = False
+                break
+            code.append(f"await h.fillField(page, {_ts(label)}, {_ts(value)});")
+        spans.append((match.start(), end, "\n".join(code) if out.compiled else "", items[0][1]))
     for match in _ENTER_VALUE.finditer(sentence):
         if not free(match.start(), match.end()):
             continue
@@ -396,18 +479,59 @@ def _node_text(node: Mapping) -> str:
     return " ".join([str(node.get("name") or ""), str(node.get("description") or "")])
 
 
-def compile_leaf(node: Mapping, fixtures: Fixtures) -> CompiledLeaf:
+def _entry_script(parsed: "_Scenario", node_text: str, context: str,
+                  shared: str = "") -> tuple[list[str], tuple] | None:
+    """A templated scenario ("... and the requested workflow with concrete
+    values ...") carries its contract in the seeds and the requirement prose:
+    open the seeded entry record, then require the seeded values, the cell
+    seeds, every explicit ARIA role/name promise and the named controls."""
+    entry = next((value for kind, value in parsed.seed_kinds
+                  if _ENTRY_KINDS.search(kind) and not _NON_PUBLIC.search(kind)), None)
+    if entry is None:
+        return None
+    values, cells = _seed_expectations(parsed, entry)
+    aria = _aria_contracts(node_text + "\n" + context + "\n" + shared)[:4]
+    controls = [item["name"] for item in _ui_bindings(node_text)
+                if item["name"] != entry and item["name"] not in values][:4]
+    lines = [f"  await h.clickNamed(page, {_ts(entry)});"]
+    if values:
+        lines.append(f"  await h.expectTextsVisible(page, [{', '.join(_ts(v) for v in values)}]);")
+    lines += [f"  await h.expectCell(page, {_ts(cell)}, {_ts(value)});" for cell, value in cells]
+    lines += [f"  await h.expectRole(page, {_ts(role)}, {_ts(name)});" for role, name in aria]
+    lines += [f"  await h.expectReachable(page, {_ts(name)});" for name in controls]
+    key = ("entry", parsed.signed_in, entry, tuple(values), tuple(cells), tuple(aria), tuple(controls))
+    return lines, key
+
+
+def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: str = "") -> CompiledLeaf:
     node_id = str(node.get("id"))
     tests: list[str] = []
     seen: set[tuple] = set()
+    titles: dict[str, int] = {}
     scripts = reach_checks = 0
     node_text = _node_text(node)
+
+    def unique(title: str) -> str:
+        titles[title] = titles.get(title, 0) + 1
+        return title if titles[title] == 1 else f"{title} ({titles[title]})"
+
     for scenario in node.get("scenarios") or []:
         parsed = _compile_scenario(scenario, fixtures, node_text)
         title = parsed.title if parsed.title.startswith(node_id) else f"{node_id}: {parsed.title}"
         actions = [a for a in parsed.actions if not a.startswith("await h.signIn(")]
         scripted = parsed.compiled and not parsed.generic and bool(actions) and (
             bool(parsed.assertions) or not parsed.failure_path)
+        entry_script = _entry_script(parsed, node_text, context, shared) if parsed.generic and not scripted else None
+        if entry_script is not None:
+            lines_, key = entry_script
+            if key not in seen:
+                seen.add(key)
+                lines = []
+                if _start(lines, parsed):
+                    tests.append(f"test({_ts(unique(f'{title} [entry]'))}, async ({{ page }}) => {{\n"
+                                 "  test.setTimeout(120_000);\n" + "\n".join(lines + lines_) + "\n});")
+                    reach_checks += 1
+            continue
         # Reach check: the entry control, or public seeds for generic scenarios.
         if scripted:
             targets = []
@@ -427,7 +551,7 @@ def compile_leaf(node: Mapping, fixtures: Fixtures) -> CompiledLeaf:
                 continue
             # Actions before the entry (sign-in) belong to the start state.
             lines.append(f"  await h.expectReachable(page, {_ts(target)});")
-            tests.append(f"test({_ts(f'{title} [reach] {target}')}, async ({{ page }}) => {{\n"
+            tests.append(f"test({_ts(unique(f'{title} [reach] {target}'))}, async ({{ page }}) => {{\n"
                          "  test.setTimeout(120_000);\n" + "\n".join(lines) + "\n});")
             reach_checks += 1
         if scripted:
@@ -438,7 +562,7 @@ def compile_leaf(node: Mapping, fixtures: Fixtures) -> CompiledLeaf:
                     lines.append(f"  await h.expectTextsVisible(page, [{', '.join(_ts(a) for a in dict.fromkeys(parsed.assertions))}]);")
                 else:
                     lines.append("  await h.expectNoErrorState(page);")
-                tests.append(f"test({_ts(f'{title} [script]')}, async ({{ page }}) => {{\n"
+                tests.append(f"test({_ts(unique(f'{title} [script]'))}, async ({{ page }}) => {{\n"
                              "  test.setTimeout(120_000);\n" + "\n".join(lines) + "\n});")
                 scripts += 1
     header = (f"// requirement: {node_id}\n// Derived mechanically from requirements.yaml; not an official test.\n"
@@ -446,13 +570,16 @@ def compile_leaf(node: Mapping, fixtures: Fixtures) -> CompiledLeaf:
     return CompiledLeaf(node_id, header + "\n\n".join(tests) + ("\n" if tests else ""), scripts, reach_checks)
 
 
-def compile_suite(leaves: Iterable[Mapping]) -> dict[str, str]:
-    """{relative path: source}; leaves without any derivable check get no spec."""
+def compile_suite(leaves: Iterable[Mapping], context: Mapping[str, str] | None = None,
+                  shared: str = "") -> dict[str, str]:
+    """{relative path: source}; leaves without any derivable check get no spec.
+    `context` maps a leaf id to its ancestors' descriptions; `shared` is every
+    folder description (an ARIA contract stated on one module holds app-wide)."""
     leaves = list(leaves)
     fixtures = suite_fixtures(leaves)
     files = {"helpers.ts": HELPERS.read_text(encoding="utf-8")}
     for node in leaves:
-        compiled = compile_leaf(node, fixtures)
+        compiled = compile_leaf(node, fixtures, (context or {}).get(str(node.get("id")), ""), shared)
         if compiled.scripts or compiled.reach_checks:
             files[f"{compiled.node_id}.spec.ts"] = compiled.source
     return files

@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 
 from scenario_review import (allowed_literals, ancestor_context, build_prompt, compile_reply, parse_reply,
@@ -197,3 +198,188 @@ class RejectionFeedbackTests(unittest.TestCase):
         self.assertIn("not an allowed literal", prompt)
         self.assertIn("Confirm merge", prompt)
         self.assertIn("REQ-6-5: Scenario 1", prompt)
+
+
+class EmittedSourceTests(unittest.TestCase):
+    """The local run github-req1-local: every model-proposed test ended in `}});`
+    and failed to load; the load gate dropped them all. Emitted TS must be
+    syntactically closed."""
+
+    def test_emitted_test_is_balanced_and_closed(self):
+        fixtures = suite_fixtures([MERGE])
+        target = review_targets([MERGE], fixtures)[0]
+        source = validate_proposal({"title": "REQ-6-5: Scenario 1", "signed_in": True, "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Pull requests"}, {"op": "expect_visible", "target": "Merged"}]}, target, fixtures)
+        self.assertTrue(source.endswith("\n});"), source[-40:])
+        self.assertEqual(source.count("{"), source.count("}"))
+        self.assertEqual(source.count("("), source.count(")"))
+
+
+class GeneratedValueTests(unittest.TestCase):
+    """Scenarios that create records need values the requirement does not
+    quote: the DSL offers placeholders the harness expands, never the fixture
+    account (registering `alice-dev` again fails once the seed exists)."""
+
+    def test_placeholders_are_allowed_for_fill_values_and_assertions(self):
+        from scenario_review import PLACEHOLDERS
+        register = leaf("REQ-1-1-1", [("Scenario 1", [
+            ("GIVEN", SEED + " The visitor clicks “Create an account”."),
+            ("WHEN", "The visitor enters a compliant username, a compliant email and password, checks "
+                     "“I agree” and clicks “Create account”."),
+            ("THEN", "The account menu displays the new username."),
+        ])], description="Fields “Username”, “Email”, “Password”, “Confirm password”.")
+        fixtures = suite_fixtures([register])
+        target = review_targets([register], fixtures)[0]
+        for name in ("$NEW_USERNAME", "$NEW_EMAIL", "$NEW_PASSWORD", "$TEXT"):
+            self.assertIn(name, PLACEHOLDERS)
+        proposal = {"title": "REQ-1-1-1: Scenario 1", "signed_in": False, "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Create an account"},
+            {"op": "fill", "target": "Username", "value": "$NEW_USERNAME"},
+            {"op": "fill", "target": "Email", "value": "$NEW_EMAIL"},
+            {"op": "fill", "target": "Password", "value": "$NEW_PASSWORD"},
+            {"op": "fill", "target": "Confirm password", "value": "$NEW_PASSWORD"},
+            {"op": "check", "target": "I agree"},
+            {"op": "click", "target": "Create account"},
+            {"op": "expect_visible", "target": "$NEW_USERNAME"},
+        ]}
+        source = validate_proposal(proposal, target, fixtures)
+        self.assertIsNotNone(source)
+        self.assertNotIn("$NEW_USERNAME", source)
+        self.assertNotIn("alice-dev", source)
+        username = re.search(r"h\.fillField\(page, 'Username', '([^']+)'\)", source).group(1)
+        self.assertRegex(username, r"^[a-z0-9-]{3,39}$")
+        self.assertIn(f"h.expectTextsVisible(page, ['{username}'])", source)
+        password = re.search(r"h\.fillField\(page, 'Password', '([^']+)'\)", source).group(1)
+        self.assertGreaterEqual(len(password), 12)
+        self.assertIn(f"h.fillField(page, 'Confirm password', '{password}')", source)
+        email = re.search(r"h\.fillField\(page, 'Email', '([^']+)'\)", source).group(1)
+        self.assertIn("@", email)
+        # Different scenarios get different values so parallel tests do not collide.
+        other = dict(proposal, title="REQ-1-1-1: Scenario 1")
+        self.assertIn(username, validate_proposal(other, target, fixtures))
+        self.assertIn("$NEW_USERNAME", build_prompt([target], fixtures))
+
+    def test_placeholder_target_for_click_is_still_rejected(self):
+        from scenario_review import proposal_problems
+        fixtures = suite_fixtures([MERGE])
+        target = review_targets([MERGE], fixtures)[0]
+        problems = proposal_problems({"title": "x", "confidence": 0.9, "steps": [
+            {"op": "click", "target": "$TEXT"}, {"op": "expect_visible", "target": "Merged"}]}, target, fixtures)
+        self.assertTrue(any("$TEXT" in p for p in problems))
+
+
+class SpreadsheetOpsTests(unittest.TestCase):
+    """The sheet task needs cell-level operations; without them the model
+    skipped all 100 scenarios ("no input controls listed for the concrete values")."""
+
+    def _target(self):
+        node = leaf("REQ-3-1-1", [("REQ-3-1-1 -the requested workflow", [
+            ("GIVEN", "The visitor starts at the application home page. The evaluation seed contains the seeded "
+                      "workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas `=A1+B1`."),
+            ("WHEN", "The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry, and the "
+                     "requested workflow with concrete values `East`, `1200`."),
+            ("THEN", "The application exposes the observable result for \"the requested workflow\"."),
+        ])], description='Pressing Enter commits; the "Formula bar" shows the original formula.')
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_cell_ops_with_seeded_values_and_key_combos_are_accepted(self):
+        target, fixtures = self._target()
+        proposal = {"title": "REQ-3-1-1 -the requested workflow", "signed_in": False, "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Q3 Sales"},
+            {"op": "cell_click", "target": "A1"},
+            {"op": "cell_type", "target": "C1", "value": "=A1+B1"},
+            {"op": "press", "key": "Enter"},
+            {"op": "cell_click", "target": "C1"},
+            {"op": "press", "key": "Control+C"},
+            {"op": "expect_cell", "target": "C1", "value": "5"},
+            {"op": "expect_role", "role": "textbox", "target": "Formula bar"},
+        ]}
+        from scenario_review import proposal_problems
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        source = validate_proposal(proposal, target, fixtures)
+        self.assertIn("h.clickCell(page, 'A1')", source)
+        self.assertIn("h.typeInCell(page, 'C1', '=A1+B1')", source)
+        self.assertIn("h.pressKey(page, 'Control+C')", source)
+        self.assertIn("h.expectCell(page, 'C1', '5')", source)
+        self.assertIn("h.expectRole(page, 'textbox', 'Formula bar')", source)
+
+    def test_expect_cell_counts_as_an_assertion(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        self.assertEqual(proposal_problems({"title": "REQ-3-1-1 -the requested workflow", "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Q3 Sales"}, {"op": "expect_cell", "target": "A1", "value": "2"}]},
+            target, fixtures), [])
+
+    def test_cell_targets_must_be_coordinates_and_values_known(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        bad = {"title": "REQ-3-1-1 -the requested workflow", "confidence": 0.9, "steps": [
+            {"op": "cell_click", "target": "Region"},
+            {"op": "cell_type", "target": "A1", "value": "made up text"},
+            {"op": "press", "key": "F13"},
+            {"op": "expect_cell", "target": "A1", "value": "2"}]}
+        problems = proposal_problems(bad, target, fixtures)
+        joined = " | ".join(problems)
+        self.assertIn("Region", joined)
+        self.assertIn("made up text", joined)
+        self.assertIn("F13", joined)
+
+    def test_prompt_explains_templated_workflows_and_cell_ops(self):
+        target, fixtures = self._target()
+        prompt = build_prompt([target], fixtures)
+        self.assertIn("the requested workflow", prompt)
+        self.assertIn('"cell_type"', prompt)
+        self.assertIn("Control+C", prompt)
+        # v9.2.1 run 4aff4d2f6cd4: 58/100 skipped as "cell coordinates not in allowed literals",
+        # "cannot simulate clipboard", "which cell is not specified".
+        self.assertIn("ALWAYS allowed", prompt)
+        self.assertIn("no clipboard setup", prompt)
+        self.assertIn("not a reason to skip", prompt)
+
+
+class ProposalIdentityTests(unittest.TestCase):
+    """v9.2.2 sheet run cce3f5ad4f21: 71/100 proposals rejected although many were
+    valid -- the model shortened the long, duplicated template titles, so they
+    matched no target ("not a requested scenario"). Proposals are matched by a
+    short id the prompt assigns; identical scenarios share one target."""
+
+    def _node(self):
+        given = ("The visitor starts at the application home page. The evaluation seed contains the seeded "
+                 "workbook `Q3 Sales`, cells `A1=2`.")
+        when = ("The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry, and the "
+                "requested workflow with concrete values `East`.")
+        then = "The application exposes the observable result for \"the requested workflow\"."
+        return leaf("REQ-4-1-1", [("REQ-4-1-1 -the requested workflow,the requested workflow", [
+            ("GIVEN", given), ("WHEN", when), ("THEN", then)]),
+            ("REQ-4-1-1 -the requested workflow,the requested workflow", [("GIVEN", given), ("WHEN", when), ("THEN", then)]),
+            ("REQ-4-1-1 -the requested workflow", [("GIVEN", given), ("WHEN", when + " Extra."), ("THEN", then)])],
+            description='The "Formula bar" shows the formula.')
+
+    def test_identical_scenarios_collapse_and_targets_carry_ids(self):
+        node = self._node()
+        targets = review_targets([node], suite_fixtures([node]))
+        self.assertEqual(len(targets), 2)
+        self.assertEqual([t["id"] for t in targets], ["S1", "S2"])
+        prompt = build_prompt(targets, suite_fixtures([node]))
+        self.assertIn("[S1]", prompt)
+        self.assertIn('"id"', prompt)
+
+    def test_replies_match_by_id_even_with_a_mangled_title(self):
+        node = self._node()
+        fixtures = suite_fixtures([node])
+        targets = review_targets([node], fixtures)
+        reply = json.dumps({"scenarios": [
+            {"id": "S1", "title": "the requested workflow", "signed_in": False, "confidence": 0.9, "steps": [
+                {"op": "click", "target": "Q3 Sales"}, {"op": "expect_cell", "target": "A1", "value": "2"}]},
+            {"id": "S2", "title": "", "signed_in": False, "confidence": 0.9, "steps": [
+                {"op": "click", "target": "Nope"}, {"op": "expect_cell", "target": "A1", "value": "2"}]},
+        ]})
+        scripts, dropped, retryable = compile_reply(reply, targets, fixtures, with_retryable=True)
+        self.assertEqual(len(scripts["REQ-4-1-1"]), 1)
+        self.assertIn("[model]", scripts["REQ-4-1-1"][0])
+        self.assertEqual([r["id"] for r in retryable], ["S2"])
+        from scenario_review import retry_prompt
+        retry = retry_prompt(retryable, targets, fixtures)
+        self.assertIn("[S2]", retry)
+        self.assertIn("Nope", retry)

@@ -8,7 +8,20 @@ import { expect, Locator, Page } from '@playwright/test';
 
 type Match = string | RegExp | Array<string | RegExp>;
 
-const DESTRUCTIVE = /sign\s*out|log\s*out|delete|remove|close|merge|archive|trash|leave|reset|cancel|discard|revoke|transfer/i;
+// Signing out only affects this test's own browser context, and the sign-out
+// confirmation the requirement names sits behind it (v9.2.3 2547a578478f).
+const DESTRUCTIVE = /delete|remove|close|merge|archive|trash|leave|reset|cancel|discard|revoke|transfer/i;
+const SIGN_IN_ENTRY = [/^\s*sign\s*in\s*$/i, /^\s*log\s*in\s*$/i];
+let signedInAs: string | null = null;
+
+async function signInEntryVisible(page: Page): Promise<boolean> {
+  for (const pattern of SIGN_IN_ENTRY) {
+    for (const locator of [page.getByRole('link', { name: pattern }), page.getByRole('button', { name: pattern })]) {
+      if (await locator.first().isVisible({ timeout: 300 }).catch(() => false)) return true;
+    }
+  }
+  return false;
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -56,16 +69,22 @@ async function visibleNamed(page: Page, value: Match, timeout = 300): Promise<Lo
 
 type Step = { role: 'link' | 'tab' | 'menuitem' | 'button'; name: string; nth: number };
 
+// Navigation candidates: links, tabs, menu items and EVERY visible non-submit
+// button. The account menu of the GitHub task is a plain button showing the
+// username (no aria-haspopup); restricting buttons to popup triggers left
+// "Sign out" and "Update password" unreachable (local run github-req1-local).
+// Unnamed icon buttons are addressed by their position among unnamed buttons.
 async function navigationCandidates(page: Page): Promise<Step[]> {
-  const raw: Array<{ role: Step['role']; name: string }> = await page.evaluate(() => {
+  const raw: Array<{ role: Step['role']; name: string; unnamedIndex?: number }> = await page.evaluate(() => {
     const visible = (el: Element) => {
       const box = (el as HTMLElement).getBoundingClientRect();
       const style = getComputedStyle(el as HTMLElement);
       return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
     };
-    const nameOf = (el: Element) => ((el.getAttribute('aria-label') || (el as HTMLElement).innerText || '')
+    const nameOf = (el: Element) => ((el.getAttribute('aria-label') || el.getAttribute('title')
+      || (el as HTMLElement).innerText || el.querySelector('img[alt]')?.getAttribute('alt') || '')
       .replace(/\s+/g, ' ').trim()).slice(0, 80);
-    const out: Array<{ role: string; name: string }> = [];
+    const out: Array<{ role: string; name: string; unnamedIndex?: number }> = [];
     for (const el of Array.from(document.querySelectorAll('a[href]'))) {
       const href = el.getAttribute('href') || '';
       if (!href || href.startsWith('#') || /^(mailto|tel|javascript):/i.test(href) || el.hasAttribute('download')) continue;
@@ -74,68 +93,118 @@ async function navigationCandidates(page: Page): Promise<Step[]> {
     }
     for (const el of Array.from(document.querySelectorAll('[role="tab"]'))) if (visible(el)) out.push({ role: 'tab', name: nameOf(el) });
     for (const el of Array.from(document.querySelectorAll('[role="menuitem"]'))) if (visible(el)) out.push({ role: 'menuitem', name: nameOf(el) });
-    for (const el of Array.from(document.querySelectorAll('button[aria-haspopup], [role="button"][aria-haspopup], button[aria-expanded="false"]'))) {
-      if (visible(el)) out.push({ role: 'button', name: nameOf(el) });
+    let unnamed = 0;
+    for (const el of Array.from(document.querySelectorAll('button, [role="button"]'))) {
+      if (!visible(el)) continue;
+      const type = (el.getAttribute('type') || '').toLowerCase();
+      if (type === 'submit' || (el as HTMLButtonElement).disabled) continue;
+      if (el.closest('a[href], [role="menuitem"], [role="tab"], [role="grid"], [role="gridcell"], table')) continue;
+      const name = nameOf(el);
+      if (name) out.push({ role: 'button', name });
+      else out.push({ role: 'button', name: '', unnamedIndex: unnamed++ });
     }
     return out as any;
   });
   const seen = new Map<string, number>();
   const steps: Step[] = [];
   for (const item of raw) {
-    if (!item.name || DESTRUCTIVE.test(item.name)) continue;
+    if (DESTRUCTIVE.test(item.name)) continue;
+    if (!item.name) {
+      if (item.unnamedIndex !== undefined) steps.push({ role: 'button', name: '', nth: item.unnamedIndex });
+      continue;
+    }
     const key = `${item.role}|${item.name}`;
     const nth = seen.get(key) ?? 0;
     seen.set(key, nth + 1);
     if (nth === 0) steps.push({ role: item.role, name: item.name, nth });
   }
-  return steps.slice(0, 24);
+  return steps.slice(0, 32);
 }
 
-async function clickStep(page: Page, step: Step): Promise<void> {
-  const locator = page.getByRole(step.role, { name: step.name, exact: true }).nth(step.nth);
-  await locator.click({ timeout: 3000 });
+/** Let a client-rendered page finish its first data fetches (session check,
+ *  list load) before its controls are read; a header that shows "Sign in" for
+ *  200ms and then the account menu must be seen in its settled state. */
+async function settle(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+  await page.waitForLoadState('networkidle', { timeout: 800 }).catch(() => undefined);
   await page.waitForTimeout(250);
 }
 
+async function clickStep(page: Page, step: Step): Promise<void> {
+  const locator = step.name
+    ? page.getByRole(step.role, { name: step.name, exact: true }).nth(step.nth)
+    : page.locator('button:visible, [role="button"]:visible').filter({ hasNotText: /\S/ }).nth(step.nth);
+  await locator.click({ timeout: 3000 });
+  await settle(page);
+}
+
 /** Find a named control or text, crawling at most `depth` navigation clicks. */
-export async function reach(page: Page, value: Match, depth = 3, budget = 30): Promise<Locator> {
+/** Words of the target that a candidate's name shares: likely paths are explored first. */
+function similarity(value: Match, name: string): number {
+  const words = describe(value).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
+  const low = name.toLowerCase();
+  return words.filter((w) => low.includes(w)).length;
+}
+
+// A failing crawl used to run until the 120s test timeout (v9.2.1: 6 failing
+// checks took 744s at a checkpoint). Bound it in wall time as well as visits.
+const REACH_MS = 40_000;
+
+export async function reach(page: Page, value: Match, depth = 3, budget = 60): Promise<Locator> {
+  await settle(page);
   const direct = await visibleNamed(page, value, 1500);
   if (direct) return direct;
+  const started = Date.now();
   const start = page.url();
   const queue: Step[][] = [[]];
   const explored = new Set<string>();
   const tried: string[] = [];
   let visits = 0;
-  while (queue.length && visits < budget) {
+  while (queue.length && visits < budget && Date.now() - started < REACH_MS) {
     const path = queue.shift()!;
     if (path.length) {
       visits += 1;
       try {
         await page.goto(start);
+        await settle(page);
+        if (signedInAs && visits === 1 && await signInEntryVisible(page)) {
+          // Requirement: the session survives a refresh. Say so instead of
+          // reporting every signed-in control as unreachable.
+          throw new Error(`After signing in as ${signedInAs} and reloading ${start}, the page shows the sign-in `
+            + `entry again: the session is not persisted across a reload, so "${describe(value)}" cannot be reached.`);
+        }
         for (const step of path) await clickStep(page, step);
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('not persisted across a reload')) throw error;
         continue;
       }
       const hit = await visibleNamed(page, value, 400);
       if (hit) return hit;
       tried.push(path.map((s) => s.name).join(' > '));
     }
-    const state = `${page.url()}|${await page.locator('[role="menu"]:visible').count().catch(() => 0)}`;
-    if (explored.has(state) || path.length >= depth) continue;
+    if (path.length >= depth) continue;
+    // A page state is its URL plus the controls it offers: a toggled menu on
+    // the same URL is a new state whose entries must be explored, while a link
+    // back to an already expanded page is not.
+    const candidates = await navigationCandidates(page);
+    const state = `${page.url()}|${candidates.map((s) => `${s.role}:${s.name}:${s.nth}`).join(',')}`;
+    if (explored.has(state)) continue;
     explored.add(state);
-    for (const step of await navigationCandidates(page)) {
-      if (!path.some((s) => s.role === step.role && s.name === step.name)) queue.push([...path, step]);
+    const ranked = [...candidates].sort((a, b) => similarity(value, b.name) - similarity(value, a.name));
+    for (const step of ranked) {
+      if (!path.some((s) => s.role === step.role && s.name === step.name && s.nth === step.nth)) queue.push([...path, step]);
     }
   }
   await page.goto(start).catch(() => undefined);
-  throw new Error(`Required control or text "${describe(value)}" is not reachable within ${depth} navigation `
-    + `clicks from ${start}. Explored: ${tried.slice(0, 12).join('; ') || '(no navigation controls)'}`);
+  const why = Date.now() - started >= REACH_MS ? `after ${Math.round((Date.now() - started) / 1000)}s` : `within ${depth} navigation clicks`;
+  throw new Error(`Required control or text "${describe(value)}" is not reachable ${why} from ${start} `
+    + `(${visits} page states explored). Explored: ${tried.slice(0, 12).join('; ') || '(no navigation controls)'}`);
 }
 
 export async function openHome(page: Page): Promise<void> {
+  signedInAs = null;
   await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
+  await settle(page);
 }
 
 export async function expectReachable(page: Page, value: Match): Promise<void> {
@@ -145,7 +214,14 @@ export async function expectReachable(page: Page, value: Match): Promise<void> {
 
 export async function clickNamed(page: Page, value: Match): Promise<void> {
   const target = await reach(page, value);
-  await target.click();
+  try {
+    await target.click({ timeout: 10_000 });
+  } catch (error) {
+    // Found but not clickable (covered, detached, disabled): say so instead of
+    // hanging until the 120s test timeout (v9.2.3 03a2e937517e, REQ-1-2-1).
+    throw new Error(`"${describe(value)}" was found on ${page.url()} but could not be clicked within 10s: `
+      + `${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
+  }
   await page.waitForLoadState('domcontentloaded').catch(() => undefined);
 }
 
@@ -186,6 +262,40 @@ export async function expectAbsent(page: Page, value: Match): Promise<void> {
   }).toBe(false);
 }
 
+function exactName(value: string): RegExp {
+  return new RegExp('^\\s*' + escapeRegExp(value.trim()) + '\\s*$', 'i');
+}
+
+/** An explicit ARIA promise of the requirement: an element with this role and accessible name. */
+export async function expectRole(page: Page, role: string, name: string): Promise<void> {
+  await settle(page);
+  const locator = page.getByRole(role as any, { name: exactName(name) }).first();
+  await expect(locator, `expected an element with role "${role}" named "${name}" on ${page.url()}`)
+    .toBeVisible({ timeout: 8000 });
+}
+
+function cellLocator(page: Page, ref: string): Locator {
+  return page.getByRole('gridcell', { name: exactName(ref) }).first();
+}
+
+export async function clickCell(page: Page, ref: string): Promise<void> {
+  const cell = cellLocator(page, ref);
+  await expect(cell, `gridcell "${ref}" is visible on ${page.url()}`).toBeVisible({ timeout: 8000 });
+  await cell.click();
+}
+
+/** Select a cell and type into it; the caller commits with pressKey('Enter'). */
+export async function typeInCell(page: Page, ref: string, value: string): Promise<void> {
+  await clickCell(page, ref);
+  await page.keyboard.type(value);
+}
+
+export async function expectCell(page: Page, ref: string, value: string): Promise<void> {
+  await settle(page);
+  const cell = cellLocator(page, ref);
+  await expect(cell, `gridcell "${ref}" shows "${value}" on ${page.url()}`).toContainText(value, { timeout: 8000 });
+}
+
 export async function checkNamed(page: Page, value: Match): Promise<void> {
   const target = await reach(page, value);
   await target.check().catch(async () => target.click());
@@ -210,7 +320,7 @@ export async function expectTextsVisible(page: Page, values: Array<string | RegE
   for (const value of values) {
     await expect.poll(async () => Boolean(await visibleNamed(page, value, 200)), {
       message: `Expected "${describe(value)}" to be visible on ${page.url()}`,
-      timeout: 8000,
+      timeout: 5000,
     }).toBe(true);
   }
 }
@@ -232,4 +342,9 @@ export async function signIn(page: Page, account: string, password: string): Pro
   else await scope.locator('input[type="password"]').first().press('Enter');
   await expect(page.locator('input[type="password"]:visible'),
     `signing in as ${account} leaves the sign-in form`).toHaveCount(0, { timeout: 8000 });
+  await expect.poll(async () => !(await signInEntryVisible(page)), {
+    message: `signing in as ${account} did not establish a session: the sign-in entry is still shown`,
+    timeout: 8000,
+  }).toBe(true);
+  signedInAs = account;
 }

@@ -131,7 +131,7 @@ class MeasuredRepairTests(TestCase):
         f.n_nodes = 125
         with patch.dict('os.environ', {}, clear=True):
             f.text_turn('', 30, 'application design')
-        self.assertEqual(observed[-1][0], 16000)
+        self.assertEqual(observed[-1][0], 16384)  # 256 tokens per leaf, capped
 
     def test_reasoning_off_for_all_implementation_is_opt_in(self):
         f = self.flow

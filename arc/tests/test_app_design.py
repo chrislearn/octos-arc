@@ -158,7 +158,7 @@ class AppDesignTurnTests(unittest.TestCase):
                                                (True, json.dumps(DESIGN))])
             self.assertEqual(flow.app_design(TREE, ordered), DESIGN)
             self.assertEqual(flow.text_turn.call_count, 2)
-            self.assertLessEqual(flow.text_turn.call_args.args[1], 120)
+            self.assertLessEqual(flow.text_turn.call_args.args[1], 240)
             first = flow.text_turn.call_args_list[0].args[0]
             retry = flow.text_turn.call_args_list[1].args[0]
             self.assertLess(len(retry), len(first))

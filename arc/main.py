@@ -125,7 +125,7 @@ from dataclasses import replace as dc_replace  # noqa: E402
 from scenario_tests import compile_suite as compile_derived_suite, suite_fixtures, write_suite  # noqa: E402
 from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests,  # noqa: E402
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
-                             retry_prompt as build_review_retry, review_targets)
+                             folder_text, retry_prompt as build_review_retry, review_targets)
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
 from web_checks import scaffold_issues  # noqa: E402
@@ -2020,6 +2020,18 @@ The official acceptance tests for requirement node {node_id} just ran against yo
 {corrections}{slow}
 """
 
+COMPLETENESS_PROMPT = """\
+Requirement completeness check for {node_id}. The derived Playwright checks for this requirement only prove that its
+entry points exist; they cannot judge the behavior below. Verify it yourself against the running app and fix
+every gap you find, preserving all other features:
+1. `npm run build` in frontend/, then start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`.
+2. For EACH scenario below: reproduce it end to end (curl the API and inspect the built page/DOM); confirm every
+   quoted control name, role, value and message exists exactly as written; confirm the result persists after a
+   reload of the same page state.
+3. Fix confirmed gaps with focused edits; do not rewrite unrelated files. Stop every server you started.
+{contract}
+{ui}"""
+
 FINAL_CHECK_PROMPT = """\
 Final end-to-end check of the web application in the current directory:
 1. `npm run build` in frontend/ — fix any error.
@@ -2874,7 +2886,9 @@ class Flow:
         recovering = getattr(self, "codegen_degenerated", False) and phase != "design"
         phase_cap = max(0, int(os.environ.get("OCTOS_ARC_REPAIR_MAX_TOKENS", "8192"))) if phase == "repair" else 0
         if phase == "design":
-            design_default = max(8192, min(16384, 128 * getattr(self, "n_nodes", 32)))
+            # v9.2.2 github (e5ab5dab91c4): the 47-node design was cut at 8192
+            # tokens; 256 tokens per leaf covers a route+page+contract entry.
+            design_default = max(8192, min(16384, 256 * getattr(self, "n_nodes", 32)))
             phase_cap = max(0, int(os.environ.get("OCTOS_ARC_DESIGN_MAX_TOKENS", str(design_default))))
         recovery_cap = self.generation_recovery_cap() if recovering and phase == "implement" else (
             max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0)
@@ -2982,10 +2996,14 @@ class Flow:
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
         design = parse_app_design_reply(text) if ok else None
+        if design is None:
+            self.save_rejected_reply("application design", "invalid_json" if ok else "failed", text or "")
         wanted = {str(node.get("id")) for node in ordered if node.get("id")}
         coverage_floor = max(3, int(os.environ.get("OCTOS_ARC_DESIGN_COVERAGE_MIN_NODES", "8")))
         missing = wanted - app_design_coverage(design)
-        retry_seconds = min(120, int(deadline - time.monotonic()), int(self.remaining()))
+        # v9.2.2 (cce3f5ad4f21): the compact retry timed out at 120s; the model
+        # needs ~90s for the first reply, the retry deserves as much.
+        retry_seconds = min(240, int(deadline - time.monotonic()), int(self.remaining()))
         if ((ok and not design) or (not ok and 'output_truncated' in text)
                 or (design and len(wanted) >= coverage_floor and missing)) \
                 and retry_seconds >= 30 and not self.wound_down():
@@ -3012,6 +3030,8 @@ class Flow:
                 retry_seconds, "application design (format retry)", system=APP_DESIGN_SYSTEM,
                 spec_chars=len(compact_outline))
             retried = parse_app_design_reply(text) if ok else None
+            if retried is None:
+                self.save_rejected_reply("application design (format retry)", "invalid_json" if ok else "failed", text or "")
             if retried is not None and (design is None or
                     len(app_design_coverage(retried) & wanted) >= len(app_design_coverage(design) & wanted)):
                 design = retried
@@ -3361,7 +3381,12 @@ class Flow:
                                   timeout, label, system=system, spec_chars=spec_chars)
         truncated = False
         proxy = getattr(self, "llm_proxy", None)
-        if not ok and "output_truncated" in text and isinstance(proxy, LlmProxy):
+        if (not ok and ("output_truncated" in text or "failed to parse response" in text)
+                and isinstance(proxy, LlmProxy)):
+            # A stream the guard cut (degenerate repetition, deadline) reaches the
+            # kernel as a length-terminated completion, or as a parse failure when
+            # the completion was malformed; either way the proxy retained the
+            # text, and its terminated blocks are still worth applying.
             retained = proxy.take_truncated_reply(label)
             if retained:
                 text, truncated = retained, True
@@ -4013,6 +4038,11 @@ class Flow:
             # A derived suite has one spec file per leaf (47 for the GitHub task);
             # a fixed 900s wall would kill the full run before its verdict.
             wall = max(900, 30 * len(specs))
+            if getattr(self, "derived_as_specs", False):
+                # Derived scripts mutate the shared seeds (rename the seeded
+                # workbook, import, delete); two workers made "Q3 Sales" vanish
+                # under a concurrent entry check (v9.2.3 03a2e937517e). Sequential.
+                workers = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_WORKERS", "1")))
             summary = (runner or self.runner).run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
                                       wall_timeout=max(1, min(wall, int(self.remaining()))))
             if not summary.all_passed:
@@ -4148,6 +4178,7 @@ class Flow:
                 if measured:
                     self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
+            self.last_node_own_pass = bool(measured and passed == summary.total)
             self.metric("acceptance", scope="node", node_id=node_id, round=attempt,
                         passed=passed, total=summary.total, after_applied_repair=repair_applied,
                         verdict="measured" if measured else "unknown", error=infrastructure_error or None)
@@ -4867,7 +4898,8 @@ class Flow:
         """
         if self.tests_dir or os.environ.get("OCTOS_ARC_DERIVED_TESTS", "1") == "0":
             return False
-        files = compile_derived_suite(ordered)
+        tree = getattr(self, "requirement_tree", None)
+        files = compile_derived_suite(ordered, ancestor_context(tree), folder_text(tree))
         specs = sorted(rel for rel in files if rel.endswith(".spec.ts"))
         if not specs:
             log("[derived] no scenario yielded a mechanical check")
@@ -4884,8 +4916,9 @@ class Flow:
         checks = sum(source.count("\ntest(") + source.startswith("test(") for rel, source in files.items()
                      if rel.endswith(".spec.ts"))
         scripts = sum(source.count("[script]'") for source in files.values())
-        log(f"[derived] compiled {checks} static check(s) ({scripts} scenario script(s)) for "
-            f"{len(specs)}/{len(ordered)} leaves into {directory}")
+        entries = sum(source.count("[entry]'") for source in files.values())
+        log(f"[derived] compiled {checks} static check(s) ({scripts} scenario script(s), {entries} entry script(s)) "
+            f"for {len(specs)}/{len(ordered)} leaves into {directory}")
         return True
 
     def verify_derived_suite(self) -> None:
@@ -4935,6 +4968,77 @@ class Flow:
             log(f"[derived] {rel}: excluded from the suite; it does not load even after recompilation")
         self.metric("derived_suite_verification", excluded=excluded, total=len(specs))
         self.derived_suite_verified = True
+
+    def weak_derived_leaves(self, ordered: list[dict]) -> list[str]:
+        """Leaves whose derived spec has no scenario-specific script: only reach
+        or entry checks, which a hollow feature can satisfy."""
+        directory = getattr(self, "derived_tests_dir", None)
+        if not directory:
+            return []
+        weak = []
+        for node in ordered:
+            node_id = str(node.get("id"))
+            path = directory / f"{node_id}.spec.ts"
+            if not path.is_file():
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "[script]" not in source and "[model]" not in source:
+                weak.append(node_id)
+        return weak
+
+    def derived_completeness_pass(self, ordered: list[dict]) -> None:
+        """Spend remaining budget on leaves the derived suite cannot judge.
+
+        hackathon--sheet (run ef2ab916a57d): every scenario was a template, the
+        suite held 24 reach checks, the run ended after 91 of 1175 minutes and
+        the grader passed 0/100. A weak leaf gets one bounded tool turn that
+        walks its requirement contract against the running app and fixes what
+        is missing; the full suite then gates the whole pass.
+        """
+        if not getattr(self, "derived_as_specs", False) or getattr(self, "runner", None) is None:
+            return
+        weak = self.weak_derived_leaves(ordered)
+        if not weak:
+            return
+        per_leaf = max(120, int(os.environ.get("OCTOS_ARC_COMPLETENESS_SECONDS", "420")))
+        if self.wound_down() or self.remaining() < self.final_phase_reserve() + per_leaf + 300:
+            log(f"[flow] completeness pass skipped: {len(weak)} weak leaf/leaves, insufficient time")
+            return
+        before = self.head()
+        log(f"[flow] completeness pass: {len(weak)} leaf/leaves have only reach/entry checks; "
+            f"walking their requirement contracts with tools")
+        checked = []
+        for node_id in weak:
+            if self.wound_down() or self.remaining() < self.final_phase_reserve() + per_leaf + 300:
+                break
+            contract = render_contracts(self.requirement_contracts, [node_id],
+                                        int(os.environ.get("OCTOS_ARC_REQUIREMENT_CONTRACT_CHARS", "12000")),
+                                        include_steps=True, require_all=True)
+            prompt = (COMPLETENESS_PROMPT.format(node_id=node_id, smoke=self.smoke_port, port=self.web_port,
+                                                 contract=contract, ui=self.ui_contract()) + PORT_RULES)
+            self.last_turn_changed = None
+            ok, text = self.turn(prompt, per_leaf, f"{node_id} completeness check")
+            self.commit(f"{node_id}: requirement completeness pass")
+            checked.append(node_id)
+            self.metric("completeness_check", node_id=node_id, ok=ok, changed=bool(self.last_turn_changed))
+        if not checked:
+            return
+        all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+        summary = self.run_specs(all_specs, grader_like=True)
+        measured = self.suite_is_measured(summary, all_specs)
+        if measured and summary.passed < summary.total:
+            failing = [r.title for r in summary.results if not r.ok][:6]
+            log(f"[flow] completeness pass regressed the suite ({summary.passed}/{summary.total}: {failing}); "
+                f"restoring {str(before)[:8]}")
+            if before:
+                self.restore_app(before)
+                self.commit("revert: completeness pass regressed the derived suite")
+            self.metric("completeness_pass", checked=checked, outcome="rolled_back",
+                        passed=summary.passed, total=summary.total)
+            return
+        log(f"[flow] completeness pass kept for {checked}: suite {summary.passed}/{summary.total}"
+            + ("" if measured else " (not fully measured)"))
+        self.metric("completeness_pass", checked=checked, outcome="kept", passed=summary.passed, total=summary.total)
 
     def adopt_derived_specs(self, node_ids: list[str]) -> None:
         """Make the derived spec directory the acceptance suite of this run."""
@@ -6007,36 +6111,15 @@ class Flow:
                     + "Rewrite the files for this node completely (full write_file for each file, not edits), "
                     "fixing the root causes above.\n")
 
+        self.last_node_own_pass = False
         verdict = self.acceptance_loop(node_id, specs, deadline, rebuild_prompt=rebuild_prompt,
                                        source_versions=source_versions)
         self.test_verdict[node_id] = verdict
         regressed_proven = sorted(prior for prior in proven_before if self.test_verdict.get(prior) is False)
         if verdict is not True and regressed_proven and before_sha:
-            # A failed extension has no verified value that justifies shipping
-            # known damage to previously passing behavior. Return to the exact
-            # pre-node source commit even when the final suite cannot finish.
-            self.restore_app(before_sha)
-            self.commit(f"{node_id}: restore verified behavior after failed extension")
-            prior_specs = sorted({spec for prior in regressed_proven for spec in self.spec_map.get(prior, [])})
-            restored = (self.run_specs(prior_specs, grader_like=True) if prior_specs
-                        and self.remaining() > self.final_measurement_reserve() + 30 else None)
-            if restored is not None and self.suite_is_measured(restored, prior_specs):
-                for prior in regressed_proven:
-                    paths = self.spec_map.get(prior, [])
-                    rows = [row for row in restored.results if any(
-                        str(row.file or '').replace('\\', '/') == path or
-                        str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths)]
-                    local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
-                    self.test_verdict[prior] = local.all_passed if self.suite_is_measured(local, paths) else None
-                    if self.test_verdict[prior] is not None:
-                        self.record_tests(prior, paths, local)
-            else:
-                for prior in regressed_proven:
-                    self.test_verdict[prior] = None  # source restored; behavior not remeasured
-            self.metric('failed_extension_rollback', node_id=node_id, restored=before_sha,
-                        regressed_nodes=regressed_proven)
-            log(f"[acceptance] {node_id}: failed extension regressed {regressed_proven}; "
-                f"restored pre-node source {before_sha[:8]}")
+            self.settle_failed_extension(node_id, before_sha, regressed_proven,
+                                         node_passed=bool(getattr(self, "last_node_own_pass", False)))
+            verdict = self.test_verdict.get(node_id)
         if verdict is True:
             self.mark("test_passed", node_id, f"{len(specs)} acceptance spec file(s) pass locally")
             try:
@@ -6141,6 +6224,58 @@ class Flow:
         elif verdict is False:
             self.mark("test_failed", node_id, "regression specs fail after repair rounds")
 
+    def settle_failed_extension(self, node_id: str, before_sha: str, regressed_proven: list[str],
+                                node_passed: bool) -> bool:
+        """Roll a failed extension back -- unless the "regression" reproduces without it.
+
+        A failed extension has no verified value that justifies shipping known
+        damage to previously passing behavior, so the tree returns to the exact
+        pre-node commit. But v9.1 (run 2a839b37d3e8) rolled REQ-1-1-2 back for a
+        REQ-1-1-1 check that still failed on the restored source: a prior that
+        fails without the node's changes is flaky or stateful, not regressed by
+        the node. When every "regressed" prior still fails after the restore and
+        the node's own specs had passed, the node's work is re-applied and kept.
+        Returns True when the extension was kept.
+        """
+        after_sha = self.head()
+        self.restore_app(before_sha)
+        self.commit(f"{node_id}: restore verified behavior after failed extension")
+        prior_specs = sorted({spec for prior in regressed_proven for spec in self.spec_map.get(prior, [])})
+        restored = (self.run_specs(prior_specs, grader_like=True) if prior_specs
+                    and self.remaining() > self.final_measurement_reserve() + 30 else None)
+        still_failing: list[str] = []
+        if restored is not None and self.suite_is_measured(restored, prior_specs):
+            for prior in regressed_proven:
+                paths = self.spec_map.get(prior, [])
+                rows = [row for row in restored.results if any(
+                    str(row.file or '').replace('\\', '/') == path or
+                    str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths)]
+                local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+                self.test_verdict[prior] = local.all_passed if self.suite_is_measured(local, paths) else None
+                if self.test_verdict[prior] is not None:
+                    self.record_tests(prior, paths, local)
+                if self.test_verdict[prior] is False:
+                    still_failing.append(prior)
+                    failing = [row.title for row in rows if not row.ok]
+                    log(f"[acceptance] {prior} still fails on the pre-node source: {failing[:4]}")
+        else:
+            for prior in regressed_proven:
+                self.test_verdict[prior] = None  # source restored; behavior not remeasured
+        if still_failing and len(still_failing) == len(regressed_proven) and node_passed and after_sha:
+            self.restore_app(after_sha)
+            self.commit(f"{node_id}: keep extension; prior failures reproduce without it")
+            self.test_verdict[node_id] = True
+            self.metric('failed_extension_kept', node_id=node_id, restored=after_sha,
+                        flaky_priors=regressed_proven)
+            log(f"[acceptance] {node_id}: {regressed_proven} fail without this node's changes too; "
+                f"not a regression -- extension kept ({after_sha[:8]})")
+            return True
+        self.metric('failed_extension_rollback', node_id=node_id, restored=before_sha,
+                    regressed_nodes=regressed_proven)
+        log(f"[acceptance] {node_id}: failed extension regressed {regressed_proven}; "
+            f"restored pre-node source {before_sha[:8]}")
+        return False
+
     def regression_checkpoint(self, index: int, total: int) -> None:
         start = int(os.environ.get("OCTOS_ARC_REGRESSION_CHECKPOINT", "4"))
         reserve = self.final_phase_reserve()
@@ -6180,6 +6315,11 @@ class Flow:
         grouped = nodes_for_failures(summary.results, verified)
         log(f"[acceptance] checkpoint {index}: {summary.passed}/{summary.total}; "
             f"regressed nodes {sorted(node for node in grouped if node)}")
+        for row in [r for r in summary.results if not r.ok][:8]:
+            # The checkpoint's own evidence used to stay inside the repair prompt;
+            # the log then showed which nodes regressed but never why.
+            first = (row.message or "").strip().splitlines()[:1]
+            log(f"[acceptance]   {row.title[:90]} :: {' '.join(first)[:220] if first else row.status}")
         for node in grouped:
             if node in verified:
                 tracked.add(node)
@@ -7312,6 +7452,8 @@ class Flow:
                     self.implement_sequential(tree, ordered, unchanged)
 
                 self.final_acceptance_passes()
+                if getattr(self, "derived_as_specs", False):
+                    self.derived_completeness_pass(ordered)
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None
                 seed_failures: dict[str, list[str]] = {}

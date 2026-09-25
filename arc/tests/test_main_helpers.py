@@ -1381,6 +1381,7 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
             flow.run_specs.return_value = RunSummary(passed=1, total=1, results=[
                 TestOutcome('prior', True, 'passed', 1, file='prior.spec.ts')])
             flow.suite_is_measured.return_value = True
+            flow.settle_failed_extension.side_effect = lambda *a, **k: m.Flow.settle_failed_extension(flow, *a, **k)
             m.Flow.node_cycle(flow, node('feature', 'Extension'), [], 1, 1)
             flow.restore_app.assert_called_once_with('goodsha')
             self.assertTrue(flow.test_verdict['prior'])

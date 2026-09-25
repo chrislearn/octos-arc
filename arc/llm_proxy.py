@@ -86,6 +86,14 @@ def _collect_codegen_stream(response, deadline: float | None = None, progress=No
     result = dict(identity, object="chat.completion", choices=[{"index": 0, "message": message, "finish_reason": finish}])
     if usage is not None:
         result["usage"] = usage
+    else:
+        # The kernel's OpenAIResponse requires `usage`; an early cut (guard,
+        # deadline) never receives the upstream usage chunk, and a completion
+        # without it was unparseable -- the turn was lost with every complete
+        # FILE block in it. Estimate, mark it, and account it as no-usage.
+        result["usage"] = {"prompt_tokens": 0, "completion_tokens": max(1, (len(text) + len(reasoning) + 3) // 4),
+                           "total_tokens": max(1, (len(text) + len(reasoning) + 3) // 4)}
+        result["arc_usage_estimated"] = True
     if aborted:
         result["arc_stream_stop"] = aborted
     return json.dumps(result, ensure_ascii=False).encode(), aborted
@@ -717,8 +725,8 @@ def error_message(response_body: bytes) -> str:
 
 def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | None:
     usage = _usage_from_body(response_body)
-    if not isinstance(usage, dict):
-        return None
+    if not isinstance(usage, dict) or b'"arc_usage_estimated": true' in response_body:
+        return None  # a synthesized usage is no provider usage; the caller charges an estimate
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "elapsed_ms": elapsed_ms, "mode": mode}
     text = response_body.decode("utf-8", errors="replace")
     if text.lstrip().startswith("data:"):

@@ -199,3 +199,25 @@ class SystemOverrideTests(unittest.TestCase):
         out = json.loads(replace_system_prompt(body, "short"))
         self.assertEqual([m["role"] for m in out["messages"]], ["system", "user"])
         self.assertEqual(out["messages"][0]["content"], "short")
+
+
+class GuardedStreamUsageTests(unittest.TestCase):
+    """Local run github-req1-local: the repetition guard cut a degenerate stream
+    before the upstream usage chunk arrived, the synthesized completion had no
+    `usage`, and the kernel (OpenAIResponse.usage is required) reported
+    "failed to parse response" -- the whole turn was lost although 300 complete
+    FILE blocks had been received."""
+
+    def test_aborted_stream_still_yields_a_kernel_parseable_completion(self):
+        from llm_proxy import _collect_codegen_stream
+        events = [b'data: {"id":"x","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"<<<FILE a.js>>>\\nx\\n<<<END FILE>>>\\n"}}]}']
+        payload, aborted = _collect_codegen_stream(iter(events))
+        self.assertEqual(aborted, "incomplete_stream")
+        data = json.loads(payload)
+        self.assertEqual(data["choices"][0]["finish_reason"], "length")
+        self.assertIn("usage", data)
+        self.assertIsInstance(data["usage"]["prompt_tokens"], int)
+        self.assertGreaterEqual(data["usage"]["completion_tokens"], 1)
+        self.assertTrue(data.get("arc_usage_estimated"))
+        # Accounting still treats it as a request without provider usage.
+        self.assertIsNone(usage_record(payload, 1, "low"))

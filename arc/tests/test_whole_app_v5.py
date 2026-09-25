@@ -1347,3 +1347,126 @@ class DerivedSuiteVerificationTests(WholeAppTests):
         self.assertIn("Invented", retry)
         self.assertIn("not an allowed literal", retry)
         self.assertIn("[model]", (flow.derived_tests_dir / "B.spec.ts").read_text())
+
+
+class RollbackAttributionTests(WholeAppTests):
+    """v9.1 run 2a839b37d3e8: REQ-1-1-2 passed 2/2, a proven REQ-1-1-1 check failed
+    in the combined run, the node's work was rolled back -- and REQ-1-1-1 still
+    failed on the restored source. A prior that fails without the node's changes
+    is not a regression of the node; its work must be kept."""
+
+    def test_rollback_is_undone_when_the_prior_fails_on_the_restored_source_too(self):
+        flow = self.flow
+        flow.head = Mock(side_effect=["after-node"])
+        flow.restore_app = Mock()
+        flow.run_specs = Mock(return_value=RunSummary(passed=1, total=2, results=[
+            TestOutcome(title="A ok", ok=True, status="passed", duration_ms=1, file="A.spec.ts"),
+            TestOutcome(title="A flaky", ok=False, status="failed", duration_ms=1, file="A.spec.ts")]))
+        flow.test_verdict = {"A": False, "B": True}
+        flow.final_measurement_reserve = Mock(return_value=0)
+        kept = flow.settle_failed_extension("B", before_sha="before-node", regressed_proven=["A"], node_passed=True)
+        self.assertTrue(kept)
+        self.assertEqual(flow.restore_app.call_args_list[0].args, ("before-node",))
+        self.assertEqual(flow.restore_app.call_args_list[-1].args, ("after-node",))
+        self.assertTrue(flow.test_verdict["B"])
+        self.assertFalse(flow.test_verdict["A"])
+
+    def test_rollback_stands_when_the_prior_passes_again_on_the_restored_source(self):
+        flow = self.flow
+        flow.head = Mock(side_effect=["after-node"])
+        flow.restore_app = Mock()
+        flow.run_specs = Mock(return_value=RunSummary(passed=1, total=1, results=[
+            TestOutcome(title="A ok", ok=True, status="passed", duration_ms=1, file="A.spec.ts")]))
+        flow.test_verdict = {"A": False, "B": False}
+        flow.final_measurement_reserve = Mock(return_value=0)
+        kept = flow.settle_failed_extension("B", before_sha="before-node", regressed_proven=["A"], node_passed=False)
+        self.assertFalse(kept)
+        self.assertEqual(flow.restore_app.call_count, 1)
+        self.assertTrue(flow.test_verdict["A"])
+        self.assertFalse(flow.test_verdict["B"])
+
+
+class CompletenessPassTests(WholeAppTests):
+    """hackathon--sheet run ef2ab916a57d: 24 reach checks passed, the run ended after
+    91 of 1175 available minutes, the grader passed 0/100. Leaves whose derived spec
+    carries no scenario-specific script get a bounded requirement-driven tool turn
+    with the remaining budget, gated by the full suite."""
+
+    def _prepare(self):
+        seed = ("The visitor starts at the application home page in a fresh unauthenticated browser session. "
+                "The seeded data is account `alice-dev`, email `a@example.test`, password `Pw-123456789!`.")
+        for node in self.nodes:
+            node["scenarios"] = [{"name": f"{node['id']}: Scenario 1", "steps": [
+                {"keyword": "GIVEN", "content": seed},
+                {"keyword": "WHEN", "content": f"The visitor clicks “Open {node['id']}”."},
+                {"keyword": "THEN", "content": f"The page shows “Done {node['id']}”."}]}]
+        # B is weak: its scenario cannot be scripted (only a reach check).
+        self.nodes[1]["scenarios"][0]["steps"][1]["content"] = "The visitor somehow reaches “Open B”."
+        self.flow.tests_dir = None
+        self.flow.spec_map = {}
+        self.flow.prepare_derived_tests(self.nodes)
+        self.flow.adopt_derived_specs(["A", "B", "C"])
+        self.flow.requirement_contracts = m.compile_contracts(self.nodes)
+        self.flow.runner = object()
+        self.flow.test_verdict = {"A": True, "B": True, "C": True}
+        return self.nodes
+
+    def test_only_weak_leaves_get_a_completeness_turn_and_regressions_roll_back(self):
+        flow = self.flow
+        nodes = self._prepare()
+        self.assertEqual(flow.weak_derived_leaves(nodes), ["B"])
+        flow.turn = Mock(return_value=(True, "verified"))
+        flow.head = Mock(return_value="before-pass")
+        flow.restore_app = Mock()
+        flow.remaining = Mock(return_value=9000)
+        flow.final_phase_reserve = Mock(return_value=0)
+        flow.run_specs = Mock(return_value=RunSummary(passed=3, total=3, results=[
+            TestOutcome(title=n, ok=True, status="passed", duration_ms=1, file=f"{n}.spec.ts") for n in "ABC"]))
+        flow.suite_is_measured = Mock(return_value=True)
+        flow.derived_completeness_pass(nodes)
+        self.assertEqual(flow.turn.call_count, 1)
+        prompt, _, label = flow.turn.call_args.args[:3]
+        self.assertIn("B", label)
+        self.assertIn("Open B", prompt)
+        flow.restore_app.assert_not_called()
+        # A regression of the full suite restores the tree taken before the pass.
+        flow.turn.reset_mock()
+        flow.run_specs = Mock(return_value=RunSummary(passed=2, total=3, results=[
+            TestOutcome(title="A", ok=False, status="failed", duration_ms=1, file="A.spec.ts"),
+            TestOutcome(title="B", ok=True, status="passed", duration_ms=1, file="B.spec.ts"),
+            TestOutcome(title="C", ok=True, status="passed", duration_ms=1, file="C.spec.ts")]))
+        flow.derived_completeness_pass(nodes)
+        flow.restore_app.assert_called_once_with("before-pass")
+
+    def test_pass_is_skipped_without_time(self):
+        flow = self.flow
+        nodes = self._prepare()
+        flow.turn = Mock()
+        flow.remaining = Mock(return_value=100)
+        flow.derived_completeness_pass(nodes)
+        flow.turn.assert_not_called()
+
+
+class DerivedWorkersTests(WholeAppTests):
+    def test_derived_suites_run_sequentially_by_default(self):
+        flow = self.flow
+        flow.derived_as_specs = True
+        flow.time_up = Mock(return_value=False)
+        flow.runtime = SimpleNamespace(git=SimpleNamespace(run=Mock(return_value=SimpleNamespace(stdout=""))))
+        server = SimpleNamespace(build=Mock(return_value=None), start=Mock(return_value=None), stop=Mock(),
+                                 tail=Mock(return_value=""))
+        flow.app_server = Mock(return_value=server)
+        captured = {}
+        runner = SimpleNamespace(run=lambda specs, url, workers=None, wall_timeout=None: (
+            captured.update(workers=workers), RunSummary(passed=1, total=1, results=[
+                TestOutcome(title="A", ok=True, status="passed", duration_ms=1, file="A.spec.ts")]))[1])
+        with patch.object(m, "snapshot_worktree"), patch.object(m, "restore_worktree"), \
+                patch.object(m, "mutated_by_tests", return_value=[]), patch.object(m, "store_changes_by_tests", return_value=[]):
+            flow.run_specs(["A.spec.ts"], workers=2, runner=runner)
+            self.assertEqual(captured["workers"], 1)
+            with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_WORKERS": "2"}):
+                flow.run_specs(["A.spec.ts"], workers=2, runner=runner)
+            self.assertEqual(captured["workers"], 2)
+            flow.derived_as_specs = False
+            flow.run_specs(["A.spec.ts"], workers=2, runner=runner)
+            self.assertEqual(captured["workers"], 2)

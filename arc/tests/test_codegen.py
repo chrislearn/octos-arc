@@ -732,3 +732,21 @@ class OutlinedFileEditTests(unittest.TestCase):
             self.assertIn(line, outline)
         self.assertNotIn("const y = 2;", outline)
         self.assertLessEqual(len(outline), 2000)
+
+
+class ParseFailureRecoveryTests(unittest.TestCase):
+    def test_kernel_parse_failure_recovers_the_retained_truncated_reply(self):
+        import main
+        from unittest.mock import Mock
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        flow = object.__new__(main.Flow)
+        flow.output_dir = Path(tmp.name)
+        flow.pending_corrections = []; flow.refused_paths = set(); flow.generic_template_installed = False
+        flow.text_turn = Mock(return_value=(False, "runtime_error: failed to parse response from custom/m (api_style=openai_chat_completions)"))
+        proxy = Mock(spec=main.LlmProxy)
+        proxy.take_truncated_reply.return_value = "<<<FILE backend/a.js>>>\nconst a = 1;\n<<<END FILE>>>\n<<<FILE backend/b.js>>>\nconst b ="
+        flow.llm_proxy = proxy
+        ok, text = flow.codegen_turn("new files", 60, "REQ-1 implement")
+        self.assertTrue((flow.output_dir / "backend/a.js").is_file())
+        self.assertFalse((flow.output_dir / "backend/b.js").exists())
+        self.assertIn("backend/a.js", flow.last_codegen_written)
