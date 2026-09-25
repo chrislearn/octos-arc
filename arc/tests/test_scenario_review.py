@@ -2,7 +2,8 @@ import json
 import re
 import unittest
 
-from scenario_review import (allowed_literals, ancestor_context, build_prompt, compile_reply, parse_reply,
+from scenario_review import (allowed_literals, ancestor_context, behavior_test_titles, build_prompt, compile_reply,
+                             parse_failure_review, parse_reply,
                              prioritize_review_targets, review_targets, validate_proposal)
 from scenario_tests import suite_fixtures
 
@@ -31,6 +32,23 @@ MERGE = leaf("REQ-6-5", [("Scenario 1", [
 
 
 class ReviewTargetTests(unittest.TestCase):
+    def test_only_action_then_assertion_tests_count_as_behavior(self):
+        source = ("test('A: smoke [reach]', async ({ page }) => { await h.expectReachable(page, 'Open'); });\n"
+                  "test('A: weak [model]', async ({ page }) => { await h.expectTextsVisible(page, ['Done']); });\n"
+                  "test('A: backwards [script]', async ({ page }) => {\n"
+                  "  await h.expectTextsVisible(page, ['Done']);\n  await h.clickNamed(page, 'Open');\n});\n"
+                  "test('A: behavior [model]', async ({ page }) => {\n"
+                  "  await h.clickNamed(page, 'Open');\n  await h.expectTextsVisible(page, ['Done']);\n});\n")
+        self.assertEqual(behavior_test_titles(source), {"A: behavior [model]"})
+
+    def test_failure_review_uses_one_structured_verdict(self):
+        reply = ('Here is the review:\n```json\n'
+                 '{"verdict":"oracle_dispute","evidence":"The \\"Done\\" assertion conflicts",'
+                 '"scenarios":[]}\n```')
+        self.assertEqual(parse_failure_review(reply)["evidence"], 'The "Done" assertion conflicts')
+        self.assertEqual(parse_failure_review('{"verdict":"spec_error","evidence":"wrong"}')["scenarios"], [])
+        self.assertIsNone(parse_failure_review('{"verdict":"spec_error","evidence":17}'))
+
     def test_should_target_only_scenarios_without_a_mechanical_script(self):
         targets = review_targets([MERGE], suite_fixtures([MERGE]))
         self.assertEqual([t["title"] for t in targets], ["REQ-6-5: Scenario 1"])
@@ -44,6 +62,13 @@ class ReviewTargetTests(unittest.TestCase):
         second = leaf("B", [("one", [("WHEN", "Click “Open B”."), ("THEN", "Shows “Done B”.")])])
         targets = review_targets([first, second], suite_fixtures([first, second]), include_all=True)
         self.assertEqual([t["node_id"] for t in prioritize_review_targets(targets)], ["A", "B", "A"])
+
+    def test_duplicate_scenario_names_get_distinct_behavior_titles(self):
+        node = leaf("A", [("Same", [("WHEN", "Clicks “One”."), ("THEN", "Shows “First”.")]),
+                          ("Same", [("WHEN", "Clicks “Two”."), ("THEN", "Shows “Second”.")])])
+        targets = review_targets([node], suite_fixtures([node]), include_all=True)
+        self.assertEqual(len(targets), 2)
+        self.assertEqual(len({target["title"] for target in targets}), 2)
 
     def test_full_plan_requires_the_when_actions_and_can_hover_a_seeded_record(self):
         node = leaf("REQ-N", [("Delete", [

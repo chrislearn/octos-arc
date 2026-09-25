@@ -1,5 +1,6 @@
 """Generated-spec corrections must precede application repairs and stay scoped."""
 import argparse
+import json
 import tempfile
 import time
 import unittest
@@ -193,6 +194,69 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.spec_map = {SHEET["id"]: [self.path.name]}
         self.flow.record_full_suite(green, {})
         self.assertIsNone(self.flow.test_verdict[SHEET["id"]])
+
+    def test_each_scenario_needs_its_own_behavior_check(self):
+        node = {"id": "REQ-2", "name": "Two outcomes", "description": "The page has controls “Open” and “Save”.",
+                "scenarios": [{"name": title, "steps": [
+                    {"keyword": "WHEN", "content": f"The visitor clicks “{action}”."},
+                    {"keyword": "THEN", "content": f"The page shows “{result}”."}]}
+                    for title, action, result in (("REQ-2: Open", "Open", "Opened"),
+                                                  ("REQ-2: Save", "Save", "Saved"))]}
+        self.flow.derived_nodes = [node]
+        self.flow._derived_scenario_targets = None
+        path = self.directory / "REQ-2.spec.ts"
+        path.write_text("test('REQ-2: Open [model]', async ({ page }) => {\n"
+                        "  await h.clickNamed(page, 'Open');\n"
+                        "  await h.expectTextsVisible(page, ['Opened']);\n});\n")
+        coverage = self.flow.derived_scenario_coverage("REQ-2")
+        self.assertEqual((coverage["covered"], coverage["total"]), (1, 2))
+        self.assertTrue(self.flow.derived_review_needed("REQ-2"))
+        self.flow.write_derived_coverage()
+        report = json.loads((self.root / ".arc" / "derived-coverage.json").read_text())
+        self.assertEqual(report["totals"], {"scenarios": 2, "covered": 1, "missing": 1, "disputed": 0})
+        path.write_text(path.read_text() + "\ntest('REQ-2: Save [model]', async ({ page }) => {\n"
+                        "  await h.clickNamed(page, 'Save');\n"
+                        "  await h.expectTextsVisible(page, ['Saved']);\n});\n")
+        self.assertFalse(self.flow.derived_review_needed("REQ-2"))
+
+    def test_disputed_generated_oracle_blocks_application_repair(self):
+        node = {"id": "REQ-1", "name": "Open", "description": "The page has “Open”.",
+                "scenarios": [{"name": "REQ-1: action", "steps": [
+                    {"keyword": "WHEN", "content": "The visitor clicks “Open”."},
+                    {"keyword": "THEN", "content": "The page shows “Done”."}]}]}
+        path = self.directory / "REQ-1.spec.ts"
+        path.write_text("test('REQ-1: action [model]', async ({ page }) => {\n"
+                        "  await h.clickNamed(page, 'Open');\n"
+                        "  await h.expectTextsVisible(page, ['Done']);\n});\n")
+        self.flow.requirement_nodes = {"REQ-1": node}
+        self.flow.derived_nodes = [node]
+        self.flow._derived_scenario_targets = None
+        self.flow.spec_map = {"REQ-1": [path.name]}
+        self.flow.driver = object()
+        self.flow.wound_down = Mock(return_value=False)
+        self.flow.remaining = Mock(return_value=1000)
+        self.flow.final_phase_reserve = Mock(return_value=0)
+        self.flow.text_turn = Mock(return_value=(True,
+            '{"verdict":"oracle_dispute","evidence":"The expected Done assertion may conflict with the requirement",'
+            '"scenarios":[]}'))
+        self.flow.node_repair_turn = Mock()
+        self.flow.record_tests = Mock()
+        failed = RunSummary(passed=0, total=1, results=[TestOutcome(
+            "REQ-1: action [model]", False, "failed", 1, file=path.name)])
+        self.assertIsNone(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
+                                                    initial_summary=failed))
+        self.flow.node_repair_turn.assert_not_called()
+        self.assertTrue(self.flow.derived_review_needed("REQ-1"))
+        self.assertEqual(self.flow.derived_scenario_coverage("REQ-1")["scenarios"][0]["status"], "disputed")
+        self.flow.final_acceptance(initial_summary=failed)
+        self.assertTrue(self.flow.final_spec_dispute)
+        self.assertIsNone(self.flow.test_verdict["REQ-1"])
+        self.flow.clear_derived_spec_dispute("REQ-1", "REQ-1: action [model]")
+        self.flow.derived_failure_reviews.clear()
+        self.flow.text_turn.return_value = (True, '{"verdict":"uncertain",'
+                                                 '"evidence":"A locator race is possible", "scenarios":[]}')
+        self.assertIsNone(self.flow.review_failed_derived_spec_with_model("REQ-1", [path.name], failed))
+        self.assertEqual(self.flow.derived_spec_disputes, {})
 
     def test_related_regression_audits_its_spec_then_remeasures_both_features(self):
         other = self.directory / "other.spec.ts"

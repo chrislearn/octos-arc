@@ -330,6 +330,14 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
                                                        r"\b[A-Z]{1,3}[0-9]{1,4}\s*=",
                                                        node_text + " " + shared + " " + " ".join(steps), re.I))})
+    if include_all:
+        title_counts: dict[tuple[str, str], int] = {}
+        for target in targets:
+            key = (target["node_id"], target["title"])
+            title_counts[key] = title_counts.get(key, 0) + 1
+        for target in targets:
+            if title_counts[(target["node_id"], target["title"])] > 1:
+                target["title"] += f" [scenario {target['id']}]"
     return targets
 
 
@@ -343,6 +351,29 @@ def prioritize_review_targets(targets: list[dict]) -> list[dict]:
         (rest if node_id in seen else first).append(target)
         seen.add(node_id)
     return first + rest
+
+
+def behavior_test_titles(source: str) -> set[str]:
+    """Titles with an action followed by a behavioral assertion.
+
+    Reach and entry smoke checks do not count, even if they are executable.
+    This structural check is intentionally narrower than Playwright loading:
+    loading proves syntax, while an assertion after an action provides at
+    least a candidate for feature evidence.
+    """
+    starts = list(re.finditer(r"^test\('((?:\\.|[^'\\])*)',", source, re.M))
+    valid: set[str] = set()
+    for index, start in enumerate(starts):
+        title = start.group(1).replace("\\'", "'")
+        if not title.endswith((" [script]", " [model]")):
+            continue
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(source)
+        body = source[start.end():end]
+        action = re.search(r"await h\.(?!expect)\w+\(", body)
+        assertion = re.search(r"await h\.expect\w+\(", body)
+        if action and assertion and action.start() < assertion.start():
+            valid.add(title)
+    return valid
 
 
 def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
@@ -377,6 +408,24 @@ def parse_reply(text: str) -> list[dict] | None:
         scenarios = data.get("scenarios") if isinstance(data, dict) else None
         if isinstance(scenarios, list):
             return [item for item in scenarios if isinstance(item, dict)]
+    return None
+
+
+def parse_failure_review(text: str) -> dict | None:
+    """Read one structured test-failure verdict and its proposed scenarios."""
+    decoder = json.JSONDecoder()
+    source = str(text or "")
+    for start in (match.start() for match in re.finditer(r"\{", source)):
+        try:
+            value, _ = decoder.raw_decode(source[start:])
+        except json.JSONDecodeError:
+            continue
+        if (isinstance(value, dict)
+                and value.get("verdict") in {"app_error", "spec_error", "oracle_dispute", "uncertain"}
+                and isinstance(value.get("evidence"), str)):
+            scenarios = value.get("scenarios", [])
+            if isinstance(scenarios, list):
+                return {**value, "scenarios": scenarios}
     return None
 
 

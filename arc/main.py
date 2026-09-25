@@ -70,7 +70,7 @@ Environment (all optional):
     OCTOS_ARC_NO_SPEC_EDIT_REQUESTS  structured-edit request budget without official specs (default 12)
     OCTOS_ARC_NO_SPEC_REVIEW_SECONDS  maximum focused repair time after a scenario/seed audit (default 180)
     OCTOS_ARC_DERIVED_SPEC_AUDIT  "0" disables requirement-grounded corrections of failing self-generated specs
-    OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on pre-implementation AI spec-plan batches (default covers one per feature)
+    OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on pre-implementation AI spec-plan batches (default covers all scenarios)
     OCTOS_ARC_DERIVED_FAILURE_REVIEW  "0" disables independent review of failing generated behaviour specs
     OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE  maximum AI spec reviews per related/full suite (default 3)
     OCTOS_ARC_TRANSIENT_RETRY_SECONDS  time allowed after the first provider error for retries (default 240)
@@ -127,9 +127,9 @@ from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
 from scenario_tests import compile_suite as compile_derived_suite, suite_fixtures, write_suite  # noqa: E402
-from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests,  # noqa: E402
+from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests, behavior_test_titles,  # noqa: E402
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
-                             folder_text, prioritize_review_targets,
+                             folder_text, parse_failure_review, prioritize_review_targets,
                              retry_prompt as build_review_retry, review_targets)
 from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle  # noqa: E402
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
@@ -4213,6 +4213,7 @@ class Flow:
             return None
         fixtures = suite_fixtures(getattr(self, "derived_nodes", [node]))
         changes: list[tuple[Path, str, str, tuple[str, ...]]] = []
+        changed_titles: set[str] = set()
         for rel in specs:
             path = self.tests_dir / rel
             if not path.is_file():
@@ -4227,6 +4228,7 @@ class Flow:
             repair = repair_failed_generated_specs(original, failures, node, fixtures)
             if repair.changed_titles:
                 changes.append((path, original, repair.source, repair.reasons))
+                changed_titles.update(repair.changed_titles)
         if not changes:
             self.metric("derived_spec_audit", node_id=node_id, outcome="no_provable_spec_error",
                         failed_tests=sum(not row.ok for row in summary.results))
@@ -4249,14 +4251,38 @@ class Flow:
         # Model turns restore protected paths from this snapshot. Refresh it
         # only after the harness itself has accepted the generated-spec edit.
         self.snapshot_protected()
+        for title in changed_titles:
+            self.clear_derived_spec_dispute(node_id, title)
         self.metric("derived_spec_audit", node_id=node_id, outcome="corrected",
                     files=[str(path.name) for path, _, _, _ in changes],
                     reasons=[reason for _, _, _, reasons in changes for reason in reasons])
         observed = self.run_specs(specs)
+        self.write_derived_coverage(observed)
         log(f"[derived] {node_id}: unchanged app after spec correction: "
             f"{observed.passed}/{observed.total} passed"
             + (f"; {observed.error}" if observed.error else ""))
         return observed
+
+    def disputed_generated_failures(self, summary: RunSummary) -> list[tuple[str, str]]:
+        """Failed generated tests whose oracle is not safe for application repair."""
+        disputes = getattr(self, "derived_spec_disputes", {})
+        found = []
+        for row in summary.results:
+            filename = Path(row.file or "").name
+            node_id = filename[:-len(".spec.ts")] if filename.endswith(".spec.ts") else ""
+            if not row.ok and (node_id, row.title) in disputes:
+                found.append((node_id, row.title))
+        return found
+
+    def flag_derived_spec_dispute(self, node_id: str, title: str, reason: str) -> None:
+        disputes = getattr(self, "derived_spec_disputes", {})
+        disputes[(node_id, title)] = reason[:600]
+        self.derived_spec_disputes = disputes
+        self.metric("derived_spec_dispute", node_id=node_id, title=title, reason=reason[:300])
+        self.write_derived_coverage()
+
+    def clear_derived_spec_dispute(self, node_id: str, title: str) -> None:
+        getattr(self, "derived_spec_disputes", {}).pop((node_id, title), None)
 
     def review_failed_derived_spec_with_model(self, node_id: str, specs: list[str],
                                               summary: RunSummary) -> RunSummary | None:
@@ -4299,10 +4325,12 @@ class Flow:
         path = self.tests_dir / rel
         original = path.read_text(encoding="utf-8")
         prompt = ("Review a failed TEST, not the app implementation. The requirement is the oracle. "
-                  "Classify as app_error, spec_error, or uncertain. For spec_error caused by missing or "
+                  "Classify as app_error, spec_error, oracle_dispute, or uncertain. Use oracle_dispute "
+                  "only when the existing expected assertion may contradict the requirement. "
+                  "For spec_error caused by missing or "
                   "misordered actions, provide a corrected scenario in the JSON scenarios array. "
                   "Keep every existing assertion; do not change an expected value to match the current app. "
-                  "If the assertion itself conflicts with the requirement, report uncertain and leave scenarios empty. "
+                  "For oracle_dispute leave scenarios empty and explain the conflict. "
                   "Return one JSON object: {\"verdict\":...,\"evidence\":...,\"scenarios\":[...]}.\n\n"
                   + build_review_prompt([target], fixtures)
                   + "\n\nFAILED SPEC:\n" + original[:12000]
@@ -4311,22 +4339,36 @@ class Flow:
                                    "derived failed-spec review", system=REVIEW_SYSTEM, spec_chars=len(prompt))
         if not ok:
             return None
-        verdict = re.search(r'"verdict"\s*:\s*"(app_error|spec_error|uncertain)"', reply)
-        label = verdict.group(1) if verdict else "uncertain"
-        evidence = (re.search(r'"evidence"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', reply) or ["", ""])[1]
+        review = parse_failure_review(reply)
+        if review is None:
+            self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
+                        verdict="invalid_response")
+            return None
+        label = review["verdict"]
+        evidence = review["evidence"]
         self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
                     verdict=label, evidence=str(evidence)[:300])
         if label != "spec_error":
             if label == "app_error" and evidence:
+                self.clear_derived_spec_dispute(node_id, row.title)
                 self.pending_corrections.append(f"Independent generated-spec review for {node_id}: {evidence[:500]}")
+            elif label == "oracle_dispute" and evidence:
+                self.flag_derived_spec_dispute(node_id, row.title, str(evidence))
+            elif label == "uncertain" and evidence:
+                self.pending_corrections.append(
+                    f"Generated-spec review for {node_id} was inconclusive: {str(evidence)[:500]}. "
+                    "Check the requirement and observed behavior before changing the app.")
             return None
-        scripts, dropped = compile_review_reply(reply, [target], fixtures)
+        scripts, dropped = compile_review_reply(json.dumps(review, ensure_ascii=False), [target], fixtures)
         replacement = next((test for test in scripts.get(node_id, [])
                             if f"{target['title']} [model]" in test.split("\n", 1)[0]), None)
         corrected = replace_failed_test_preserving_oracle(original, row.title, replacement) if replacement else None
         if not corrected:
             self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
                         verdict="rejected_unsafe_patch", reasons=dropped[:2])
+            self.flag_derived_spec_dispute(node_id, row.title,
+                                           "Reviewer identified a test error but no oracle-preserving repair loaded: "
+                                           + "; ".join(dropped[:2]))
             return None
         archive = self.output_dir / ".arc" / "spec-audit" / node_id
         archive.mkdir(parents=True, exist_ok=True)
@@ -4340,7 +4382,9 @@ class Flow:
                         verdict="rejected_load_error", detail=str(detail)[-300:])
             return None
         self.snapshot_protected()
+        self.clear_derived_spec_dispute(node_id, row.title)
         observed = self.run_specs(specs)
+        self.write_derived_coverage(observed)
         self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
                     verdict="corrected_and_remeasured", passed=observed.passed, total=observed.total)
         return observed
@@ -4407,6 +4451,13 @@ class Flow:
                     reviewed = self.review_failed_derived_spec_with_model(node_id, specs, summary)
                     if reviewed is not None:
                         summary = reviewed
+                disputed = self.disputed_generated_failures(summary)
+                if disputed:
+                    log(f"[acceptance] {node_id}: generated oracle disputed; "
+                        "deferring application repair pending requirement-grounded spec resolution")
+                    self.metric("derived_spec_dispute", scope="node", node_id=node_id,
+                                tests=[title for _, title in disputed])
+                    return None
             if summary.error and summary.killed:
                 log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
                 return None
@@ -4485,6 +4536,13 @@ class Flow:
                     regression = self.run_specs(regression_specs, grader_like=True)
                     if getattr(self, "derived_as_specs", False) is True:
                         regression = self.audit_related_derived_specs(regression_specs, regression)
+                        disputed = self.disputed_generated_failures(regression)
+                        if disputed:
+                            for prior, _ in disputed:
+                                self.test_verdict[prior] = None
+                            log(f"[acceptance] {node_id}: related generated oracle disputed; "
+                                "deferring application repair")
+                            return None
                     self.metric("acceptance", scope="affected_regression", node_id=node_id,
                                 passed=regression.passed, total=regression.total,
                                 checked_specs=len(regression_specs), affected_specs=affected_count,
@@ -5168,6 +5226,8 @@ class Flow:
         self.derived_tests_dir = directory
         self.derived_spec_map = {rel[:-len(".spec.ts")]: [rel] for rel in specs}
         self.derived_nodes = list(ordered)
+        self._derived_scenario_targets = None
+        self.derived_spec_disputes: dict[tuple[str, str], str] = {}
         self.derived_augmented = False
         self.derived_node_results: dict[str, tuple[int, int] | None] = {}
         checks = sum(source.count("\ntest(") + source.startswith("test(") for rel, source in files.items()
@@ -5242,35 +5302,76 @@ class Flow:
                 plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         self.derived_suite_verified = True
 
-    def weak_derived_leaves(self, ordered: list[dict]) -> list[str]:
-        """Leaves with no behavioural script, including leaves with no spec."""
+    def planned_derived_scenarios(self) -> list[dict]:
+        """One stable target per distinct requirements.yaml scenario."""
+        cached = getattr(self, "_derived_scenario_targets", None)
+        if cached is None:
+            nodes = list(getattr(self, "derived_nodes", []))
+            tree = getattr(self, "requirement_tree", None)
+            cached = review_targets(nodes, suite_fixtures(nodes), ancestor_context(tree),
+                                    folder_text(tree), include_all=True)
+            self._derived_scenario_targets = cached
+        return cached
+
+    def derived_scenario_coverage(self, node_id: str) -> dict:
+        """Match each scenario to a concrete action-then-assertion test."""
         directory = getattr(self, "derived_tests_dir", None)
-        if not directory:
-            return []
-        weak = []
-        for node in ordered:
-            node_id = str(node.get("id"))
-            path = directory / f"{node_id}.spec.ts"
-            if not path.is_file():
-                weak.append(node_id)
+        path = directory / f"{node_id}.spec.ts" if directory else None
+        source = path.read_text(encoding="utf-8") if path and path.is_file() else ""
+        valid = behavior_test_titles(source)
+        disputes = getattr(self, "derived_spec_disputes", {})
+        rows = []
+        for target in self.planned_derived_scenarios():
+            if target["node_id"] != node_id:
                 continue
-            source = path.read_text(encoding="utf-8")
-            if "[script]" not in source and "[model]" not in source:
-                weak.append(node_id)
-        return weak
+            candidates = [f"{target['title']} [script]", f"{target['title']} [model]"]
+            matched = [title for title in candidates if title in valid and (node_id, title) not in disputes]
+            disputed = [title for title in candidates if (node_id, title) in disputes]
+            rows.append({"id": target["id"], "title": target["title"],
+                         "status": "covered" if matched else "disputed" if disputed else "missing",
+                         "tests": matched,
+                         "disputes": {title: disputes[(node_id, title)] for title in disputed}})
+        return {"node_id": node_id, "total": len(rows),
+                "covered": sum(row["status"] == "covered" for row in rows), "scenarios": rows}
+
+    def write_derived_coverage(self, summary: RunSummary | None = None) -> None:
+        """Persist scenario coverage separately from raw Playwright pass counts."""
+        if not getattr(self, "derived_as_specs", False):
+            return
+        nodes = list(getattr(self, "derived_nodes", []))
+        features = [self.derived_scenario_coverage(str(node.get("id"))) for node in nodes]
+        outcomes = {(Path(row.file or "").name, row.title): row.ok
+                    for row in (summary.results if summary else [])}
+        for feature in features:
+            filename = f"{feature['node_id']}.spec.ts"
+            for scenario in feature["scenarios"]:
+                checks = [outcomes[(filename, title)] for title in scenario["tests"]
+                          if (filename, title) in outcomes]
+                scenario["runtime"] = ("passed" if checks and all(checks) else
+                                       "failed" if checks else "unmeasured")
+        report = {"kind": "derived_scenario_coverage", "features": features,
+                  "totals": {"scenarios": sum(item["total"] for item in features),
+                             "covered": sum(item["covered"] for item in features),
+                             "missing": sum(row["status"] == "missing" for item in features
+                                            for row in item["scenarios"]),
+                             "disputed": sum(row["status"] == "disputed" for item in features
+                                             for row in item["scenarios"])}}
+        path = self.output_dir / ".arc" / "derived-coverage.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def weak_derived_leaves(self, ordered: list[dict]) -> list[str]:
+        """Leaves whose scenarios lack concrete behavioral checks."""
+        if not getattr(self, "derived_tests_dir", None):
+            return []
+        return [str(node.get("id")) for node in ordered if self.derived_review_needed(str(node.get("id")))]
 
     def derived_review_needed(self, node_id: str) -> bool:
-        """A reach/entry-only derived spec cannot certify feature behaviour."""
+        """Every scenario needs an action-then-assertion test for verification."""
         if not getattr(self, "derived_as_specs", False):
             return False
-        directory = getattr(self, "derived_tests_dir", None)
-        if not directory:
-            return True
-        path = directory / f"{node_id}.spec.ts"
-        if not path.is_file():
-            return True
-        source = path.read_text(encoding="utf-8")
-        return "[script]" not in source and "[model]" not in source
+        coverage = self.derived_scenario_coverage(node_id)
+        return coverage["total"] == 0 or coverage["covered"] < coverage["total"]
 
     def derived_completeness_pass(self, ordered: list[dict]) -> None:
         """Spend remaining budget on leaves the derived suite cannot judge.
@@ -5284,6 +5385,8 @@ class Flow:
         if not getattr(self, "derived_as_specs", False) or getattr(self, "runner", None) is None:
             return
         weak = self.weak_derived_leaves(ordered)
+        disputed_nodes = {node_id for node_id, _ in getattr(self, "derived_spec_disputes", {})}
+        weak = [node_id for node_id in weak if node_id not in disputed_nodes]
         if not weak:
             return
         per_leaf = max(120, int(os.environ.get("OCTOS_ARC_COMPLETENESS_SECONDS", "420")))
@@ -5337,6 +5440,7 @@ class Flow:
         self.aliases = {}
         self.tests_dir = directory
         self.derived_as_specs = True
+        self.write_derived_coverage()
         log(f"[tests] {len(specs)} derived spec files at {directory} are the acceptance suite; mapping "
             f"{ {k: v for k, v in self.spec_map.items() if v} }")
 
@@ -5354,15 +5458,12 @@ class Flow:
             return 0
         self.derived_augmented = True
         fixtures = suite_fixtures(ordered)
-        context = ancestor_context(getattr(self, "requirement_tree", None))
-        targets = prioritize_review_targets(review_targets(
-            ordered, fixtures, context, folder_text(getattr(self, "requirement_tree", None)), include_all=True))
+        targets = prioritize_review_targets(self.planned_derived_scenarios())
         if not targets:
             log("[derived] no requirement scenarios to plan")
             return 0
         batch = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_BATCH", "6")))
-        first_per_feature = len({target["node_id"] for target in targets})
-        default_requests = max(10, (first_per_feature + batch - 1) // batch)
+        default_requests = max(10, (len(targets) + batch - 1) // batch)
         max_requests = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_REQUESTS", str(default_requests))))
         # A six-scenario batch took 389s locally (33k reasoning tokens): 300s cut
         # whole batches off online.
@@ -5905,7 +6006,8 @@ class Flow:
             if complete:
                 self._unresolved_startup_error = ''
                 self.record_tests(node_id, specs, summary)
-                self.test_verdict[node_id] = summary.passed == summary.total
+                self.test_verdict[node_id] = (None if summary.all_passed and self.derived_review_needed(node_id)
+                                              else summary.passed == summary.total)
                 log(f"[flow] startup recovered at {node_id}; resuming remaining requirements")
                 return True
             self._unresolved_startup_error = summary.error or '\n'.join(summary.load_errors) or 'Incomplete startup recovery verdict'
@@ -6024,6 +6126,8 @@ class Flow:
                 break
             log(f"[flow] whole-app first suite: repaired startup failure {attempt + 1}/2; retrying full suite")
             summary = measure()
+        if getattr(self, "derived_as_specs", False):
+            summary = self.audit_related_derived_specs(specs, summary)
         observed_files = {Path(result.file or "").name for result in summary.results}
         if (summary.error or summary.load_errors or not summary.results or summary.total != len(summary.results)
                 or any(Path(spec).name not in observed_files for spec in specs)):
@@ -6031,6 +6135,10 @@ class Flow:
                 f"({(summary.error or 'incomplete results')[:150]}); preserving app for final repair")
             return None
         grouped = nodes_for_failures(summary.results, self.spec_map)
+        if self.disputed_generated_failures(summary):
+            self.record_full_suite(summary, grouped)
+            log("[flow] whole-app first suite: generated oracle disputed; deferring application repair")
+            return None
         ids = {str(node.get("id")) for node in ordered}
         if any(node_id not in ids for node_id in grouped):
             log("[flow] whole-app first suite: unmapped failure; using node flow")
@@ -6128,7 +6236,7 @@ class Flow:
             # not evidence that all features need regenerating. Preserve the
             # tree for the final suite's targeted startup-repair path.
             log("[flow] whole-app first suite unavailable; preserving generated app for final targeted repair")
-            no_official_specs = not self.tests_dir
+            no_official_specs = not self.tests_dir or getattr(self, "derived_as_specs", False)
             for index, node in enumerate(ordered, 1):
                 node_id = str(node.get("id"))
                 if node_id not in generated:
@@ -6149,10 +6257,8 @@ class Flow:
                 self.mark("implementation_started", node_id)
                 self.mark("implementation_done", node_id, "implemented by whole-app generation")
                 if no_official_specs:
-                    # A generated contract directs implementation but is not an
-                    # executable acceptance result. Keep this leaf pending so
-                    # the final contract review plus startup rehearsal covers it;
-                    # never report it as an official test pass or failure.
+                    # A generated or unavailable suite gave no safe verdict.
+                    # Keep the leaf pending for later measured verification.
                     self.test_verdict[node_id] = None
                 else:
                     self.mark("test_failed", node_id, "first full suite could not report reliable results")
@@ -6168,13 +6274,15 @@ class Flow:
                 self.mark("design_done", node_id, "covered by whole-application design")
                 self.mark("implementation_started", node_id)
                 self.mark("implementation_done", node_id, "implemented by whole-app generation")
-                self.mark("test_passed", node_id, "passed the first full acceptance suite")
-                try:
-                    for iface in self.runtime.traceability.list_interfaces(req_id=node_id):
-                        self.runtime.traceability.set_interface_implemented(iface["interface_id"], True,
-                                                                             emit_event=False)
-                except Exception:  # noqa: BLE001
-                    pass
+                if (not getattr(self, "derived_as_specs", False)
+                        or self.test_verdict.get(node_id) is True):
+                    self.mark("test_passed", node_id, "passed the first full acceptance suite")
+                    try:
+                        for iface in self.runtime.traceability.list_interfaces(req_id=node_id):
+                            self.runtime.traceability.set_interface_implemented(iface["interface_id"], True,
+                                                                                 emit_event=False)
+                    except Exception:  # noqa: BLE001
+                        pass
                 continue
             if self.time_up():
                 self.mark("implementation_started", node_id)
@@ -6641,6 +6749,14 @@ class Flow:
         if not self.suite_is_measured(summary, specs):
             log(f"[acceptance] checkpoint {index}: no reliable verdict; {summary.error or 'incomplete, interrupted or unloaded results'}")
             return
+        disputed = self.disputed_generated_failures(summary) if getattr(self, "derived_as_specs", False) else []
+        if disputed:
+            for node_id, _ in disputed:
+                self.test_verdict[node_id] = None
+            log(f"[acceptance] checkpoint {index}: generated oracle disputed; app repair deferred")
+            self.metric("derived_spec_dispute", scope="checkpoint", checkpoint=index,
+                        tests=[list(item) for item in disputed])
+            return
         all_specs = {spec for paths in self.spec_map.values() for spec in paths}
         self.metric('checkpoint_coverage', checkpoint=index, checked_specs=len(specs),
                     total_specs=len(all_specs), unobserved_specs=len(all_specs - set(specs)),
@@ -6842,6 +6958,13 @@ class Flow:
             observed = self.run_specs(specs, workers=workers, grader_like=True)
             if getattr(self, "derived_as_specs", False) is True:
                 observed = self.audit_related_derived_specs(specs, observed)
+                disputed = self.disputed_generated_failures(observed)
+                if disputed:
+                    for node_id, _ in disputed:
+                        self.test_verdict[node_id] = None
+                    self._checkpoint_repair_summary = observed
+                    self._checkpoint_repair_grouped = grouped
+                    return True
             if not self.suite_is_measured(observed, specs):
                 self.queue_checkpoint_evidence(summary)
                 self._checkpoint_repair_summary = observed
@@ -6891,6 +7014,7 @@ class Flow:
         self.final_repair_no_change = False
         self.final_suite_progress = False
         self.final_suite_green = False
+        self.final_spec_dispute = False
         self.final_startup_recovered = False
         self._final_retry_measurement = None
         force_tool_repair = bool(getattr(self, "_force_final_tool_repair", False))
@@ -6942,6 +7066,15 @@ class Flow:
             summary = initial_summary if reused_measurement else measured_suite()
             if getattr(self, "derived_as_specs", False) is True:
                 summary = self.audit_related_derived_specs(all_specs, summary)
+                disputed = self.disputed_generated_failures(summary)
+                if disputed:
+                    self.record_full_suite(summary, nodes_for_failures(summary.results, self.spec_map))
+                    self.final_spec_dispute = True
+                    log("[acceptance] full suite: generated oracle disputed; "
+                        "application repair deferred for requirement-grounded resolution")
+                    self.metric("derived_spec_dispute", scope="final_suite",
+                                tests=[list(item) for item in disputed])
+                    return
             if reused_measurement:
                 log("[acceptance] reusing unchanged application measurement for a changed repair approach")
             if startup_recovery_only and self.suite_is_measured(summary, all_specs):
@@ -7146,7 +7279,8 @@ class Flow:
                         "have no behavioural spec and remain unverified")
                     self.metric("derived_spec_coverage", outcome="unverified",
                                 nodes=weak, passed=summary.passed, total=summary.total)
-                self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (full suite)")
+                self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} "
+                            + ("green; derived scenario coverage unresolved" if weak else "pass (full suite)"))
                 return
             # A spec that has passed once in this pass and fails now is unstable;
             # letting it count as progress hides a stall in everything else.
@@ -7345,6 +7479,8 @@ class Flow:
             retry_measurement = None
             if self.driver:
                 self.driver.end_scope("node")
+            if getattr(self, "final_spec_dispute", False):
+                break
             if (getattr(self, "final_suite_green", False)
                     or (self.test_verdict and all(verdict is True for verdict in self.test_verdict.values()))):
                 break
@@ -7595,10 +7731,12 @@ class Flow:
                 local = RunSummary(results=rows, total=len(rows), passed=sum(r.ok for r in rows))
                 if self.suite_is_measured(local, specs):
                     self.record_tests(node_id, specs, local)
-                    self.test_verdict[node_id] = (None if local.all_passed and self.derived_review_needed(node_id)
+                    self.test_verdict[node_id] = (None if self.disputed_generated_failures(local)
+                                                  or (local.all_passed and self.derived_review_needed(node_id))
                                                   else local.all_passed)
                 else:
                     self.test_verdict[node_id] = None
+        self.write_derived_coverage(summary)
 
     # -- skeleton ---------------------------------------------------------
     def skeleton(self, tree: dict) -> None:
