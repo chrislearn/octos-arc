@@ -99,7 +99,7 @@ async function clickStep(page: Page, step: Step): Promise<void> {
 }
 
 /** Find a named control or text, crawling at most `depth` navigation clicks. */
-export async function reach(page: Page, value: Match, depth = 4, budget = 80): Promise<Locator> {
+export async function reach(page: Page, value: Match, depth = 3, budget = 30): Promise<Locator> {
   const direct = await visibleNamed(page, value, 1500);
   if (direct) return direct;
   const start = page.url();
@@ -147,6 +147,43 @@ export async function clickNamed(page: Page, value: Match): Promise<void> {
   const target = await reach(page, value);
   await target.click();
   await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+}
+
+/** Navigate to where a named page/tab/menu entry is visible; click it when it is a control. */
+export async function openNamed(page: Page, value: Match): Promise<void> {
+  const target = await reach(page, value);
+  const role = await target.evaluate((el) => (el.getAttribute('role') || el.tagName || '').toLowerCase()).catch(() => '');
+  if (['a', 'button', 'tab', 'menuitem', 'link', 'option'].includes(role)) {
+    await target.click();
+    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+  }
+}
+
+export async function pressKey(page: Page, key: string): Promise<void> {
+  await page.keyboard.press(key);
+  await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+  await page.waitForTimeout(250);
+}
+
+/** The page ended in no error state: no visible alert naming an error, no server error page. */
+export async function expectNoErrorState(page: Page): Promise<void> {
+  await page.waitForTimeout(300);
+  const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 4000);
+  const fatal = /Cannot (?:GET|POST|PUT|DELETE) \/|Internal Server Error|Application error|Unexpected token|Not Found$/m;
+  expect(body, `page shows a server error state on ${page.url()}`).not.toMatch(fatal);
+  const alerts = page.locator('[role="alert"]:visible, .error:visible, [aria-invalid="true"]:visible');
+  const count = await alerts.count().catch(() => 0);
+  for (let index = 0; index < Math.min(count, 5); index += 1) {
+    const text = (await alerts.nth(index).innerText().catch(() => '')).trim();
+    expect(text, `an error is shown on ${page.url()}: ${text}`).not.toMatch(/error|invalid|failed|required|cannot|not allowed|denied/i);
+  }
+}
+
+export async function expectAbsent(page: Page, value: Match): Promise<void> {
+  await expect.poll(async () => Boolean(await visibleNamed(page, value, 200)), {
+    message: `Expected "${describe(value)}" to be absent from ${page.url()}`,
+    timeout: 8000,
+  }).toBe(false);
 }
 
 export async function checkNamed(page: Page, value: Match): Promise<void> {

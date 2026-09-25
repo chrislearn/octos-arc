@@ -1206,6 +1206,26 @@ class AcceptanceRunner:
                 continue  # Diagnostics are optional; never fail a run over them.
             summary.results[index] = replace(result, rendered_page=page_snapshot(context))
 
+    def list_specs(self, spec_rel_paths: list[str], wall_timeout: int = 120) -> tuple[bool, str]:
+        """Load the given specs without running them (`playwright test --list`).
+
+        A spec that does not load (syntax, import, transform error) would fail
+        every check in its file; this is the gate for generated specs."""
+        config = self._prepare(1)
+        cmd = [str(self.root / "node_modules" / ".bin" / "playwright"), "test", "-c", str(config), "--list"]
+        cmd += [str(self.work_dir / "tests" / p) for p in spec_rel_paths]
+        env = dict(os.environ, E2E_BASE_URL="http://127.0.0.1:1", CI="1",
+                   NODE_PATH=str(self.root / "node_modules"), **self.env_extra)
+        env.pop("FORCE_COLOR", None)
+        try:
+            r = subprocess.run(cmd, cwd=self.work_dir, env=env, capture_output=True, text=True, timeout=wall_timeout)
+        except subprocess.TimeoutExpired:
+            return False, f"playwright --list exceeded {wall_timeout}s"
+        except OSError as exc:
+            return False, f"playwright could not start: {exc}"
+        tail = _ANSI.sub("", (r.stdout or "") + (r.stderr or ""))[-1500:]
+        return r.returncode == 0, "" if r.returncode == 0 else tail
+
     def run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900,
             workers: int | None = None) -> RunSummary:
         config = self._prepare(workers)

@@ -92,6 +92,23 @@ class RequirementContractRoutingTests(unittest.TestCase):
         self.assertIn("GIVEN: x", prompt)
         self.assertIn("REQ-1", flow.spec_bodies("REQ-1"))
 
+    def test_derived_specs_are_marked_and_keep_the_none_sentinel(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            tests = Path(tmp)
+            (tests / "REQ-1.spec.ts").write_text("test('derived', () => {})")
+            flow = m.Flow(argparse.Namespace(web_port=3000), Path("."), Path("."))
+            flow.tests_dir = tests
+            flow.derived_as_specs = True
+            flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": [], None: []}
+            self.assertIn("derived from requirements.yaml", flow.spec_bodies("REQ-1"))
+            self.assertIn("derived from requirements.yaml", flow.tests_prompt_for("REQ-1"))
+            self.assertIn("derived Playwright specs", flow.tests_prompt_for(None, skeleton=True))
+            self.assertEqual(flow.spec_bodies("REQ-2"), "(none)")
+            self.assertFalse(flow.tiny_mode(200))
+
     def test_official_specs_remain_the_exclusive_source_when_present(self):
         import argparse
         import tempfile

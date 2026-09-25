@@ -365,6 +365,27 @@ def api_call_warnings(sources, changed):
     return warnings[:4]
 
 
+def file_size_warnings(sources, changed, cap=None):
+    """A changed application file that outgrew the quoting budget.
+
+    v9.0 (run 1b0211e3caef): Repository.jsx was rewritten 22 times and App.jsx
+    15 times; once the hub files no longer fit a wave's source budget, every
+    later wave collapsed to node flow. Advisory: the next turn is asked to
+    split by feature before adding more to the file.
+    """
+    import os
+    cap = cap or int(1.5 * max(1000, int(os.environ.get('OCTOS_ARC_EDIT_FILE_CHARS', '12000'))))
+    warnings = []
+    for path in sorted(set(changed)):
+        source = sources.get(path)
+        if source is None or '/shared/' in path or path.endswith(('.json', '.css', '.lock')):
+            continue
+        if len(source) > cap:
+            warnings.append(f'FILE_SIZE (advisory): {path} is {len(source)} chars (budget {cap}); split it by '
+                            f'feature into sibling modules and import them before adding more to it')
+    return warnings
+
+
 def contract_warnings(sources, changed):
     """Bounded source hints, never proof of a bug or grounds to reject a write.
 
@@ -376,7 +397,7 @@ def contract_warnings(sources, changed):
     index = SourceIndex(sources)
     affected = index.affected(set(changed))
     warnings = (route_link_warnings(sources, changed) + api_call_warnings(sources, changed)
-                + route_conflict_warnings(sources, changed))
+                + route_conflict_warnings(sources, changed) + file_size_warnings(sources, changed))
     # These contracts are known only while the bundled helpers are unchanged.
     # A generated app may deliberately replace either helper with different
     # semantics, so never guess its return type from the function name alone.

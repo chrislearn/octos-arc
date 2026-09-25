@@ -180,3 +180,49 @@ class RepairFallbackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutlineFallbackTests(unittest.TestCase):
+    """v9.0: from REQ-3-3 on, every leaf's required closure exceeded the wave's
+    36000-char source cap and 34 leaves fell to node flow. A required file that
+    cannot be quoted whole is now shown as an outline (editable via anchored
+    EDIT blocks) instead of voiding the prompt."""
+
+    def _flow(self, root):
+        flow = Mock(spec=m.Flow)
+        flow.output_dir = root; flow.req_dir = root
+        flow.has_app.return_value = True
+        flow.codegen_reasoning.return_value = "none"
+        flow.codegen_context_chars.return_value = 90_000
+        flow.codegen_ports_clause.return_value = ""
+        flow.source_change_counts.return_value = {}
+        flow.omit_unchanged_template_libraries.side_effect = lambda scored, must: scored
+        flow.refused_paths = set(); flow.app_design_doc = None; flow.generic_template_installed = False
+        flow.web_port = 3000; flow.pending_corrections = []
+        flow.codegen_implement_prompt.side_effect = lambda *a, **kw: m.Flow.codegen_implement_prompt(flow, *a, **kw)
+        flow.render_outlines.side_effect = lambda *a, **kw: m.Flow.render_outlines(flow, *a, **kw)
+        flow.bind_edit_scope.return_value = None
+        return flow
+
+    def test_should_outline_a_required_file_that_does_not_fit_the_source_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            hub = "import R from './R';\nexport default function Repository() {\n" + "  // x\n" * 6000 + "}\n"
+            (root / "frontend/src/pages").mkdir(parents=True)
+            _app(root, {"frontend/src/pages/Repository.jsx": hub,
+                        "frontend/src/App.jsx": "import Repository from './pages/Repository';\n<Route path='/r' />\n"})
+            flow = self._flow(root)
+            node = {"id": "REQ-4-1", "description": "Browse repository files"}
+            prompt = flow.codegen_implement_prompt(
+                node, "repository files spec", must_include={"frontend/src/pages/Repository.jsx", "frontend/src/App.jsx"},
+                context_limit=60_000, source_limit=12_000, focused_sources=True)
+            self.assertIsNotNone(prompt)
+            self.assertIn("frontend/src/App.jsx", m.quoted_paths(prompt))
+            self.assertNotIn("frontend/src/pages/Repository.jsx", m.quoted_paths(prompt))
+            self.assertIn("frontend/src/pages/Repository.jsx", m.outlined_paths(prompt))
+            self.assertIn("export default function Repository() {", prompt)
+            self.assertEqual(flow.codegen_budget.get("outlined"), ["frontend/src/pages/Repository.jsx"])
+            # Without the focused (wave) mode the strict refusal is unchanged.
+            self.assertIsNone(flow.codegen_implement_prompt(
+                node, "repository files spec", must_include={"frontend/src/pages/Repository.jsx"},
+                context_limit=60_000, source_limit=12_000))

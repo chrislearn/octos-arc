@@ -139,27 +139,139 @@ class CalibrationTests(unittest.TestCase):
                 yield from leaves(child)
 
         bundle = Path(__file__).resolve().parents[1]
-        literal = re.compile(r"h\.(?:clickNamed|checkNamed|expectReachable)\(page, '((?:[^'\\]|\\.)*)'\)|"
+        # Actions and assertions must match what the official tests act on and
+        # assert. Reach hints (expectReachable/openNamed) only require a quoted
+        # literal to exist somewhere on the way, so they are held to a looser bar.
+        literal = re.compile(r"h\.(?P<kind>clickNamed|checkNamed|expectReachable|openNamed)\(page, '((?:[^'\\]|\\.)*)'\)|"
                              r"h\.fillField\(page, '((?:[^'\\]|\\.)*)'|h\.expectTextsVisible\(page, \[([^\]]*)\]\)")
         for task in ("arc-bench-web--12306", "arc-bench-web--keep"):
             files = compile_suite(list(leaves(yaml.safe_load(
                 (bundle / "tasks" / task / "requirements.yaml").read_text(encoding="utf-8")))))
             helpers = (bundle / "public-tests" / task / "helpers.ts").read_text(encoding="utf-8").lower()
-            hits = total = 0
+            hits = {"strict": 0, "reach": 0}
+            total = {"strict": 0, "reach": 0}
             for rel, source in files.items():
                 if rel == "helpers.ts":
                     continue
                 official_path = bundle / "public-tests" / task / rel
                 official = official_path.read_text(encoding="utf-8").lower() if official_path.exists() else ""
                 for match in literal.finditer(source):
-                    values = ([match.group(1) or match.group(2)] if (match.group(1) or match.group(2))
-                              else re.findall(r"'((?:[^'\\]|\\.)*)'", match.group(3)))
+                    bucket = "reach" if match.group("kind") in ("expectReachable", "openNamed") else "strict"
+                    values = ([match.group(2) or match.group(3)] if (match.group(2) or match.group(3))
+                              else re.findall(r"'((?:[^'\\]|\\.)*)'", match.group(4)))
                     for value in values:
                         value = value.replace("\\'", "'").lower()
-                        total += 1
-                        hits += value in official or value in helpers
-            self.assertGreater(total, 5, task)
-            self.assertGreaterEqual(hits / total, 0.95, f"{task}: {hits}/{total}")
+                        total[bucket] += 1
+                        hits[bucket] += value in official or value in helpers
+            self.assertGreater(total["strict"] + total["reach"], 5, task)
+            self.assertGreaterEqual(hits["strict"] / total["strict"], 0.95, f"{task}: {hits}/{total}")
+            if total["reach"]:
+                self.assertGreaterEqual(hits["reach"] / total["reach"], 0.85, f"{task}: {hits}/{total}")
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScenarioCompilerV2Tests(unittest.TestCase):
+    """GitHub-task wording (v9.0 run): narrative GIVENs, backtick literals, page navigation."""
+
+    def test_should_treat_narrative_given_sentences_as_context(self):
+        node = leaf("REQ-1-1-2", [("Scenario 1", [
+            ("GIVEN", SEED + " The visitor enters the account-access page from the home page; a verified and "
+                      "available account exists, and the visitor has the account's username or verified email "
+                      "and current password."),
+            ("WHEN", "The visitor enters the username or verified email in “Username or email”, enters the "
+                     "correct password in “Password”, and clicks “Sign in”."),
+            ("THEN", "The system enters the user's workspace, the account menu displays the username, and the "
+                     "user can access organizations. An unknown account produces the same generic failure "
+                     "message, remains on the sign-in page, and does not display the account menu."),
+        ])])
+        compiled = compile_leaf(node, suite_fixtures([node]))
+        self.assertEqual(compiled.scripts, 1)
+        self.assertIn("h.fillField(page, 'Username or email', 'alice-dev')", compiled.source)
+        self.assertIn("h.clickNamed(page, 'Sign in')", compiled.source)
+        # "displays the username" names the seeded account without quoting it.
+        self.assertIn("h.expectTextsVisible(page, ['alice-dev'])", compiled.source)
+
+    def test_should_click_a_quoted_page_opened_in_the_given(self):
+        node = leaf("REQ-2-2-4", [("Scenario 1", [
+            ("GIVEN", SEED + " The seeded data is organization `Acme Demo`, member `bob-reviewer`. An organization "
+                      "Owner is signed in and has opened the organization's “People” page; the list contains a "
+                      "member who also has an accessible personal account."),
+            ("WHEN", "The Owner locates the row by the member's username, clicks “Remove from organization” in "
+                     "the action menu, and clicks “Remove” in the confirmation dialog."),
+            ("THEN", "The system removes the account from the organization-member list; after refreshing the "
+                     "“People” page, the account is still absent from the member list."),
+        ])])
+        source = compile_leaf(node, suite_fixtures([node])).source
+        script = [t for t in source.split("test(")[1:] if "[script]" in t]
+        self.assertEqual(len(script), 1)
+        body = script[0]
+        self.assertIn("h.signIn(page, 'alice-dev', 'Valid-password-123!')", body)
+        self.assertLess(body.index("h.openNamed(page, 'People')"), body.index("h.clickNamed(page, 'Remove from organization')"))
+        self.assertIn("h.clickNamed(page, 'Remove')", body)
+        # Only negative THEN clauses: the script still proves the path is usable.
+        self.assertNotIn("expectTextsVisible", body)
+        self.assertIn("h.expectNoErrorState(page)", body)
+
+    def test_should_assert_backtick_literals_and_status_words_named_by_the_requirement(self):
+        node = leaf("REQ-6-5", [("Scenario 1", [
+            ("GIVEN", SEED + " A signed-in maintainer has opened “Conversation” of a mergeable pull request."),
+            ("WHEN", "The maintainer clicks “Merge pull request”, and clicks “Confirm merge” in the confirmation box."),
+            ("THEN", "The PR displays Merged, the merger, time, and resulting commit identifier; the `main` "
+                     "branch head is updated to the merge result."),
+        ])], description="After the merge the pull request shows Merged and the `main` branch advances.")
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertIn("h.expectTextsVisible(page, ['Merged', 'main'])", source)
+        other = leaf("REQ-X", [("S", [
+            ("GIVEN", SEED + " A signed-in user opens “Settings”."),
+            ("WHEN", "The user clicks “Save”."),
+            ("THEN", "The page displays Saved."),
+        ])], description="No status vocabulary here.")
+        # A capitalized word the requirement never names is not a literal.
+        self.assertNotIn("'Saved'", compile_leaf(other, suite_fixtures([other])).source)
+
+    def test_should_compile_backtick_field_values_and_press_enter(self):
+        node = leaf("REQ-2-1-2", [("Scenario 1", [
+            ("GIVEN", SEED + " A signed-in user enters the “Your organizations” page from the account menu and "
+                      "clicks “New organization”; the identifier `mobile-guild` is unused."),
+            ("WHEN", "The user enters organization identifier `mobile-guild`, a display name `Mobile Guild`, "
+                     "and clicks “Create organization”."),
+            ("THEN", "The system creates the organization and displays its overview page titled `Mobile Guild`."),
+        ]), ("Scenario 2", [
+            ("GIVEN", "The user is on the home page."),
+            ("WHEN", "The user enters `acme-docs` in “Search” and presses Enter, then selects the “Repositories” "
+                     "filter."),
+            ("THEN", "The page shows `acme-docs`."),
+        ])])
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertIn("h.openNamed(page, 'Your organizations')", source)
+        self.assertIn("h.clickNamed(page, 'New organization')", source)
+        self.assertIn("h.fillField(page, 'organization identifier', 'mobile-guild')", source)
+        self.assertIn("h.fillField(page, 'display name', 'Mobile Guild')", source)
+        self.assertIn("h.expectTextsVisible(page, ['Mobile Guild'])", source)
+        self.assertIn("h.fillField(page, 'Search', 'acme-docs')", source)
+        self.assertIn("h.pressKey(page, 'Enter')", source)
+        self.assertIn("h.clickNamed(page, 'Repositories')", source)
+
+    def test_should_click_seed_records_named_by_kind(self):
+        node = leaf("REQ-3-3", [("Scenario 1", [
+            ("GIVEN", "The seeded data is public repository `acme-docs`, private repository `secret-research`, "
+                      "owner `alice-dev`. A visitor has a search result for a public repository."),
+            ("WHEN", "The visitor clicks the repository name."),
+            ("THEN", "The system enters the “owner/repository name” overview page and displays `acme-docs`."),
+        ])])
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertIn("h.clickNamed(page, 'acme-docs')", source)
+        self.assertIn("h.expectTextsVisible(page, ['acme-docs'])", source)
+
+    def test_should_not_script_when_a_when_step_is_only_partly_understood(self):
+        node = leaf("REQ-4-3-1", [("Scenario 1", [
+            ("GIVEN", "The user has opened the default branch of an accessible repository."),
+            ("WHEN", "The user opens the branch selector currently showing `main`, enters `feature-search`, "
+                     "and clicks that branch name."),
+            ("THEN", "The page shows `feature-search`."),
+        ])])
+        compiled = compile_leaf(node, suite_fixtures([node]))
+        self.assertEqual(compiled.scripts, 0)
+        self.assertIn("[reach]", compiled.source)

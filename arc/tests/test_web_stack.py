@@ -146,8 +146,10 @@ class WebStackTests(unittest.TestCase):
         for path in sorted((m.BUNDLE_DIR / "tasks").glob("*/requirements.yaml")):
             tree = yaml.safe_load(path.read_text())
             rows[path.parent.name] = recommended_capabilities(tree)
-        self.assertEqual(len(rows), 11)
+        self.assertEqual(len(rows), 12)
         self.assertIn("calendar", rows["arc-bench-web--12306"])
+        self.assertIn("forms", rows["hackathon--github"])
+        self.assertNotIn("money", rows["hackathon--github"])
         self.assertIn("calendar", rows["arc-bench-web--ctrip"])
         self.assertIn("richtext", rows["arc-bench-web--bookstack"])
         self.assertIn("markdown", rows["arc-bench-web--stackoverflow"])

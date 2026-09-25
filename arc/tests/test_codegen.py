@@ -682,3 +682,53 @@ class TailCheckpointTests(unittest.TestCase):
         import main
         self.assertFalse(main.regression_checkpoint_due(32, 32, 4))
         self.assertFalse(main.regression_checkpoint_due(4, 20, 0))
+
+
+class OutlinedFileEditTests(unittest.TestCase):
+    """A file too large to quote whole is shown as an outline; anchored EDIT blocks
+    on it are safe (the anchor must match exactly once), whole-file rewrites are not."""
+
+    def setUp(self):
+        import main
+        from unittest.mock import Mock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        page = self.root / 'frontend/src/App.jsx'
+        page.parent.mkdir(parents=True)
+        page.write_text("import A from './A';\nexport default function App() {\n  return <Route path='/a' />;\n}\n")
+        self.flow = object.__new__(main.Flow)
+        self.flow.output_dir = self.root
+        self.flow.pending_corrections = []
+        self.flow.refused_paths = set()
+        self.flow.generic_template_installed = False
+        self.flow.text_turn = Mock()
+        self.outline = ("--- frontend/src/App.jsx --- (outline, 90 chars; too large to quote whole)\n"
+                        "import A from './A';\n  return <Route path='/a' />;\n")
+
+    def test_anchored_edit_on_an_outlined_file_is_applied(self):
+        reply = ("<<<EDIT frontend/src/App.jsx>>>\n<<<SEARCH>>>\n  return <Route path='/a' />;\n<<<REPLACE>>>\n"
+                 "  return <><Route path='/a' /><Route path='/b' /></>;\n<<<END EDIT>>>")
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn(self.outline, 60, 'outline edit')
+        self.assertTrue(ok)
+        self.assertIn("path='/b'", (self.root / 'frontend/src/App.jsx').read_text())
+        self.assertEqual(self.flow.refused_paths, set())
+
+    def test_whole_file_rewrite_of_an_outlined_file_is_still_refused(self):
+        self.flow.text_turn.return_value = True, "<<<FILE frontend/src/App.jsx>>>\nexport default 1;\n<<<END FILE>>>"
+        ok, _ = self.flow.codegen_turn(self.outline, 60, 'outline rewrite')
+        self.assertFalse(ok)
+        self.assertEqual(self.flow.refused_paths, {'frontend/src/App.jsx'})
+        self.assertIn("import A", (self.root / 'frontend/src/App.jsx').read_text())
+
+    def test_outline_keeps_imports_exports_routes_and_signatures_verbatim(self):
+        import main
+        text = ("import x from './x';\nconst helper = 1;\nexport function Page() {\n  const y = 2;\n"
+                "  return <Route path='/p' element={<Page />} />;\n}\napp.get('/api/p', handler);\n" + "// filler\n" * 400)
+        outline = main.outline_source(text, 2000)
+        for line in ("import x from './x';", "export function Page() {", "  return <Route path='/p' element={<Page />} />;",
+                     "app.get('/api/p', handler);"):
+            self.assertIn(line, outline)
+        self.assertNotIn("const y = 2;", outline)
+        self.assertLessEqual(len(outline), 2000)

@@ -122,7 +122,10 @@ from progress_timeout import ProgressDeadline
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
-from scenario_tests import compile_suite as compile_derived_suite, write_suite  # noqa: E402
+from scenario_tests import compile_suite as compile_derived_suite, suite_fixtures, write_suite  # noqa: E402
+from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests,  # noqa: E402
+                             build_prompt as build_review_prompt, compile_reply as compile_review_reply,
+                             retry_prompt as build_review_retry, review_targets)
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
 from web_checks import scaffold_issues  # noqa: E402
@@ -858,6 +861,34 @@ def quoted_paths(prompt: str) -> set[str]:
     whole, ...)` shows nothing or only a part, and the name-only listing
     render_source_selection puts last shows nothing; none of those count."""
     return {match.group(1) for match in re.finditer(r"^--- (\S+) ---[ \t]*$", prompt, re.M)}
+
+
+def outlined_paths(prompt: str) -> set[str]:
+    """Files a codegen prompt shows as an outline: anchored EDIT blocks on them
+    are safe (the anchor must match once), whole-file rewrites are not."""
+    return {match.group(1) for match in re.finditer(r"^--- (\S+) --- \(outline\b", prompt, re.M)}
+
+
+OUTLINE_LINE = re.compile(
+    r"^\s*(?:import\b|export\b|module\.exports\b|(?:app|router)\.(?:get|post|put|patch|delete|use)\(|"
+    r"<Route\b|(?:async\s+)?function\s+\w+|const\s+\w+\s*=\s*(?:\(|async\b|React\.|require\()|"
+    r"\w+\.route\()")
+
+
+def outline_source(text: str, max_chars: int = 6000) -> str:
+    """The lines that carry a file's interface -- imports, exports, route
+    registrations, component and handler signatures -- verbatim, so they can
+    serve as exact EDIT anchors. Bounded; a trailing marker says what was cut."""
+    lines = [line for line in text.splitlines() if OUTLINE_LINE.match(line) or "<Route" in line]
+    out: list[str] = []
+    total = 0
+    for line in lines:
+        if total + len(line) + 1 > max_chars - 40:
+            out.append("... (outline truncated)")
+            break
+        out.append(line)
+        total += len(line) + 1
+    return "\n".join(out)
 
 
 def backend_entry(output_dir: Path) -> Path | None:
@@ -1890,6 +1921,7 @@ ARCHITECTURE_CONTRACT = """\
 Runtime integration:
 - Resolve relative imports from the importing file's directory, not the project root; reuse the exact exported helper API. Do not add extra parent segments or change shared exports to fit an incorrect caller.
 - Preserve the platform contract: frontend/ has npm run build producing frontend/dist/; backend/ has npm start and reads PORT (default {port}). Within that contract, preserve the existing application architecture and choose libraries or storage appropriate to the requirements and available environment.
+- Keep every source file under 12000 characters (about 300 lines). A page or route module that would grow past that is split by feature into sibling modules (pages/<area>/<Feature>.jsx, routes/<area>-<feature>.js) that the area module imports or the router mounts; App.jsx holds only imports and <Route> entries. Never put every feature of an area into one file.
 - Preserve the installed stack and exact dependency pins. Fresh complex apps use React/Vite/Radix/React Router and Express routes; reuse the installed components instead of inventing a custom widget framework. Existing apps keep their architecture. Use native semantic controls and local libraries only for actual requirements. Declare dependencies and make npm run build produce all pages and assets. Browser pages must load scripts, styles, fonts and media from local output, never a CDN or remote import. Registry downloads during npm install are allowed.
 - Handle expected request errors with appropriate responses, including 404 for missing resources. Log unexpected failures; do not suppress uncaught exceptions and continue serving potentially corrupt state. Preserve data integrity and use the runtime's recovery mechanism.
 """
@@ -2005,6 +2037,12 @@ Rehearsal error:
 {error}
 Fix the project so this sequence works (typical causes: a require() path that does not match a real file, a file referenced but never written, a startup syntax error, a dependency missing from package.json). Verify: build the frontend, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, confirm it binds, stop it. Never bind {port}. Write the fix now.\
 """
+
+DERIVED_SPECS_NOTE = (
+    "NOTE: the specs below were derived from requirements.yaml by the harness (mechanical compilation plus "
+    "model proposals validated against the requirement's own literals); they are NOT the official tests. "
+    "The hidden grader checks the full requirement text, so implement the requirement completely; these "
+    "specs are the minimum measured evidence and use the same tolerant locators as the official helpers.\n")
 
 ACCEPTANCE_TESTS_PROMPT = """\
 PUBLIC ACCEPTANCE TESTS (examples to validate the full requirement; report conflicts instead of silently discarding requirements) live under {tests_dir}. Files: {files}. They define routes, hrefs, accessible names, option labels, exact texts, error wording and action order. Never modify, copy or delete them.
@@ -2647,6 +2685,19 @@ class Flow:
             self.codegen_budget["reason"] = "serialized_sources_or_entry_exceed_budget"
             return None
         missing_required = set(must_include) - quoted_paths(sources)
+        if missing_required and focused_sources:
+            # v9.0: a required hub file that no longer fit the wave budget voided
+            # the prompt for every later leaf. Show it as an outline instead: its
+            # interface lines are exact anchors for EDIT blocks, and the write
+            # guard still refuses a whole-file rewrite of it.
+            outline_room = max(0, room - len(sources))
+            outlines = self.render_outlines(sorted(missing_required), outline_room)
+            if outlines:
+                sources += outlines
+                self.codegen_budget["outlined"] = sorted(missing_required)
+                log(f"[codegen] {node.get('id')}: {len(missing_required)} required file(s) too large to quote "
+                    f"whole; outlined for anchored edits: {', '.join(sorted(missing_required))}")
+                missing_required = set()
         if missing_required:
             self.codegen_budget["reason"] = "required_wave_sources_exceed_budget"
             self.codegen_budget["missing_required"] = sorted(missing_required)
@@ -2661,6 +2712,26 @@ class Flow:
         prompt = rules + design_stable + sources + "\n" + design_slice + corrections + evidence + task
         self.bind_edit_scope(prompt, spec + '\n' + evidence, must_include)
         return prompt
+
+    def render_outlines(self, paths: list[str], room: int) -> str | None:
+        """Outline blocks for files that cannot be quoted whole, or None when
+        even the outlines do not fit."""
+        per_file = max(1500, min(6000, room // max(1, len(paths))))
+        blocks = []
+        for rel in paths:
+            path = self.output_dir / rel
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return None
+            outline = outline_source(text, per_file)
+            if not outline:
+                return None
+            blocks.append(f"--- {rel} --- (outline, {len(text)} chars; too large to quote whole. Change it ONLY "
+                          f"with <<<EDIT>>> blocks whose SEARCH text is copied exactly from the lines below, "
+                          f"or leave it unchanged)\n{outline}\n")
+        rendered = "".join(blocks)
+        return rendered if len(rendered) <= room else None
 
     def bind_edit_scope(self, prompt, evidence, priority=()):
         root = getattr(self, 'output_dir', None)
@@ -2737,6 +2808,10 @@ class Flow:
         its fixed static server and design-free prompt would let that node pick
         its own routes and records, which is what the design is there to stop."""
         if getattr(self, "app_design_doc", None) or stack_note(getattr(self, "output_dir", None)):
+            return False
+        if getattr(self, "derived_as_specs", False):
+            # A short derived spec (one reach check) is not evidence that a single
+            # static page satisfies the requirement.
             return False
         threshold = int(os.environ.get("OCTOS_ARC_TINY_SPEC_CHARS", "1500"))
         return os.environ.get("OCTOS_ARC_TINY", "1") != "0" and 0 < spec_chars < threshold
@@ -3340,8 +3415,11 @@ class Flow:
             # missing. New files and files quoted whole are written as before; the
             # tiny tier's page is quoted in its own format, hence raw_target.
             shown = quoted_paths(prompt)
-            refused = sorted({rel for rel in [*files, *(row[0] for row in edits)]
-                              if rel != raw_target and rel not in shown and (self.output_dir / rel).exists()})
+            outlined = outlined_paths(prompt)
+            refused = sorted({rel for rel in files
+                              if rel != raw_target and rel not in shown and (self.output_dir / rel).exists()}
+                             | {rel for rel, _, _ in edits
+                                if rel not in shown and rel not in outlined and (self.output_dir / rel).exists()})
             self.last_codegen_refused = set(refused)
             # A fresh scaffold can provoke the model to re-emit its unquoted
             # task-neutral helpers. When application files were also generated,
@@ -3585,7 +3663,11 @@ class Flow:
                     texts[rel] = trim_helper_to_references(texts[rel], referenced).strip()
         files = [rel for rel in specs + helpers if texts.get(rel)]
         parts = [texts[rel] if len(files) == 1 else f"--- {rel} ---\n{texts[rel]}" for rel in files]
-        return "\n".join(parts) or "(none)"
+        body = "\n".join(parts)
+        return (self.derived_note() + body) if body else "(none)"
+
+    def derived_note(self) -> str:
+        return DERIVED_SPECS_NOTE if getattr(self, "derived_as_specs", False) else ""
 
     def batch_spec_bodies(self, node_ids: list[str]) -> str:
         """Quote a batch's specs and reachable helpers once, not once per leaf."""
@@ -3606,7 +3688,8 @@ class Flow:
         for rel in helpers:
             if rel in texts:
                 texts[rel] = trim_helper_to_references(texts[rel], referenced).strip()
-        return "\n".join(f"--- {rel} ---\n{texts[rel]}" for rel in specs + helpers if texts.get(rel)) or "(none)"
+        body = "\n".join(f"--- {rel} ---\n{texts[rel]}" for rel in specs + helpers if texts.get(rel))
+        return (self.derived_note() + body) if body else "(none)"
 
     def repair_requirements(self, node_id: str | None = None) -> str:
         nodes = getattr(self, "requirement_nodes", {})
@@ -3658,7 +3741,9 @@ class Flow:
             support = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
                              if not p.name.endswith(".spec.ts"))
             n_specs = len(list(self.tests_dir.rglob("*.spec.ts")))
-            return (f"The official Playwright specs ({n_specs} files) live under {self.tests_dir}; each later turn "
+            return self.derived_note() + (
+                    f"The {'derived' if getattr(self, 'derived_as_specs', False) else 'official'} Playwright specs "
+                    f"({n_specs} files) live under {self.tests_dir}; each later turn "
                     f"receives the spec files for its own node. In THIS turn read only the shared helpers "
                     f"({', '.join(support[:10]) or 'none'}) and at most two spec files to learn the base URL, "
                     f"navigation and header conventions; do not implement the features yet.\n"
@@ -3668,8 +3753,9 @@ class Flow:
                          if not p.name.endswith(".spec.ts"))
         if not files:  # node without its own spec: show everything
             files = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
-        return acceptance_tests_prompt(self.tests_dir, self.web_port, self.smoke_port, files + support,
-                                       inline=os.environ.get("OCTOS_ARC_INLINE_SPECS", "1") != "0")
+        return self.derived_note() + acceptance_tests_prompt(
+            self.tests_dir, self.web_port, self.smoke_port, files + support,
+            inline=os.environ.get("OCTOS_ARC_INLINE_SPECS", "1") != "0")
 
     def ancestors_text(self, node_id: str, ordered: list[dict]) -> str:
         anc = ancestors_of(node_id, ordered)
@@ -3924,8 +4010,11 @@ class Flow:
                 err = server.start()
             if err is not None:
                 return RunSummary(error=err)
+            # A derived suite has one spec file per leaf (47 for the GitHub task);
+            # a fixed 900s wall would kill the full run before its verdict.
+            wall = max(900, 30 * len(specs))
             summary = (runner or self.runner).run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
-                                      wall_timeout=max(1, min(900, int(self.remaining()))))
+                                      wall_timeout=max(1, min(wall, int(self.remaining()))))
             if not summary.all_passed:
                 summary.server_errors = backend_error_digest(server.tail(5000))
             expected = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts")) if self.tests_dir else []
@@ -4789,6 +4878,9 @@ class Flow:
         write_suite(directory, files)
         self.derived_tests_dir = directory
         self.derived_spec_map = {rel[:-len(".spec.ts")]: [rel] for rel in specs}
+        self.derived_nodes = list(ordered)
+        self.derived_augmented = False
+        self.derived_node_results: dict[str, tuple[int, int] | None] = {}
         checks = sum(source.count("\ntest(") + source.startswith("test(") for rel, source in files.items()
                      if rel.endswith(".spec.ts"))
         scripts = sum(source.count("[script]'") for source in files.values())
@@ -4796,101 +4888,139 @@ class Flow:
             f"{len(specs)}/{len(ordered)} leaves into {directory}")
         return True
 
-    def derived_runner(self) -> AcceptanceRunner | None:
-        return self.playwright_runner(self.derived_tests_dir)
+    def verify_derived_suite(self) -> None:
+        """Every generated spec must load in Playwright.
 
-    def run_derived_suite(self, runner: AcceptanceRunner) -> RunSummary:
-        """Run every derived spec in bounded chunks so one wall timeout cannot void a round."""
-        specs = sorted(path for paths in self.derived_spec_map.values() for path in paths)
-        chunk = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_CHUNK", "12")))
-        merged = RunSummary()
-        for index in range(0, len(specs), chunk):
-            if self.time_up() or self.wound_down():
-                break
-            part = self.run_specs(specs[index:index + chunk], runner=runner)
-            if part.error and not part.results:
-                merged.error = part.error
+        The files are templated, so a load error can only come from a literal
+        that broke the template (or a model addition). Remediation is
+        deterministic: drop the model additions of the failing file, then
+        recompile the leaf mechanically, then exclude the file -- and say so.
+        """
+        runner = getattr(self, "runner", None)
+        directory = self.derived_tests_dir
+        if runner is None or not hasattr(runner, "list_specs"):
+            return
+        specs = sorted(str(p.relative_to(directory)) for p in directory.rglob("*.spec.ts"))
+        if not specs:
+            return
+        ok, detail = runner.list_specs(specs)
+        if ok:
+            self.derived_suite_verified = True
+            log(f"[derived] all {len(specs)} spec files load in Playwright")
+            return
+        log(f"[derived] generated suite does not load; isolating the failing file(s): {detail[-300:]}")
+        by_id = {str(node.get("id")): node for node in getattr(self, "derived_nodes", [])}
+        fixtures = suite_fixtures(list(by_id.values()))
+        excluded: list[str] = []
+        for rel in specs:
+            if runner.list_specs([rel])[0]:
                 continue
-            merged.passed += part.passed
-            merged.total += part.total
-            merged.results += part.results
-            merged.server_errors = merged.server_errors or part.server_errors
-        return merged
+            path = directory / rel
+            node_id = rel[:-len(".spec.ts")]
+            source = path.read_text(encoding="utf-8")
+            if "[model]" in source:
+                trimmed = re.split(r"\n\ntest\('[^\n]*\[model\]'", source, 1)[0].rstrip("\n") + "\n"
+                path.write_text(trimmed, encoding="utf-8")
+                log(f"[derived] {rel}: model-proposed tests removed (they did not load)")
+                if runner.list_specs([rel])[0]:
+                    continue
+            if node_id in by_id:
+                from scenario_tests import compile_leaf
+                path.write_text(compile_leaf(by_id[node_id], fixtures).source, encoding="utf-8")
+                log(f"[derived] {rel}: recompiled mechanically")
+                if runner.list_specs([rel])[0]:
+                    continue
+            path.unlink(missing_ok=True)
+            excluded.append(rel)
+            log(f"[derived] {rel}: excluded from the suite; it does not load even after recompilation")
+        self.metric("derived_suite_verification", excluded=excluded, total=len(specs))
+        self.derived_suite_verified = True
 
-    def derived_repair(self, node: dict, failures: list, summary: RunSummary) -> None:
-        node_id = str(node.get("id"))
-        failed = dc_replace(summary, results=list(failures), passed=0, total=len(failures), error=None)
-        evidence = (failure_summaries(failed) + failure_source_context(failed, self.derived_tests_dir))[:9000]
-        paths = self.derived_spec_map.get(node_id) or []
-        checks = "\n".join((self.derived_tests_dir / rel).read_text(encoding="utf-8") for rel in paths)
-        spec = (self.spec_bodies(node_id) + "\n\nDERIVED SCENARIO CHECKS (generated from the requirement; fixed, "
-                "never edit them; make the application satisfy them):\n" + checks)
-        details = describe_node(node)
-        targets = self.whole_app_wave_targets([node_id], spec, details)
-        prompt_cap, source_cap = self.whole_app_budgets()
-        correction = ("Derived scenario checks failed. Each failure names the control or text the requirement "
-                      "quotes and where it was looked for. Fix the application so a user can reach and use it "
-                      "as the requirement describes:\n" + evidence)
-        prompt = self.codegen_implement_prompt(node, spec, correction, must_include=targets,
-                                               context_limit=prompt_cap, source_limit=source_cap,
-                                               focused_sources=True)
-        if prompt is None:
-            minimal = {rel for rel in targets if Path(rel).name in COMPOSITION_FILES}
-            prompt = self.codegen_implement_prompt(node, spec, correction, must_include=minimal,
-                                                   context_limit=prompt_cap, source_limit=source_cap,
-                                                   focused_sources=True)
-        if prompt is None:
-            log(f"[derived] {node_id}: repair prompt does not fit; skipped")
-            return
-        timeout = max(60, min(int(os.environ.get("OCTOS_ARC_DERIVED_REPAIR_SECONDS", "420")),
-                              int(self.remaining() - self.final_phase_reserve())))
-        write_codegen_manifests(self.output_dir)
-        ok, _ = self.codegen_turn(prompt, timeout, f"{node_id} derived-check repair", spec_chars=len(spec))
-        if getattr(self, "last_codegen_written", []):
-            self.commit(f"{node_id}: derived scenario check repair")
+    def adopt_derived_specs(self, node_ids: list[str]) -> None:
+        """Make the derived spec directory the acceptance suite of this run."""
+        directory = self.derived_tests_dir
+        self.verify_derived_suite()
+        specs = sorted(str(p.relative_to(directory)) for p in directory.rglob("*.spec.ts"))
+        # One spec file per leaf, named after it: no heuristic mapping needed.
+        self.spec_map = {node_id: [rel for rel in specs if rel == f"{node_id}.spec.ts"] for node_id in node_ids}
+        self.spec_map[None] = [rel for rel in specs if rel[:-len(".spec.ts")] not in set(node_ids)]
+        self.aliases = {}
+        self.tests_dir = directory
+        self.derived_as_specs = True
+        log(f"[tests] {len(specs)} derived spec files at {directory} are the acceptance suite; mapping "
+            f"{ {k: v for k, v in self.spec_map.items() if v} }")
 
-    def derived_acceptance(self, ordered: list[dict]) -> None:
-        """Run the static derived checks, repair failing leaves, keep the best tree."""
-        if self.tests_dir or not getattr(self, "derived_tests_dir", None):
-            return
-        runner = self.derived_runner()
-        if runner is None:
-            log("[derived] Playwright unavailable; derived checks skipped")
-            return
-        rounds = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_ROUNDS", "6")))
-        by_id = {str(node.get("id")): node for node in ordered}
-        best_passed, best_sha, stale = -1, None, 0
-        self.derived_verdict = {}
-        for round_no in range(1, rounds + 1):
+    def augment_derived_tests(self, ordered: list[dict]) -> int:
+        """Ask the model for scripts where the mechanical compiler produced none.
+
+        Bounded in requests and validated literal by literal (scenario_review):
+        the model contributes navigation order and which requirement literal
+        is the assertion; it cannot name a control or value the requirement
+        does not. Runs once per process; returns the number of tests added.
+        """
+        directory = getattr(self, "derived_tests_dir", None)
+        if (not directory or os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") == "0"
+                or getattr(self, "derived_augmented", False)):
+            return 0
+        self.derived_augmented = True
+        fixtures = suite_fixtures(ordered)
+        context = ancestor_context(getattr(self, "requirement_tree", None))
+        targets = review_targets(ordered, fixtures, context)
+        if not targets:
+            log("[derived] every scenario has a mechanical script; no model review needed")
+            return 0
+        batch = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_BATCH", "6")))
+        max_requests = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_REQUESTS", "10")))
+        timeout = max(60, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_SECONDS", "300")))
+        # Leaves with no mechanical script at all come first: they have no check otherwise.
+        scripted = {rel[:-len(".spec.ts")] for rel, paths in self.derived_spec_map.items()
+                    if "[script]" in "".join((directory / p).read_text(encoding="utf-8") for p in paths)}
+        targets.sort(key=lambda t: t["node_id"] in scripted)
+        review_dir = directory / "review"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        added = 0
+        dropped_total: list[str] = []
+        for index in range(0, min(len(targets), batch * max_requests), batch):
             if self.wound_down() or self.remaining() < self.final_phase_reserve() + 600:
-                log("[derived] stopping: time reserved for the final check and rehearsal")
+                log("[derived] model review stopped: time reserved for the final phases")
                 break
-            summary = self.run_derived_suite(runner)
-            if not summary.results:
-                log(f"[derived] round {round_no}: no results ({summary.error or 'empty'}); stopping")
-                break
-            failing = nodes_for_failures(summary.results, self.derived_spec_map)
-            failing.pop(None, None)
-            log(f"[derived] round {round_no}: {summary.passed}/{summary.total} checks pass; "
-                f"failing leaves: {', '.join(sorted(failing)) or 'none'}")
-            self.metric("derived_round", round=round_no, passed=summary.passed, total=summary.total,
-                        failing=sorted(failing))
-            if summary.passed < best_passed and best_sha:
-                log(f"[derived] round {round_no} regressed ({summary.passed} < {best_passed}); restoring best tree")
-                self.restore_app(best_sha)
-                break
-            round_verdict = {node_id: node_id not in failing for node_id in self.derived_spec_map}
-            if summary.passed > best_passed:
-                best_passed, best_sha, stale = summary.passed, self.head(), 0
-                self.derived_verdict = round_verdict
-            else:
-                stale += 1
-            if not failing or stale >= 2 or round_no == rounds:
-                break
-            for node_id in [str(node.get("id")) for node in ordered if str(node.get("id")) in failing]:
-                if self.wound_down() or self.remaining() < self.final_phase_reserve() + 600:
-                    break
-                self.derived_repair(by_id[node_id], failing[node_id], summary)
+            chunk = targets[index:index + batch]
+            prompt = build_review_prompt(chunk, fixtures)
+            ok, text = self.text_turn(prompt, timeout, "derived scenario review", system=REVIEW_SYSTEM,
+                                      spec_chars=len(prompt))
+            (review_dir / f"batch-{index // batch + 1}.txt").write_text(
+                f"# ok={ok}\n# scenarios={[t['title'] for t in chunk]}\n{text}", encoding="utf-8")
+            if not ok:
+                log(f"[derived] model review batch {index // batch + 1}: no usable reply ({str(text)[:120]})")
+                continue
+            scripts, dropped, retryable = compile_review_reply(text, chunk, fixtures, with_retryable=True)
+            if retryable and not self.wound_down():
+                # One correction round: the model sees exactly which rule each
+                # rejected script broke; anything still invalid is dropped.
+                prompt = build_review_retry(retryable, chunk, fixtures)
+                ok, text = self.text_turn(prompt, timeout, "derived scenario review (retry)", system=REVIEW_SYSTEM,
+                                          spec_chars=len(prompt))
+                (review_dir / f"batch-{index // batch + 1}-retry.txt").write_text(
+                    f"# ok={ok}\n# rejected={[r['title'] for r in retryable]}\n{text}", encoding="utf-8")
+                if ok:
+                    fixed, dropped_again = compile_review_reply(text, chunk, fixtures)
+                    for node_id, tests in fixed.items():
+                        scripts.setdefault(node_id, []).extend(tests)
+                    fixed_titles = {t.split("test('", 1)[1].split(" [model]")[0] for ts in fixed.values() for t in ts}
+                    dropped = [d for d in dropped if d.split(":", 1)[0] not in fixed_titles] + dropped_again
+            dropped_total += dropped
+            for node_id, tests in scripts.items():
+                rel = f"{node_id}.spec.ts"
+                path = directory / rel
+                current = path.read_text(encoding="utf-8") if path.exists() else ""
+                path.write_text(append_tests(current, tests, node_id), encoding="utf-8")
+                self.derived_spec_map.setdefault(node_id, [rel])
+                added += len(tests)
+        log(f"[derived] model review: {added} validated script(s) added for {len(targets)} unscripted scenario(s); "
+            f"{len(dropped_total)} proposal(s) rejected")
+        self.metric("derived_model_review", added=added, targets=len(targets), rejected=len(dropped_total),
+                    rejected_reasons=dropped_total[:12])
+        return added
 
     @staticmethod
     def final_check_verdict(ok: bool, text: str):
@@ -4923,6 +5053,88 @@ class Flow:
             return True, "derived scenario checks pass and startup rehearsal completed; official specs unavailable"
         return True, ("derived requirement-contract review and startup rehearsal completed; "
                       "official acceptance specs unavailable")
+
+    def split_oversized_hub(self, rel: str, reason: str) -> bool:
+        """One bounded refactor turn: split a hub file by feature, behavior unchanged.
+
+        Why a hub grows: every leaf that touches an area re-emits the area's
+        page or route module whole with its additions (v9.0: Repository.jsx 22
+        rewrites). Once it exceeds the quoting budget no later leaf can be
+        shown it whole, so it is either refused or rewritten blind. The split
+        is gated: build errors or a regression of previously passing specs
+        restore the tree. Each file is attempted once per run, at most
+        OCTOS_ARC_HUB_SPLITS (3) files.
+        """
+        attempted = getattr(self, "hub_splits_attempted", None)
+        if attempted is None:
+            attempted = self.hub_splits_attempted = set()
+        cap = max(4000, int(os.environ.get("OCTOS_ARC_HUB_SPLIT_CHARS", "24000")))
+        limit = max(0, int(os.environ.get("OCTOS_ARC_HUB_SPLITS", "3")))
+        path = self.output_dir / rel
+        if rel in attempted or len(attempted) >= limit or not path.is_file() or "/shared/" in rel:
+            return False
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        if len(text) < cap or len(text) > self.codegen_context_chars() * 0.6:
+            return False
+        if self.wound_down() or self.remaining() < self.min_repair_seconds + 300:
+            return False
+        attempted.add(rel)
+        index = self.repair_source_index()
+        importers = sorted(p for p, deps in index.dependencies.items() if rel in deps)
+        quoted = [f"--- {rel} ---\n{text.rstrip()}\n"]
+        budget = int(self.codegen_context_chars() * 0.8) - len(text) - 3000
+        for importer in importers:
+            source = index.sources.get(importer, "")
+            if source and len(source) <= budget:
+                quoted.append(f"--- {importer} ---\n{source.rstrip()}\n")
+                budget -= len(source)
+        target = max(2000, cap // 3)
+        prompt = (stack_note(self.output_dir) +
+                  f"Refactor ONLY the module structure ({reason}): {rel} is {len(text)} chars and can no longer be "
+                  f"edited safely. Split it into sibling feature modules of at most {target} chars each in the same "
+                  f"directory (for example pages/<area>/<Feature>.jsx or routes/<area>-<feature>.js), keeping every "
+                  f"exported name, route path, element id, accessible name, text and behavior IDENTICAL. Keep {rel} as "
+                  f"a thin module that re-exports or composes the pieces so existing importers keep working, and update "
+                  f"the importers shown here only where an import path must change ({', '.join(importers) or 'none'}). "
+                  f"Do not add, remove or change features. Return complete <<<FILE>>> blocks for every new and changed "
+                  f"file.\nCurrent source files (quoted whole):\n" + "".join(quoted))
+        before = self.head()
+        self.last_codegen_written = []
+        label = f"split {rel} (refactor)"
+        timeout = min(900, max(120, int(self.remaining() - self.min_repair_seconds)))
+        ok, _ = self.codegen_turn(prompt, timeout, label, spec_chars=0, force_files=True)
+        written = list(getattr(self, "last_codegen_written", []) or [])
+        if not ok or not written:
+            log(f"[flow] hub split of {rel} produced no files; keeping the tree")
+            return False
+        self._generation_gate_result = None
+        self.generation_batch_check(label)
+        gate = getattr(self, "_generation_gate_result", None)
+        if gate is None:
+            # The batch check was skipped (no budget configured): build directly.
+            build_error = self.app_server(False).build()
+            gate = {"errors": [build_error] if build_error else []}
+        errors = list(gate.get("errors") or [])
+        regressed = False
+        proven = sorted({spec for node, verdict in getattr(self, "test_verdict", {}).items() if verdict is True
+                         for spec in (getattr(self, "spec_map", {}) or {}).get(node, [])})
+        if not errors and proven and getattr(self, "runner", None) is not None:
+            summary = self.run_specs(proven)
+            regressed = bool(summary.error) or summary.passed < summary.total or summary.total < len(proven)
+        if errors or regressed:
+            log(f"[flow] hub split of {rel} rolled back: "
+                + (errors[0][:200] if errors else f"{len(proven)} previously passing spec(s) regressed"))
+            if before:
+                self.restore_app(before)
+            self.metric("hub_split", path=rel, outcome="rolled_back", errors=errors[:3], regressed=regressed)
+            return False
+        self.commit(f"refactor: split {rel} into feature modules")
+        self.metric("hub_split", path=rel, outcome="applied", files=written[:12])
+        log(f"[flow] hub split of {rel} applied: {len(written)} file(s) written")
+        return True
 
     def whole_app_budgets(self) -> tuple[int, int]:
         """Input and full-source caps for one feature wave.
@@ -5054,6 +5266,13 @@ class Flow:
                             f"did not fit {prompt_cap}/{source_cap} prompt/source chars; splitting group")
                         max_nodes = min(max_nodes, (size + 1) // 2)
                         size = max(1, size // 2)
+                        continue
+                    # Last resort before giving the leaf to node flow: a hub file
+                    # too large for any budget is split once, then the leaf retried.
+                    blocking = self.codegen_budget.get("missing_required") or []
+                    largest = max(blocking, key=lambda p: (self.output_dir / p).stat().st_size
+                                  if (self.output_dir / p).is_file() else 0, default=None)
+                    if largest and self.split_oversized_hub(largest, f"closure of {ids[0]} did not fit"):
                         continue
                     log(f"[flow] whole-app waves: {ids[0]} cannot fit its focused source closure; using node flow")
                     self.whole_app_deferred_ids.update(ids)
@@ -5660,7 +5879,18 @@ class Flow:
                                                     f"{node_id} implement (retry with {names})",
                                                     spec_chars=self.current_spec_chars)
                     else:
-                        log(f"[flow] {node_id}: {', '.join(sorted(refused))} cannot be quoted whole within the budget; no retry")
+                        largest = max(refused, key=lambda p: (self.output_dir / p).stat().st_size
+                                      if (self.output_dir / p).is_file() else 0)
+                        if self.split_oversized_hub(largest, f"{node_id} could not be shown {largest} whole"):
+                            retry_prompt = self.codegen_implement_prompt(node, spec_text, self.corrections_text())
+                        if retry_prompt is not None and refused <= quoted_paths(retry_prompt):
+                            names = ", ".join(sorted(refused))
+                            log(f"[flow] {node_id}: retrying codegen with {names} quoted whole after the split")
+                            ok, text = self.codegen_turn(retry_prompt, min(implement_timeout, max(60, deadline - time.time())),
+                                                        f"{node_id} implement (retry with {names})",
+                                                        spec_chars=self.current_spec_chars)
+                        else:
+                            log(f"[flow] {node_id}: {', '.join(sorted(refused))} cannot be quoted whole within the budget; no retry")
             else:
                 if self.codegen_mode():
                     self.log_codegen_fallback(node_id)
@@ -6967,6 +7197,7 @@ class Flow:
             log(f"[flow] adapter source sha256={provenance['sha256']} ({provenance['scope']})")
             previous = previous_requirement_records(self.output_dir)
             tree = load_requirement_tree(self.req_dir)
+            self.requirement_tree = tree
             self.runtime.traceability.store_requirement_tree(tree)
             ordered = topo_order(tree)
             self.requirement_nodes = {str(node.get("id")): node for node in ordered}
@@ -7009,7 +7240,11 @@ class Flow:
                 save_contracts(contract_path, self.requirement_contracts)
                 log(f"[tests] no acceptance specs found; wrote deterministic requirement contract for "
                     f"{len(ordered)} node(s) to {contract_path}")
-                self.prepare_derived_tests(ordered)
+                # No official specs: compile specs from requirements.yaml and run
+                # the SAME measured flow as with official specs. The only extra
+                # step is the spec generation (plus a bounded model review below).
+                if self.prepare_derived_tests(ordered):
+                    self.adopt_derived_specs(node_ids)
 
             self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
@@ -7043,7 +7278,6 @@ class Flow:
             self.start_llm_proxy()
             env = build_octos_env(config_dir, protected)
             write_profile_defaults(data_dir, config_dir, protected_hooks(protected))
-            self.snapshot_protected()
             env["PORT"] = str(self.smoke_port)  # a bare `npm start` inside a turn must not hit the grading port
             self.driver = DryRunDriver() if dry_run else OctosDriver(
                 octos_bin, self.output_dir, env, data_dir, int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),
@@ -7052,6 +7286,12 @@ class Flow:
             proxy = getattr(self, "llm_proxy", None)
             if isinstance(proxy, LlmProxy):
                 self.driver.upstream_pending = lambda: proxy.upstream_pending
+            if getattr(self, "derived_as_specs", False):
+                if not dry_run:
+                    self.augment_derived_tests(ordered)
+                self.adopt_derived_specs(node_ids)  # re-map and load-check the final suite
+            # Snapshot after the suite is final: the snapshot is what every turn restores.
+            self.snapshot_protected()
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
             try:
@@ -7072,7 +7312,6 @@ class Flow:
                     self.implement_sequential(tree, ordered, unchanged)
 
                 self.final_acceptance_passes()
-                self.derived_acceptance(ordered)
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None
                 seed_failures: dict[str, list[str]] = {}
@@ -7120,8 +7359,7 @@ class Flow:
                     if self.runner is not None and self.spec_map.get(node_id):
                         # Starting the server is not proof that a feature works.
                         continue
-                    passed, detail = self.no_spec_node_verdict(node_id, rehearsed, final_ok, seed_failures,
-                                                               getattr(self, "derived_verdict", None))
+                    passed, detail = self.no_spec_node_verdict(node_id, rehearsed, final_ok, seed_failures)
                     self.mark("test_passed" if passed else "test_failed", node_id, detail)
                     self.test_verdict[node_id] = passed
             finally:

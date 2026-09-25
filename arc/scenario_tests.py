@@ -6,13 +6,18 @@ No model is involved and no behaviour is invented. Two kinds of test come out:
   on) must be reachable from the scenario's start state, signed in when the
   scenario says so. Generic "follow the visible controls" scenarios instead
   require their public seed values to be reachable.
-* scripts: a scenario whose every GIVEN and WHEN clause is understood becomes
-  an action sequence; only positive THEN clauses naming a quoted literal become
-  assertions. One clause that is not understood and the scenario gets no script,
-  because acting from a state we could not establish would fail for our reasons,
-  not the application's.
+* scripts: a scenario whose every WHEN clause is understood becomes an action
+  sequence. GIVEN sentences that describe context ("a verified account
+  exists", "the list contains a member") establish nothing the script must
+  reproduce and are skipped; a GIVEN that names a page in quotes is reached by
+  clicking that name; a GIVEN that describes prepared form state the script
+  cannot reproduce blocks the script. Positive THEN clauses naming a literal
+  the requirement quotes (“…”, "…" or `…`) become assertions; a status word
+  after "displays"/"shows" counts only when the requirement itself names it.
+  A script without any assertion still proves the path is usable: every
+  action found its control, and the page ends in no error state.
 
-Every asserted literal is quoted in the requirement. Locators and navigation in
+Every asserted literal appears in the requirement. Locators and navigation in
 blueprints/derived-helpers.ts are at least as tolerant as the official helpers.
 """
 from __future__ import annotations
@@ -25,26 +30,59 @@ from typing import Iterable, Mapping
 HELPERS = Path(__file__).with_name("blueprints") / "derived-helpers.ts"
 
 _Q = r"(?:“(?P<q1>[^”]+)”|\"(?P<q2>[^\"]+)\")"
-_CLICK = re.compile(
-    r"\b(?:click|clicks|clicking|choose|chooses|select|selects|press|presses|activate|activates|tap|taps|"
-    r"open|opens)\s+(?:on\s+)?(?:the\s+)?" + _Q +
-    r"(?:\s+(?:tab|button|link|menu item|menu|item|option|filter|entry|control))?", re.I)
+_QB = r"(?:“(?P<q1>[^”]+)”|\"(?P<q2>[^\"]+)\"|`(?P<q3>[^`]+)`)"
+_ANY_LITERAL = re.compile(r"“([^”]+)”|\"([^\"]+)\"|`([^`]+)`")
+_DET = r"(?:(?:the|that|this|its|their|an?)\s+)?"
+_CLICK_VERB = (r"\b(?:click|clicks|clicking|choose|chooses|select|selects|press|presses|activate|activates|tap|taps|"
+               r"open|opens)\s+(?:on\s+)?" + _DET)
+_CONTROL_SUFFIX = r"(?:\s+(?:tab|button|link|menu item|menuitem|menu|item|option|filter|entry|control|type filter|result type|row))?"
+_CLICK = re.compile(_CLICK_VERB + _QB + _CONTROL_SUFFIX, re.I)
+_CLICK_MORE = re.compile(r"\s*(?P<join>,\s*(?:and\s+)?|\s+and\s+|\s+or\s+)" + _DET + _QB + _CONTROL_SUFFIX, re.I)
 _ENTER = re.compile(
     r"\b(?:enter|enters|type|types|fill|fills|input|inputs)\s+(?P<what>[^“\";,]{0,90}?)\s+(?:in|into)\s+"
-    r"(?:the\s+)?" + _Q + r"(?:\s+(?:field|box|input))?", re.I)
-_OPEN_MENU = re.compile(r"\bopens?\s+(?:the\s+|their\s+|its\s+)?[\w -]{1,30}?\s+menu\b", re.I)
-_CHECK = re.compile(r"\b(?:check|checks|tick|ticks)\s+(?:the\s+)?" + _Q + r"(?:\s+checkbox)?", re.I)
+    + _DET + _Q + r"(?:\s+(?:field|box|input))?", re.I)
+# "enters organization identifier `mobile-guild`, a display name `Mobile Guild`"
+_ENTER_VALUE = re.compile(
+    r"\b(?:enter|enters|type|types|input|inputs|fill\s+in|fills\s+in)\s+(?:the\s+|an?\s+)?(?P<label>[A-Za-z][\w /-]{1,40}?)"
+    r"\s+`(?P<value>[^`]+)`(?P<more>(?:,\s*(?:and\s+)?(?:the\s+|an?\s+)?[A-Za-z][\w /-]{1,40}?\s+`[^`]+`)*)", re.I)
+_VALUE_ITEM = re.compile(r"(?:the\s+|an?\s+)?(?P<label>[A-Za-z][\w /-]{1,40}?)\s+`(?P<value>[^`]+)`", re.I)
+_LABEL_NOISE = re.compile(r"^(?:(?:valid|new|unique|exact|full|compliant|correct|optional|target|candidate)\s+)+", re.I)
+_OPEN_MENU = re.compile(r"\bopens?\s+(?:the\s+|their\s+|its\s+|that\s+)?[\w -]{1,30}?\s+menu\b", re.I)
+_CHECK = re.compile(r"\b(?:check|checks|tick|ticks)\s+" + _DET + _QB + r"(?:\s+checkbox)?", re.I)
+_PRESS = re.compile(r"\bpress(?:es)?\s+(?:the\s+)?(?P<key>Enter|Escape|Tab)(?:\s+key)?\b", re.I)
 _SIGN_IN = re.compile(r"\bsigns?\s+in\s+as\s+`(?P<u>[^`]+)`\s+with\s+`(?P<p>[^`]+)`", re.I)
+# "has opened the organization's “People” page", "enters the “Your organizations” page".
+# Intermediate words never include a preposition: "entered in “New password”" is typing.
+_PAGE_WORDS = r"(?:(?:the|an?|its|their|that|this)\s+)?(?:(?!(?:in|into|at|from|with|on|to)\b)[\w'’-]+\s+){0,3}?"
+_PAGE_SUFFIX = r"\s+(?:page|tab|view|section|dialog|form)"
+_QB2 = _QB.replace("q1", "q4").replace("q2", "q5").replace("q3", "q6")
+_OPENS_PAGE = re.compile(
+    r"\b(?:(?:opens?|opened|is\s+on|navigates?\s+to|goes?\s+to|visits?)\s+" + _PAGE_WORDS + _QB +
+    r"(?:" + _PAGE_SUFFIX + r")?|(?:enters?|entered)\s+" + _PAGE_WORDS + _QB2 + _PAGE_SUFFIX + r")", re.I)
+# "clicks the repository name", "clicks the public repository's name"
+_CLICK_KIND = re.compile(
+    r"\b(?:click|clicks|select|selects|open|opens|choose|chooses)\s+(?:on\s+)?" + _DET +
+    r"(?:(?:public|private|matching|target|that)\s+)?(?P<kind>repository|repositories|organization|team|branch|issue|"
+    r"pull request|file|member|milestone|label|commit)(?:'s|’s)?\s+(?:name|title|link|row)\b", re.I)
+_CONFIRMS = re.compile(r"\b(?:confirms?|verif(?:y|ies)|sees?|notes?)\s+that\b[^,;.]*", re.I)
+_GENERIC = re.compile(r"\bfollows?\s+the\s+visible\s+controls\s+for\s+the\b[^.;]*?\bworkflow\b", re.I)
+_TO_PAGE = re.compile(r"\bto\s+(?:enter|open|reach)\s+(?:the\s+)?[\w -]{1,40}?\s+page\b", re.I)
 _ACTION_WORDS = re.compile(
     r"\b(click|clicks|choose|chooses|select|selects|press|presses|activate|tap|open|opens|enter|enters|type|"
     r"types|fill|fills|input|check|checks|hover|drag|drop|submit|submits|upload|toggle|navigate|go to|search|"
     r"scroll|follow|follows|confirm|cancel|delete|create|add|edit|change|apply|assign|remove|request|merge|"
     r"close|reopen|comment|review|compare|switch|copy|fork|record|records|expand|collapse|sort|filter|"
-    r"prepare|prepared|filled|entered|selected|opened|signs? in|logs? in)\b", re.I)
+    r"prepare|prepared|filled|entered|selected|opened|signs? in|logs? in|attempts?|clears?|saves?|limits?|"
+    r"searches|unchecks?|reopens?|hovers?|uses|updates?|keeps?|scrolls?|expands?)\b", re.I)
+# Form state a script cannot reproduce: values the user is said to have typed
+# or chosen before the scenario starts, or records that "already exist".
+_PREPARED_STATE = re.compile(
+    r"\b(?:filled|prepared|pre-?populated|already\s+exists?|entered|typed|selected|chosen|"
+    r"with\s+(?:valid|invalid)\s+(?:values|data)|(?:are|is)\s+(?:valid|filled))\b", re.I)
 _NO_STATE = re.compile(
     r"^(?:the\s+)?(?:visitor|user)\s+starts\s+at\s+the\s+application\s+home\s+page|"
     r"fresh\s+unauthenticated\s+browser\s+session|^the\s+seeded\s+data\s+(?:is|includes)\b|^seed\s+values\b|"
-    r"^(?:the\s+)?system\s+contains\b|^(?:the\s+)?(?:user|visitor)\s+is\s+on\s+the\s+home\s+page\.?$|"
+    r"^(?:the\s+)?system\s+contains\b|^(?:the\s+)?(?:user|visitor)\s+is\s+on\s+(?:the\s+home|any)\s+page\.?$|"
     r"^(?:a\s+)?(?:user|visitor)\s+has\s+opened\s+the\s+home\s+page\.?$", re.I)
 _ON_PAGE = re.compile(
     r"\b(?:is|are|stays?|remains?)\s+on\s+the\s+(?P<page>home|login|log-in|sign-in|signin|account-access|"
@@ -57,27 +95,47 @@ _PAGE_ENTRY = {
     **{name: ["/^\\s*(?:register|sign\\s*-?\\s*up)\\s*$/i", "/register|sign\\s*-?\\s*up|create\\s+(?:an\\s+)?account/i"]
        for name in ("registration", "register", "sign-up", "signup")},
 }
-_SIGNED_IN_STATE = re.compile(r"\b(?:a|the)\s+signed[- ]in\s+user\b|\bsigned[- ]in\b|\blogged[- ]in\b", re.I)
+_SIGNED_IN_STATE = re.compile(r"\b(?:a|the)\s+signed[- ]in\s+\w+\b|\bsigned[- ]in\b|\blogged[- ]in\b", re.I)
 _POSITIVE = re.compile(r"\b(display|displays|displayed|show|shows|shown|see|sees|visible|appear|appears|"
-                       r"opens|opened|titled|lists|listed|includes|contains)\b", re.I)
+                       r"opens|opened|titled|lists|listed|includes|contains|updated|created|saved|stored|"
+                       r"persisted|marked|redirects|enters|navigates|returns|remains)\b", re.I)
 _NEGATIVE = re.compile(r"\b(not|no|never|cannot|can't|without|unless|if|only|fail|fails|failed|error|"
-                       r"rejected|except|instead|hidden|removed|longer)\b", re.I)
+                       r"rejected|except|instead|hidden|removed|longer|absent|denied|unavailable|disabled|"
+                       r"empty-results|unchanged)\b", re.I)
+_STATUS_WORD = re.compile(
+    r"\b(?:displays?|shows?|marked(?:\s+as)?|status\s+(?:is|becomes|of)|becomes|remains|is)\s+(?:the\s+|an?\s+)?"
+    r"([A-Z][a-z]{2,})\b")
+_STATUS_STOP = {"The", "This", "That", "After", "When", "Then", "System", "User", "Visitor", "Owner", "Admin",
+                "Page", "Both", "Each", "Its", "Their", "Only", "All", "Any", "Some", "One", "New", "Same"}
+_FIXTURE_REFERENCE = re.compile(r"\b(?:the\s+)?(?:username|account\s+name|signed[- ]in\s+user(?:'s)?\s+name)\b", re.I)
 _SEED_LIST = re.compile(r"\bseeded\s+data\s+(?:is|includes)\s+(?:the\s+existing\s+)?(?P<body>[^.]+)", re.I)
 _SEED_ITEM = re.compile(r"(?P<kind>(?:[A-Za-z-]+\s+){0,3}?)`(?P<value>[^`]+)`")
 _NON_PUBLIC = re.compile(r"private|secret|inaccessible|deleted|outsider|unknown|invalid|restricted", re.I)
 
 
 def _quoted(match: re.Match) -> str:
-    return match.group("q1") or match.group("q2")
+    for name, value in match.groupdict().items():
+        if name.startswith("q") and value:
+            return value
+    return ""
 
 
 def _ts(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ") + "'"
 
 
+def _ts_match(values: list[str]) -> str:
+    return _ts(values[0]) if len(values) == 1 else "[" + ", ".join(_ts(v) for v in values) + "]"
+
+
 def _sentences(text: str) -> list[str]:
     text = re.sub(r"\s*Seed values:.*$", "", re.sub(r"\s+", " ", str(text or "")).strip())
     return [part.strip() for part in re.split(r"(?<=[.;])\s+", text) if part.strip()]
+
+
+def _placeholder(literal: str) -> bool:
+    """“owner/repository name” describes a pattern, not a visible value."""
+    return "/" in literal and " " in literal
 
 
 @dataclass
@@ -131,17 +189,47 @@ class _Scenario:
     compiled: bool = True
     assertions: list[str] = field(default_factory=list)
     seeds: list[str] = field(default_factory=list)
+    seed_kinds: list[tuple[str, str]] = field(default_factory=list)  # (kind words, value)
+    generic: bool = False
+    failure_path: bool = False   # every THEN clause describes a rejection
+    fallback_entry: str | None = None
 
 
-def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario) -> bool:
-    """Append the sentence's actions; False when any action is not understood."""
+def _seed_for_kind(out: _Scenario, kind: str) -> str | None:
+    kind = kind.lower().rstrip("s").replace("repositorie", "repository")
+    for words, value in out.seed_kinds:
+        if kind in words.lower() and not _NON_PUBLIC.search(words):
+            return value
+    return None
+
+
+def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario, lenient: bool = False) -> bool:
+    """Append the sentence's actions.
+
+    Strict (WHEN): every action must be understood and every quoted literal
+    attached to one, else the scenario gets no script. Lenient (GIVEN): what is
+    not understood is context, unless it describes prepared form state.
+    """
     spans: list[tuple[int, int, str, str | None]] = []
+
+    def free(start: int, end: int) -> bool:
+        return not any(s < end and start < e for s, e, _, _ in spans)
+
     for match in _SIGN_IN.finditer(sentence):
         spans.append((match.start(), match.end(), f"await h.signIn(page, {_ts(match.group('u'))}, "
                                                   f"{_ts(match.group('p'))});", None))
         out.signed_in = True
         out.credentials = (match.group("u"), match.group("p"))
+    for match in _GENERIC.finditer(sentence):
+        if free(match.start(), match.end()):
+            spans.append((match.start(), match.end(), "", None))
+            out.generic = True
+    for match in _CONFIRMS.finditer(sentence):
+        if free(match.start(), match.end()):
+            spans.append((match.start(), match.end(), "", None))
     for match in _ENTER.finditer(sentence):
+        if not free(match.start(), match.end()):
+            continue
         value = _value_for(match.group("what"), fixtures)
         label = _quoted(match)
         if value is None:
@@ -149,12 +237,53 @@ def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario) -> bool:
             out.compiled = False
         else:
             spans.append((match.start(), match.end(), f"await h.fillField(page, {_ts(label)}, {_ts(value)});", label))
-    for match in _CHECK.finditer(sentence):
-        spans.append((match.start(), match.end(), f"await h.checkNamed(page, {_ts(_quoted(match))});", _quoted(match)))
-    for match in _CLICK.finditer(sentence):
-        if any(start <= match.start() < end for start, end, _, _ in spans):
+    for match in _ENTER_VALUE.finditer(sentence):
+        if not free(match.start(), match.end()):
             continue
-        spans.append((match.start(), match.end(), f"await h.clickNamed(page, {_ts(_quoted(match))});", _quoted(match)))
+        items = [(match.group("label"), match.group("value"))]
+        items += [(m.group("label"), m.group("value")) for m in _VALUE_ITEM.finditer(match.group("more") or "")]
+        code = []
+        for label, value in items:
+            label = _LABEL_NOISE.sub("", label.strip())
+            code.append(f"await h.fillField(page, {_ts(label)}, {_ts(value)});")
+        spans.append((match.start(), match.end(), "\n".join(code), items[0][0]))
+    for match in _CHECK.finditer(sentence):
+        if free(match.start(), match.end()):
+            spans.append((match.start(), match.end(), f"await h.checkNamed(page, {_ts(_quoted(match))});", _quoted(match)))
+    for match in _PRESS.finditer(sentence):
+        if free(match.start(), match.end()):
+            spans.append((match.start(), match.end(), f"await h.pressKey(page, {_ts(match.group('key').title())});", None))
+    for match in _OPENS_PAGE.finditer(sentence):
+        if free(match.start(), match.end()):
+            spans.append((match.start(), match.end(), f"await h.openNamed(page, {_ts(_quoted(match))});", _quoted(match)))
+    for match in _CLICK.finditer(sentence):
+        if not free(match.start(), match.end()):
+            continue
+        end = match.end()
+        names, alternatives, rest_code = [_quoted(match)], False, []
+        while True:
+            more = _CLICK_MORE.match(sentence, end)
+            if not more or not free(more.start(), more.end()):
+                break
+            end = more.end()
+            if "or" in more.group("join").split():
+                alternatives = True
+                names.append(_quoted(more))
+            elif alternatives:
+                break
+            else:
+                rest_code.append(_quoted(more))
+        code = [f"await h.clickNamed(page, {_ts_match(names)});"] + [f"await h.clickNamed(page, {_ts(n)});" for n in rest_code]
+        spans.append((match.start(), end, "\n".join(code), names[0]))
+    for match in _CLICK_KIND.finditer(sentence):
+        if not free(match.start(), match.end()):
+            continue
+        value = _seed_for_kind(out, match.group("kind"))
+        if value is None:
+            spans.append((match.start(), match.end(), "", None))
+            out.compiled = False
+        else:
+            spans.append((match.start(), match.end(), f"await h.clickNamed(page, {_ts(value)});", value))
     spans.sort()
     rest = sentence
     for start, end, _, _ in reversed(spans):
@@ -165,32 +294,51 @@ def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario) -> bool:
         if code:
             out.actions.append(code)
     # "opens the account menu" names no control; reach() opens menus itself.
-    rest = _OPEN_MENU.sub(" ", rest)
-    leftover = _ACTION_WORDS.search(re.sub(r"\b(?:and|then|the|user|visitor)\b", " ", rest))
-    if leftover or re.search(r"\bif\b", rest, re.I):
+    rest = _TO_PAGE.sub(" ", _OPEN_MENU.sub(" ", rest))
+    leftover = _ACTION_WORDS.search(re.sub(r"\b(?:and|then|the|user|visitor|owner|admin)\b", " ", rest, flags=re.I))
+    unattached = _ANY_LITERAL.search(rest)
+    if lenient:
+        if _PREPARED_STATE.search(rest):
+            out.compiled = False
+    elif leftover or unattached or re.search(r"\bif\b", rest, re.I):
         out.compiled = False
     return out.compiled
 
 
-def _compile_scenario(scenario: Mapping, fixtures: Fixtures) -> _Scenario:
+def _then_literals(clause: str, fixtures: Fixtures, node_text: str) -> list[str]:
+    values = [m.group(1) or m.group(2) or m.group(3) for m in _ANY_LITERAL.finditer(clause)]
+    values = [v for v in values if not _placeholder(v)]
+    for match in _STATUS_WORD.finditer(clause):
+        word = match.group(1)
+        if word in _STATUS_STOP or word in values:
+            continue
+        if re.search(r"\b" + re.escape(word) + r"\b", node_text):
+            values.append(word)
+    if fixtures.account and _FIXTURE_REFERENCE.search(clause) and fixtures.account not in values:
+        values.append(fixtures.account)
+    return values
+
+
+def _compile_scenario(scenario: Mapping, fixtures: Fixtures, node_text: str = "") -> _Scenario:
     out = _Scenario(title=str(scenario.get("name") or "scenario"))
     phase = ""
+    then_clauses = 0
+    negative_clauses = 0
     for step in scenario.get("steps") or []:
         keyword = str(step.get("keyword") or "").strip().upper()
         phase = keyword if keyword in {"GIVEN", "WHEN", "THEN"} else phase
         for sentence in _sentences(step.get("content")):
             if phase == "GIVEN":
                 for seeds in _SEED_LIST.finditer(sentence):
-                    out.seeds += [m.group("value") for m in _SEED_ITEM.finditer(seeds.group("body"))
-                                  if not _NON_PUBLIC.search(m.group("kind") or "")]
+                    for m in _SEED_ITEM.finditer(seeds.group("body")):
+                        out.seed_kinds.append(((m.group("kind") or "").strip(), m.group("value")))
+                        if not _NON_PUBLIC.search(m.group("kind") or ""):
+                            out.seeds.append(m.group("value"))
                 if _NO_STATE.search(sentence):
                     continue
                 if _SIGNED_IN_STATE.search(sentence):
                     out.signed_in = True
-                    if not (_CLICK.search(sentence) or _ENTER.search(sentence)):
-                        out.compiled = out.compiled and not _ACTION_WORDS.search(
-                            _SIGNED_IN_STATE.sub(" ", sentence))
-                        continue
+                    sentence = _SIGNED_IN_STATE.sub(" ", sentence)
                 page = _ON_PAGE.search(sentence)
                 residue = re.sub(r"^\W*(?:the\s+|a\s+)?(?:user|visitor)\W*|\W+$", "",
                                  _ON_PAGE.sub(" ", sentence), flags=re.I)
@@ -203,17 +351,24 @@ def _compile_scenario(scenario: Mapping, fixtures: Fixtures) -> _Scenario:
                     elif names:
                         out.actions.append(f"await h.clickNamed(page, [{', '.join(names)}]);")
                     continue
-                if not (_CLICK.search(sentence) or _ENTER.search(sentence) or _SIGN_IN.search(sentence)):
-                    out.compiled = False
-                    continue
-                _compile_actions(sentence, fixtures, out)
+                _compile_actions(sentence, fixtures, out, lenient=True)
             elif phase == "WHEN":
+                if out.fallback_entry is None:
+                    literal = _ANY_LITERAL.search(sentence)
+                    if literal:
+                        out.fallback_entry = (literal.group(1) or literal.group(2) or literal.group(3)).rstrip(":. ")
                 _compile_actions(sentence, fixtures, out)
             elif phase == "THEN":
                 for clause in re.split(r";|,\s*and\s+|\band\s+(?=\w+s\b)", sentence):
-                    quotes = [m.group(1) or m.group(2) for m in re.finditer(r"“([^”]+)”|\"([^\"]+)\"", clause)]
-                    if quotes and _POSITIVE.search(clause) and not _NEGATIVE.search(clause):
-                        out.assertions += quotes
+                    if not clause.strip():
+                        continue
+                    then_clauses += 1
+                    if _NEGATIVE.search(clause):
+                        negative_clauses += 1
+                        continue
+                    if _POSITIVE.search(clause):
+                        out.assertions += _then_literals(clause, fixtures, node_text)
+    out.failure_path = then_clauses > 0 and negative_clauses == then_clauses
     if out.signed_in and out.credentials is None and fixtures.password:
         out.credentials = (fixtures.account, fixtures.password)
     return out
@@ -237,19 +392,31 @@ def _start(lines: list[str], scenario: _Scenario) -> bool:
     return True
 
 
+def _node_text(node: Mapping) -> str:
+    return " ".join([str(node.get("name") or ""), str(node.get("description") or "")])
+
+
 def compile_leaf(node: Mapping, fixtures: Fixtures) -> CompiledLeaf:
     node_id = str(node.get("id"))
     tests: list[str] = []
     seen: set[tuple] = set()
     scripts = reach_checks = 0
+    node_text = _node_text(node)
     for scenario in node.get("scenarios") or []:
-        parsed = _compile_scenario(scenario, fixtures)
+        parsed = _compile_scenario(scenario, fixtures, node_text)
         title = parsed.title if parsed.title.startswith(node_id) else f"{node_id}: {parsed.title}"
+        actions = [a for a in parsed.actions if not a.startswith("await h.signIn(")]
+        scripted = parsed.compiled and not parsed.generic and bool(actions) and (
+            bool(parsed.assertions) or not parsed.failure_path)
         # Reach check: the entry control, or public seeds for generic scenarios.
-        scripted = parsed.compiled and bool([a for a in parsed.actions if not a.startswith("await h.signIn(")]) \
-            and bool(parsed.assertions)
-        # A script already requires its entry control; do not count one cause twice.
-        targets = [] if scripted else [parsed.entry] if parsed.entry else parsed.seeds[:2]
+        if scripted:
+            targets = []
+        elif parsed.entry:
+            targets = [parsed.entry]
+        elif parsed.seeds:
+            targets = parsed.seeds[:2]
+        else:
+            targets = [parsed.fallback_entry] if parsed.fallback_entry else []
         for target in targets:
             key = ("reach", parsed.signed_in, target)
             if not target or key in seen:
@@ -263,12 +430,14 @@ def compile_leaf(node: Mapping, fixtures: Fixtures) -> CompiledLeaf:
             tests.append(f"test({_ts(f'{title} [reach] {target}')}, async ({{ page }}) => {{\n"
                          "  test.setTimeout(120_000);\n" + "\n".join(lines) + "\n});")
             reach_checks += 1
-        actions = [a for a in parsed.actions if not a.startswith("await h.signIn(")]
-        if parsed.compiled and actions and parsed.assertions:
+        if scripted:
             lines = []
             if _start(lines, parsed):
-                lines += ["  " + action for action in actions]
-                lines.append(f"  await h.expectTextsVisible(page, [{', '.join(_ts(a) for a in dict.fromkeys(parsed.assertions))}]);")
+                lines += ["  " + line for action in actions for line in action.split("\n")]
+                if parsed.assertions:
+                    lines.append(f"  await h.expectTextsVisible(page, [{', '.join(_ts(a) for a in dict.fromkeys(parsed.assertions))}]);")
+                else:
+                    lines.append("  await h.expectNoErrorState(page);")
                 tests.append(f"test({_ts(f'{title} [script]')}, async ({{ page }}) => {{\n"
                              "  test.setTimeout(120_000);\n" + "\n".join(lines) + "\n});")
                 scripts += 1

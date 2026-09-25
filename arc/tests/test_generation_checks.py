@@ -308,3 +308,20 @@ class GenerationChecksTests(TestCase):
         with self.assertRaises(subprocess.TimeoutExpired):
             _bounded_run([sys.executable, '-c', 'import time; time.sleep(20)'], self.root, 0.05)
         self.assertLess(time.monotonic() - started, 3)
+
+
+class FileSizeWarningTests(TestCase):
+    """v9.0: Repository.jsx was rewritten 22 times and App.jsx 15 times; hub files
+    that outgrow the quoting budget collapsed every later wave."""
+
+    def test_should_flag_a_changed_file_that_outgrew_the_edit_budget(self):
+        sources = {'frontend/src/pages/Repository.jsx': 'export default function R() {}\n' + '// x\n' * 5000,
+                   'frontend/src/pages/Small.jsx': 'export default function S() {}\n'}
+        warnings = contract_warnings(sources, ['frontend/src/pages/Repository.jsx', 'frontend/src/pages/Small.jsx'])
+        sized = [w for w in warnings if w.startswith('FILE_SIZE')]
+        self.assertEqual(len(sized), 1)
+        self.assertIn('Repository.jsx', sized[0])
+        self.assertIn('split', sized[0])
+        # Unchanged files and bundled helpers are never flagged.
+        self.assertEqual([w for w in contract_warnings(sources, ['frontend/src/pages/Small.jsx'])
+                          if w.startswith('FILE_SIZE')], [])

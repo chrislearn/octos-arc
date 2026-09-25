@@ -1014,49 +1014,6 @@ class WholeAppTests(unittest.TestCase):
         flow.tests_dir = self.root / "tests"
         self.assertFalse(flow.prepare_derived_tests(self.nodes))
 
-    def _check_outcome(self, node_id, ok):
-        return TestOutcome(title=f"{node_id} check", ok=ok, status="passed" if ok else "failed",
-                           duration_ms=10, file=f"{node_id}.spec.ts", message="" if ok else "not reachable")
-
-    def test_should_repair_only_failing_derived_nodes_until_green(self):
-        flow = self.flow
-        flow.tests_dir = None
-        flow.prepare_derived_tests(self._derived_nodes())
-        flow.derived_runner = Mock(return_value=object())
-        rounds = iter([
-            RunSummary(passed=2, total=3, results=[self._check_outcome("A", True), self._check_outcome("B", False),
-                                                  self._check_outcome("C", True)]),
-            RunSummary(passed=3, total=3, results=[self._check_outcome(n, True) for n in "ABC"]),
-        ])
-        flow.run_derived_suite = Mock(side_effect=lambda runner: next(rounds))
-        flow.derived_repair = Mock()
-        flow.head = Mock(return_value="sha")
-        flow.final_phase_reserve = Mock(return_value=0)
-        flow.derived_acceptance(self.nodes)
-        self.assertEqual([call.args[0]["id"] for call in flow.derived_repair.call_args_list], ["B"])
-        self.assertEqual(flow.derived_verdict, {"A": True, "B": True, "C": True})
-
-    def test_should_roll_back_a_derived_round_that_regresses(self):
-        flow = self.flow
-        flow.tests_dir = None
-        flow.prepare_derived_tests(self._derived_nodes())
-        flow.derived_runner = Mock(return_value=object())
-        rounds = iter([
-            RunSummary(passed=2, total=3, results=[self._check_outcome("A", True), self._check_outcome("B", False),
-                                                  self._check_outcome("C", True)]),
-            RunSummary(passed=1, total=3, results=[self._check_outcome("A", False), self._check_outcome("B", False),
-                                                  self._check_outcome("C", True)]),
-        ])
-        flow.run_derived_suite = Mock(side_effect=lambda runner: next(rounds))
-        flow.derived_repair = Mock()
-        flow.head = Mock(side_effect=["good-sha", "worse-sha"])
-        flow.restore_app = Mock()
-        flow.final_phase_reserve = Mock(return_value=0)
-        with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_ROUNDS": "2"}):
-            flow.derived_acceptance(self.nodes)
-        flow.restore_app.assert_called_once_with("good-sha")
-        self.assertEqual(flow.derived_verdict, {"A": True, "B": False, "C": True})
-
     def test_should_report_derived_check_results_in_the_no_spec_verdict(self):
         passed, detail = m.Flow.no_spec_node_verdict("B", True, True, {}, {"B": False})
         self.assertFalse(passed)
@@ -1167,3 +1124,226 @@ class WholeAppTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DerivedSpecsAsAcceptanceTests(WholeAppTests):
+    """Without official specs, the derived specs ARE the acceptance suite: the
+    measured per-node flow, startup recovery and final passes apply unchanged.
+    v9.0 (run 1b0211e3caef) never measured anything because the no-spec path
+    only ran a separate static review."""
+
+    def _derived(self):
+        seed = ("The visitor starts at the application home page in a fresh unauthenticated browser session. "
+                "The seeded data is account `alice-dev`, email `a@example.test`, password `Pw-123456789!`.")
+        for node in self.nodes:
+            node["scenarios"] = [{"name": f"{node['id']}: Scenario 1", "steps": [
+                {"keyword": "GIVEN", "content": seed},
+                {"keyword": "WHEN", "content": f"The visitor clicks “Open {node['id']}”."},
+                {"keyword": "THEN", "content": f"The page shows “Done {node['id']}”."}]}]
+        self.flow.tests_dir = None
+        self.flow.spec_map = {}
+        return self.nodes
+
+    def test_derived_specs_become_the_acceptance_suite(self):
+        flow = self.flow
+        nodes = self._derived()
+        self.assertTrue(flow.prepare_derived_tests(nodes))
+        flow.adopt_derived_specs(["A", "B", "C"])
+        self.assertEqual(flow.tests_dir, self.root / ".arc" / "derived-tests")
+        self.assertTrue(flow.derived_as_specs)
+        self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
+        prompt = flow.tests_prompt_for("B")
+        self.assertIn("derived from requirements.yaml", prompt)
+        self.assertIn("B.spec.ts", prompt)
+        self.assertIn("derived from requirements.yaml", flow.spec_bodies("B"))
+        self.assertIn("h.clickNamed(page, 'Open B')", flow.spec_bodies("B"))
+        # The whole-app wave experiment stays off by default: the normal measured flow runs.
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
+            flow.runner = object()
+            flow.requirement_contracts = {"nodes": []}
+            self.assertFalse(flow.whole_app_experiment(self.tree, nodes))
+
+    def test_model_review_adds_validated_scripts_before_the_suite_is_adopted(self):
+        flow = self.flow
+        nodes = self._derived()
+        nodes[1]["scenarios"][0]["steps"][1]["content"] = "The visitor opens B somehow and clicks “Open B”."
+        nodes[1]["description"] = "Feature B shows Done B."
+        flow.prepare_derived_tests(nodes)
+        before = (flow.derived_tests_dir / "B.spec.ts").read_text()
+        self.assertNotIn("[script]", before)
+        reply = ('{"scenarios": [{"title": "B: Scenario 1", "signed_in": false, "confidence": 0.9, "steps": ['
+                 '{"op": "click", "target": "Open B"}, {"op": "expect_visible", "target": "Done B"}]},'
+                 '{"title": "B: Scenario 1", "signed_in": false, "confidence": 0.9, "steps": ['
+                 '{"op": "click", "target": "Invented"}, {"op": "expect_visible", "target": "Done B"}]}]}')
+        flow.text_turn = Mock(return_value=(True, reply))
+        flow.remaining = Mock(return_value=4000)
+        flow.final_phase_reserve = Mock(return_value=0)
+        self.assertEqual(flow.augment_derived_tests(nodes), 1)
+        flow.adopt_derived_specs(["A", "B", "C"])
+        after = (flow.tests_dir / "B.spec.ts").read_text()
+        self.assertIn("[model]", after)
+        self.assertIn("h.clickNamed(page, 'Open B')", after)
+        self.assertNotIn("Invented", after)
+        prompt = flow.text_turn.call_args.args[0]
+        self.assertIn("B: Scenario 1", prompt)
+        self.assertNotIn("A: Scenario 1", prompt)  # A compiled mechanically; no tokens spent on it
+        with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_LLM": "0"}):
+            self.assertEqual(flow.augment_derived_tests(nodes), 0)
+
+
+class HubSplitTests(WholeAppTests):
+    """When a hub file has outgrown every budget, one bounded refactor turn splits
+    it by feature; build errors or a measured regression roll it back."""
+
+    def _hub(self):
+        hub = self.root / "frontend/src/pages/Repository.jsx"
+        hub.parent.mkdir(parents=True, exist_ok=True)
+        hub.write_text("export default function Repository() {}\n" + "// x\n" * 7000)
+        (self.root / "frontend/package.json").write_text("{}")
+        (self.root / "backend").mkdir(exist_ok=True)
+        (self.root / "backend/package.json").write_text("{}")
+        (self.root / "backend/server.js").write_text("// entry\n")
+        return "frontend/src/pages/Repository.jsx"
+
+    def test_should_split_commit_and_remember_the_hub(self):
+        flow = self.flow
+        rel = self._hub()
+        flow.head = Mock(return_value="before")
+        flow.restore_app = Mock()
+        flow.codegen_context_chars = Mock(return_value=90_000)
+
+        def turn(prompt, timeout, label, **kwargs):
+            self.assertIn("split", label)
+            self.assertIn(rel, prompt)
+            flow.last_codegen_written = [rel, "frontend/src/pages/repository/Overview.jsx"]
+            return True, "files"
+        flow.codegen_turn = Mock(side_effect=turn)
+        flow.generation_batch_check = Mock(side_effect=lambda label: setattr(
+            flow, "_generation_gate_result", {"errors": [], "warnings": []}))
+        flow.runner = None
+        self.assertTrue(flow.split_oversized_hub(rel, "closure did not fit"))
+        flow.commit.assert_called()
+        flow.restore_app.assert_not_called()
+        # Once per file per run.
+        self.assertFalse(flow.split_oversized_hub(rel, "again"))
+        self.assertEqual(flow.codegen_turn.call_count, 1)
+
+    def test_should_roll_back_a_split_that_breaks_the_build_or_regresses(self):
+        flow = self.flow
+        rel = self._hub()
+        flow.head = Mock(return_value="before")
+        flow.restore_app = Mock()
+        flow.codegen_context_chars = Mock(return_value=90_000)
+
+        def turn(prompt, timeout, label, **kwargs):
+            flow.last_codegen_written = [rel]
+            return True, "files"
+        flow.codegen_turn = Mock(side_effect=turn)
+        gate = {"errors": ["frontend build failed"], "warnings": []}
+        flow.generation_batch_check = Mock(side_effect=lambda label: setattr(flow, "_generation_gate_result", gate))
+        self.assertFalse(flow.split_oversized_hub(rel, "closure did not fit"))
+        flow.restore_app.assert_called_once_with("before")
+        # A second file: build clean but a previously passing spec regresses.
+        other = self.root / "frontend/src/pages/Issues.jsx"
+        other.write_text("export default function Issues() {}\n" + "// y\n" * 7000)
+        gate = {"errors": [], "warnings": []}
+        flow.test_verdict = {"A": True}
+        flow.run_specs = Mock(return_value=RunSummary(passed=0, total=1, results=[
+            TestOutcome(title="A", ok=False, status="failed", duration_ms=1, file="A.spec.ts")]))
+        flow.restore_app.reset_mock()
+        self.assertFalse(flow.split_oversized_hub("frontend/src/pages/Issues.jsx", "closure did not fit"))
+        flow.restore_app.assert_called_once_with("before")
+
+    def test_split_does_not_trust_a_stale_gate_result(self):
+        flow = self.flow
+        rel = self._hub()
+        flow.head = Mock(return_value="before")
+        flow.restore_app = Mock()
+        flow.codegen_context_chars = Mock(return_value=90_000)
+        flow.codegen_turn = Mock(side_effect=lambda *a, **k: (setattr(flow, "last_codegen_written", [rel]), (True, "f"))[1])
+        flow._generation_gate_result = {"errors": ["old error from an earlier turn"], "warnings": []}
+        flow.generation_batch_check = Mock()  # skipped: leaves no result
+        flow.app_server = Mock(return_value=Mock(build=Mock(return_value=None)))
+        flow.runner = None
+        self.assertTrue(flow.split_oversized_hub(rel, "x"))
+        flow.restore_app.assert_not_called()
+
+    def test_small_or_unknown_files_are_never_split(self):
+        flow = self.flow
+        (self.root / "frontend/src").mkdir(parents=True, exist_ok=True)
+        (self.root / "frontend/src/Small.jsx").write_text("export default 1;\n")
+        flow.codegen_turn = Mock()
+        self.assertFalse(flow.split_oversized_hub("frontend/src/Small.jsx", "x"))
+        self.assertFalse(flow.split_oversized_hub("frontend/src/Missing.jsx", "x"))
+        flow.codegen_turn.assert_not_called()
+
+
+class DerivedSuiteVerificationTests(WholeAppTests):
+    """Every generated spec must load in Playwright before it is the acceptance
+    suite; a file that does not is repaired deterministically (model additions
+    dropped, then the leaf recompiled), never left to poison the suite."""
+
+    def _derived(self):
+        seed = ("The visitor starts at the application home page in a fresh unauthenticated browser session. "
+                "The seeded data is account `alice-dev`, email `a@example.test`, password `Pw-123456789!`.")
+        for node in self.nodes:
+            node["scenarios"] = [{"name": f"{node['id']}: Scenario 1", "steps": [
+                {"keyword": "GIVEN", "content": seed},
+                {"keyword": "WHEN", "content": f"The visitor clicks “Open {node['id']}”."},
+                {"keyword": "THEN", "content": f"The page shows “Done {node['id']}”."}]}]
+        self.flow.tests_dir = None
+        self.flow.spec_map = {}
+        self.flow.prepare_derived_tests(self.nodes)
+        return self.nodes
+
+    def _runner(self):
+        runner = Mock()
+        runner.list_specs = Mock(side_effect=lambda rels: next(
+            ((False, f"SyntaxError in {rel}") for rel in rels
+             if "BROKEN" in (self.flow.derived_tests_dir / rel).read_text()), (True, "")))
+        return runner
+
+    def test_model_additions_that_do_not_load_are_dropped_and_the_file_kept(self):
+        flow = self.flow
+        self._derived()
+        flow.runner = self._runner()
+        path = flow.derived_tests_dir / "B.spec.ts"
+        path.write_text(path.read_text() + "\ntest('B: x [model]', async ({ page }) => { BROKEN (\n});\n")
+        flow.adopt_derived_specs(["A", "B", "C"])
+        self.assertNotIn("BROKEN", path.read_text())
+        self.assertIn("h.clickNamed(page, 'Open B')", path.read_text())
+        self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
+        self.assertTrue(flow.derived_suite_verified)
+
+    def test_a_file_that_still_fails_after_recompilation_is_excluded(self):
+        flow = self.flow
+        nodes = self._derived()
+        flow.runner = self._runner()
+        nodes[1]["scenarios"][0]["steps"][1]["content"] = "The visitor clicks “BROKEN”."  # mechanical output itself fails
+        flow.derived_nodes = nodes
+        path = flow.derived_tests_dir / "B.spec.ts"
+        path.write_text(path.read_text().replace("Open B", "BROKEN"))
+        flow.adopt_derived_specs(["A", "B", "C"])
+        self.assertFalse(path.exists())
+        self.assertEqual(flow.spec_map["B"], [])
+        self.assertEqual(flow.spec_map["A"], ["A.spec.ts"])
+
+    def test_model_review_retries_a_rejected_proposal_once_with_the_reason(self):
+        flow = self.flow
+        nodes = self._derived()
+        nodes[1]["scenarios"][0]["steps"][1]["content"] = "The visitor opens B somehow and clicks “Open B”."
+        nodes[1]["description"] = "Feature B shows Done B."
+        flow.prepare_derived_tests(nodes)
+        bad = ('{"scenarios": [{"title": "B: Scenario 1", "signed_in": false, "confidence": 0.9, "steps": ['
+               '{"op": "click", "target": "Invented"}, {"op": "expect_visible", "target": "Done B"}]}]}')
+        good = ('{"scenarios": [{"title": "B: Scenario 1", "signed_in": false, "confidence": 0.9, "steps": ['
+                '{"op": "click", "target": "Open B"}, {"op": "expect_visible", "target": "Done B"}]}]}')
+        flow.text_turn = Mock(side_effect=[(True, bad), (True, good)])
+        flow.remaining = Mock(return_value=4000)
+        flow.final_phase_reserve = Mock(return_value=0)
+        self.assertEqual(flow.augment_derived_tests(nodes), 1)
+        self.assertEqual(flow.text_turn.call_count, 2)
+        retry = flow.text_turn.call_args.args[0]
+        self.assertIn("Invented", retry)
+        self.assertIn("not an allowed literal", retry)
+        self.assertIn("[model]", (flow.derived_tests_dir / "B.spec.ts").read_text())
