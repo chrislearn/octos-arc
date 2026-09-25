@@ -251,6 +251,8 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.final_acceptance(initial_summary=failed)
         self.assertTrue(self.flow.final_spec_dispute)
         self.assertIsNone(self.flow.test_verdict["REQ-1"])
+        report = json.loads((self.root / ".arc" / "derived-coverage.json").read_text())
+        self.assertEqual(report["features"][0]["scenarios"][0]["runtime"], "failed")
         self.flow.clear_derived_spec_dispute("REQ-1", "REQ-1: action [model]")
         self.flow.derived_failure_reviews.clear()
         self.flow.text_turn.return_value = (True, '{"verdict":"uncertain",'

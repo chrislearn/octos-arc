@@ -5345,7 +5345,8 @@ class Flow:
         for feature in features:
             filename = f"{feature['node_id']}.spec.ts"
             for scenario in feature["scenarios"]:
-                checks = [outcomes[(filename, title)] for title in scenario["tests"]
+                titles = scenario["tests"] + list(scenario["disputes"])
+                checks = [outcomes[(filename, title)] for title in titles
                           if (filename, title) in outcomes]
                 scenario["runtime"] = ("passed" if checks and all(checks) else
                                        "failed" if checks else "unmeasured")
@@ -6258,8 +6259,9 @@ class Flow:
                 self.mark("implementation_done", node_id, "implemented by whole-app generation")
                 if no_official_specs:
                     # A generated or unavailable suite gave no safe verdict.
-                    # Keep the leaf pending for later measured verification.
-                    self.test_verdict[node_id] = None
+                    # Keep this leaf pending without discarding any other
+                    # node verdict already measured by that suite.
+                    self.test_verdict.setdefault(node_id, None)
                 else:
                     self.mark("test_failed", node_id, "first full suite could not report reliable results")
                     self.test_verdict[node_id] = False

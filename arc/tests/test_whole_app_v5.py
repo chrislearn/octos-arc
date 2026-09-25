@@ -409,6 +409,18 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
         self.assertTrue(flow.node_cycle.call_args_list[0].kwargs.get("preimplemented"))
 
+    def test_disputed_derived_suite_keeps_other_measured_verdicts(self):
+        flow = self.flow
+        flow.derived_as_specs = True
+        flow.whole_app_codegen = Mock(return_value=True)
+        def disputed(_ordered):
+            flow.test_verdict.update({"A": True, "B": None, "C": True})
+            return None
+        flow.whole_app_first_suite = Mock(side_effect=disputed)
+        flow.mark = Mock()
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        self.assertEqual(flow.test_verdict, {"A": True, "B": None, "C": True})
+
     def test_failed_unreached_node_is_not_treated_as_preimplemented(self):
         flow = self.flow
         flow.whole_app_codegen = Mock(return_value=True)
