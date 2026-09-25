@@ -129,7 +129,7 @@ from dataclasses import replace as dc_replace  # noqa: E402
 from scenario_tests import compile_suite as compile_derived_suite, suite_fixtures, write_suite  # noqa: E402
 from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests, behavior_test_titles,  # noqa: E402
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
-                             folder_text, parse_failure_review, prioritize_review_targets,
+                             folder_text, grounded_behavior_test, parse_failure_review, prioritize_review_targets,
                              retry_prompt as build_review_retry, review_targets)
 from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle  # noqa: E402
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
@@ -4274,6 +4274,17 @@ class Flow:
                 found.append((node_id, row.title))
         return found
 
+    def uncontested_derived_results(self, summary: RunSummary) -> RunSummary:
+        """Exclude disputed oracles from repair evidence while retaining the full measurement."""
+        if not getattr(self, "derived_as_specs", False):
+            return summary
+        disputes = getattr(self, "derived_spec_disputes", {})
+        if not disputes:
+            return summary
+        rows = [row for row in summary.results if (
+            Path(row.file or "").name.removesuffix(".spec.ts"), row.title) not in disputes]
+        return dc_replace(summary, results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+
     def flag_derived_spec_dispute(self, node_id: str, title: str, reason: str) -> None:
         disputes = getattr(self, "derived_spec_disputes", {})
         disputes[(node_id, title)] = reason[:600]
@@ -4285,7 +4296,8 @@ class Flow:
         getattr(self, "derived_spec_disputes", {}).pop((node_id, title), None)
 
     def review_failed_derived_spec_with_model(self, node_id: str, specs: list[str],
-                                              summary: RunSummary) -> RunSummary | None:
+                                              summary: RunSummary,
+                                              failure_title: str | None = None) -> RunSummary | None:
         """Independently review one failing generated script before app repair.
 
         The reviewer may reorder or add prerequisites, but every original
@@ -4303,7 +4315,8 @@ class Flow:
         if not node or runner is None or not hasattr(runner, "list_specs"):
             return None
         candidates = [row for row in summary.results if not row.ok
-                      and row.title.endswith((" [model]", " [script]"))]
+                      and row.title.endswith((" [model]", " [script]"))
+                      and (failure_title is None or row.title == failure_title)]
         if not candidates:
             return None
         row = candidates[0]
@@ -4400,7 +4413,6 @@ class Flow:
                 or not self.suite_is_measured(summary, specs)):
             return summary
         corrected = False
-        model_reviews = 0
         model_limit = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE", "3")))
         for node_id, paths in self.spec_map.items():
             if not node_id or not paths or not set(paths) <= set(specs):
@@ -4412,16 +4424,63 @@ class Flow:
             if local.all_passed or not self.suite_is_measured(local, paths):
                 continue
             result = self.audit_failed_derived_specs(node_id, paths, local)
-            if (result is None and model_reviews < model_limit
-                    and any(not row.ok and row.title.endswith((" [model]", " [script]"))
-                            for row in local.results)):
-                model_reviews += 1
-                result = self.review_failed_derived_spec_with_model(node_id, paths, local)
             corrected = result is not None or corrected
         if corrected:
             summary = self.run_specs(specs, grader_like=True)
             self.metric("derived_spec_audit", outcome="related_suite_remeasured",
                         passed=summary.passed, total=summary.total, specs=len(specs))
+        model_reviews = 0
+        while (model_reviews < model_limit and not summary.all_passed
+               and self.suite_is_measured(summary, specs)):
+            model_corrected = False
+            for node_id, paths in self.spec_map.items():
+                if not node_id or not paths or not set(paths) <= set(specs):
+                    continue
+                rows = [row for row in summary.results if any(
+                    str(row.file or "").replace("\\", "/") == path or
+                    str(row.file or "").replace("\\", "/").endswith("/" + path) for path in paths)]
+                local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+                if local.all_passed or not self.suite_is_measured(local, paths):
+                    continue
+                for row in rows:
+                    if row.ok or not row.title.endswith((" [model]", " [script]")):
+                        continue
+                    if (node_id, row.title, failure_signature(local)) in getattr(
+                            self, "derived_failure_reviews", set()):
+                        continue
+                    if model_reviews >= model_limit:
+                        break
+                    model_reviews += 1
+                    result = self.review_failed_derived_spec_with_model(
+                        node_id, paths, local, failure_title=row.title)
+                    if result is not None:
+                        summary = self.run_specs(specs, grader_like=True)
+                        model_corrected = True
+                        break
+                if model_corrected:
+                    break
+            if not model_corrected:
+                break
+        if (model_limit and getattr(self, "driver", None) is not None
+                and os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW", "1") != "0"
+                and self.suite_is_measured(summary, specs)):
+            # A skipped or budget-limited review must not silently feed an
+            # unchecked generated oracle to application repair. Later suite
+            # passes can review it.
+            for node_id, paths in self.spec_map.items():
+                if not node_id or not paths or not set(paths) <= set(specs):
+                    continue
+                rows = [row for row in summary.results if any(
+                    str(row.file or "").replace("\\", "/") == path or
+                    str(row.file or "").replace("\\", "/").endswith("/" + path) for path in paths)]
+                local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+                for row in rows:
+                    if (not row.ok and row.title.endswith((" [model]", " [script]"))
+                            and (node_id, row.title, failure_signature(local)) not in
+                            getattr(self, "derived_failure_reviews", set())
+                            and (node_id, row.title) not in getattr(self, "derived_spec_disputes", {})):
+                        self.flag_derived_spec_dispute(
+                            node_id, row.title, "Generated test failure awaits its independent oracle review")
         return summary
 
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
@@ -5325,7 +5384,8 @@ class Flow:
             if target["node_id"] != node_id:
                 continue
             candidates = [f"{target['title']} [script]", f"{target['title']} [model]"]
-            matched = [title for title in candidates if title in valid and (node_id, title) not in disputes]
+            matched = [title for title in candidates if title in valid and (node_id, title) not in disputes
+                       and grounded_behavior_test(source, title, target)]
             disputed = [title for title in candidates if (node_id, title) in disputes]
             rows.append({"id": target["id"], "title": target["title"],
                          "status": "covered" if matched else "disputed" if disputed else "missing",
@@ -6135,11 +6195,10 @@ class Flow:
             log(f"[flow] whole-app first suite: no reliable verdict "
                 f"({(summary.error or 'incomplete results')[:150]}); preserving app for final repair")
             return None
-        grouped = nodes_for_failures(summary.results, self.spec_map)
+        grouped = nodes_for_failures(self.uncontested_derived_results(summary).results, self.spec_map)
         if self.disputed_generated_failures(summary):
-            self.record_full_suite(summary, grouped)
-            log("[flow] whole-app first suite: generated oracle disputed; deferring application repair")
-            return None
+            log("[flow] whole-app first suite: generated oracle disputed; "
+                "only uncontested failures enter application repair")
         ids = {str(node.get("id")) for node in ordered}
         if any(node_id not in ids for node_id in grouped):
             log("[flow] whole-app first suite: unmapped failure; using node flow")
@@ -6164,7 +6223,7 @@ class Flow:
                 or self.remaining() < self.repair_minimum() + reserve
                 or os.environ.get("OCTOS_ARC_SHARED_REPAIR", "1") == "0"):
             return failing
-        grouped = nodes_for_failures(summary.results, self.spec_map)
+        grouped = nodes_for_failures(self.uncontested_derived_results(summary).results, self.spec_map)
         clusters: dict[str, set[str]] = {}
         for nid, outcomes in grouped.items():
             for result in outcomes:
@@ -7017,6 +7076,7 @@ class Flow:
         self.final_suite_progress = False
         self.final_suite_green = False
         self.final_spec_dispute = False
+        self.final_safe_failures_remaining = False
         self.final_startup_recovered = False
         self._final_retry_measurement = None
         force_tool_repair = bool(getattr(self, "_force_final_tool_repair", False))
@@ -7070,13 +7130,17 @@ class Flow:
                 summary = self.audit_related_derived_specs(all_specs, summary)
                 disputed = self.disputed_generated_failures(summary)
                 if disputed:
-                    self.record_full_suite(summary, nodes_for_failures(summary.results, self.spec_map))
                     self.final_spec_dispute = True
                     log("[acceptance] full suite: generated oracle disputed; "
-                        "application repair deferred for requirement-grounded resolution")
+                        "repair will use only uncontested failures")
                     self.metric("derived_spec_dispute", scope="final_suite",
                                 tests=[list(item) for item in disputed])
-                    return
+            repair_summary = self.uncontested_derived_results(summary)
+            score = repair_summary.passed
+            if best is not None:
+                best_repair = self.uncontested_derived_results(best["summary"])
+                best["passed"] = best_repair.passed
+                best["grouped"] = nodes_for_failures(best_repair.results, self.spec_map)
             if reused_measurement:
                 log("[acceptance] reusing unchanged application measurement for a changed repair approach")
             if startup_recovery_only and self.suite_is_measured(summary, all_specs):
@@ -7091,17 +7155,17 @@ class Flow:
                 self.final_startup_recovered = True
                 return
             if (best is not None and last_repair_mode == "codegen" and wrote_last
-                    and self.suite_is_measured(summary, all_specs) and best["passed"] - summary.passed >= 3):
+                    and self.suite_is_measured(summary, all_specs) and best["passed"] - score >= 3):
                 # A one-request rewrite that breaks several previously passing
                 # behaviours is different from a single flaky spec or a tool
                 # turn interrupted halfway through. Keep the measured evidence,
                 # but repair from the last good tree rather than spending another
                 # codegen round on the damage (Keep 62886df9bde1: 31 -> 25).
-                damaged = nodes_for_failures(summary.results, self.spec_map)
+                damaged = nodes_for_failures(repair_summary.results, self.spec_map)
                 newly_broken = {n for n in damaged if n and n not in best["grouped"]}
                 if len(newly_broken) >= 2 and best["sha"]:
                     log(f"[acceptance] full suite: codegen repair regressed {best['passed']} -> "
-                        f"{summary.passed}, newly failing {sorted(newly_broken)}; restoring best state")
+                        f"{score}, newly failing {sorted(newly_broken)}; restoring best state")
                     self.restore_app(best["sha"])
                     restored_this_round = True
                     self.pending_corrections.append(
@@ -7109,9 +7173,14 @@ class Flow:
                         "The harness restored frontend/ and backend/ to the best state. "
                         "Repair the original failure with a targeted edit; preserve passing behaviours.")
                     summary = measured_suite()
+                    if getattr(self, "derived_as_specs", False):
+                        summary = self.audit_related_derived_specs(all_specs, summary)
+                    repair_summary = self.uncontested_derived_results(summary)
+                    score = repair_summary.passed
                     force_tool_repair = True
                     last_repair_mode = ""
             initially_green = summary.all_passed and self.suite_is_measured(summary, all_specs)
+            reviewed_summary = summary
             if initially_green:
                 # A single lucky 32/32 did not reproduce in the platform's next
                 # clean run (Keep 62886df9bde1: 32/32 -> 30/32). Confirmation
@@ -7122,7 +7191,7 @@ class Flow:
                         owners = {Path(path).name: node for node, paths in self.spec_map.items()
                                   for path in (paths or [])}
                         passed_a_round.update(owners.get(Path(r.file or "").name)
-                                              for r in summary.results if r.ok)
+                                              for r in self.uncontested_derived_results(summary).results if r.ok)
                         passed_a_round.discard(None)
                         log(f"[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: "
                             f"{confirmed.passed}/{confirmed.total}; first green run was not stable")
@@ -7137,11 +7206,12 @@ class Flow:
             # remeasure; ordinary low-scoring suites keep their existing path.
             partial_ratio = float(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_RATIO", "0.9"))
             partial_max = max(0, int(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES", "3")))
-            partial_failed = max(0, summary.total - summary.passed)
+            partial_failed = max(0, repair_summary.total - repair_summary.passed)
             if (attempt == 0 and not reused_measurement and attempt < rounds
                     and not initially_green and 0 < partial_ratio <= 1
                     and not summary.all_passed and self.suite_is_measured(summary, all_specs)
-                    and summary.total and summary.passed / summary.total >= partial_ratio
+                    and repair_summary.total
+                    and repair_summary.passed / repair_summary.total >= partial_ratio
                     and 0 < partial_failed <= partial_max
                     and self.remaining() >= self.final_retry_admission()):
                 first_partial = summary
@@ -7162,6 +7232,12 @@ class Flow:
                 else:
                     log("[acceptance] near-green unchanged confirmation had no complete verdict; "
                         "retaining the first measured result")
+            if summary is not reviewed_summary and getattr(self, "derived_as_specs", False):
+                summary = self.audit_related_derived_specs(all_specs, summary)
+            repair_summary = self.uncontested_derived_results(summary)
+            score = repair_summary.passed
+            if self.disputed_generated_failures(summary):
+                self.final_spec_dispute = True
             if summary.error and summary.killed:
                 log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
                 break
@@ -7186,21 +7262,22 @@ class Flow:
                             f"  Failed at: build/start/test loading\n  Observation: {startup_error_digest(error)}\n"
                             "  No complete functional verdict. Fix the reported infrastructure problem in place; do not rewrite the app.")
             else:
-                grouped = nodes_for_failures(summary.results, self.spec_map)
-                failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+                grouped = nodes_for_failures(repair_summary.results, self.spec_map)
+                failures = failure_summaries(repair_summary) + failure_source_context(repair_summary, self.tests_dir)
                 failures += self.interference_note(grouped, passed_alone, summary.stores_written)
                 failures += self.intermittent_note(grouped, passed_a_round)
                 failures += self.worker_parity_note(workers)
                 owners = {Path(path).name: node for node, paths in self.spec_map.items()
                           for path in (paths or [])}
                 passed_a_round |= {owners.get(Path(r.file or "").name)
-                                   for r in summary.results if r.ok} - {None}
+                                   for r in repair_summary.results if r.ok} - {None}
                 if (best is not None and wrote_last and not restored_this_round and best.get("sha")
-                        and summary.passed == best["passed"]):
+                        and score == best["passed"]):
                     current_failed = frozenset((Path(r.file or "").name, r.title)
-                                               for r in summary.results if not r.ok)
+                                               for r in repair_summary.results if not r.ok)
                     best_failed = frozenset((Path(r.file or "").name, r.title)
-                                            for r in best["summary"].results if not r.ok)
+                                            for r in self.uncontested_derived_results(best["summary"]).results
+                                            if not r.ok)
                     if current_failed != best_failed:
                         newly_broken = sorted(current_failed - best_failed)
                         newly_fixed = sorted(best_failed - current_failed)
@@ -7220,7 +7297,9 @@ class Flow:
                                     newly_broken=[list(x) for x in newly_broken],
                                     newly_fixed=[list(x) for x in newly_fixed])
                         summary, grouped = best["summary"], best["grouped"]
-                        failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+                        repair_summary = self.uncontested_derived_results(summary)
+                        score = repair_summary.passed
+                        failures = failure_summaries(repair_summary) + failure_source_context(repair_summary, self.tests_dir)
                         failures += self.interference_note(grouped, passed_alone, summary.stores_written)
                         failures += self.intermittent_note(grouped, passed_a_round)
                         failures += self.worker_parity_note(workers)
@@ -7234,15 +7313,15 @@ class Flow:
                         load_errors=summary.load_errors)
             self.record_full_suite(summary, grouped)
             self.remember_delivery_checkpoint(summary, grouped)
-            last_passed = summary.passed if measured else -1
-            if measured and (best is None or summary.passed > best["passed"]):
+            last_passed = score if measured else -1
+            if measured and (best is None or score > best["passed"]):
                 if best is not None and wrote_last and not restored_this_round:
                     self.final_suite_progress = True
                 if attempt > 0:
                     self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
-                best = {"passed": summary.passed, "sha": self.head(), "summary": summary, "grouped": grouped}
+                best = {"passed": score, "sha": self.head(), "summary": summary, "grouped": grouped}
                 regressions = 0
-            elif measured and best is not None and summary.passed < best["passed"]:
+            elif measured and best is not None and score < best["passed"]:
                 # The per-node loop already does this; the full-suite pass did not.
                 # A repair cut at the per-turn timeout leaves the tree part
                 # written: cloud 6e82a7ff571c went 27/32 -> repair killed at 1200s
@@ -7272,6 +7351,11 @@ class Flow:
                     self.record_full_suite(best["summary"], best["grouped"])
                     last_passed = best["passed"]
                     regressions = 0
+            self.final_safe_failures_remaining = measured and bool(grouped)
+            if measured and not grouped and self.disputed_generated_failures(summary):
+                log("[acceptance] full suite: only disputed generated failures remain; "
+                    "their scenarios stay unverified")
+                return
             if measured and not grouped:
                 weak = [node for node, paths in self.spec_map.items()
                         if node and paths and self.derived_review_needed(node)]
@@ -7288,7 +7372,7 @@ class Flow:
             # letting it count as progress hides a stall in everything else.
             unstable = frozenset(spec for node in passed_a_round
                                  for spec in (self.spec_map.get(node) or []))
-            failing_signature = failure_signature(summary, unstable)
+            failing_signature = failure_signature(repair_summary, unstable)
             if wrote_last and previous_failing is not None and failing_signature == previous_failing:
                 if repeated:
                     log("[acceptance] full suite: failures unchanged after a changed approach; stopping repairs")
@@ -7481,7 +7565,8 @@ class Flow:
             retry_measurement = None
             if self.driver:
                 self.driver.end_scope("node")
-            if getattr(self, "final_spec_dispute", False):
+            if (getattr(self, "final_spec_dispute", False)
+                    and not getattr(self, "final_safe_failures_remaining", False)):
                 break
             if (getattr(self, "final_suite_green", False)
                     or (self.test_verdict and all(verdict is True for verdict in self.test_verdict.values()))):
@@ -7624,7 +7709,10 @@ class Flow:
                            for spec in expected)):
             return
         best = getattr(self, "delivery_checkpoint", None)
-        if best and summary.passed <= best["summary"].passed:
+        trusted_passed = self.uncontested_derived_results(summary).passed
+        if ((getattr(self, "derived_as_specs", False) and trusted_passed <= 0)
+                or (best and trusted_passed <=
+                    self.uncontested_derived_results(best["summary"]).passed)):
             return
         self.commit(f"chore: verified delivery checkpoint {summary.passed}/{summary.total}")
         sha = self.head()
@@ -7648,7 +7736,7 @@ class Flow:
         The run still emits a failure event with the provider's original error.
         """
         best = getattr(self, "delivery_checkpoint", None)
-        if not best or best["summary"].passed <= 0:
+        if not best or self.uncontested_derived_results(best["summary"]).passed <= 0:
             return self.measure_provider_stop(error)
         try:
             self.commit("chore: preserve interrupted repair before provider-stop recovery")
@@ -7699,7 +7787,8 @@ class Flow:
                     restored = True
                     self.restore_app(sha)
                 summary = self.run_specs(specs, workers=1, grader_like=True)
-                if not self.suite_is_measured(summary, specs) or summary.passed <= 0:
+                if (not self.suite_is_measured(summary, specs)
+                        or self.uncontested_derived_results(summary).passed <= 0):
                     continue
                 grouped = nodes_for_failures(summary.results, self.spec_map)
                 self.remember_delivery_checkpoint(summary, grouped)

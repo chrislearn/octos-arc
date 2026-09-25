@@ -369,11 +369,45 @@ def behavior_test_titles(source: str) -> set[str]:
             continue
         end = starts[index + 1].start() if index + 1 < len(starts) else len(source)
         body = source[start.end():end]
-        action = re.search(r"await h\.(?!expect)\w+\(", body)
+        action = re.search(r"await h\.(?!expect|openHome\(|signIn\()\w+\(", body)
         assertion = re.search(r"await h\.expect\w+\(", body)
-        if action and assertion and action.start() < assertion.start():
+        download = re.search(r"await h\.expectDownload\(", body)
+        if (action and assertion and action.start() < assertion.start()) or download:
             valid.add(title)
     return valid
+
+
+def grounded_behavior_test(source: str, title: str, target: Mapping) -> bool:
+    """Require the scenario's explicit actions and unique THEN literal in its test.
+
+    This is a conservative check for claims the requirement states verbatim.
+    Scenarios without such a literal still use the structural behavior check.
+    """
+    if title not in behavior_test_titles(source):
+        return False
+    starts = list(re.finditer(r"^test\('((?:\\.|[^'\\])*)',", source, re.M))
+    for index, start in enumerate(starts):
+        if start.group(1).replace("\\'", "'") != title:
+            continue
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(source)
+        body = source[start.end():end]
+        actions = list(re.finditer(r"await h\.(?!expect|openHome\(|signIn\()\w+\((.*?)\);", body, re.S))
+        assertions = list(re.finditer(r"await h\.expect\w+\((.*?)\);", body, re.S))
+        actions.extend(item for item in assertions if body[item.start():].startswith("await h.expectDownload("))
+        actions.sort(key=lambda item: item.start())
+        cursor = -1
+        for required in target.get("required_actions") or []:
+            action = next((item for item in actions if item.start() > cursor
+                           and _ts(required) in item.group(1)), None)
+            if action is None:
+                return False
+            cursor = action.start()
+        if actions:
+            cursor = max(cursor, actions[0].start())
+        literal = target.get("required_then_literal")
+        return not literal or any(item.start() >= cursor and _ts(literal) in item.group(1)
+                                  for item in assertions)
+    return False
 
 
 def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:

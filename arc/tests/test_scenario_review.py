@@ -3,6 +3,7 @@ import re
 import unittest
 
 from scenario_review import (allowed_literals, ancestor_context, behavior_test_titles, build_prompt, compile_reply,
+                             grounded_behavior_test,
                              parse_failure_review, parse_reply,
                              prioritize_review_targets, review_targets, validate_proposal)
 from scenario_tests import suite_fixtures
@@ -40,6 +41,36 @@ class ReviewTargetTests(unittest.TestCase):
                   "test('A: behavior [model]', async ({ page }) => {\n"
                   "  await h.clickNamed(page, 'Open');\n  await h.expectTextsVisible(page, ['Done']);\n});\n")
         self.assertEqual(behavior_test_titles(source), {"A: behavior [model]"})
+
+    def test_navigation_setup_is_not_a_feature_action(self):
+        source = ("test('A: weak [model]', async ({ page }) => {\n"
+                  "  await h.openHome(page);\n"
+                  "  await h.expectTextsVisible(page, ['Done']);\n});\n")
+        self.assertEqual(behavior_test_titles(source), set())
+
+    def test_download_assertion_can_perform_the_export_action(self):
+        source = ("test('A: export [model]', async ({ page }) => {\n"
+                  "  await h.expectDownload(page, 'Export', '.csv', ['East']);\n});\n")
+        target = {"required_actions": ["Export"], "required_then_literal": "East"}
+        self.assertTrue(grounded_behavior_test(source, "A: export [model]", target))
+
+    def test_coverage_requires_explicit_when_and_then_evidence(self):
+        target = {"required_actions": ["Open"], "required_then_literal": "Done"}
+        wrong_result = ("test('A: example [model]', async ({ page }) => {\n"
+                        "  await h.clickNamed(page, 'Open');\n"
+                        "  await h.expectTextsVisible(page, ['Open']);\n});\n")
+        self.assertIn("A: example [model]", behavior_test_titles(wrong_result))
+        self.assertFalse(grounded_behavior_test(wrong_result, "A: example [model]", target))
+        wrong_action = wrong_result.replace("h.clickNamed(page, 'Open')", "h.clickNamed(page, 'Other')")\
+                                  .replace("['Open']", "['Done']")
+        self.assertFalse(grounded_behavior_test(wrong_action, "A: example [model]", target))
+        valid = wrong_result.replace("['Open']", "['Done']")
+        self.assertTrue(grounded_behavior_test(valid, "A: example [model]", target))
+        early_result = ("test('A: example [model]', async ({ page }) => {\n"
+                        "  await h.expectTextsVisible(page, ['Done']);\n"
+                        "  await h.clickNamed(page, 'Open');\n"
+                        "  await h.expectTextsVisible(page, ['Open']);\n});\n")
+        self.assertFalse(grounded_behavior_test(early_result, "A: example [model]", target))
 
     def test_failure_review_uses_one_structured_verdict(self):
         reply = ('Here is the review:\n```json\n'

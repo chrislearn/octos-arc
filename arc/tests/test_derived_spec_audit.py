@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from acceptance import RunSummary, TestOutcome
 from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle
@@ -219,6 +219,21 @@ class FlowAuditTests(unittest.TestCase):
                         "  await h.expectTextsVisible(page, ['Saved']);\n});\n")
         self.assertFalse(self.flow.derived_review_needed("REQ-2"))
 
+    def test_action_and_assertion_with_wrong_result_do_not_cover_scenario(self):
+        node = {"id": "REQ-2", "name": "Open", "description": "Open shows Done.",
+                "scenarios": [{"name": "REQ-2: Open", "steps": [
+                    {"keyword": "WHEN", "content": "The visitor clicks “Open”."},
+                    {"keyword": "THEN", "content": "The page shows “Done”."}]}]}
+        self.flow.derived_nodes = [node]
+        self.flow._derived_scenario_targets = None
+        path = self.directory / "REQ-2.spec.ts"
+        path.write_text("test('REQ-2: Open [script]', async ({ page }) => {\n"
+                        "  await h.clickNamed(page, 'Open');\n"
+                        "  await h.expectTextsVisible(page, ['Open']);\n});\n")
+        self.assertTrue(self.flow.derived_review_needed("REQ-2"))
+        path.write_text(path.read_text().replace("['Open']", "['Done']"))
+        self.assertFalse(self.flow.derived_review_needed("REQ-2"))
+
     def test_disputed_generated_oracle_blocks_application_repair(self):
         node = {"id": "REQ-1", "name": "Open", "description": "The page has “Open”.",
                 "scenarios": [{"name": "REQ-1: action", "steps": [
@@ -232,6 +247,7 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.derived_nodes = [node]
         self.flow._derived_scenario_targets = None
         self.flow.spec_map = {"REQ-1": [path.name]}
+        self.path.unlink()
         self.flow.driver = object()
         self.flow.wound_down = Mock(return_value=False)
         self.flow.remaining = Mock(return_value=1000)
@@ -277,6 +293,118 @@ class FlowAuditTests(unittest.TestCase):
         self.assertTrue(observed.all_passed)
         self.assertEqual(self.flow.run_specs.call_count, 2)
         self.assertIn("h.expectCell(page, 'A1', 'East')", self.path.read_text())
+
+    def test_related_audit_reviews_each_failed_generated_test_in_one_feature(self):
+        node = {"id": "REQ-1", "name": "Two actions", "description": "The page has Open and Save.",
+                "scenarios": [{"name": name, "steps": [
+                    {"keyword": "WHEN", "content": f"The visitor clicks “{action}”."},
+                    {"keyword": "THEN", "content": f"The page shows “{result}”."}]}
+                    for name, action, result in (("REQ-1: Open", "Open", "Opened"),
+                                                 ("REQ-1: Save", "Save", "Saved"))]}
+        path = self.directory / "REQ-1.spec.ts"
+        path.write_text("test('REQ-1: Open [model]', async ({ page }) => {\n"
+                        "  await h.clickNamed(page, 'Open');\n"
+                        "  await h.expectTextsVisible(page, ['Opened']);\n});\n"
+                        "test('REQ-1: Save [model]', async ({ page }) => {\n"
+                        "  await h.clickNamed(page, 'Save');\n"
+                        "  await h.expectTextsVisible(page, ['Saved']);\n});\n")
+        self.flow.requirement_nodes = {"REQ-1": node}
+        self.flow.derived_nodes = [node]
+        self.flow.spec_map = {"REQ-1": [path.name]}
+        self.flow.driver = object()
+        self.flow.wound_down = Mock(return_value=False)
+        self.flow.remaining = Mock(return_value=1000)
+        self.flow.final_phase_reserve = Mock(return_value=0)
+        self.flow.audit_failed_derived_specs = Mock(return_value=None)
+        self.flow.text_turn = Mock(side_effect=[
+            (True, '{"verdict":"app_error","evidence":"Open action is missing","scenarios":[]}'),
+            (True, '{"verdict":"oracle_dispute","evidence":"Save expectation conflicts","scenarios":[]}')])
+        failed = RunSummary(passed=0, total=2, results=[
+            TestOutcome("REQ-1: Open [model]", False, "failed", 1, file=path.name),
+            TestOutcome("REQ-1: Save [model]", False, "failed", 1, file=path.name)])
+        self.assertIs(self.flow.audit_related_derived_specs([path.name], failed), failed)
+        self.assertEqual(self.flow.text_turn.call_count, 2)
+        self.assertEqual(self.flow.disputed_generated_failures(failed),
+                         [("REQ-1", "REQ-1: Save [model]")])
+        self.flow.derived_failure_reviews.clear()
+        self.flow.derived_spec_disputes.clear()
+        self.flow.text_turn.side_effect = None
+        self.flow.text_turn.return_value = (
+            True, '{"verdict":"app_error","evidence":"Open action is missing","scenarios":[]}')
+        self.flow.text_turn.reset_mock()
+        with patch.dict("os.environ", {"OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE": "1"}):
+            self.flow.audit_related_derived_specs([path.name], failed)
+        self.assertEqual(self.flow.text_turn.call_count, 1)
+        self.assertEqual(self.flow.disputed_generated_failures(failed),
+                         [("REQ-1", "REQ-1: Save [model]")])
+
+    def test_final_suite_repairs_uncontested_failure_while_oracle_is_disputed(self):
+        self.path.unlink()
+        first = self.directory / "A.spec.ts"
+        second = self.directory / "B.spec.ts"
+        first.write_text("test('A: disputed [model]', async ({ page }) => {});\n")
+        second.write_text("test('B: broken [model]', async ({ page }) => {});\n")
+        self.flow.spec_map = {"A": [first.name], "B": [second.name]}
+        self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
+        self.flow.test_verdict = {"A": None, "B": None}
+        self.flow.derived_review_needed = Mock(return_value=False)
+        self.flow.audit_related_derived_specs = Mock(side_effect=lambda _specs, summary: summary)
+        self.flow.record_tests = Mock()
+        self.flow.remember_delivery_checkpoint = Mock()
+        self.flow.head = Mock(return_value="app-sha")
+        self.flow.commit = Mock(return_value=True)
+        self.flow.remaining = Mock(return_value=10000)
+        self.flow.wound_down = Mock(return_value=False)
+        self.flow.suite_repair_turn = Mock(return_value=("tools", ""))
+        self.flow.repair_test_location = Mock(return_value="derived tests")
+        before = RunSummary(passed=0, total=2, results=[
+            TestOutcome("A: disputed [model]", False, "failed", 1, file=first.name),
+            TestOutcome("B: broken [model]", False, "failed", 1, file=second.name)])
+        after = RunSummary(passed=1, total=2, results=[
+            TestOutcome("A: disputed [model]", False, "failed", 1, file=first.name),
+            TestOutcome("B: broken [model]", True, "passed", 1, file=second.name)])
+        self.flow.run_specs = Mock(return_value=after)
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1",
+                                    "OCTOS_ARC_FINAL_CONFIRM_RUNS": "1"}):
+            self.flow.final_acceptance(initial_summary=before)
+        self.flow.suite_repair_turn.assert_called_once()
+        self.assertIn("B: broken", self.flow.suite_repair_turn.call_args.args[2])
+        self.assertNotIn("A: disputed", self.flow.suite_repair_turn.call_args.args[2])
+        self.assertIsNone(self.flow.test_verdict["A"])
+        self.assertTrue(self.flow.test_verdict["B"])
+        self.assertTrue(self.flow.final_spec_dispute)
+        self.assertFalse(self.flow.final_suite_green)
+
+    def test_disputed_pass_does_not_improve_trusted_score(self):
+        self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
+        rows = [TestOutcome("A: disputed [model]", True, "passed", 1, file="A.spec.ts"),
+                TestOutcome("B: checked [model]", True, "passed", 1, file="B.spec.ts")]
+        summary = RunSummary(passed=2, total=2, results=rows)
+        trusted = self.flow.uncontested_derived_results(summary)
+        self.assertEqual((trusted.passed, trusted.total), (1, 1))
+        self.assertEqual((summary.passed, summary.total), (2, 2))
+        self.flow.derived_as_specs = False
+        self.assertIs(self.flow.uncontested_derived_results(summary), summary)
+
+    def test_whole_app_first_suite_only_schedules_uncontested_failure(self):
+        self.path.unlink()
+        first = self.directory / "A.spec.ts"
+        second = self.directory / "B.spec.ts"
+        first.write_text("test('A: disputed [model]', async ({ page }) => {});\n")
+        second.write_text("test('B: broken [model]', async ({ page }) => {});\n")
+        self.flow.spec_map = {"A": [first.name], "B": [second.name]}
+        self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
+        self.flow.audit_related_derived_specs = Mock(side_effect=lambda _specs, summary: summary)
+        self.flow.record_tests = Mock()
+        self.flow.remember_delivery_checkpoint = Mock()
+        self.flow.run_specs = Mock(return_value=RunSummary(passed=0, total=2, results=[
+            TestOutcome("A: disputed [model]", False, "failed", 1, file=first.name),
+            TestOutcome("B: broken [model]", False, "failed", 1, file=second.name)]))
+        with patch("main.scaffold_issues", return_value=[]):
+            failing = self.flow.whole_app_first_suite([{"id": "A"}, {"id": "B"}])
+        self.assertEqual(failing, {"B"})
+        self.assertIsNone(self.flow.test_verdict["A"])
+        self.assertFalse(self.flow.test_verdict["B"])
 
     def test_model_review_repairs_action_order_without_weakening_oracle(self):
         node = {"id": "REQ-1", "name": "Open feature", "description": "The home page has “Open” and shows “Done”.",
