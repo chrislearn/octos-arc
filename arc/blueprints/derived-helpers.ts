@@ -5,6 +5,7 @@
 // through a bounded crawl of links, tabs and menus, because requirements name
 // controls but rarely the path to them.
 import { expect, Locator, Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 type Match = string | RegExp | Array<string | RegExp>;
 
@@ -241,6 +242,24 @@ export async function pressKey(page: Page, key: string): Promise<void> {
   await page.waitForTimeout(250);
 }
 
+/** Prepare an explicit external clipboard fixture for a paste scenario. */
+export async function setClipboardText(page: Page, value: string): Promise<void> {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.evaluate(async (text) => navigator.clipboard.writeText(text), value);
+}
+
+/** Verify a copied clone value through the browser clipboard, not its toast. */
+export async function expectClipboard(page: Page, repository: string, protocol: 'HTTPS' | 'SSH'): Promise<void> {
+  await page.context().grantPermissions(['clipboard-read']);
+  const copied = await page.evaluate(async () => navigator.clipboard.readText());
+  expect(copied, `clipboard value identifies ${repository}`).toContain(repository);
+  if (protocol === 'HTTPS') {
+    expect(copied, 'HTTPS clone value uses HTTPS').toMatch(/^https:\/\//i);
+  } else {
+    expect(copied, 'SSH clone value uses SSH and ends in .git').toMatch(/^(?:git@[^:]+:|ssh:\/\/).+\.git$/i);
+  }
+}
+
 /** The page ended in no error state: no visible alert naming an error, no server error page. */
 export async function expectNoErrorState(page: Page): Promise<void> {
   await page.waitForTimeout(300);
@@ -304,7 +323,8 @@ export async function expectCell(page: Page, ref: string, value: string): Promis
     await expect(cell, `gridcell "${ref}" is empty on ${page.url()}`).toHaveText(/^\s*$/, { timeout: 8000 });
     return;
   }
-  await expect(cell, `gridcell "${ref}" shows "${value}" on ${page.url()}`).toContainText(value, { timeout: 8000 });
+  await expect(cell, `gridcell "${ref}" shows "${value}" on ${page.url()}`)
+    .toHaveText(new RegExp('^\\s*' + escapeRegExp(value) + '\\s*$'), { timeout: 8000 });
 }
 
 /** Choose a file in the file input the requirement names (label, aria-label or nearby button). */
@@ -328,8 +348,8 @@ export async function uploadFile(page: Page, value: Match, csv: string): Promise
   await chooser.setFiles(file);
 }
 
-/** Click a control and require a download whose file name ends with `suffix`. */
-export async function expectDownload(page: Page, value: Match, suffix: string): Promise<void> {
+/** Click a control and verify the downloaded file name and selected contents. */
+export async function expectDownload(page: Page, value: Match, suffix: string, contains: string[] = []): Promise<void> {
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 15_000 }),
     clickNamed(page, value),
@@ -337,6 +357,14 @@ export async function expectDownload(page: Page, value: Match, suffix: string): 
   const name = download.suggestedFilename();
   expect(name, `clicking "${describe(value)}" downloads a file ending with ${suffix}`).toMatch(
     new RegExp(escapeRegExp(suffix) + '$', 'i'));
+  if (contains.length) {
+    const failure = await download.failure();
+    expect(failure, `download of ${name} completed`).toBeNull();
+    const content = await readFile(await download.path(), 'utf8');
+    for (const value of contains) {
+      expect(content, `downloaded ${name} contains ${JSON.stringify(value)}`).toContain(value);
+    }
+  }
 }
 
 export async function checkNamed(page: Page, value: Match): Promise<void> {

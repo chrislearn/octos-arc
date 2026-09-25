@@ -16,6 +16,19 @@ SEED = ("The visitor starts at the application home page in a fresh unauthentica
 
 
 class ScenarioCompilerTests(unittest.TestCase):
+    def test_semantic_field_description_uses_declared_accessible_label(self):
+        node = leaf("REQ-2-1-2", [("Create", [
+            ("GIVEN", SEED),
+            ("WHEN", "The user enters organization identifier `mobile-guild`, a display name `Mobile Guild`, "
+                     "and clicks “Create organization”."),
+            ("THEN", "The new page shows `mobile-guild`."),
+        ])], description='The form has fields labeled “Organization name” and “Display name” and a button '
+                        '“Create organization”.')
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertIn("h.fillField(page, 'Organization name', 'mobile-guild')", source)
+        self.assertIn("h.fillField(page, 'Display name', 'Mobile Guild')", source)
+        self.assertNotIn("h.fillField(page, 'organization identifier'", source)
+
     def test_should_compile_a_fully_understood_sign_in_scenario(self):
         node = leaf("REQ-1-1-2", [("Scenario 1", [
             ("GIVEN", SEED),
@@ -87,10 +100,11 @@ class ScenarioCompilerTests(unittest.TestCase):
         compiled = compile_leaf(node, suite_fixtures([node]))
         self.assertEqual(compiled.scripts, 0)
         self.assertIn("h.signIn(page, 'alice-dev', 'Valid-password-123!')", compiled.source)
-        # The public seeded repository is the entry record: open it and expect the other public seeds.
+        # The public seeded repository is the entry record. Other seeded
+        # records need not be visible on this page.
         self.assertIn("[entry]", compiled.source)
         self.assertIn("h.clickNamed(page, 'acme-docs')", compiled.source)
-        self.assertIn("'Acme Demo'", compiled.source)
+        self.assertNotIn("h.expectTextsVisible(page, ['Acme Demo'])", compiled.source)
         self.assertNotIn("secret-research", compiled.source)
 
     def test_should_start_signed_in_only_when_the_scenario_says_so(self):
@@ -168,7 +182,8 @@ class CalibrationTests(unittest.TestCase):
                         total[bucket] += 1
                         hits[bucket] += value in official or value in helpers
             self.assertGreater(total["strict"] + total["reach"], 5, task)
-            self.assertGreaterEqual(hits["strict"] / total["strict"], 0.95, f"{task}: {hits}/{total}")
+            if total["strict"]:
+                self.assertGreaterEqual(hits["strict"] / total["strict"], 0.95, f"{task}: {hits}/{total}")
             if total["reach"]:
                 # Reach hints are quoted literals the official tests may not use; suite-level
                 # dedupe removed repeated hits, so the bar is 0.8 (12306: 31/37).
@@ -210,15 +225,10 @@ class ScenarioCompilerV2Tests(unittest.TestCase):
                      "“People” page, the account is still absent from the member list."),
         ])])
         source = compile_leaf(node, suite_fixtures([node])).source
-        script = [t for t in source.split("test(")[1:] if "[script]" in t]
-        self.assertEqual(len(script), 1)
-        body = script[0]
-        self.assertIn("h.signIn(page, 'alice-dev', 'Valid-password-123!')", body)
-        self.assertLess(body.index("h.openNamed(page, 'People')"), body.index("h.clickNamed(page, 'Remove from organization')"))
-        self.assertIn("h.clickNamed(page, 'Remove')", body)
-        # Only negative THEN clauses: the script still proves the path is usable.
-        self.assertNotIn("expectTextsVisible", body)
-        self.assertIn("h.expectNoErrorState(page)", body)
+        # The only outcome is absence of a member after removal. A click path
+        # ending in "no error" cannot prove that mutation, so no script is emitted.
+        self.assertNotIn("[script]", source)
+        self.assertIn("h.expectReachable(page, 'People')", source)
 
     def test_should_assert_backtick_literals_and_status_words_named_by_the_requirement(self):
         node = leaf("REQ-6-5", [("Scenario 1", [
@@ -280,7 +290,7 @@ class ScenarioCompilerV2Tests(unittest.TestCase):
         ])])
         compiled = compile_leaf(node, suite_fixtures([node]))
         self.assertEqual(compiled.scripts, 0)
-        self.assertIn("[reach]", compiled.source)
+        self.assertNotIn("[reach]", compiled.source)  # no named UI target to test honestly
 
 
 class GeneratedFixtureValueTests(unittest.TestCase):
@@ -350,9 +360,9 @@ class TemplatedScenarioTests(unittest.TestCase):
         source = compiled.source
         self.assertIn("[entry]", source)
         self.assertIn("h.clickNamed(page, 'Q3 Sales')", source)
-        # Seed values are asserted after opening the seeded record; ranges/formulas are not.
-        self.assertIn("'East'", source)
-        self.assertIn("'1200'", source)
+        # Seeded rows can live on another sheet; assert only coordinates tied
+        # to the opened record, plus explicit UI contracts.
+        self.assertNotIn("h.expectTextsVisible(page, ['East'", source)
         self.assertIn("h.expectCell(page, 'A1', 'Region')", source)
         # Explicit ARIA contracts from the requirement text are asserted by role.
         self.assertIn("h.expectRole(page, 'grid', 'Worksheet grid')", source)
@@ -374,6 +384,15 @@ class TemplatedScenarioTests(unittest.TestCase):
         self.assertIn("h.expectRole(page, 'grid', 'Worksheet grid')", source)
         files = compile_suite([node], context={"REQ-3-1-1": context})
         self.assertIn("Worksheet grid", files["REQ-3-1-1.spec.ts"])
+
+    def test_entry_check_does_not_require_a_closed_menu_item(self):
+        node = leaf("REQ-3-1-2", [("REQ-3-1-2 -the requested workflow", [
+            ("GIVEN", SHEET_SEED), ("WHEN", SHEET_WHEN), ("THEN", SHEET_THEN)])],
+            description='The context menu uses the ARIA menuitem role with accessible name "Paste". '
+                        'The grid uses the ARIA grid role with accessible name "Worksheet grid".')
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertNotIn("h.expectRole(page, 'menuitem', 'Paste')", source)
+        self.assertIn("h.expectRole(page, 'grid', 'Worksheet grid')", source)
 
 
 class SharedContractTests(unittest.TestCase):
@@ -437,15 +456,18 @@ class SuiteHygieneTests(unittest.TestCase):
         seed = SEED
         a = leaf("REQ-1-1-1", [("Scenario 2", [("GIVEN", seed), ("WHEN", "The user signs in as `alice-dev` with "
                  "`Valid-password-123!` and follows the visible controls for the register workflow."),
-                 ("THEN", "The page displays the required headings for the register workflow.")])])
+                 ("THEN", "The page displays the required headings for the register workflow.")])],
+                 description='The “Repositories” tab opens the list.')
         b = leaf("REQ-1-1-2", [("Scenario 2", [("GIVEN", seed), ("WHEN", "The user signs in as `alice-dev` with "
                  "`Valid-password-123!` and follows the visible controls for the sign in workflow."),
-                 ("THEN", "The page displays the required headings for the sign in workflow.")])])
+                 ("THEN", "The page displays the required headings for the sign in workflow.")])],
+                 description='The “Repositories” tab opens the list.')
         c = leaf("REQ-1-1-3", [("Scenario 2", [("GIVEN", seed), ("WHEN", "The user signs in as `alice-dev` with "
                  "`Valid-password-123!` and follows the visible controls for the sign in workflow."),
                  ("THEN", "The page displays the required headings for the sign in workflow.")]),
                  ("Scenario 3", [("GIVEN", seed), ("WHEN", "The user signs in as `alice-dev` with `Valid-password-123!` "
-                 "and opens the \u201cRepositories\u201d tab."), ("THEN", "The page shows \u201cacme-docs\u201d.")])])
+                 "and opens the \u201cRepositories\u201d tab."), ("THEN", "The page shows \u201cacme-docs\u201d.")])],
+                 description='The “Repositories” tab opens the list.')
         files = compile_suite([a, b, c])
         self.assertIn("REQ-1-1-1.spec.ts", files)
         # The second leaf's only test is identical to the first's: it still keeps
@@ -465,7 +487,7 @@ class SuiteHygieneTests(unittest.TestCase):
             description='The "Code" tab and the "Code" link open the code view.')
         source = compile_leaf(node, suite_fixtures([node])).source
         self.assertEqual(source.count("h.expectReachable(page, 'Code')"), 1)
-        self.assertIn("'Pen'", source)
+        self.assertNotIn("h.expectTextsVisible(page, ['Pen'", source)
         self.assertNotIn("'4'", source)
 
     def test_mechanical_scripts_assert_typed_names_rather_than_the_control_they_opened(self):

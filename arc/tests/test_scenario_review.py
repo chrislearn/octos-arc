@@ -334,8 +334,47 @@ class SpreadsheetOpsTests(unittest.TestCase):
         # v9.2.1 run 4aff4d2f6cd4: 58/100 skipped as "cell coordinates not in allowed literals",
         # "cannot simulate clipboard", "which cell is not specified".
         self.assertIn("ALWAYS allowed", prompt)
-        self.assertIn("no clipboard setup", prompt)
+        self.assertIn("set_clipboard", prompt)
+        self.assertIn("empty\nfresh browser clipboard is not a valid fixture", prompt)
         self.assertIn("not a reason to skip", prompt)
+
+    def test_external_paste_requires_a_clipboard_fixture(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        paste = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Q3 Sales"},
+            {"op": "cell_click", "target": "D1"},
+            {"op": "press", "key": "Control+V"},
+            {"op": "expect_cell", "target": "D1", "value": "East"},
+        ]}
+        self.assertIn("no clipboard source", " | ".join(proposal_problems(paste, target, fixtures)))
+        paste["steps"].insert(2, {"op": "set_clipboard", "value": "$TABLE"})
+        source = validate_proposal(paste, target, fixtures)
+        self.assertIsNotNone(source)
+        self.assertIn("h.setClipboardText(page, 'East\t1200\\nNorth\t800')", source)
+        paste["steps"][-1]["value"] = "North"
+        self.assertIn("pasted D1 should be 'East'", " | ".join(proposal_problems(paste, target, fixtures)))
+
+    def test_import_rejects_a_conflicting_old_cell_value(self):
+        from scenario_review import proposal_problems
+        node = leaf("REQ-1-3-1", [("Import", [
+            ("GIVEN", "The evaluation seed contains the seeded workbook `Q3 Sales`, cell A1 value `Region`."),
+            ("WHEN", "The user follows the requested workflow using “Import CSV”, “CSV file”, "
+                     "and “Confirm import”."),
+            ("THEN", "A new workbook opens with imported cells."),
+        ])], description='Import CSV accepts a file in “CSV file” and creates a new workbook.')
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures)[0]
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Import CSV"},
+            {"op": "upload", "target": "CSV file", "value": "$CSV"},
+            {"op": "click", "target": "Confirm import"},
+            {"op": "expect_cell", "target": "A1", "value": "Region"},
+        ]}
+        self.assertIn("after CSV import A1 should be 'East'", " | ".join(proposal_problems(proposal, target, fixtures)))
+        proposal["steps"].insert(3, {"op": "cell_type", "target": "A1", "value": "Region"})
+        proposal["steps"].insert(4, {"op": "press", "key": "Enter"})
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
 
 
 class ProposalIdentityTests(unittest.TestCase):
@@ -434,12 +473,58 @@ class FileOpsTests(unittest.TestCase):
             {"op": "upload", "target": "CSV file", "value": "$CSV"},
             {"op": "click", "target": "Confirm import"},
             {"op": "expect_visible", "target": "East"},
-            {"op": "expect_download", "target": "Export CSV", "value": ".csv"}]}
+            {"op": "expect_download", "target": "Export CSV", "value": ".csv", "contains": ["East"]}]}
         from scenario_review import proposal_problems
         self.assertEqual(proposal_problems(proposal, target, fixtures), [])
         source = validate_proposal(proposal, target, fixtures)
         self.assertIn("h.uploadFile(page, 'CSV file', 'East,1200\\nNorth,800')", source)
-        self.assertIn("h.expectDownload(page, 'Export CSV', '.csv')", source)
+        self.assertIn("h.expectDownload(page, 'Export CSV', '.csv', ['East'])", source)
+
+    def test_export_requires_downloaded_seed_content(self):
+        target, fixtures = self._target()
+        target["name"] = "Export the Current Worksheet as CSV"
+        target["seed_kinds"] = [("cell A1 value", "Region")]
+        target["allowed"].append("Region")
+        proposal = {"confidence": 0.9, "steps": [
+            {"op": "expect_download", "target": "Export CSV", "value": ".csv"}]}
+        from scenario_review import proposal_problems
+        self.assertTrue(any("downloaded contents" in problem
+                            for problem in proposal_problems(proposal, target, fixtures)))
+        proposal["steps"][0]["contains"] = ["Region"]
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        proposal["steps"].insert(0, {"op": "click", "target": "Export CSV"})
+        self.assertTrue(any("already clicks" in problem for problem in proposal_problems(proposal, target, fixtures)))
+
+    def test_clone_copy_requires_clipboard_value_for_each_protocol(self):
+        target, fixtures = self._target()
+        target["allowed"].extend(["acme-docs", "Code", "HTTPS", "SSH", "Copy clone value", "Copied"])
+        proposal = {"confidence": 0.9, "steps": [
+            {"op": "click", "target": "Code"},
+            {"op": "click", "target": "HTTPS"},
+            {"op": "click", "target": "Copy clone value"},
+            {"op": "expect_visible", "target": "Copied"},
+            {"op": "click", "target": "SSH"},
+            {"op": "click", "target": "Copy clone value"},
+            {"op": "expect_clipboard", "target": "acme-docs", "protocol": "SSH"},
+        ]}
+        from scenario_review import proposal_problems
+        self.assertTrue(any("each Copy clone value" in problem
+                            for problem in proposal_problems(proposal, target, fixtures)))
+        proposal["steps"].insert(3, {"op": "expect_clipboard", "target": "acme-docs", "protocol": "HTTPS"})
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        self.assertIn("h.expectClipboard(page, 'acme-docs', 'HTTPS')", validate_proposal(proposal, target, fixtures))
+
+    def test_pivot_source_text_is_not_a_result_assertion(self):
+        target, fixtures = self._target()
+        target["name"] = "Create and Refresh a Basic Pivot Table"
+        target["allowed"].extend(["Apply", "East"])
+        proposal = {"confidence": 0.9, "steps": [
+            {"op": "click", "target": "Apply"}, {"op": "expect_visible", "target": "East"}]}
+        from scenario_review import proposal_problems
+        self.assertTrue(any("aggregation evidence" in problem
+                            for problem in proposal_problems(proposal, target, fixtures)))
+        proposal["steps"].append({"op": "expect_cell", "target": "B2", "value": "1200"})
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
 
     def test_template_wording_is_never_an_allowed_literal(self):
         target, _ = self._target()

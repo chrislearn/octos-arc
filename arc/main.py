@@ -4836,7 +4836,8 @@ class Flow:
                    for path in app_source_files(self.output_dir)}
         if sources:
             contracts = getattr(self, "requirement_contracts", None)
-            if not self.tests_dir and isinstance(contracts, dict):
+            if (not self.tests_dir or any(self.derived_review_needed(node_id) for node_id in ids)) \
+                    and isinstance(contracts, dict):
                 # Requirement-declared initial records are part of the feature,
                 # not optional examples from a hidden test. Missing quoted
                 # identifiers are strong traceability evidence and force a
@@ -4870,10 +4871,10 @@ class Flow:
         is correct. The corrective turn sees the full active scenarios and the
         exact focused source closure.
         """
-        if getattr(self, "tests_dir", None):
+        node_id = str(node.get("id"))
+        if getattr(self, "tests_dir", None) and not self.derived_review_needed(node_id):
             return []
         contracts = getattr(self, "requirement_contracts", None)
-        node_id = str(node.get("id"))
         if not isinstance(contracts, dict) or not any(
                 str(item.get("id")) == node_id for item in contracts.get("nodes") or []):
             return []
@@ -5013,8 +5014,7 @@ class Flow:
         self.derived_suite_verified = True
 
     def weak_derived_leaves(self, ordered: list[dict]) -> list[str]:
-        """Leaves whose derived spec has no scenario-specific script: only reach
-        or entry checks, which a hollow feature can satisfy."""
+        """Leaves with no behavioural script, including leaves with no spec."""
         directory = getattr(self, "derived_tests_dir", None)
         if not directory:
             return []
@@ -5023,11 +5023,25 @@ class Flow:
             node_id = str(node.get("id"))
             path = directory / f"{node_id}.spec.ts"
             if not path.is_file():
+                weak.append(node_id)
                 continue
             source = path.read_text(encoding="utf-8")
             if "[script]" not in source and "[model]" not in source:
                 weak.append(node_id)
         return weak
+
+    def derived_review_needed(self, node_id: str) -> bool:
+        """A reach/entry-only derived spec cannot certify feature behaviour."""
+        if not getattr(self, "derived_as_specs", False):
+            return False
+        directory = getattr(self, "derived_tests_dir", None)
+        if not directory:
+            return True
+        path = directory / f"{node_id}.spec.ts"
+        if not path.is_file():
+            return True
+        source = path.read_text(encoding="utf-8")
+        return "[script]" not in source and "[model]" not in source
 
     def derived_completeness_pass(self, ordered: list[dict]) -> None:
         """Spend remaining budget on leaves the derived suite cannot judge.
@@ -6118,7 +6132,8 @@ class Flow:
             self.pending_corrections.append(
                 "Your implementation turn ran out of time; work in smaller steps and verify with curl early.")
         review_gaps = (Flow.no_spec_feature_review(self, node, deadline)
-                       if ok and not getattr(self, "tests_dir", None) else [])
+                       if ok and (not getattr(self, "tests_dir", None)
+                                  or self.derived_review_needed(node_id)) else [])
         if review_gaps:
             text = ((text or "") + "\nNo-spec scenario review remains pending: "
                     + "; ".join(review_gaps[:6]))[-2000:]

@@ -148,8 +148,14 @@ def _aria_contracts(text: str) -> list[tuple[str, str]]:
 
 
 def _seed_expectations(out: "_Scenario", entry: str | None) -> tuple[list[str], list[tuple[str, str]]]:
-    """Plain seed values the app must show once the entry record is open, and
-    cell=value seeds. Ranges and formulas are structure, not visible text."""
+    """Only assert seed data tied to the opened record's visible structure.
+
+    A GIVEN can list related members, teams and repositories as background.
+    Those records need not be visible on the entry page (GitHub REQ-2-1-1),
+    so treating every seed as page text creates false failures and induces
+    generated apps to display unrelated data. Cell seeds have a coordinate and
+    are safe to check once the seeded workbook is open.
+    """
     values: list[str] = []
     cells: list[tuple[str, str]] = []
     for kind, value in out.seed_kinds:
@@ -164,11 +170,6 @@ def _seed_expectations(out: "_Scenario", entry: str | None) -> tuple[list[str], 
             continue
         if value.startswith("=") or _CELL_REF.match(value):
             continue
-        parts = [part.strip() for part in value.split("/")] if "/" in value and value.count("/") <= 3 else [value]
-        for part in parts:
-            # "4" as page text is a substring match of almost anything: no evidence.
-            if part and len(part) >= 3 and part not in values and not _CELL_REF.match(part) and not part.startswith("="):
-                values.append(part)
     return values[:6], cells[:4]
 _SEED_ITEM = re.compile(r"(?P<kind>(?:[A-Za-z0-9-]+\s+){0,3}?)`(?P<value>[^`]+)`")
 _NON_PUBLIC = re.compile(r"private|secret|inaccessible|deleted|outsider|unknown|invalid|restricted", re.I)
@@ -182,7 +183,7 @@ def _quoted(match: re.Match) -> str:
 
 
 def _ts(value: str) -> str:
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ") + "'"
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"
 
 
 def _ts_match(values: list[str]) -> str:
@@ -220,6 +221,34 @@ def _descriptive(literal: str) -> bool:
 _DESCRIBING_NOUNS = {"name", "identifier", "value", "text", "field", "entry", "page", "label", "message", "id",
                      "number", "address", "section", "list", "area", "content", "body", "title", "description",
                      "input", "selector", "control", "indicator", "suffix", "prefix", "count", "date", "time"}
+
+
+def _field_labels(node_text: str) -> list[str]:
+    """Explicit form labels in the requirement, excluding nearby buttons.
+
+    Prose such as 'enters organization identifier `mobile-guild`' describes a
+    value, not an accessible field label. The form contract may instead say
+    'fields labeled “Organization name” and “Display name”'.
+    """
+    labels = [item["name"] for item in _ui_bindings(node_text)
+              if item["role"] in {"textbox", "input", "combobox"}]
+    for match in re.finditer(r"\bfields?\s+(?:labell?ed|named)\s+", node_text, re.I):
+        tail = node_text[match.end():]
+        end = re.search(r"[.;]|\b(?:and\s+)?(?:a|the)\s+(?:button|link|tab)\b", tail, re.I)
+        group = tail[:end.start()] if end else tail[:120]
+        labels.extend((literal.group(1) or literal.group(2) or literal.group(3))
+                      for literal in _ANY_LITERAL.finditer(group))
+    return list(dict.fromkeys(labels))
+
+
+def _resolve_field_label(candidate: str, labels: list[str]) -> str | None:
+    """Use a declared label when a scenario uses a semantic field description."""
+    if not labels:
+        return candidate
+    def normalized(value: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"\bidentifier\b", "name", value.lower())).strip()
+    matches = [label for label in labels if normalized(label) == normalized(candidate)]
+    return matches[0] if len(matches) == 1 else None
 
 
 def literal_prefix(literal: str) -> str | None:
@@ -312,7 +341,8 @@ def _seed_for_kind(out: _Scenario, kind: str) -> str | None:
     return None
 
 
-def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario, lenient: bool = False) -> bool:
+def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario, lenient: bool = False,
+                     field_labels: list[str] | None = None) -> bool:
     """Append the sentence's actions.
 
     Strict (WHEN): every action must be understood and every quoted literal
@@ -363,7 +393,11 @@ def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario, lenient:
         code = []
         for label, value in items:
             label = _LABEL_NOISE.sub("", label.strip())
-            code.append(f"await h.fillField(page, {_ts(label)}, {_ts(value)});")
+            resolved = _resolve_field_label(label, field_labels or [])
+            if resolved is None:
+                out.compiled = False
+                break
+            code.append(f"await h.fillField(page, {_ts(resolved)}, {_ts(value)});")
         spans.append((match.start(), match.end(), "\n".join(code), items[0][0]))
     for match in _CHECK.finditer(sentence):
         if free(match.start(), match.end()):
@@ -445,6 +479,7 @@ def _then_literals(clause: str, fixtures: Fixtures, node_text: str) -> list[str]
 
 def _compile_scenario(scenario: Mapping, fixtures: Fixtures, node_text: str = "") -> _Scenario:
     out = _Scenario(title=str(scenario.get("name") or "scenario"))
+    field_labels = _field_labels(node_text)
     phase = ""
     then_clauses = 0
     negative_clauses = 0
@@ -475,13 +510,13 @@ def _compile_scenario(scenario: Mapping, fixtures: Fixtures, node_text: str = ""
                     elif names:
                         out.actions.append(f"await h.clickNamed(page, [{', '.join(names)}]);")
                     continue
-                _compile_actions(sentence, fixtures, out, lenient=True)
+                _compile_actions(sentence, fixtures, out, lenient=True, field_labels=field_labels)
             elif phase == "WHEN":
                 if out.fallback_entry is None:
                     literal = _ANY_LITERAL.search(sentence)
                     if literal:
                         out.fallback_entry = (literal.group(1) or literal.group(2) or literal.group(3)).rstrip(":. ")
-                _compile_actions(sentence, fixtures, out)
+                _compile_actions(sentence, fixtures, out, field_labels=field_labels)
             elif phase == "THEN":
                 for clause in re.split(r";|,\s*and\s+|\band\s+(?=\w+s\b)", sentence):
                     if not clause.strip():
@@ -541,7 +576,12 @@ def _entry_script(parsed: "_Scenario", node_text: str, context: str,
     if entry is None:
         return None
     values, cells = _seed_expectations(parsed, entry)
-    aria = _aria_contracts(node_text + "\n" + context + "\n" + shared)[:4]
+    # A menuitem/dialog/option is normally hidden until its trigger is opened.
+    # An entry smoke check has not performed that interaction, so asserting
+    # such roles here makes a correct accessible UI fail.
+    entry_roles = {"grid", "gridcell", "tablist", "table", "navigation", "toolbar"}
+    aria = [contract for contract in _aria_contracts(node_text + "\n" + context + "\n" + shared)
+            if contract[0] in entry_roles][:4]
     # A control name is a few words; a quoted sentence next to "dialog"/"button"
     # is a message ("A workbook must contain at least one worksheet") that only
     # a failed action shows, never something to reach on the happy path.
@@ -575,8 +615,9 @@ def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: s
         parsed = _compile_scenario(scenario, fixtures, node_text)
         title = parsed.title if parsed.title.startswith(node_id) else f"{node_id}: {parsed.title}"
         actions = [a for a in parsed.actions if not a.startswith("await h.signIn(")]
-        scripted = parsed.compiled and not parsed.generic and bool(actions) and (
-            bool(parsed.assertions) or not parsed.failure_path)
+        # A path ending in "no error" proves neither mutation nor rejection.
+        # Keep it as a reach hint; do not feed a no-op success to code repair.
+        scripted = parsed.compiled and not parsed.generic and bool(actions) and bool(parsed.assertions)
         entry_script = _entry_script(parsed, node_text, context, shared) if parsed.generic and not scripted else None
         if entry_script is not None:
             lines_, key = entry_script
@@ -588,15 +629,16 @@ def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: s
                                  "  test.setTimeout(120_000);\n" + "\n".join(lines + lines_) + "\n});")
                     reach_checks += 1
             continue
-        # Reach check: the entry control, or public seeds for generic scenarios.
+        # Reach checks name controls from the current requirement. A public
+        # seed may be an unrelated record (repository on a member page), so
+        # reaching an arbitrary seed is not evidence for this leaf.
         if scripted:
             targets = []
-        elif parsed.entry:
+        elif parsed.entry and not _descriptive(parsed.entry):
             targets = [parsed.entry]
-        elif parsed.seeds:
-            targets = parsed.seeds[:2]
         else:
-            targets = [parsed.fallback_entry] if parsed.fallback_entry else []
+            controls = [literal_prefix(item["name"]) for item in _ui_bindings(node_text)]
+            targets = [next((name for name in controls if name and not _descriptive(name)), None)]
         # “owner/repository name” and "<cell coordinate>" are patterns, not controls.
         targets = [t for t in targets if t and not _descriptive(t)]
         for target in targets:
@@ -618,8 +660,6 @@ def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: s
                 lines += ["  " + line for action in actions for line in action.split("\n")]
                 if parsed.assertions:
                     lines.append(f"  await h.expectTextsVisible(page, [{', '.join(_ts(a) for a in dict.fromkeys(parsed.assertions))}]);")
-                else:
-                    lines.append("  await h.expectNoErrorState(page);")
                 tests.append(f"test({_ts(unique(f'{title} [script]'))}, async ({{ page }}) => {{\n"
                              "  test.setTimeout(120_000);\n" + "\n".join(lines) + "\n});")
                 scripts += 1

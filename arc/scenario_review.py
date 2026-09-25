@@ -19,8 +19,9 @@ from typing import Iterable, Mapping
 from scenario_tests import (Fixtures, _ANY_LITERAL, _compile_scenario, _descriptive, _node_text, _sentences, _ts,
                             literal_prefix)
 
-OPS = {"open", "click", "fill", "check", "press", "expect_visible", "expect_absent",
-       "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download"}
+OPS = {"open", "click", "fill", "check", "press", "set_clipboard", "expect_visible", "expect_absent",
+       "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download",
+       "expect_clipboard"}
 # "open the home page" needs no literal: it is the application root.
 HOME_TARGET = re.compile(r"^(?:the\s+)?(?:application\s+|app\s+|workbook\s+)?home(?:\s*page)?$", re.I)
 # Template wording of the task itself ("the requested workflow") is never a literal.
@@ -48,6 +49,7 @@ PLACEHOLDERS = {
     "$BLANK": "whitespace only (an invalid empty input for a required field)",
     "$CSV": "a CSV file of the seeded `label/value` rows in seed order, no header row -- after import A1 holds "
             "the first seeded label, B1 its value, A2 the second label ... (only as the value of an upload step)",
+    "$TABLE": "a tab/newline-delimited two-dimensional table of the seeded rows, for an external paste test",
 }
 
 
@@ -102,6 +104,8 @@ Operations (use only these):
   {"op": "check", "target": L}           check the checkbox named L
   {"op": "press", "key": "Enter"}        press a key: Enter, Escape, Tab, Delete, Backspace, Arrow keys,
                                          Home, End, Shift+Enter, Shift+Tab, Control+C/V/X/Z/Y/A, Control+Enter
+  {"op": "set_clipboard", "value": "$TABLE"}  put the seeded two-dimensional table on the browser clipboard
+                                         before testing paste from an external source
   {"op": "expect_visible", "target": L}  assert the text or control L is visible
   {"op": "expect_absent", "target": L}   assert the text L is not visible
   {"op": "cell_click", "target": "A1"}   select a spreadsheet cell by its coordinate (ARIA gridcell name);
@@ -114,8 +118,11 @@ Operations (use only these):
                                          (roles: grid, gridcell, tab, dialog, menu, menuitem, button, link, ...)
   {"op": "upload", "target": L, "value": "$CSV"}  choose a file in the file input named/labelled L; $CSV is a
                                          CSV of the seeded label/value rows, no header (A1 = first label)
-  {"op": "expect_download", "target": L, "value": ".csv"}  click the control L and assert a file download whose
-                                         name ends with the given suffix starts
+  {"op": "expect_download", "target": L, "value": ".csv", "contains": ["Region"]}
+                                         click L; assert the download suffix and file contents. For CSV
+                                         export, include a seeded cell value (or an imported row value).
+  {"op": "expect_clipboard", "target": L, "protocol": "HTTPS"}  read the browser clipboard and
+                                         assert it contains L and has the selected clone protocol.
 A scenario that says "the requested workflow" (or "follows the visible controls") means: perform the
 operation that the Requirement text of that scenario describes, on the seeded record, with the concrete
 values the scenario lists; then assert the observable result the Requirement text promises. When the
@@ -133,8 +140,13 @@ Controls (targets of open/click/check/fill/upload) may also be any control named
 requirement (the CONTROLS list), or such a name followed by a seeded value ("Remove bob-reviewer");
 expect_visible/expect_absent targets must come from the scenario's own ALLOWED LITERALS.
 Copy, cut, paste, undo and redo are done with press Control+C / Control+X / Control+V / Control+Z /
-Control+Y on the selected cell (no clipboard setup is needed). Import is scripted with the upload step and
+Control+Y on the selected cell. A paste script must first copy in this script or use set_clipboard; an empty
+fresh browser clipboard is not a valid fixture. Import is scripted with the upload step and
 $CSV; export with expect_download on the control that triggers it.
+After each "Copy clone value" click, use expect_clipboard for that protocol and the seeded repository name;
+the "Copied" toast alone does not prove the clipboard contains the clone value.
+For a pivot table, formula, or other numeric result, assert the result in a destination cell with expect_cell;
+seeing the original source labels and values somewhere on the page does not prove the calculation.
 L and V MUST be copied verbatim from the ALLOWED LITERALS list of that scenario (control names the
 requirement quotes, seeded record names, or the fixture account/email/password). Never invent names.
 Values the user must make up are written as placeholders, allowed ONLY as fill values and as
@@ -192,21 +204,28 @@ def folder_text(tree: Mapping | None) -> str:
     return "\n".join(parts)
 
 
-def allowed_literals(node: Mapping, fixtures: Fixtures, context: str = "") -> list[str]:
-    """Every literal the requirement quotes, the scenario seeds, and fixtures."""
+def allowed_literals(node: Mapping, fixtures: Fixtures, context: str = "",
+                     scenario: Mapping | None = None) -> list[str]:
+    """Literal vocabulary for one scenario, plus the leaf contract and fixtures.
+
+    The old leaf-wide union let one scenario's seed or title leak into another
+    scenario's assertions. Navigation may still use suite_controls.
+    """
     text = _node_text(node) + "\n" + context
     values: list[str] = []
-    for scenario in node.get("scenarios") or []:
-        for step in scenario.get("steps") or []:
+    chosen = [scenario] if scenario is not None else (node.get("scenarios") or [])
+    for item in chosen:
+        for step in item.get("steps") or []:
             text += "\n" + str(step.get("content") or "")
-    for scenario in node.get("scenarios") or []:
+    for item in chosen:
         # Templated titles carry their concrete values unquoted: "... the
         # requested workflow Pivot1 the requested workflow Region ...".
-        title = str(scenario.get("name") or scenario.get("title") or "")
+        title = str(item.get("name") or item.get("title") or "")
         if TEMPLATE_TEXT.search(title):
-            for token in re.split(r"the\s+requested\s+workflow|[,;]", re.sub(r"^\s*REQ[\w-]*\s*-?", "", title), flags=re.I):
-                token = token.strip(" -")
-                if 1 < len(token) <= 40 and not TEMPLATE_TEXT.search(token):
+            title = re.sub(r"^\s*(?:REQ[\w-]+\s*(?::|-)?\s*)+", "", title, flags=re.I)
+            for token in re.split(r"the\s+requested\s+workflow|[,;]", title, flags=re.I):
+                token = token.strip(" -:")
+                if 1 < len(token) <= 40 and not TEMPLATE_TEXT.search(token) and not _descriptive(token):
                     values.append(token)
     for match in _ANY_LITERAL.finditer(text):
         # "Last updated: <last updated value>" is a pattern; only its fixed
@@ -247,8 +266,8 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
     for node in leaves:
         node_id = str(node.get("id"))
         node_text = _node_text(node)
-        allowed = allowed_literals(node, fixtures, (context or {}).get(node_id, ""))
         for scenario in node.get("scenarios") or []:
+            allowed = allowed_literals(node, fixtures, (context or {}).get(node_id, ""), scenario)
             # Templated tasks repeat the same scenario text several times under
             # one leaf; one script serves all copies.
             signature = (node_id,) + tuple(" ".join(_sentences(step.get("content")))
@@ -275,6 +294,7 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "name": str(node.get("name") or ""),
                             "description": re.sub(r"\s+", " ", str(node.get("description") or ""))[:2600],
                             "steps": steps, "allowed": allowed, "seeds": parsed.seeds,
+                            "seed_kinds": parsed.seed_kinds,
                             "controls": controls, "signed_in": parsed.signed_in,
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
                                                        r"\b[A-Z]{1,3}[0-9]{1,4}\s*=",
@@ -328,6 +348,9 @@ def _emit(step: dict) -> str | None:
         return f"await h.checkNamed(page, {_ts(target)});"
     if op == "press":
         return f"await h.pressKey(page, {_ts(str(step.get('key')))});"
+    if op == "set_clipboard":
+        value = str(step.get("table") or "")
+        return f"await h.setClipboardText(page, {_ts(value)});"
     parts = seed_parts if step.get("seed_row") else (lambda value: [str(value)])
     if op == "expect_visible":
         return f"await h.expectTextsVisible(page, [{', '.join(_ts(part) for part in parts(target))}]);"
@@ -346,7 +369,11 @@ def _emit(step: dict) -> str | None:
         csv = str(step.get("csv") or "").replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
         return f"await h.uploadFile(page, {_ts(target)}, '{csv}');"
     if op == "expect_download":
-        return f"await h.expectDownload(page, {_ts(target)}, {_ts(str(step.get('value')))});"
+        content = step.get("contains") or []
+        return (f"await h.expectDownload(page, {_ts(target)}, {_ts(str(step.get('value')))}, "
+                f"[{', '.join(_ts(item) for item in content)}]);")
+    if op == "expect_clipboard":
+        return f"await h.expectClipboard(page, {_ts(target)}, {_ts(str(step.get('protocol')))});"
     return None
 
 
@@ -387,17 +414,69 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 return True
         return False
     asserted = False
+    clipboard_ready = False
+    clipboard_rows: list[list[str]] | None = None
+    selected_cell = ""
+    pasted_cells: dict[str, str] = {}
+    uploaded_csv: list[list[str]] | None = None
+    edited_cells: set[str] = set()
+    pending_clone_copies: list[tuple[int, str]] = []
+    selected_protocol = ""
+    cell_seeds = [value for kind, value in target.get("seed_kinds") or []
+                  if re.search(r"\bcell\s+[A-Z]{1,3}[0-9]{1,4}\s+value\b", kind, re.I)]
     for index, step in enumerate(steps, 1):
         if not isinstance(step, dict) or step.get("op") not in OPS:
             problems.append(f"step {index}: unknown op {json.dumps(step.get('op') if isinstance(step, dict) else step)}; "
                             f"use one of {sorted(OPS)}")
             continue
         op = step["op"]
+        if op == "expect_clipboard":
+            value = step.get("target")
+            if not isinstance(value, str) or value.strip() not in allowed:
+                problems.append(f"step {index}: expect_clipboard target must be a seeded or quoted literal")
+            if step.get("protocol") not in {"HTTPS", "SSH"}:
+                problems.append(f"step {index}: expect_clipboard protocol must be HTTPS or SSH")
+            elif pending_clone_copies and selected_protocol == step.get("protocol"):
+                pending_clone_copies.pop()
+            asserted = True
+            continue
+        if op == "set_clipboard":
+            if not target.get("has_grid", True):
+                problems.append(f"step {index}: set_clipboard needs a spreadsheet grid")
+            if step.get("value") != "$TABLE":
+                problems.append(f"step {index}: set_clipboard value must be $TABLE")
+            clipboard_ready = True
+            clipboard_rows = [row.split(",") for row in seed_csv(target.get("seeds") or []).splitlines()]
+            continue
         if op == "press":
             if step.get("key") not in KEYS:
                 problems.append(f"step {index}: key {json.dumps(step.get('key'))} is not one of {sorted(KEYS)}")
+            if step.get("key") in {"Control+C", "Control+X"}:
+                clipboard_ready = True
+                clipboard_rows = None  # The browser copies the selected live cells.
+            if step.get("key") == "Control+V" and not clipboard_ready:
+                problems.append(f"step {index}: Control+V has no clipboard source; copy cells or set_clipboard first")
+            if step.get("key") == "Control+V" and clipboard_rows and CELL.match(selected_cell):
+                anchor = re.fullmatch(r"([A-Z]+)([1-9]\d*)", selected_cell)
+                if anchor:
+                    base_col = 0
+                    for char in anchor.group(1):
+                        base_col = base_col * 26 + ord(char) - ord('A') + 1
+                    for row_offset, row in enumerate(clipboard_rows):
+                        for col_offset, item in enumerate(row):
+                            column, letters = base_col + col_offset, ""
+                            while column:
+                                column, rem = divmod(column - 1, 26)
+                                letters = chr(ord('A') + rem) + letters
+                            pasted_cells[f"{letters}{int(anchor.group(2)) + row_offset}"] = item
+            if step.get("key") in {"Control+Z", "Control+Y"}:
+                pasted_cells.clear()
             continue
         value = step.get("target")
+        if op in {"click", "open"} and value in {"HTTPS", "SSH"}:
+            selected_protocol = str(value)
+        if (op == "click" and isinstance(value, str) and re.search(r"\bcopy\s+clone\s+value\b", value, re.I)):
+            pending_clone_copies.append((index, selected_protocol))
         if op in {"cell_click", "cell_type", "expect_cell"}:
             if not target.get("has_grid", True):
                 problems.append(f"step {index}: {op} needs a spreadsheet grid; this product has none")
@@ -406,6 +485,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                                                   or (op == "cell_click" and RANGE.match(value.strip()))):
                 problems.append(f"step {index}: {op} target {json.dumps(value, ensure_ascii=False)} is not a cell "
                                 f"coordinate such as A1" + (" or a range such as A1:B2" if op == "cell_click" else ""))
+            if op == "cell_click" and isinstance(value, str):
+                selected_cell = value.strip().split(":", 1)[0]
             if op != "cell_click":
                 typed = step.get("value")
                 if isinstance(typed, (int, float)) and not isinstance(typed, bool):
@@ -419,6 +500,25 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                                     f"value, number, placeholder or literal the requirement quotes")
             # v9.2.2 (cce3f5ad4f21): expect_cell did not count as an assertion, so
             # every cell-only script was rejected for "no expect step".
+            if op == "cell_type" and isinstance(value, str):
+                edited_cells.add(value.strip())
+            if (op == "expect_cell" and isinstance(value, str) and value.strip() in pasted_cells
+                    and value.strip() not in edited_cells and str(step.get("value")) != pasted_cells[value.strip()]):
+                problems.append(f"step {index}: pasted {value} should be {pasted_cells[value.strip()]!r}, "
+                                f"not {step.get('value')!r}")
+            if op == "expect_cell" and uploaded_csv and isinstance(value, str) and value.strip() not in edited_cells:
+                cell = re.fullmatch(r"([A-Z]+)([1-9]\d*)", value.strip())
+                if cell:
+                    column = 0
+                    for char in cell.group(1):
+                        column = column * 26 + ord(char) - ord('A') + 1
+                    row = int(cell.group(2)) - 1
+                    column -= 1
+                    if row < len(uploaded_csv) and column < len(uploaded_csv[row]):
+                        expected = uploaded_csv[row][column]
+                        if str(step.get("value")) != expected:
+                            problems.append(f"step {index}: after CSV import {value} should be {expected!r}, "
+                                            f"not {step.get('value')!r}")
             asserted = asserted or op == "expect_cell"
             continue
         if op == "upload":
@@ -426,6 +526,9 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 problems.append(f"step {index}: upload target {json.dumps(value, ensure_ascii=False)} is not an allowed literal")
             if str(step.get("value") or "").strip() != "$CSV":
                 problems.append(f"step {index}: upload value must be $CSV")
+            else:
+                uploaded_csv = [row.split(",") for row in seed_csv(target.get("seeds") or []).splitlines()]
+                edited_cells.clear()
             continue
         if op == "expect_download":
             if not is_control(value):
@@ -433,6 +536,19 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             suffix = str(step.get("value") or "").strip()
             if not re.match(r"^\.[a-z0-9]{1,8}$", suffix):
                 problems.append(f"step {index}: expect_download value must be a file suffix such as .csv")
+            if index > 1 and isinstance(steps[index - 2], dict) and steps[index - 2].get("op") == "click" \
+                    and steps[index - 2].get("target") == value:
+                problems.append(f"step {index}: expect_download already clicks {value!r}; remove the prior click")
+            content = step.get("contains", [])
+            if not isinstance(content, list) or any(not isinstance(item, str) or not item.strip()
+                                                    or item.strip() not in allowed for item in content):
+                problems.append(f"step {index}: expect_download contains must be a list of nonempty allowed literals")
+            elif suffix == ".csv" and re.search(r"\bexport\b", target.get("name", "") + " "
+                                                  + target.get("description", ""), re.I):
+                needed = [item for row in uploaded_csv for item in row] if uploaded_csv else cell_seeds
+                if needed and not any(item in content for item in needed):
+                    problems.append(f"step {index}: CSV export must check downloaded contents for a seeded "
+                                    "cell or imported row value")
             asserted = True
             continue
         if op == "expect_role":
@@ -447,6 +563,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         placeholder_ok = op.startswith("expect_")
         if op == "open" and isinstance(value, str) and HOME_TARGET.match(value.strip()):
             continue
+        if op in {"open", "click"} and uploaded_csv and value in (target.get("seeds") or []):
+            uploaded_csv = None  # Explicitly reopened the original seeded record.
         if not placeholder_ok and is_control(value):
             pass
         elif not isinstance(value, str) or not (value.strip() in allowed or (placeholder_ok and value.strip() in PLACEHOLDERS)):
@@ -506,6 +624,13 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         if expects and not evidence:
             problems.append("every expect step names a control the script itself clicked or a value it typed; assert "
                             "the outcome the THEN step promises (a message, a new record, a changed status) instead")
+    if pending_clone_copies:
+        problems.append("each Copy clone value click needs expect_clipboard with the selected HTTPS/SSH protocol")
+    if (re.search(r"\bpivot\s+table\b", str(target.get("name") or ""), re.I)
+            and any(isinstance(step, dict) and step.get("op") == "click" and step.get("target") == "Apply"
+                    for step in steps)
+            and not any(isinstance(step, dict) and step.get("op") == "expect_cell" for step in steps)):
+        problems.append("pivot table Apply needs expect_cell on the result worksheet; source text is not aggregation evidence")
     # v9.2.4 github (1307196473c1): a script typed the verification code
     # "123456" into its field and then expected "123456" to be visible; secrets
     # and codes are not echoed as page text. Reject that pairing explicitly.
@@ -554,10 +679,12 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         step = dict(step)
         if step["op"] == "upload":
             step["csv"] = seed_csv(target.get("seeds") or [])
+        if step["op"] == "set_clipboard":
+            step["table"] = seed_csv(target.get("seeds") or []).replace(",", "\t")
         # Only a seeded `label/value` row splits into cells; "src/search.ts" is a path.
         step["seed_row"] = str(step.get("target") or "") in set(target.get("seeds") or []) \
             or str(step.get("value") or "") in set(target.get("seeds") or [])
-        if step["op"] != "press":
+        if step["op"] not in {"press", "set_clipboard"}:
             step["target"] = expand_placeholder(str(step["target"]).strip(), scope)
             if step["op"] in {"fill", "cell_type", "expect_cell"}:
                 step["value"] = expand_placeholder(str(step["value"]).strip(), scope)
