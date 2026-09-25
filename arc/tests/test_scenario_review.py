@@ -3,7 +3,7 @@ import re
 import unittest
 
 from scenario_review import (allowed_literals, ancestor_context, build_prompt, compile_reply, parse_reply,
-                             review_targets, validate_proposal)
+                             prioritize_review_targets, review_targets, validate_proposal)
 from scenario_tests import suite_fixtures
 
 
@@ -37,6 +37,31 @@ class ReviewTargetTests(unittest.TestCase):
         self.assertEqual(targets[0]["node_id"], "REQ-6-5")
         self.assertIn("Merge pull request", targets[0]["allowed"])
         self.assertIn("acme-docs", targets[0]["allowed"])
+
+    def test_full_plan_includes_mechanical_scripts_and_prioritizes_one_per_feature(self):
+        first = leaf("A", [("one", [("WHEN", "Click “Open A”."), ("THEN", "Shows “Done A”.")]),
+                           ("two", [("WHEN", "Click “Other A”."), ("THEN", "Shows “Other done”.")])])
+        second = leaf("B", [("one", [("WHEN", "Click “Open B”."), ("THEN", "Shows “Done B”.")])])
+        targets = review_targets([first, second], suite_fixtures([first, second]), include_all=True)
+        self.assertEqual([t["node_id"] for t in prioritize_review_targets(targets)], ["A", "B", "A"])
+
+    def test_full_plan_requires_the_when_actions_and_can_hover_a_seeded_record(self):
+        node = leaf("REQ-N", [("Delete", [
+            ("GIVEN", "The system contains note `Delete me`."),
+            ("WHEN", "Hover over `Delete me`, click “More options”, and choose “Delete Note”."),
+            ("THEN", "The note `Delete me` is removed."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures, include_all=True)[0]
+        missing = {"confidence": 0.9, "steps": [
+            {"op": "hover", "target": "Delete me"},
+            {"op": "click", "target": "More options"},
+            {"op": "expect_absent", "target": "Delete me"}]}
+        from scenario_review import proposal_problems
+        self.assertIn("Delete Note", " | ".join(proposal_problems(missing, target, fixtures)))
+        missing["steps"].insert(2, {"op": "click", "target": "Delete Note"})
+        self.assertEqual(proposal_problems(missing, target, fixtures), [])
+        self.assertIn("h.hoverNamed(page, 'Delete me')", validate_proposal(missing, target, fixtures))
 
     def test_allowed_literals_include_context_and_fixtures(self):
         allowed = allowed_literals(MERGE, suite_fixtures([MERGE]), context="Visitors use “Sign in” on the home page.")

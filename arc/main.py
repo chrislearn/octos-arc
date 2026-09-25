@@ -70,6 +70,9 @@ Environment (all optional):
     OCTOS_ARC_NO_SPEC_EDIT_REQUESTS  structured-edit request budget without official specs (default 12)
     OCTOS_ARC_NO_SPEC_REVIEW_SECONDS  maximum focused repair time after a scenario/seed audit (default 180)
     OCTOS_ARC_DERIVED_SPEC_AUDIT  "0" disables requirement-grounded corrections of failing self-generated specs
+    OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on pre-implementation AI spec-plan batches (default covers one per feature)
+    OCTOS_ARC_DERIVED_FAILURE_REVIEW  "0" disables independent review of failing AI-generated specs
+    OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE  maximum AI spec reviews per related/full suite (default 3)
     OCTOS_ARC_TRANSIENT_RETRY_SECONDS  time allowed after the first provider error for retries (default 240)
     OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS  cap for each request after the first provider error (default 180)
     OCTOS_ARC_WHOLE_APP_PROMPT_CHARS  input cap for each generation wave (default 60000)
@@ -126,8 +129,9 @@ from dataclasses import replace as dc_replace  # noqa: E402
 from scenario_tests import compile_suite as compile_derived_suite, suite_fixtures, write_suite  # noqa: E402
 from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests,  # noqa: E402
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
-                             folder_text, retry_prompt as build_review_retry, review_targets)
-from derived_spec_audit import repair_failed_generated_specs  # noqa: E402
+                             folder_text, prioritize_review_targets,
+                             retry_prompt as build_review_retry, review_targets)
+from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle  # noqa: E402
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
 from web_checks import scaffold_issues  # noqa: E402
@@ -4252,6 +4256,128 @@ class Flow:
             + (f"; {observed.error}" if observed.error else ""))
         return observed
 
+    def review_failed_derived_spec_with_model(self, node_id: str, specs: list[str],
+                                              summary: RunSummary) -> RunSummary | None:
+        """Independently review one failing generated script before app repair.
+
+        The reviewer may reorder or add prerequisites, but every original
+        assertion must survive. A changed oracle needs requirement proof that
+        this generic review cannot establish, so it is not applied here.
+        """
+        if (getattr(self, "derived_as_specs", False) is not True
+                or getattr(self, "driver", None) is None
+                or os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW", "1") == "0"
+                or not self.suite_is_measured(summary, specs) or summary.all_passed
+                or self.wound_down() or self.remaining() < self.final_phase_reserve() + 240):
+            return None
+        node = getattr(self, "requirement_nodes", {}).get(node_id)
+        runner = getattr(self, "runner", None)
+        if not node or runner is None or not hasattr(runner, "list_specs"):
+            return None
+        candidates = [row for row in summary.results if not row.ok
+                      and row.title.endswith((" [model]", " [script]"))]
+        if not candidates:
+            return None
+        row = candidates[0]
+        key = (node_id, row.title, failure_signature(summary))
+        reviewed = getattr(self, "derived_failure_reviews", set())
+        if key in reviewed:
+            return None
+        reviewed.add(key)
+        self.derived_failure_reviews = reviewed
+        fixtures = suite_fixtures(getattr(self, "derived_nodes", [node]))
+        targets = review_targets(getattr(self, "derived_nodes", [node]), fixtures,
+                                 ancestor_context(getattr(self, "requirement_tree", None)),
+                                 folder_text(getattr(self, "requirement_tree", None)), include_all=True)
+        target = next((item for item in targets if item["node_id"] == node_id
+                       and row.title in {f"{item['title']} [model]", f"{item['title']} [script]"}), None)
+        rel = next((path for path in specs if str(row.file or "").replace("\\", "/").endswith(path)), None)
+        if target is None or rel is None:
+            return None
+        path = self.tests_dir / rel
+        original = path.read_text(encoding="utf-8")
+        prompt = ("Review a failed TEST, not the app implementation. The requirement is the oracle. "
+                  "Classify as app_error, spec_error, or uncertain. For spec_error caused by missing or "
+                  "misordered actions, provide a corrected scenario in the JSON scenarios array. "
+                  "Keep every existing assertion; do not change an expected value to match the current app. "
+                  "If the assertion itself conflicts with the requirement, report uncertain and leave scenarios empty. "
+                  "Return one JSON object: {\"verdict\":...,\"evidence\":...,\"scenarios\":[...]}.\n\n"
+                  + build_review_prompt([target], fixtures)
+                  + "\n\nFAILED SPEC:\n" + original[:12000]
+                  + "\nFAILURE EVIDENCE:\n" + (failure_summaries(summary) or "")[:4000])
+        ok, reply = self.text_turn(prompt, min(180, max(60, self.remaining() - self.final_phase_reserve())),
+                                   "derived failed-spec review", system=REVIEW_SYSTEM, spec_chars=len(prompt))
+        if not ok:
+            return None
+        verdict = re.search(r'"verdict"\s*:\s*"(app_error|spec_error|uncertain)"', reply)
+        label = verdict.group(1) if verdict else "uncertain"
+        evidence = (re.search(r'"evidence"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', reply) or ["", ""])[1]
+        self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
+                    verdict=label, evidence=str(evidence)[:300])
+        if label != "spec_error":
+            if label == "app_error" and evidence:
+                self.pending_corrections.append(f"Independent generated-spec review for {node_id}: {evidence[:500]}")
+            return None
+        scripts, dropped = compile_review_reply(reply, [target], fixtures)
+        replacement = next((test for test in scripts.get(node_id, [])
+                            if f"{target['title']} [model]" in test.split("\n", 1)[0]), None)
+        corrected = replace_failed_test_preserving_oracle(original, row.title, replacement) if replacement else None
+        if not corrected:
+            self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
+                        verdict="rejected_unsafe_patch", reasons=dropped[:2])
+            return None
+        archive = self.output_dir / ".arc" / "spec-audit" / node_id
+        archive.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(original.encode("utf-8")).hexdigest()[:12]
+        (archive / f"{path.stem}-{digest}.spec.ts").write_text(original, encoding="utf-8")
+        path.write_text(corrected, encoding="utf-8")
+        loads, detail = runner.list_specs(specs)
+        if not loads:
+            path.write_text(original, encoding="utf-8")
+            self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
+                        verdict="rejected_load_error", detail=str(detail)[-300:])
+            return None
+        self.snapshot_protected()
+        observed = self.run_specs(specs)
+        self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
+                    verdict="corrected_and_remeasured", passed=observed.passed, total=observed.total)
+        return observed
+
+    def audit_related_derived_specs(self, specs: list[str], summary: RunSummary) -> RunSummary:
+        """Audit newly failing related specs before blaming a shared app edit.
+
+        A correction is first checked against the unchanged app by the node
+        auditor. Then the combined suite is measured again, because a pass in
+        isolation cannot establish that two features coexist correctly.
+        """
+        if (getattr(self, "derived_as_specs", False) is not True or summary.all_passed
+                or not self.suite_is_measured(summary, specs)):
+            return summary
+        corrected = False
+        model_reviews = 0
+        model_limit = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE", "3")))
+        for node_id, paths in self.spec_map.items():
+            if not node_id or not paths or not set(paths) <= set(specs):
+                continue
+            rows = [row for row in summary.results if any(
+                str(row.file or "").replace("\\", "/") == path or
+                str(row.file or "").replace("\\", "/").endswith("/" + path) for path in paths)]
+            local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+            if local.all_passed or not self.suite_is_measured(local, paths):
+                continue
+            result = self.audit_failed_derived_specs(node_id, paths, local)
+            if (result is None and model_reviews < model_limit
+                    and any(not row.ok and row.title.endswith((" [model]", " [script]"))
+                            for row in local.results)):
+                model_reviews += 1
+                result = self.review_failed_derived_spec_with_model(node_id, paths, local)
+            corrected = result is not None or corrected
+        if corrected:
+            summary = self.run_specs(specs, grader_like=True)
+            self.metric("derived_spec_audit", outcome="related_suite_remeasured",
+                        passed=summary.passed, total=summary.total, specs=len(specs))
+        return summary
+
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
                         rebuild_prompt=None, initial_summary: RunSummary | None = None,
                         source_versions: dict | None = None) -> bool | None:
@@ -4275,6 +4401,10 @@ class Flow:
                 audited = self.audit_failed_derived_specs(node_id, specs, summary)
                 if audited is not None:
                     summary = audited
+                if not summary.all_passed:
+                    reviewed = self.review_failed_derived_spec_with_model(node_id, specs, summary)
+                    if reviewed is not None:
+                        summary = reviewed
             if summary.error and summary.killed:
                 log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
                 return None
@@ -4292,7 +4422,8 @@ class Flow:
                 if measured:
                     self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
-            self.last_node_own_pass = bool(measured and passed == summary.total)
+            self.last_node_own_pass = bool(measured and passed == summary.total
+                                           and not self.derived_review_needed(node_id))
             self.metric("acceptance", scope="node", node_id=node_id, round=attempt,
                         passed=passed, total=summary.total, after_applied_repair=repair_applied,
                         verdict="measured" if measured else "unknown", error=infrastructure_error or None)
@@ -4350,6 +4481,8 @@ class Flow:
                         regression_specs = prior_specs
                 if regression_specs and not self.wound_down() and self.remaining() > self.final_measurement_reserve():
                     regression = self.run_specs(regression_specs, grader_like=True)
+                    if getattr(self, "derived_as_specs", False) is True:
+                        regression = self.audit_related_derived_specs(regression_specs, regression)
                     self.metric("acceptance", scope="affected_regression", node_id=node_id,
                                 passed=regression.passed, total=regression.total,
                                 checked_specs=len(regression_specs), affected_specs=affected_count,
@@ -4386,6 +4519,12 @@ class Flow:
                             log(f"[acceptance] {node_id}: shared-file edit regressed proven behavior; "
                                 "including it in the local repair")
                 if passed == summary.total:
+                    if self.derived_review_needed(node_id):
+                        log(f"[acceptance] {node_id}: generated reach/entry checks pass, "
+                            "but no behavioural spec can verify the feature")
+                        self.metric("derived_spec_coverage", node_id=node_id, outcome="unverified",
+                                    passed=passed, total=summary.total)
+                        return None
                     self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
                     return True
             # A helper that chooses a role before a route/list finishes loading
@@ -5017,8 +5156,7 @@ class Flow:
         files = compile_derived_suite(ordered, ancestor_context(tree), folder_text(tree))
         specs = sorted(rel for rel in files if rel.endswith(".spec.ts"))
         if not specs:
-            log("[derived] no scenario yielded a mechanical check")
-            return False
+            log("[derived] no scenario yielded a mechanical check; AI will plan the first behavioural specs")
         directory = self.output_dir / ".arc" / "derived-tests"
         if directory.exists():
             shutil.rmtree(directory)
@@ -5183,7 +5321,7 @@ class Flow:
             f"{ {k: v for k, v in self.spec_map.items() if v} }")
 
     def augment_derived_tests(self, ordered: list[dict]) -> int:
-        """Ask the model for scripts where the mechanical compiler produced none.
+        """Plan and propose behavioural specs for every feature before implementation.
 
         Bounded in requests and validated literal by literal (scenario_review):
         the model contributes navigation order and which requirement literal
@@ -5197,21 +5335,29 @@ class Flow:
         self.derived_augmented = True
         fixtures = suite_fixtures(ordered)
         context = ancestor_context(getattr(self, "requirement_tree", None))
-        targets = review_targets(ordered, fixtures, context, folder_text(getattr(self, "requirement_tree", None)))
+        targets = prioritize_review_targets(review_targets(
+            ordered, fixtures, context, folder_text(getattr(self, "requirement_tree", None)), include_all=True))
         if not targets:
-            log("[derived] every scenario has a mechanical script; no model review needed")
+            log("[derived] no requirement scenarios to plan")
             return 0
         batch = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_BATCH", "6")))
-        max_requests = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_REQUESTS", "10")))
+        first_per_feature = len({target["node_id"] for target in targets})
+        default_requests = max(10, (first_per_feature + batch - 1) // batch)
+        max_requests = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_REQUESTS", str(default_requests))))
         # A six-scenario batch took 389s locally (33k reasoning tokens): 300s cut
         # whole batches off online.
         timeout = max(60, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_SECONDS", "600")))
-        # Leaves with no mechanical script at all come first: they have no check otherwise.
-        scripted = {rel[:-len(".spec.ts")] for rel, paths in self.derived_spec_map.items()
-                    if "[script]" in "".join((directory / p).read_text(encoding="utf-8") for p in paths)}
-        targets.sort(key=lambda t: t["node_id"] in scripted)
         review_dir = directory / "review"
         review_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = review_dir / "plan.json"
+        plan = {"phase": "before_implementation", "targets": [
+            {"id": t["id"], "node_id": t["node_id"], "title": t["title"], "steps": t["steps"],
+             "status": "pending", "leaf_has_mechanical_behavior": "[script]" in (
+                 (directory / f"{t['node_id']}.spec.ts").read_text(encoding="utf-8")
+                 if (directory / f"{t['node_id']}.spec.ts").is_file() else "")}
+            for t in targets]}
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        plan_rows = {row["id"]: row for row in plan["targets"]}
         added = 0
         dropped_total: list[str] = []
         for index in range(0, min(len(targets), batch * max_requests), batch):
@@ -5219,6 +5365,9 @@ class Flow:
                 log("[derived] model review stopped: time reserved for the final phases")
                 break
             chunk = targets[index:index + batch]
+            for target in chunk:
+                plan_rows[target["id"]]["status"] = "attempted"
+            plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             prompt = build_review_prompt(chunk, fixtures)
             ok, text = self.text_turn(prompt, timeout, "derived scenario review", system=REVIEW_SYSTEM,
                                       spec_chars=len(prompt))
@@ -5243,14 +5392,30 @@ class Flow:
                     fixed_titles = {t.split("test('", 1)[1].split(" [model]")[0] for ts in fixed.values() for t in ts}
                     dropped = [d for d in dropped if d.split(":", 1)[0] not in fixed_titles] + dropped_again
             dropped_total += dropped
+            accepted_titles: set[str] = set()
             for node_id, tests in scripts.items():
                 rel = f"{node_id}.spec.ts"
                 path = directory / rel
                 current = path.read_text(encoding="utf-8") if path.exists() else ""
-                path.write_text(append_tests(current, tests, node_id), encoding="utf-8")
+                updated = append_tests(current, tests, node_id)
+                if updated == current:
+                    continue
+                path.write_text(updated, encoding="utf-8")
                 self.derived_spec_map.setdefault(node_id, [rel])
-                added += len(tests)
-        log(f"[derived] model review: {added} validated script(s) added for {len(targets)} unscripted scenario(s); "
+                titles_before = set(re.findall(r"^test\('((?:\\.|[^'\\])*)'", current, re.M))
+                titles_after = set(re.findall(r"^test\('((?:\\.|[^'\\])*)'", updated, re.M))
+                new_titles = {title.replace("\\'", "'") for title in titles_after - titles_before}
+                accepted_titles.update(new_titles)
+                added += sum(title.endswith(" [model]") for title in new_titles)
+            for target in chunk:
+                if f"{target['title']} [model]" in accepted_titles:
+                    plan_rows[target["id"]]["status"] = "accepted"
+            plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        planned_features = {row["node_id"] for row in plan["targets"] if row["status"] == "accepted"}
+        self.metric("derived_spec_plan", features=len({row["node_id"] for row in plan["targets"]}),
+                    accepted_features=len(planned_features), accepted_tests=added,
+                    pending=sum(row["status"] == "pending" for row in plan["targets"]))
+        log(f"[derived] model review: {added} validated script(s) added for {len(targets)} planned scenario(s); "
             f"{len(dropped_total)} proposal(s) rejected")
         self.metric("derived_model_review", added=added, targets=len(targets), rejected=len(dropped_total),
                     rejected_reasons=dropped_total[:12])
@@ -6322,8 +6487,9 @@ class Flow:
                 continue
             log(f"[acceptance] probe {node_id}: {summary.passed}/{summary.total} against the existing app")
             if summary.all_passed:
-                out.add(node_id)
-                self.probe_summaries[node_id] = summary  # regression_cycle reuses it
+                if not self.derived_review_needed(node_id):
+                    out.add(node_id)
+                    self.probe_summaries[node_id] = summary  # regression_cycle reuses it
         return out
 
     def regression_cycle(self, node: dict) -> None:
@@ -6341,7 +6507,7 @@ class Flow:
                 log(f"[acceptance] regression {node_id} infrastructure error: {summary.error[:300]}")
             else:
                 self.record_tests(node_id, specs, summary)
-                verdict = summary.all_passed
+                verdict = None if summary.all_passed and self.derived_review_needed(node_id) else summary.all_passed
                 log(f"[acceptance] regression {node_id}: {summary.passed}/{summary.total}")
                 if not verdict:
                     deadline = time.time() + min(self.node_budget_cap, max(240, self.remaining() / 2))
@@ -6432,6 +6598,8 @@ class Flow:
         workers = workers_for_final(getattr(self, "mem_limit", None),
                                     self.final_workers())
         summary = self.run_specs(specs, workers=workers, grader_like=True)
+        if getattr(self, "derived_as_specs", False) is True:
+            summary = self.audit_related_derived_specs(specs, summary)
         if not self.suite_is_measured(summary, specs):
             log(f"[acceptance] checkpoint {index}: no reliable verdict; {summary.error or 'incomplete, interrupted or unloaded results'}")
             return
@@ -6462,8 +6630,11 @@ class Flow:
                         for path in paths]
             if observed and all(rows and all(r.ok for r in rows) for rows in observed):
                 tracked.remove(node)
-                self.test_verdict[node] = True
-                self.mark("test_passed", node, "previously regressed behavior passed its checkpoint specs")
+                if self.derived_review_needed(node):
+                    self.test_verdict[node] = None
+                else:
+                    self.test_verdict[node] = True
+                    self.mark("test_passed", node, "previously regressed behavior passed its checkpoint specs")
         regressed = bool(grouped)
         if grouped:
             self.queue_checkpoint_evidence(summary)
@@ -6631,6 +6802,8 @@ class Flow:
                 log(f"[acceptance] checkpoint {index}: no source changes; skipping duplicate acceptance")
                 break
             observed = self.run_specs(specs, workers=workers, grader_like=True)
+            if getattr(self, "derived_as_specs", False) is True:
+                observed = self.audit_related_derived_specs(specs, observed)
             if not self.suite_is_measured(observed, specs):
                 self.queue_checkpoint_evidence(summary)
                 self._checkpoint_repair_summary = observed
@@ -6644,8 +6817,8 @@ class Flow:
                 previous = self.test_verdict.get(node)
                 if node and node not in grouped:
                     tracked.discard(node)
-                    self.test_verdict[node] = True
-                    if previous is not True:
+                    self.test_verdict[node] = None if self.derived_review_needed(node) else True
+                    if self.test_verdict[node] is True and previous is not True:
                         self.mark("test_passed", node,
                                   "previously regressed behavior passed after checkpoint repair")
                 elif node:
@@ -6729,6 +6902,8 @@ class Flow:
             restored_this_round = False
             reused_measurement = attempt == 0 and initial_summary is not None
             summary = initial_summary if reused_measurement else measured_suite()
+            if getattr(self, "derived_as_specs", False) is True:
+                summary = self.audit_related_derived_specs(all_specs, summary)
             if reused_measurement:
                 log("[acceptance] reusing unchanged application measurement for a changed repair approach")
             if startup_recovery_only and self.suite_is_measured(summary, all_specs):
@@ -6925,7 +7100,14 @@ class Flow:
                     last_passed = best["passed"]
                     regressions = 0
             if measured and not grouped:
+                weak = [node for node, paths in self.spec_map.items()
+                        if node and paths and self.derived_review_needed(node)]
                 self.final_suite_green = True
+                if weak:
+                    log(f"[acceptance] full suite passes, but {len(weak)} derived leaf/leaves "
+                        "have no behavioural spec and remain unverified")
+                    self.metric("derived_spec_coverage", outcome="unverified",
+                                nodes=weak, passed=summary.passed, total=summary.total)
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (full suite)")
                 return
             # A spec that has passed once in this pass and fails now is unstable;
@@ -7084,7 +7266,8 @@ class Flow:
                             str(row.file or '').replace('\\', '/') == path or
                             str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths)]
                         local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
-                        self.test_verdict[node] = local.all_passed if self.suite_is_measured(local, paths) else None
+                        self.test_verdict[node] = (None if local.all_passed and self.derived_review_needed(node)
+                                                   else local.all_passed) if self.suite_is_measured(local, paths) else None
                         if self.test_verdict[node] is not None:
                             self.record_tests(node, paths, local)
                 log(f'[acceptance] entered final checkpoint: {observed.passed}/{observed.total} '
@@ -7374,7 +7557,8 @@ class Flow:
                 local = RunSummary(results=rows, total=len(rows), passed=sum(r.ok for r in rows))
                 if self.suite_is_measured(local, specs):
                     self.record_tests(node_id, specs, local)
-                    self.test_verdict[node_id] = local.all_passed
+                    self.test_verdict[node_id] = (None if local.all_passed and self.derived_review_needed(node_id)
+                                                  else local.all_passed)
                 else:
                     self.test_verdict[node_id] = None
 

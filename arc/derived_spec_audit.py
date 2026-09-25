@@ -40,6 +40,23 @@ class SpecRepair:
     reasons: tuple[str, ...]
 
 
+def replace_failed_test_preserving_oracle(source: str, title: str, replacement: str) -> str | None:
+    """Accept an action repair only if every existing assertion is retained."""
+    starts = list(_TEST_START.finditer(source))
+    for index, start in enumerate(starts):
+        if start.group(1).replace("\\'", "'") != title:
+            continue
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(source)
+        old = source[start.start():end]
+        old_assertions = set(re.findall(r"await h\.expect\w+\([^;]*\);", old))
+        new_assertions = set(re.findall(r"await h\.expect\w+\([^;]*\);", replacement))
+        if not old_assertions or not old_assertions <= new_assertions:
+            return None
+        updated = source[:start.start()] + replacement.rstrip() + "\n\n" + source[end:].lstrip("\n")
+        return updated if updated != source else None
+    return None
+
+
 def _literal(value: str) -> str:
     return repr(value)
 

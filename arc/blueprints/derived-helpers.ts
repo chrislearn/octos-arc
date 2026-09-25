@@ -226,6 +226,11 @@ export async function clickNamed(page: Page, value: Match): Promise<void> {
   await page.waitForLoadState('domcontentloaded').catch(() => undefined);
 }
 
+export async function hoverNamed(page: Page, value: Match): Promise<void> {
+  const target = await reach(page, value);
+  await target.hover({ timeout: 10_000 });
+}
+
 /** Navigate to where a named page/tab/menu entry is visible; click it when it is a control. */
 export async function openNamed(page: Page, value: Match): Promise<void> {
   const target = await reach(page, value);

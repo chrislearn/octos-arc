@@ -1,4 +1,4 @@
-"""Model-proposed scripts for scenarios the mechanical compiler cannot script.
+"""Requirement-grounded model proposals for generated acceptance scripts.
 
 The model proposes; the harness verifies. A proposal is a short list of
 whitelisted operations (open/click/fill/check/press/expect_visible/
@@ -19,7 +19,7 @@ from typing import Iterable, Mapping
 from scenario_tests import (Fixtures, _ANY_LITERAL, _compile_scenario, _descriptive, _node_text, _sentences, _ts,
                             literal_prefix)
 
-OPS = {"open", "click", "fill", "check", "press", "set_clipboard", "expect_visible", "expect_absent",
+OPS = {"open", "click", "hover", "fill", "check", "press", "set_clipboard", "expect_visible", "expect_absent",
        "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download",
        "expect_clipboard"}
 # "open the home page" needs no literal: it is the application root.
@@ -103,6 +103,7 @@ DSL = """Each script is {"id": <the [S..] id shown before the scenario>, "title"
 Operations (use only these):
   {"op": "open", "target": L}            navigate to where L (a page, tab or menu entry name) is visible; click it if it is a control
   {"op": "click", "target": L}           click the control named L
+  {"op": "hover", "target": L}           hover the seeded record or named control L before opening its actions
   {"op": "fill", "target": L, "value": V} type V into the field labelled L
   {"op": "check", "target": L}           check the checkbox named L
   {"op": "press", "key": "Enter"}        press a key: Enter, Escape, Tab, Delete, Backspace, Arrow keys,
@@ -262,8 +263,13 @@ def suite_controls(leaves: Iterable[Mapping], fixtures: Fixtures, shared: str = 
 
 
 def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mapping[str, str] | None = None,
-                   shared: str = "") -> list[dict]:
-    """Scenarios that got no mechanical script, with what a proposal may name."""
+                   shared: str = "", *, include_all: bool = False) -> list[dict]:
+    """Scenario plans with requirement-grounded literals and controls.
+
+    The legacy default selects unscripted scenarios. The no-official-spec
+    planner reviews every scenario, including those with a mechanical script:
+    a parser recognising some actions is not evidence of a sound oracle.
+    """
     targets: list[dict] = []
     seen_steps: set[tuple] = set()
     leaves = list(leaves)
@@ -286,10 +292,15 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                 bool(parsed.assertions) or not parsed.failure_path)
             when_text = " ".join(str(step.get("content") or "") for step in scenario.get("steps") or []
                                  if str(step.get("keyword") or "").upper() == "WHEN")
+            required_actions = ([] if not include_all or re.search(r"\sor\s", when_text, re.I) else [
+                match.group(1) for match in re.finditer(
+                    r"\b(?:clicks?|chooses?|selects?|presses?|activates?|opens?)\b[^.;]{0,70}?[“\"`]([^”\"`]+)[”\"`]",
+                    when_text, re.I)])
             # "follows the visible controls for the X workflow" carries nothing a
             # proposal could act on; "the requested workflow" (templated tasks)
             # does: the operation is in the requirement text.
-            if scripted or (parsed.generic and re.search(r"follows?\s+the\s+visible\s+controls", when_text, re.I)):
+            if not include_all and (scripted or (parsed.generic and re.search(
+                    r"follows?\s+the\s+visible\s+controls", when_text, re.I))):
                 continue
             title = parsed.title if parsed.title.startswith(node_id) else f"{node_id}: {parsed.title}"
             steps = [f"{str(step.get('keyword') or '').upper()}: "
@@ -299,6 +310,7 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "name": str(node.get("name") or ""),
                             "description": re.sub(r"\s+", " ", str(node.get("description") or ""))[:2600],
                             "steps": steps, "allowed": allowed, "seeds": parsed.seeds,
+                            "required_actions": required_actions[:8],
                             "seed_kinds": parsed.seed_kinds,
                             "controls": controls, "signed_in": parsed.signed_in,
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
@@ -307,8 +319,23 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
     return targets
 
 
+def prioritize_review_targets(targets: list[dict]) -> list[dict]:
+    """Give every feature a first AI planning chance before extra scenarios."""
+    first: list[dict] = []
+    rest: list[dict] = []
+    seen: set[str] = set()
+    for target in targets:
+        node_id = str(target["node_id"])
+        (rest if node_id in seen else first).append(target)
+        seen.add(node_id)
+    return first + rest
+
+
 def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
-    parts = ["Write one check script per scenario below, as JSON: {\"scenarios\": [ ... ]}.\n" + DSL]
+    parts = ["Plan and write one behavioural check per scenario below, as JSON: "
+             "{\"scenarios\": [ ... ]}. Each check must perform the WHEN operation and verify the "
+             "observable THEN outcome; merely finding an entry control is a smoke check, not feature evidence. "
+             "Use skip with a concrete reason if the requirement cannot ground a sound check.\n" + DSL]
     parts.append(f"\nFixture account: `{fixtures.account}` / `{fixtures.password}` (email `{fixtures.email}`).")
     controls = [c for c in (targets[0].get("controls") or []) if len(c) <= 60][:160] if targets else []
     if controls:
@@ -347,6 +374,8 @@ def _emit(step: dict) -> str | None:
         return f"await h.openNamed(page, {_ts(target)});"
     if op == "click":
         return f"await h.clickNamed(page, {_ts(target)});"
+    if op == "hover":
+        return f"await h.hoverNamed(page, {_ts(target)});"
     if op == "fill":
         return f"await h.fillField(page, {_ts(target)}, {_ts(str(step.get('value')))});"
     if op == "check":
@@ -398,6 +427,15 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return problems + ["no steps"]
     if len(steps) > MAX_STEPS:
         problems.append(f"{len(steps)} steps; at most {MAX_STEPS}")
+    action_steps = [(index, str(step.get("target") or "")) for index, step in enumerate(steps)
+                    if isinstance(step, dict) and step.get("op") in {"open", "click", "check", "expect_download"}]
+    cursor = -1
+    for required in target.get("required_actions") or []:
+        found = next((index for index, value in action_steps if index > cursor and value == required), None)
+        if found is None:
+            problems.append(f"WHEN requires acting on {required!r} in order before asserting the result")
+        else:
+            cursor = found
     allowed = set(target["allowed"]) | set(target.get("seeds") or [])
     # A seeded row `East/1200` is shown as its parts once imported or listed.
     for seed in target.get("seeds") or []:
@@ -622,11 +660,18 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     if not asserted:
         problems.append("no expect_visible/expect_absent step: the script must assert something from the THEN step")
     else:
+        first_effect = next((index for index, step in enumerate(steps)
+                             if isinstance(step, dict) and step.get("op") in {
+                                 "click", "fill", "check", "press", "cell_type", "upload"}), None)
+        if first_effect is not None and not any(
+                isinstance(step, dict) and str(step.get("op") or "").startswith("expect_")
+                for step in steps[first_effect + 1:]):
+            problems.append("the check has no assertion after its action; assert the observable THEN outcome")
         # Sheet review S11: "click Add worksheet ... expect_visible Add worksheet".
         # An expectation is evidence only when it is not a control the script
         # itself pressed or a value it typed into a cell or field.
         acted = {str(step.get("target") or "").strip().lower() for step in steps if isinstance(step, dict)
-                 and step.get("op") in {"open", "click", "check", "fill", "upload"}}
+                 and step.get("op") in {"open", "click", "hover", "check", "fill", "upload"}}
         typed_at = {}
         for index, step in enumerate(steps):
             if isinstance(step, dict) and step.get("op") in {"fill", "cell_type"}:
@@ -644,6 +689,12 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 return True
             shown = str(step.get("target") or "").strip().lower()
             if shown in acted:
+                if step.get("op") == "expect_absent" and any(
+                        isinstance(prior, dict) and prior.get("op") in {"click", "press"}
+                        and re.search(r"delete|remove|discard|archive|trash|hide|filter", str(
+                            prior.get("target") or prior.get("key") or ""), re.I)
+                        for prior in steps[:index]):
+                    return True
                 return False
             if shown in typed_at:
                 # Sheet review S31: typing the seeded `East` into an empty cell

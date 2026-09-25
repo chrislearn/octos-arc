@@ -1014,6 +1014,14 @@ class WholeAppTests(unittest.TestCase):
         flow.tests_dir = self.root / "tests"
         self.assertFalse(flow.prepare_derived_tests(self.nodes))
 
+    def test_ai_planning_starts_even_when_no_mechanical_spec_exists(self):
+        flow = self.flow
+        flow.tests_dir = None
+        with patch.object(m, "compile_derived_suite", return_value={"helpers.ts": "export {};\n"}):
+            self.assertTrue(flow.prepare_derived_tests(self.nodes))
+        self.assertTrue(flow.derived_tests_dir.joinpath("helpers.ts").is_file())
+        self.assertEqual(flow.derived_spec_map, {})
+
     def test_should_report_derived_check_results_in_the_no_spec_verdict(self):
         passed, detail = m.Flow.no_spec_node_verdict("B", True, True, {}, {"B": False})
         self.assertFalse(passed)
@@ -1186,7 +1194,8 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         self.assertNotIn("Invented", after)
         prompt = flow.text_turn.call_args.args[0]
         self.assertIn("B: Scenario 1", prompt)
-        self.assertNotIn("A: Scenario 1", prompt)  # A compiled mechanically; no tokens spent on it
+        self.assertIn("A: Scenario 1", prompt)  # Every feature is planned before implementation.
+        self.assertTrue((flow.derived_tests_dir / "review" / "plan.json").is_file())
         with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_LLM": "0"}):
             self.assertEqual(flow.augment_derived_tests(nodes), 0)
 

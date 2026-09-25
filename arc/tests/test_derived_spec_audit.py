@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from acceptance import RunSummary, TestOutcome
-from derived_spec_audit import repair_failed_generated_specs
+from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle
 from main import Flow
 from scenario_tests import Fixtures
 
@@ -32,6 +32,15 @@ def outcome(title="bad", ok=False):
 
 
 class GeneratedSpecRepairTests(unittest.TestCase):
+    def test_model_action_repair_must_keep_the_original_assertion(self):
+        source = "test('bad [model]', async ({ page }) => {\n  await h.expectTextsVisible(page, ['Done']);\n});\n"
+        weaker = "test('bad [model]', async ({ page }) => {\n  await h.expectTextsVisible(page, ['Open']);\n});\n"
+        self.assertIsNone(replace_failed_test_preserving_oracle(source, "bad [model]", weaker))
+        stronger = ("test('bad [model]', async ({ page }) => {\n"
+                    "  await h.clickNamed(page, 'Open');\n"
+                    "  await h.expectTextsVisible(page, ['Done']);\n});\n")
+        self.assertIn("h.clickNamed(page, 'Open')",
+                      replace_failed_test_preserving_oracle(source, "bad [model]", stronger))
     def test_csv_assertions_are_derived_from_uploaded_content_and_filename(self):
         source = ("import { test } from '@playwright/test';\n"
                   "test('bad', async ({ page }) => {\n"
@@ -156,6 +165,7 @@ class FlowAuditTests(unittest.TestCase):
 
     def test_acceptance_uses_corrected_spec_result_before_app_repair(self):
         self.flow.repair_rounds = 0
+        self.flow.derived_review_needed = Mock(return_value=False)
         self.flow.head = Mock(return_value="head")
         self.flow.commit = Mock()
         self.flow.record_tests = Mock()
@@ -166,6 +176,73 @@ class FlowAuditTests(unittest.TestCase):
         self.assertTrue(result)
         self.flow.run_specs.assert_called_once_with([self.path.name])
         self.flow.commit.assert_called_once()
+
+    def test_reach_only_pass_remains_unverified(self):
+        self.path.write_text("test('entry [entry]', async ({ page }) => {});\n")
+        self.flow.repair_rounds = 0
+        self.flow.head = Mock(return_value="head")
+        self.flow.record_tests = Mock()
+        self.flow.commit = Mock()
+        self.flow.repair_source_index = Mock(return_value=SimpleNamespace(versions={}))
+        green = RunSummary(passed=1, total=1, results=[
+            TestOutcome("entry [entry]", True, "passed", 1, file=self.path.name)])
+        self.assertIsNone(self.flow.acceptance_loop(SHEET["id"], [self.path.name],
+                                                     time.time() + 120, initial_summary=green))
+        self.assertFalse(self.flow.last_node_own_pass)
+        self.flow.commit.assert_not_called()
+        self.flow.spec_map = {SHEET["id"]: [self.path.name]}
+        self.flow.record_full_suite(green, {})
+        self.assertIsNone(self.flow.test_verdict[SHEET["id"]])
+
+    def test_related_regression_audits_its_spec_then_remeasures_both_features(self):
+        other = self.directory / "other.spec.ts"
+        other.write_text("test('other', async ({ page }) => {});\n")
+        self.flow.spec_map = {SHEET["id"]: [self.path.name], "other": [other.name]}
+        before = RunSummary(passed=1, total=2, results=[
+            TestOutcome("bad", False, "failed", 1, file=self.path.name),
+            TestOutcome("other", True, "passed", 1, file=other.name),
+        ])
+        after = RunSummary(passed=2, total=2, results=[
+            TestOutcome("bad", True, "passed", 1, file=self.path.name),
+            TestOutcome("other", True, "passed", 1, file=other.name),
+        ])
+        self.flow.run_specs.side_effect = [outcome(ok=True), after]
+        observed = self.flow.audit_related_derived_specs([self.path.name, other.name], before)
+        self.assertTrue(observed.all_passed)
+        self.assertEqual(self.flow.run_specs.call_count, 2)
+        self.assertIn("h.expectCell(page, 'A1', 'East')", self.path.read_text())
+
+    def test_model_review_repairs_action_order_without_weakening_oracle(self):
+        node = {"id": "REQ-1", "name": "Open feature", "description": "The home page has “Open” and shows “Done”.",
+                "scenarios": [{"name": "REQ-1: action", "steps": [
+                    {"keyword": "GIVEN", "content": "The visitor is on the home page."},
+                    {"keyword": "WHEN", "content": "The visitor clicks “Open”."},
+                    {"keyword": "THEN", "content": "The page shows “Done”."}]}]}
+        path = self.directory / "REQ-1.spec.ts"
+        self.flow.requirement_nodes = {"REQ-1": node}
+        self.flow.derived_nodes = [node]
+        self.flow.driver = object()
+        self.flow.wound_down = Mock(return_value=False)
+        self.flow.remaining = Mock(return_value=1000)
+        self.flow.final_phase_reserve = Mock(return_value=0)
+        self.flow.text_turn = Mock(return_value=(True, '{"verdict":"spec_error","evidence":"WHEN clicks Open",'
+                                                 '"scenarios":[{"id":"S1","title":"REQ-1: action",'
+                                                 '"confidence":0.9,"signed_in":false,"steps":['
+                                                 '{"op":"click","target":"Open"},'
+                                                 '{"op":"expect_visible","target":"Done"}]}]}'))
+        for suffix in ("model", "script"):
+            with self.subTest(suffix=suffix):
+                path.write_text(f"test('REQ-1: action [{suffix}]', async ({{ page }}) => {{\n"
+                                "  await h.openHome(page);\n"
+                                "  await h.expectTextsVisible(page, ['Done']);\n"
+                                "  await h.clickNamed(page, 'Open');\n});\n")
+                failed = RunSummary(passed=0, total=1, results=[TestOutcome(
+                    f"REQ-1: action [{suffix}]", False, "failed", 1, file=path.name)])
+                observed = self.flow.review_failed_derived_spec_with_model("REQ-1", [path.name], failed)
+                self.assertTrue(observed.all_passed)
+                source = path.read_text()
+                self.assertLess(source.index("h.clickNamed"), source.index("h.expectTextsVisible"))
+                self.assertIn("h.expectTextsVisible(page, ['Done'])", source)
 
 
 if __name__ == "__main__":
