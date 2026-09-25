@@ -289,7 +289,11 @@ class StreamingTests(TestCase):
         response = json.loads(payload)
         self.assertEqual(reason, 'repeated_operation_cycle')
         self.assertEqual(response['choices'][0]['finish_reason'], 'length')
-        self.assertNotIn('usage', response)
+        # The stream was cut before its usage record: the proxy reports an
+        # estimate (the kernel requires `usage`) and flags it as such.
+        self.assertTrue(response.get('arc_usage_estimated'))
+        self.assertNotEqual(response['usage']['completion_tokens'], 999)
+        self.assertGreater(response['usage']['completion_tokens'], 0)
         self.assertLess(stream.tell(), len(stream.getvalue()))
 
     def test_incomplete_stream_is_never_success(self):

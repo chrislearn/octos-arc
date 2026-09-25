@@ -4043,8 +4043,12 @@ class Flow:
                 # workbook, import, delete); two workers made "Q3 Sales" vanish
                 # under a concurrent entry check (v9.2.3 03a2e937517e). Sequential.
                 workers = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_WORKERS", "1")))
-            summary = (runner or self.runner).run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
-                                      wall_timeout=max(1, min(wall, int(self.remaining()))))
+            if (getattr(self, "derived_as_specs", False) and len(specs) > 1
+                    and os.environ.get("OCTOS_ARC_DERIVED_ISOLATE", "1") != "0"):
+                summary = self.run_isolated(runner or self.runner, specs, server, git_run, workers)
+            else:
+                summary = (runner or self.runner).run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
+                                          wall_timeout=max(1, min(wall, int(self.remaining()))))
             if not summary.all_passed:
                 summary.server_errors = backend_error_digest(server.tail(5000))
             expected = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts")) if self.tests_dir else []
@@ -4055,10 +4059,49 @@ class Flow:
             server.stop()
             # Ask before restoring: afterwards there is nothing left to compare.
             if summary is not None:
-                summary.stores_written = mutated_by_tests(git_run)
+                # Keep the per-file mutation record of an isolated run; add what
+                # the last file left behind.
+                summary.stores_written = sorted(set(summary.stores_written) | set(mutated_by_tests(git_run)))
                 summary.store_changes = store_changes_by_tests(git_run, self.output_dir,
                                                                summary.stores_written)
             restore_worktree(git_run)
+
+    def run_isolated(self, runner: AcceptanceRunner, specs: list[str], server, git_run, workers) -> RunSummary:
+        """One spec file at a time; the store is reset whenever a file mutated it.
+
+        Derived scripts change the seeded state on purpose (REQ-1-3 changes
+        alice-dev's password, REQ-1-2-2 renames `Q3 Sales`): in one shared run
+        every later sign-in or entry check then fails and the harness reads a
+        false regression (v9.2.4: 1307196473c1 rolled REQ-2-2-3/REQ-2-2-4 back,
+        1d804e9973c6 lost 5 entry checks at checkpoint 8). Workers stay at one.
+        """
+        merged = RunSummary()
+        url = f"http://127.0.0.1:{self.smoke_port}"
+        for index, spec in enumerate(specs):
+            if self.time_up():
+                merged.error = merged.error or "acceptance time budget exhausted"
+                break
+            part = runner.run([spec], url, workers=workers,
+                              wall_timeout=max(60, min(600, int(self.remaining()))))
+            if part.error and not part.results:
+                merged.error, merged.killed = part.error, part.killed
+                break
+            merged.passed += part.passed
+            merged.total += part.total
+            merged.results += part.results
+            merged.load_errors += part.load_errors
+            if index < len(specs) - 1:
+                status = git_run(["status", "--porcelain", "--", "frontend", "backend"])
+                dirty = bool((getattr(status, "stdout", "") or "").strip())
+                if dirty:
+                    merged.stores_written = sorted(set(merged.stores_written) | {spec})
+                    restore_worktree(git_run)
+                    server.stop()
+                    err = server.start()
+                    if err is not None:
+                        merged.error = err
+                        break
+        return merged
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
         try:
@@ -5069,13 +5112,15 @@ class Flow:
         self.derived_augmented = True
         fixtures = suite_fixtures(ordered)
         context = ancestor_context(getattr(self, "requirement_tree", None))
-        targets = review_targets(ordered, fixtures, context)
+        targets = review_targets(ordered, fixtures, context, folder_text(getattr(self, "requirement_tree", None)))
         if not targets:
             log("[derived] every scenario has a mechanical script; no model review needed")
             return 0
         batch = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_BATCH", "6")))
         max_requests = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_REQUESTS", "10")))
-        timeout = max(60, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_SECONDS", "300")))
+        # A six-scenario batch took 389s locally (33k reasoning tokens): 300s cut
+        # whole batches off online.
+        timeout = max(60, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_SECONDS", "600")))
         # Leaves with no mechanical script at all come first: they have no check otherwise.
         scripted = {rel[:-len(".spec.ts")] for rel, paths in self.derived_spec_map.items()
                     if "[script]" in "".join((directory / p).read_text(encoding="utf-8") for p in paths)}
@@ -6485,11 +6530,18 @@ class Flow:
             # minutes in one no-change tool turn. Keep each attempt bounded so
             # the next nodes and the reserved final measurement still run.
             checkpoint_cap = max(60, int(os.environ.get('OCTOS_ARC_CHECKPOINT_REPAIR_TIMEOUT', '300')))
-            self.suite_repair_turn(f"checkpoint {index} repair {attempt + 1}/{rounds}", failing_ids, failures,
-                                   min(self.suite_repair_timeout(), checkpoint_cap, max(1, available)),
-                                   tool_prompt=tool_prompt, prefer_codegen=attempt == 0)
+            outcome = self.suite_repair_turn(f"checkpoint {index} repair {attempt + 1}/{rounds}", failing_ids, failures,
+                                             min(self.suite_repair_timeout(), checkpoint_cap, max(1, available)),
+                                             tool_prompt=tool_prompt, prefer_codegen=attempt == 0)
+            mode = outcome[0] if isinstance(outcome, tuple) else ""
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
             if getattr(self, "last_repair_changed", None) is False:
+                if mode == "unapplied" and attempt + 1 < rounds:
+                    # v9.2.6 (919e1def62e0): the codegen attempt timed out with
+                    # nothing written and the loop ended here, so the tool-mode
+                    # round never ran and REQ-1-3 stayed regressed.
+                    log(f"[acceptance] checkpoint {index}: repair {attempt + 1} did not apply; trying the changed approach")
+                    continue
                 log(f"[acceptance] checkpoint {index}: no source changes; skipping duplicate acceptance")
                 break
             observed = self.run_specs(specs, workers=workers, grader_like=True)

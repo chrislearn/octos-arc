@@ -1470,3 +1470,52 @@ class DerivedWorkersTests(WholeAppTests):
             flow.derived_as_specs = False
             flow.run_specs(["A.spec.ts"], workers=2, runner=runner)
             self.assertEqual(captured["workers"], 2)
+
+
+class DerivedIsolationTests(WholeAppTests):
+    """Derived suites run one spec file per Playwright invocation and reset the
+    store whenever a file mutated it (password change, rename, delete)."""
+
+    def _flow(self):
+        flow = self.flow
+        flow.derived_as_specs = True
+        flow.time_up = Mock(return_value=False)
+        self.status = [""]
+        flow.runtime = SimpleNamespace(git=SimpleNamespace(run=lambda args, check=False: SimpleNamespace(
+            stdout=self.status[0] if args[0] == "status" else "")))
+        self.server = SimpleNamespace(build=Mock(return_value=None), start=Mock(return_value=None), stop=Mock(),
+                                      tail=Mock(return_value=""))
+        flow.app_server = Mock(return_value=self.server)
+        return flow
+
+    def test_files_run_one_by_one_and_the_store_resets_after_a_mutation(self):
+        flow = self._flow()
+        calls = []
+
+        def run(specs, url, workers=None, wall_timeout=None):
+            calls.append(list(specs))
+            self.status[0] = " M backend/data/accounts.json" if specs == ["B.spec.ts"] else ""
+            return RunSummary(passed=1, total=1, results=[
+                TestOutcome(title=specs[0], ok=True, status="passed", duration_ms=1, file=specs[0])])
+        runner = SimpleNamespace(run=run)
+        with patch.object(m, "snapshot_worktree"), patch.object(m, "restore_worktree") as restore, \
+                patch.object(m, "mutated_by_tests", return_value=[]), patch.object(m, "store_changes_by_tests", return_value=[]):
+            summary = flow.run_specs(["A.spec.ts", "B.spec.ts", "C.spec.ts"], runner=runner)
+        self.assertEqual(calls, [["A.spec.ts"], ["B.spec.ts"], ["C.spec.ts"]])
+        self.assertEqual((summary.passed, summary.total), (3, 3))
+        self.assertEqual(summary.stores_written, ["B.spec.ts"])
+        # Restored once between B and C (plus the final restore after the run), server restarted once.
+        self.assertEqual(restore.call_count, 2)
+        self.assertEqual(self.server.start.call_count, 2)
+        self.assertTrue(flow.suite_is_measured(summary, ["A.spec.ts", "B.spec.ts", "C.spec.ts"]))
+
+    def test_isolation_can_be_disabled(self):
+        flow = self._flow()
+        calls = []
+        runner = SimpleNamespace(run=lambda specs, url, workers=None, wall_timeout=None: (
+            calls.append(list(specs)), RunSummary(passed=0, total=0))[1])
+        with patch.object(m, "snapshot_worktree"), patch.object(m, "restore_worktree"), \
+                patch.object(m, "mutated_by_tests", return_value=[]), patch.object(m, "store_changes_by_tests", return_value=[]), \
+                patch.dict(os.environ, {"OCTOS_ARC_DERIVED_ISOLATE": "0"}):
+            flow.run_specs(["A.spec.ts", "B.spec.ts"], runner=runner)
+        self.assertEqual(calls, [["A.spec.ts", "B.spec.ts"]])

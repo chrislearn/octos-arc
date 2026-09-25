@@ -396,3 +396,36 @@ class PrefixAndCorrectionBudgetTests(unittest.TestCase):
         self.assertIsNotNone(prompt)
         self.assertEqual(calls.count(self.root / "backend/server.js"), 1)
         self.assertEqual(calls.count(self.root / "frontend/src/index.html"), 1)
+
+
+class CheckpointRepairFallthroughTests(unittest.TestCase):
+    def test_a_timed_out_first_repair_falls_through_to_the_tool_round(self):
+        flow = helpers.CheckpointRepairTests()._flow([1, 1, 1])
+        flow.corrections_text = lambda: m.Flow.corrections_text(flow)
+        calls = []
+
+        def repair(label, failing_ids, failures, timeout, **kwargs):
+            calls.append((label, kwargs.get("prefer_codegen")))
+            if len(calls) == 1:
+                flow.last_repair_changed = False   # codegen turn timed out, nothing written
+                return "unapplied", ""
+            flow.last_repair_changed = True
+            return "tools", "edited"
+        flow.suite_repair_turn = repair
+        with patch.dict(os.environ, {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2", "OCTOS_ARC_CHECKPOINT_REPAIRS": "2"}):
+            flow.regression_checkpoint(2, 8)
+        self.assertEqual([c[1] for c in calls], [True, False])
+
+    def test_a_no_change_reply_still_ends_the_repair_loop(self):
+        flow = helpers.CheckpointRepairTests()._flow([1, 1, 1])
+        flow.corrections_text = lambda: m.Flow.corrections_text(flow)
+        calls = []
+
+        def repair(label, failing_ids, failures, timeout, **kwargs):
+            calls.append(label)
+            flow.last_repair_changed = False
+            return "codegen", ""
+        flow.suite_repair_turn = repair
+        with patch.dict(os.environ, {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2", "OCTOS_ARC_CHECKPOINT_REPAIRS": "2"}):
+            flow.regression_checkpoint(2, 8)
+        self.assertEqual(len(calls), 1)

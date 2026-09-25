@@ -279,9 +279,16 @@ function cellLocator(page: Page, ref: string): Locator {
 }
 
 export async function clickCell(page: Page, ref: string): Promise<void> {
-  const cell = cellLocator(page, ref);
-  await expect(cell, `gridcell "${ref}" is visible on ${page.url()}`).toBeVisible({ timeout: 8000 });
+  // "A1:B2" selects a range: click the first cell, shift-click the last.
+  const [first, last] = ref.split(':');
+  const cell = cellLocator(page, first);
+  await expect(cell, `gridcell "${first}" is visible on ${page.url()}`).toBeVisible({ timeout: 8000 });
   await cell.click();
+  if (last) {
+    const end = cellLocator(page, last);
+    await expect(end, `gridcell "${last}" is visible on ${page.url()}`).toBeVisible({ timeout: 8000 });
+    await end.click({ modifiers: ['Shift'] });
+  }
 }
 
 /** Select a cell and type into it; the caller commits with pressKey('Enter'). */
@@ -293,7 +300,43 @@ export async function typeInCell(page: Page, ref: string, value: string): Promis
 export async function expectCell(page: Page, ref: string, value: string): Promise<void> {
   await settle(page);
   const cell = cellLocator(page, ref);
+  if (value === '') {
+    await expect(cell, `gridcell "${ref}" is empty on ${page.url()}`).toHaveText(/^\s*$/, { timeout: 8000 });
+    return;
+  }
   await expect(cell, `gridcell "${ref}" shows "${value}" on ${page.url()}`).toContainText(value, { timeout: 8000 });
+}
+
+/** Choose a file in the file input the requirement names (label, aria-label or nearby button). */
+export async function uploadFile(page: Page, value: Match, csv: string): Promise<void> {
+  const file = { name: 'derived-import.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') };
+  const named = page.getByLabel(toPatterns(value)[0]).first();
+  if (await named.isVisible({ timeout: 1000 }).catch(() => false) && await named.getAttribute('type') === 'file') {
+    await named.setInputFiles(file);
+    return;
+  }
+  const input = page.locator('input[type="file"]').first();
+  if (await input.count()) {
+    await input.setInputFiles(file);
+    return;
+  }
+  // A button that opens the native file chooser.
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser', { timeout: 10_000 }),
+    clickNamed(page, value),
+  ]);
+  await chooser.setFiles(file);
+}
+
+/** Click a control and require a download whose file name ends with `suffix`. */
+export async function expectDownload(page: Page, value: Match, suffix: string): Promise<void> {
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 15_000 }),
+    clickNamed(page, value),
+  ]);
+  const name = download.suggestedFilename();
+  expect(name, `clicking "${describe(value)}" downloads a file ending with ${suffix}`).toMatch(
+    new RegExp(escapeRegExp(suffix) + '$', 'i'));
 }
 
 export async function checkNamed(page: Page, value: Match): Promise<void> {

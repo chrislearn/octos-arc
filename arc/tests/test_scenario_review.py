@@ -383,3 +383,387 @@ class ProposalIdentityTests(unittest.TestCase):
         retry = retry_prompt(retryable, targets, fixtures)
         self.assertIn("[S2]", retry)
         self.assertIn("Nope", retry)
+
+
+class PlaceholderAllowedLiteralTests(unittest.TestCase):
+    def test_allowed_literals_carry_prefixes_not_placeholders(self):
+        node = leaf("REQ-1-1-1", [], description='Each record displays "Last updated: <last updated value>" and '
+                                                  'a button named "Edit <cell coordinate>".')
+        allowed = allowed_literals(node, suite_fixtures([node]))
+        self.assertIn("Last updated:", allowed)
+        self.assertIn("Edit", allowed)
+        self.assertFalse(any("<" in value for value in allowed), allowed)
+        self.assertIn("never expect the placeholder", build_prompt(review_targets([node], suite_fixtures([node])) or [
+            {"id": "S1", "node_id": "x", "title": "t", "name": "n", "description": "", "steps": [], "allowed": []}],
+            suite_fixtures([node])))
+
+
+class SecretEchoTests(unittest.TestCase):
+    def test_a_typed_code_is_not_an_acceptable_visible_assertion(self):
+        from scenario_review import proposal_problems
+        node = leaf("REQ-1-1-3", [("Scenario 1", [
+            ("GIVEN", SEED), ("WHEN", "The visitor enters the code “123456” in “Verification code” and clicks “Reset password”."),
+            ("THEN", "The page shows “Password updated”.")])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures)[0]
+        bad = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "fill", "target": "Verification code", "value": "123456"},
+            {"op": "click", "target": "Reset password"},
+            {"op": "expect_visible", "target": "123456"}]}
+        self.assertTrue(any("typed into a password/code field" in p for p in proposal_problems(bad, target, fixtures)))
+        good = dict(bad, steps=bad["steps"][:2] + [{"op": "expect_visible", "target": "Password updated"}])
+        self.assertEqual(proposal_problems(good, target, fixtures), [])
+
+
+class FileOpsTests(unittest.TestCase):
+    def _target(self):
+        node = leaf("REQ-1-3-1", [("REQ-1-3-1 -the requested workflow", [
+            ("GIVEN", "The visitor starts at the application home page. The evaluation seed contains the seeded "
+                      "workbook `Q3 Sales`, rows `East/1200` and `North/800`."),
+            ("WHEN", "The user opens the workbook home page and the requested workflow."),
+            ("THEN", "The application exposes the observable result for \"the requested workflow\"."),
+        ])], description='The home page has a button "Import CSV", a file input "CSV file", a button '
+                         '"Confirm import" and a button "Export CSV".')
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_upload_and_download_steps_are_scripted(self):
+        target, fixtures = self._target()
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Import CSV"},
+            {"op": "upload", "target": "CSV file", "value": "$CSV"},
+            {"op": "click", "target": "Confirm import"},
+            {"op": "expect_visible", "target": "East"},
+            {"op": "expect_download", "target": "Export CSV", "value": ".csv"}]}
+        from scenario_review import proposal_problems
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        source = validate_proposal(proposal, target, fixtures)
+        self.assertIn("h.uploadFile(page, 'CSV file', 'East,1200\\nNorth,800')", source)
+        self.assertIn("h.expectDownload(page, 'Export CSV', '.csv')", source)
+
+    def test_template_wording_is_never_an_allowed_literal(self):
+        target, _ = self._target()
+        self.assertFalse(any("requested workflow" in value for value in target["allowed"]), target["allowed"])
+
+
+class HomeAndSeedRowTests(unittest.TestCase):
+    def _target(self):
+        node = leaf("REQ-1-1-1", [("REQ-1-1-1 -the requested workflow", [
+            ("GIVEN", "The evaluation seed contains the seeded workbook `Q3 Sales`, rows `East/1200` and `North/800`."),
+            ("WHEN", "The user opens the workbook home page and the requested workflow."),
+            ("THEN", "The application exposes the observable result for \"the requested workflow\"."),
+        ])], description='The home page lists workbooks; a button "Delete row" removes the selected row.')
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_home_page_open_needs_no_literal_and_maps_to_open_home(self):
+        target, fixtures = self._target()
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "open", "target": "workbook home page"},
+            {"op": "click", "target": "Q3 Sales"},
+            {"op": "expect_visible", "target": "Delete row"}]}
+        source = validate_proposal(proposal, target, fixtures)
+        self.assertIn("await h.openHome(page);", source)
+        self.assertNotIn("openNamed(page, 'workbook home page')", source)
+
+    def test_seed_rows_are_asserted_as_their_cells(self):
+        target, fixtures = self._target()
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "open", "target": "Q3 Sales"},
+            {"op": "click", "target": "Delete row"},
+            {"op": "expect_absent", "target": "East/1200"},
+            {"op": "expect_visible", "target": "North/800"}]}
+        source = validate_proposal(proposal, target, fixtures)
+        self.assertIn("h.expectTextsVisible(page, ['North', '800']);", source)
+        self.assertIn("h.expectAbsent(page, 'East');", source)
+        self.assertNotIn("East/1200", source)
+
+
+class SeededAbsenceTests(unittest.TestCase):
+    def _target(self):
+        node = leaf("REQ-3-1-1", [("REQ-3-1-1 -Escape the requested workflow", [
+            ("GIVEN", "The evaluation seed contains the seeded workbook `Q3 Sales`, rows `East/1200` and `North/800`."),
+            ("WHEN", "The user opens the workbook and the requested workflow."),
+            ("THEN", "The application exposes the observable result for \"the requested workflow\"."),
+        ])], description='A button "Delete row" removes the selected row.')
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_absence_of_a_seeded_value_without_removal_is_rejected(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "open", "target": "Q3 Sales"},
+            {"op": "cell_type", "target": "D1", "value": "East"},
+            {"op": "press", "key": "Escape"},
+            {"op": "expect_absent", "target": "East"}]}
+        problems = proposal_problems(proposal, target, fixtures)
+        self.assertTrue(any("seeded value" in p for p in problems), problems)
+
+    def test_absence_after_a_removing_step_is_accepted(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "open", "target": "Q3 Sales"},
+            {"op": "cell_click", "target": "A2"},
+            {"op": "click", "target": "Delete row"},
+            {"op": "expect_absent", "target": "East/1200"}]}
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+
+
+class NewNamePlaceholderTests(unittest.TestCase):
+    def test_new_name_placeholder_creates_and_asserts_a_unique_record_name(self):
+        node = leaf("REQ-3-2-1", [("REQ-3-2-1: Create a Repository - Scenario 1", [
+            ("GIVEN", "Seed values: account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`."),
+            ("WHEN", "The user opens “New repository”, fills “Repository name” and clicks "
+                     "“Create repository”."),
+            ("THEN", "The repository page shows the new name."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures)[0]
+        proposal = {"title": target["title"], "confidence": 0.9, "signed_in": True, "steps": [
+            {"op": "open", "target": "New repository"},
+            {"op": "fill", "target": "Repository name", "value": "$NEW_NAME"},
+            {"op": "click", "target": "Create repository"},
+            {"op": "expect_visible", "target": "$NEW_NAME"}]}
+        source = validate_proposal(proposal, target, fixtures)
+        names = re.findall(r"derived-[0-9a-f]{6}", source)
+        self.assertEqual(len(names), 2, source)
+        self.assertEqual(names[0], names[1])
+        self.assertNotIn("$NEW_NAME", source)
+        self.assertIn("$NEW_NAME", build_prompt([target], fixtures))
+
+    def test_fixture_account_is_not_a_new_record_name(self):
+        from scenario_review import proposal_problems
+        node = leaf("REQ-3-2-2", [("REQ-3-2-2: Fork a Repository - Scenario 1", [
+            ("GIVEN", "Seed values: account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`, "
+                      "repository `acme-docs`."),
+            ("WHEN", "The user clicks “Fork”, fills “Repository name” and clicks “Create fork”."),
+            ("THEN", "The page shows “Forked from”."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures)[0]
+        steps = [{"op": "open", "target": "acme-docs"}, {"op": "click", "target": "Fork"},
+                 {"op": "fill", "target": "Repository name", "value": "alice-dev"},
+                 {"op": "click", "target": "Create fork"}, {"op": "expect_visible", "target": "Forked from"}]
+        problems = proposal_problems({"title": target["title"], "confidence": 0.9, "signed_in": True, "steps": steps},
+                                     target, fixtures)
+        self.assertTrue(any("$NEW_NAME" in p for p in problems), problems)
+        steps[2]["value"] = "$NEW_NAME"
+        self.assertEqual(proposal_problems({"title": target["title"], "confidence": 0.9, "signed_in": True,
+                                            "steps": steps}, target, fixtures), [])
+
+
+class VacuousAssertionTests(unittest.TestCase):
+    def _target(self):
+        node = leaf("REQ-2-1-1", [("REQ-2-1-1 -the requested workflow", [
+            ("GIVEN", "The evaluation seed contains the seeded workbook `Q3 Sales` with worksheet `Sheet1`."),
+            ("WHEN", "The user opens the workbook and the requested workflow."),
+            ("THEN", "A worksheet named \"Sheet2\" appears."),
+        ])], description='The editor has a button "Add worksheet".')
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_asserting_only_the_clicked_control_is_rejected(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        steps = [{"op": "open", "target": "Q3 Sales"}, {"op": "click", "target": "Add worksheet"},
+                 {"op": "expect_visible", "target": "Add worksheet"}, {"op": "expect_visible", "target": "Q3 Sales"}]
+        problems = proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps}, target, fixtures)
+        self.assertTrue(any("clicked" in p for p in problems), problems)
+        steps.append({"op": "expect_visible", "target": "Sheet2"})
+        self.assertEqual(proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps},
+                                           target, fixtures), [])
+
+    def test_a_typed_name_shown_after_create_is_evidence(self):
+        from scenario_review import proposal_problems
+        node = leaf("REQ-2-2-1", [("REQ-2-2-1: Create an Organization Team - Scenario 1", [
+            ("GIVEN", "Seed values: account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`, organization `Acme Demo`."),
+            ("WHEN", "The user opens “Teams”, clicks “New team”, fills “Team name” with "
+                     "“mobile-team” and clicks “Create team”."),
+            ("THEN", "The team list shows the new team."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures)[0]
+        steps = [{"op": "open", "target": "Acme Demo"}, {"op": "open", "target": "Teams"},
+                 {"op": "click", "target": "New team"}, {"op": "fill", "target": "Team name", "value": "mobile-team"},
+                 {"op": "click", "target": "Create team"}, {"op": "expect_visible", "target": "mobile-team"}]
+        self.assertEqual(proposal_problems({"title": target["title"], "confidence": 0.9, "signed_in": True,
+                                            "steps": steps}, target, fixtures), [])
+        # Typed and expected with nothing submitted in between: the field echo, not an outcome.
+        steps = steps[:4] + [steps[5]]
+        problems = proposal_problems({"title": target["title"], "confidence": 0.9, "signed_in": True,
+                                      "steps": steps}, target, fixtures)
+        self.assertTrue(any("clicked" in p for p in problems), problems)
+
+
+class AppendDedupeTests(unittest.TestCase):
+    def test_identical_model_tests_are_appended_once_per_leaf(self):
+        from scenario_review import append_tests
+        body = "async ({ page }) => {\n  await h.openHome(page);\n  await h.expectTextsVisible(page, ['East']);\n});"
+        a = "test('REQ-1-3-1 -a [model]', " + body
+        b = "test('REQ-1-3-1 -b [model]', " + body
+        c = "test('REQ-1-3-1 -c [model]', async ({ page }) => {\n  await h.openHome(page);\n});"
+        source = append_tests("", [a, b], "REQ-1-3-1")
+        self.assertEqual(source.count("\ntest("), 1)
+        source = append_tests(source, [b, c], "REQ-1-3-1")
+        self.assertEqual(source.count("\ntest("), 2)
+        self.assertIn("-c [model]", source)
+
+
+class CellSeedTests(unittest.TestCase):
+    def _target(self):
+        node = leaf("REQ-3-1-1", [("REQ-3-1-1 -the requested workflow", [
+            ("GIVEN", "The evaluation seed contains the seeded workbook `Q3 Sales`, rows `Item/Qty` and `Pen/4`."),
+            ("WHEN", "The user opens the workbook and the requested workflow."),
+            ("THEN", "The application exposes the observable result for \"the requested workflow\"."),
+        ])], description='A button "Undo" reverts the last edit.')
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_seed_rows_in_cell_ops_use_their_first_cell_and_empty_cells_are_assertable(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "open", "target": "Q3 Sales"},
+            {"op": "cell_type", "target": "D1", "value": "Item/Qty"},
+            {"op": "press", "key": "Enter"},
+            {"op": "expect_cell", "target": "D1", "value": "Item/Qty"},
+            {"op": "click", "target": "Undo"},
+            {"op": "expect_cell", "target": "D1", "value": ""}]}
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        source = validate_proposal(proposal, target, fixtures)
+        self.assertIn("h.typeInCell(page, 'D1', 'Item');", source)
+        self.assertIn("h.expectCell(page, 'D1', 'Item');", source)
+        self.assertIn("h.expectCell(page, 'D1', '');", source)
+
+    def test_undo_does_not_license_absence_of_a_seeded_value(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "open", "target": "Q3 Sales"},
+            {"op": "cell_type", "target": "D1", "value": "Pen"},
+            {"op": "press", "key": "Enter"},
+            {"op": "click", "target": "Undo"},
+            {"op": "expect_absent", "target": "Pen"}]}
+        problems = proposal_problems(proposal, target, fixtures)
+        self.assertTrue(any("seeded value" in p for p in problems), problems)
+
+    def test_typing_a_seeded_value_and_expecting_it_visible_is_not_evidence(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        steps = [{"op": "open", "target": "Q3 Sales"},
+                 {"op": "cell_type", "target": "D1", "value": "Item"}, {"op": "press", "key": "Enter"},
+                 {"op": "expect_visible", "target": "Item"}]
+        problems = proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps}, target, fixtures)
+        self.assertTrue(any("clicked" in p for p in problems), problems)
+        steps[3] = {"op": "expect_cell", "target": "D1", "value": "Item"}
+        self.assertEqual(proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps},
+                                           target, fixtures), [])
+
+
+class SuiteControlTests(unittest.TestCase):
+    def _targets(self):
+        issues = leaf("REQ-5-1-1", [("REQ-5-1-1: List Issues - Scenario 1", [
+            ("GIVEN", "Seed values: account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`, "
+                      "repository `acme-docs`, member `bob-reviewer`."),
+            ("WHEN", "The user opens the “Issues” tab."), ("THEN", "The list shows “Open” issues.")])],
+            description='The repository page has tabs "Code", "Issues" and "Pull requests"; a button "Remove <username>" removes a member.')
+        comment = leaf("REQ-5-2-3", [("REQ-5-2-3: Comment on an Issue - Scenario 1", [
+            ("GIVEN", "Seed values: account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`, "
+                      "repository `acme-docs`, member `bob-reviewer`, issue `Improve search`."),
+            ("WHEN", "The user opens the issue and fills “Comment”, then clicks “Add comment”."),
+            ("THEN", "The comment appears with “bob-reviewer” removed via the member action.")])])
+        fixtures = suite_fixtures([issues, comment])
+        targets = review_targets([issues, comment], fixtures, shared='The header offers a link "Your organizations".')
+        return {t["node_id"]: t for t in targets}, fixtures
+
+    def test_controls_named_elsewhere_are_navigable_but_not_evidence(self):
+        from scenario_review import proposal_problems
+        targets, fixtures = self._targets()
+        target = targets["REQ-5-2-3"]
+        steps = [{"op": "open", "target": "Your organizations"}, {"op": "open", "target": "acme-docs"},
+                 {"op": "open", "target": "Issues"}, {"op": "open", "target": "Improve search"},
+                 {"op": "fill", "target": "Comment", "value": "$TEXT"}, {"op": "click", "target": "Add comment"},
+                 {"op": "click", "target": "Remove bob-reviewer"}, {"op": "expect_visible", "target": "$TEXT"}]
+        self.assertEqual(proposal_problems({"title": target["title"], "confidence": 0.9, "signed_in": True,
+                                            "steps": steps}, target, fixtures), [])
+        steps[-1] = {"op": "expect_visible", "target": "Pull requests"}
+        problems = proposal_problems({"title": target["title"], "confidence": 0.9, "signed_in": True,
+                                      "steps": steps}, target, fixtures)
+        self.assertTrue(any("Pull requests" in p for p in problems), problems)
+        self.assertIn("CONTROLS", build_prompt([target], fixtures))
+
+
+class CellValueTests(unittest.TestCase):
+    def _target(self):
+        node = leaf("REQ-4-2-2", [("REQ-4-2-2 -the requested workflow Pivot1 the requested workflow Region", [
+            ("GIVEN", "The evaluation seed contains the seeded workbook `Q3 Sales`, cell `A1=2`, rows `East/1200`."),
+            ("WHEN", "The user opens the workbook and the requested workflow."),
+            ("THEN", "The application exposes the observable result for \"the requested workflow\"."),
+        ])])
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_formulas_error_tokens_numbers_ranges_and_title_tokens(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        self.assertIn("Pivot1", target["allowed"])
+        self.assertIn("Region", target["allowed"])
+        steps = [{"op": "open", "target": "Q3 Sales"}, {"op": "cell_click", "target": "A1:B2"},
+                 {"op": "cell_type", "target": "C1", "value": "=1/0"}, {"op": "press", "key": "Enter"},
+                 {"op": "expect_cell", "target": "C1", "value": "#DIV/0!"},
+                 {"op": "cell_type", "target": "D1", "value": 2000}, {"op": "press", "key": "Enter"},
+                 {"op": "expect_cell", "target": "D1", "value": 2000}]
+        self.assertEqual(proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps},
+                                           target, fixtures), [])
+        source = validate_proposal({"title": target["title"], "confidence": 0.9, "steps": steps}, target, fixtures)
+        self.assertIn("h.clickCell(page, 'A1:B2');", source)
+        self.assertIn("h.expectCell(page, 'C1', '#DIV/0!');", source)
+        self.assertIn("h.expectCell(page, 'D1', '2000');", source)
+
+    def test_blank_placeholder_expands_to_whitespace(self):
+        target, fixtures = self._target()
+        from scenario_review import expand_placeholder
+        self.assertEqual(expand_placeholder("$BLANK", "x"), "   ")
+
+
+class AppendTitleDedupeTests(unittest.TestCase):
+    def test_a_repeated_title_is_not_appended(self):
+        from scenario_review import append_tests
+        a = "test('REQ-1 -x [model]', async ({ page }) => {\n  await h.openHome(page);\n});"
+        b = "test('REQ-1 -x [model]', async ({ page }) => {\n  await h.openHome(page);\n  await h.expectTextsVisible(page, ['A']);\n});"
+        source = append_tests("", [a], "REQ-1")
+        self.assertEqual(append_tests(source, [b], "REQ-1").count("\ntest("), 1)
+
+
+class NonGridTaskTests(unittest.TestCase):
+    def _target(self):
+        node = leaf("REQ-5-1-1", [("REQ-5-1-1: List Issues - Scenario 2", [
+            ("GIVEN", "Seed values: account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`, "
+                      "repository `acme-docs`, issue `Improve onboarding`, file `src/search.ts`."),
+            ("WHEN", "The user narrows the issue list to closed issues."),
+            ("THEN", "The list shows “Legacy welcome text” and the file “src/search.ts”.")])],
+            description='The issues page has tabs "Open" and "Closed" and a tab "Issues".')
+        fixtures = suite_fixtures([node])
+        return review_targets([node], fixtures)[0], fixtures
+
+    def test_filters_hide_seeded_values_and_paths_are_not_split(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        steps = [{"op": "open", "target": "acme-docs"}, {"op": "open", "target": "Issues"},
+                 {"op": "click", "target": "Closed"}, {"op": "expect_visible", "target": "Legacy welcome text"},
+                 {"op": "expect_absent", "target": "Improve onboarding"},
+                 {"op": "expect_visible", "target": "src/search.ts"}]
+        self.assertEqual(proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps},
+                                           target, fixtures), [])
+        source = validate_proposal({"title": target["title"], "confidence": 0.9, "steps": steps}, target, fixtures)
+        self.assertIn("h.expectTextsVisible(page, ['src/search.ts']);", source)
+
+    def test_cell_ops_are_rejected_without_a_grid(self):
+        from scenario_review import proposal_problems
+        target, fixtures = self._target()
+        self.assertFalse(target["has_grid"])
+        steps = [{"op": "open", "target": "Issues"}, {"op": "expect_cell", "target": "A1", "value": "Legacy welcome text"}]
+        problems = proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps}, target, fixtures)
+        self.assertTrue(any("spreadsheet grid" in p for p in problems), problems)

@@ -166,7 +166,8 @@ def _seed_expectations(out: "_Scenario", entry: str | None) -> tuple[list[str], 
             continue
         parts = [part.strip() for part in value.split("/")] if "/" in value and value.count("/") <= 3 else [value]
         for part in parts:
-            if part and part not in values and not _CELL_REF.match(part) and not part.startswith("="):
+            # "4" as page text is a substring match of almost anything: no evidence.
+            if part and len(part) >= 3 and part not in values and not _CELL_REF.match(part) and not part.startswith("="):
                 values.append(part)
     return values[:6], cells[:4]
 _SEED_ITEM = re.compile(r"(?P<kind>(?:[A-Za-z0-9-]+\s+){0,3}?)`(?P<value>[^`]+)`")
@@ -193,9 +194,43 @@ def _sentences(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.;])\s+", text) if part.strip()]
 
 
+_ANGLE = re.compile(r"<[^<>]{1,60}>")
+
+
 def _placeholder(literal: str) -> bool:
-    """“owner/repository name” describes a pattern, not a visible value."""
-    return "/" in literal and " " in literal
+    """“owner/repository name” and "Last updated: <last updated value>" describe
+    patterns, not visible values. v9.2.4 (1d804e9973c6): asserting the latter
+    verbatim made the model render the placeholder text itself."""
+    return ("/" in literal and " " in literal) or bool(_ANGLE.search(literal))
+
+
+def _descriptive(literal: str) -> bool:
+    """Not something to look for on the page: a placeholder pattern, or
+    (v9.2.6, 919e1def62e0) “organization identifier” / “clone page entry” --
+    a lowercase multi-word phrase ending in a describing noun names what a
+    control holds, not the control; crawling for it costs 40s and a repair.
+    Fill labels keep such phrases: "enters organization identifier `x`"."""
+    if _placeholder(literal):
+        return True
+    words = literal.strip().split()
+    return (len(words) >= 2 and words[0][:1].islower()
+            and words[-1].lower() in _DESCRIBING_NOUNS)
+
+
+_DESCRIBING_NOUNS = {"name", "identifier", "value", "text", "field", "entry", "page", "label", "message", "id",
+                     "number", "address", "section", "list", "area", "content", "body", "title", "description",
+                     "input", "selector", "control", "indicator", "suffix", "prefix", "count", "date", "time"}
+
+
+def literal_prefix(literal: str) -> str | None:
+    """The fixed text before a <placeholder>: "Last updated:" for
+    "Last updated: <last updated value>", "Filter" for "Filter <header text>".
+    None when nothing fixed and meaningful remains."""
+    match = _ANGLE.search(literal)
+    if not match:
+        return literal
+    prefix = literal[:match.start()].strip()
+    return prefix if len(prefix) >= 4 else None
 
 
 @dataclass
@@ -372,6 +407,11 @@ def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario, lenient:
     for start, end, _, _ in reversed(spans):
         rest = rest[:start] + " " + rest[end:]
     for _, _, code, control in spans:
+        if control and _placeholder(control):
+            # “owner/repository name”, "Edit <cell coordinate>": a pattern the
+            # requirement uses to describe controls, not a control a script can act on.
+            out.compiled = False
+            continue
         if control and out.entry is None:
             out.entry = control
         if code:
@@ -390,7 +430,8 @@ def _compile_actions(sentence: str, fixtures: Fixtures, out: _Scenario, lenient:
 
 def _then_literals(clause: str, fixtures: Fixtures, node_text: str) -> list[str]:
     values = [m.group(1) or m.group(2) or m.group(3) for m in _ANY_LITERAL.finditer(clause)]
-    values = [v for v in values if not _placeholder(v)]
+    values = [v if not _ANGLE.search(v) else literal_prefix(v) for v in values if not ("/" in v and " " in v)]
+    values = [v for v in values if v]
     for match in _STATUS_WORD.finditer(clause):
         word = match.group(1)
         if word in _STATUS_STOP or word in values:
@@ -452,6 +493,16 @@ def _compile_scenario(scenario: Mapping, fixtures: Fixtures, node_text: str = ""
                     if _POSITIVE.search(clause):
                         out.assertions += _then_literals(clause, fixtures, node_text)
     out.failure_path = then_clauses > 0 and negative_clauses == then_clauses
+    # A THEN that only names a page the script already opened ("appears under
+    # “Your organizations”") asserts nothing new; the names the script typed
+    # (a display name, a title) are what the result page shows.
+    opened = {m.group(1) for a in out.actions for m in re.finditer(r"h\.(?:clickNamed|openNamed)\(page, '((?:[^'\\]|\\.)*)'", a)}
+    typed_values = [m.group(2) for a in out.actions
+                    for m in re.finditer(r"h\.fillField\(page, '((?:[^'\\]|\\.)*)', '((?:[^'\\]|\\.)*)'\)", a)
+                    if not re.search(r"password|code|token|secret|email|username|account", m.group(1), re.I)
+                    and len(m.group(2)) >= 4 and not m.group(2).startswith("=")]
+    if out.assertions and all(value in opened for value in out.assertions) and typed_values:
+        out.assertions = list(dict.fromkeys(typed_values))
     if out.signed_in and out.credentials is None and fixtures.password:
         out.credentials = (fixtures.account, fixtures.password)
     return out
@@ -491,8 +542,13 @@ def _entry_script(parsed: "_Scenario", node_text: str, context: str,
         return None
     values, cells = _seed_expectations(parsed, entry)
     aria = _aria_contracts(node_text + "\n" + context + "\n" + shared)[:4]
-    controls = [item["name"] for item in _ui_bindings(node_text)
-                if item["name"] != entry and item["name"] not in values][:4]
+    # A control name is a few words; a quoted sentence next to "dialog"/"button"
+    # is a message ("A workbook must contain at least one worksheet") that only
+    # a failed action shows, never something to reach on the happy path.
+    controls = list(dict.fromkeys(
+        name for name in (literal_prefix(item["name"]) for item in _ui_bindings(node_text))
+        if name and name != entry and name not in values and len(name.split()) <= 4
+        and not _descriptive(name)))[:4]
     lines = [f"  await h.clickNamed(page, {_ts(entry)});"]
     if values:
         lines.append(f"  await h.expectTextsVisible(page, [{', '.join(_ts(v) for v in values)}]);")
@@ -541,6 +597,8 @@ def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: s
             targets = parsed.seeds[:2]
         else:
             targets = [parsed.fallback_entry] if parsed.fallback_entry else []
+        # “owner/repository name” and "<cell coordinate>" are patterns, not controls.
+        targets = [t for t in targets if t and not _descriptive(t)]
         for target in targets:
             key = ("reach", parsed.signed_in, target)
             if not target or key in seen:
@@ -578,10 +636,28 @@ def compile_suite(leaves: Iterable[Mapping], context: Mapping[str, str] | None =
     leaves = list(leaves)
     fixtures = suite_fixtures(leaves)
     files = {"helpers.ts": HELPERS.read_text(encoding="utf-8")}
+    seen_bodies: set[str] = set()
     for node in leaves:
         compiled = compile_leaf(node, fixtures, (context or {}).get(str(node.get("id")), ""), shared)
-        if compiled.scripts or compiled.reach_checks:
-            files[f"{compiled.node_id}.spec.ts"] = compiled.source
+        if not (compiled.scripts or compiled.reach_checks):
+            continue
+        # The same check (sign in, reach `alice-dev`) compiled for five sibling
+        # leaves runs five times and tells the suite nothing new; keep the first.
+        # A leaf still keeps its own first test: a leaf without a spec file has
+        # no acceptance in the measured flow (sheet: 8 of 24 leaves lost theirs).
+        header, _, body = compiled.source.partition("\n\ntest(")
+        # (The file's last test carries the trailing newline: compare stripped.)
+        tests = [(test if test.startswith("test(") else "test(" + test).strip()
+                 for test in (("test(" + body).split("\n\ntest(") if body else [])]
+        kept = []
+        for test in tests:
+            signature = re.sub(r"^test\('[^']*',", "", test, count=1)
+            if signature in seen_bodies and (kept or test is not tests[-1]):
+                continue
+            seen_bodies.add(signature)
+            kept.append(test)
+        if kept:
+            files[f"{compiled.node_id}.spec.ts"] = header + "\n\n" + "\n\n".join(kept) + "\n"
     return files
 
 

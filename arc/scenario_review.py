@@ -16,11 +16,21 @@ import json
 import re
 from typing import Iterable, Mapping
 
-from scenario_tests import Fixtures, _ANY_LITERAL, _compile_scenario, _node_text, _sentences, _ts
+from scenario_tests import (Fixtures, _ANY_LITERAL, _compile_scenario, _descriptive, _node_text, _sentences, _ts,
+                            literal_prefix)
 
 OPS = {"open", "click", "fill", "check", "press", "expect_visible", "expect_absent",
-       "cell_click", "cell_type", "expect_cell", "expect_role"}
+       "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download"}
+# "open the home page" needs no literal: it is the application root.
+HOME_TARGET = re.compile(r"^(?:the\s+)?(?:application\s+|app\s+|workbook\s+)?home(?:\s*page)?$", re.I)
+# Template wording of the task itself ("the requested workflow") is never a literal.
+TEMPLATE_TEXT = re.compile(r"the\s+requested\s+workflow|follows?\s+the\s+visible\s+controls", re.I)
 CELL = re.compile(r"^[A-Z]{1,3}[0-9]{1,4}$")
+RANGE = re.compile(r"^[A-Z]{1,3}[0-9]{1,4}:[A-Z]{1,3}[0-9]{1,4}$")
+# A typed formula or a spreadsheet error token is structure the model may
+# choose freely: a wrong one fails visibly, it cannot mislead an assertion.
+FORMULA = re.compile(r"^=[A-Za-z0-9_+\-*/^().,:$%<>=&\" ]{1,60}$")
+ERROR_TOKEN = re.compile(r"^#[A-Z0-9/!?]{2,12}$")
 NUMBER = re.compile(r"^-?\d+(?:\.\d+)?%?$")
 ROLES = {"grid", "gridcell", "tab", "tablist", "tabpanel", "dialog", "menu", "menuitem", "button", "link", "textbox",
          "combobox", "listbox", "option", "table", "row", "columnheader", "rowheader", "heading", "region",
@@ -32,8 +42,34 @@ PLACEHOLDERS = {
     "$NEW_USERNAME": "a new, unused username (lowercase letters, digits, hyphens)",
     "$NEW_EMAIL": "a new, unused email address",
     "$NEW_PASSWORD": "a new compliant password (12+ chars); reuse it for the confirmation field",
+    "$NEW_NAME": "a new, unused record name (repository, team, workbook, worksheet, branch, label): lowercase "
+                 "letters, digits, hyphens; assert it afterwards to prove the record was created",
     "$TEXT": "a short free-form text (comment body, title, description)",
+    "$BLANK": "whitespace only (an invalid empty input for a required field)",
+    "$CSV": "a CSV file of the seeded `label/value` rows in seed order, no header row -- after import A1 holds "
+            "the first seeded label, B1 its value, A2 the second label ... (only as the value of an upload step)",
 }
+
+
+def seed_parts(value: str) -> list[str]:
+    """A seeded row `East/1200` is shown as separate cells, never as one string
+    (sheet review S13: `expect_visible "East/1200"` fails on a correct app)."""
+    value = str(value)
+    if "/" not in value or value.count("/") > 3 or "://" in value or value.startswith(("#", "=")):
+        return [value]
+    parts = [part.strip() for part in value.split("/") if len(part.strip()) >= 3]
+    return parts or [value]
+
+
+def seed_csv(seeds: list[str]) -> str:
+    """A CSV the import scenarios can use: seeded `Label/Value` rows when the
+    task names some, else a fixed two-column sample."""
+    # No header row: the model is told A1 holds the first seeded label, so the
+    # file must start with the rows themselves (v2 sheet-io review: A1=East).
+    rows = [value.split("/") for value in seeds if value.count("/") == 1 and " " not in value.split("/")[1]]
+    if len(rows) >= 2:
+        return "\n".join(",".join(part.strip() for part in row) for row in rows)
+    return "East,1200\nNorth,800"
 
 
 def expand_placeholder(value: str, scope: str) -> str:
@@ -44,13 +80,15 @@ def expand_placeholder(value: str, scope: str) -> str:
         "$NEW_USERNAME": f"user-{slug}",
         "$NEW_EMAIL": f"user-{slug}@example.test",
         "$NEW_PASSWORD": f"Derived-pass-{slug}!",
+        "$NEW_NAME": f"derived-{slug}",
         "$TEXT": f"Derived text {slug}",
+        "$BLANK": "   ",
     }.get(value, value)
 KEYS = {"Enter", "Escape", "Tab", "Delete", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
         "Home", "End", "PageUp", "PageDown", "Shift+Enter", "Shift+Tab", "Control+Enter", "Control+C", "Control+V",
         "Control+X", "Control+Z", "Control+Y", "Control+A"}
-MIN_CONFIDENCE = 0.6
-MAX_STEPS = 14
+MIN_CONFIDENCE = 0.5
+MAX_STEPS = 20
 
 SYSTEM = ("You convert product requirement scenarios into short browser check scripts. "
           "Reply with one JSON object only; no prose, no markdown.")
@@ -66,36 +104,54 @@ Operations (use only these):
                                          Home, End, Shift+Enter, Shift+Tab, Control+C/V/X/Z/Y/A, Control+Enter
   {"op": "expect_visible", "target": L}  assert the text or control L is visible
   {"op": "expect_absent", "target": L}   assert the text L is not visible
-  {"op": "cell_click", "target": "A1"}   select a spreadsheet cell by its coordinate (ARIA gridcell name)
+  {"op": "cell_click", "target": "A1"}   select a spreadsheet cell by its coordinate (ARIA gridcell name);
+                                         "A1:B2" selects that range (click A1, shift-click B2)
   {"op": "cell_type", "target": "A1", "value": V}  select the cell and type V (a seeded value, a number or a
                                          formula quoted by the requirement); commit with {"op": "press", "key": "Enter"}
-  {"op": "expect_cell", "target": "C1", "value": V}  assert the cell shows V (seeded value or number)
+  {"op": "expect_cell", "target": "C1", "value": V}  assert the cell shows V (seeded value or number; "" = the
+                                         cell is empty, e.g. after Escape cancels an edit or after Undo)
   {"op": "expect_role", "role": R, "target": L}  assert an element with ARIA role R and accessible name L
                                          (roles: grid, gridcell, tab, dialog, menu, menuitem, button, link, ...)
+  {"op": "upload", "target": L, "value": "$CSV"}  choose a file in the file input named/labelled L; $CSV is a
+                                         CSV of the seeded label/value rows, no header (A1 = first label)
+  {"op": "expect_download", "target": L, "value": ".csv"}  click the control L and assert a file download whose
+                                         name ends with the given suffix starts
 A scenario that says "the requested workflow" (or "follows the visible controls") means: perform the
 operation that the Requirement text of that scenario describes, on the seeded record, with the concrete
 values the scenario lists; then assert the observable result the Requirement text promises. When the
 scenario does not say which cell, row or column to use, choose one from the seeds yourself (the cell named
 in the seed, the row holding a seeded value, the next empty cell): a concrete reasonable choice is
-expected, "not specified" is not a reason to skip.
+expected, "not specified" is not a reason to skip. "the requested workflow" is NOT a placeholder and never a
+reason to skip: the Requirement text of that scenario says what the workflow is.
+A literal that the requirement writes with a placeholder ("Last updated: <last updated value>",
+"Filter <header text>") appears in ALLOWED LITERALS as its fixed prefix only ("Last updated:", "Filter");
+match it as that prefix, never expect the placeholder text itself.
 Cell coordinates (A1, B2, C10 ...) are ALWAYS allowed as targets of cell_click/cell_type/expect_cell and
-expect_role, whether or not they appear in ALLOWED LITERALS. Numbers are always allowed as values.
+expect_role, whether or not they appear in ALLOWED LITERALS. Numbers, formulas (=A1+B1, =1/0, =SUM(A1:A2))
+and spreadsheet error tokens (#DIV/0!, #REF!) are always allowed as cell values.
+Controls (targets of open/click/check/fill/upload) may also be any control named anywhere in the
+requirement (the CONTROLS list), or such a name followed by a seeded value ("Remove bob-reviewer");
+expect_visible/expect_absent targets must come from the scenario's own ALLOWED LITERALS.
 Copy, cut, paste, undo and redo are done with press Control+C / Control+X / Control+V / Control+Z /
-Control+Y on the selected cell (no clipboard setup is needed). File upload/download cannot be scripted:
-skip only those scenarios.
+Control+Y on the selected cell (no clipboard setup is needed). Import is scripted with the upload step and
+$CSV; export with expect_download on the control that triggers it.
 L and V MUST be copied verbatim from the ALLOWED LITERALS list of that scenario (control names the
 requirement quotes, seeded record names, or the fixture account/email/password). Never invent names.
 Values the user must make up are written as placeholders, allowed ONLY as fill values and as
-expect_visible/expect_absent targets: $NEW_USERNAME, $NEW_EMAIL, $NEW_PASSWORD (also for the
-confirmation field), $TEXT (comment body, title, description). Never register or create records with
-the fixture account; use the placeholders for anything new.
+expect_visible/expect_absent targets (and cell_type values): $NEW_USERNAME, $NEW_EMAIL, $NEW_PASSWORD
+(also for the confirmation field), $NEW_NAME (the name of a repository, team, workbook, worksheet,
+branch or label the script creates -- assert it afterwards), $TEXT (comment body, title, description).
+Never register or create records with the fixture account or with a word taken from the requirement
+prose as a name; use the placeholders for anything new. Placeholders are for records the script
+CREATES; to refer to an EXISTING account, repository or record (adding a member, assigning a reviewer)
+use the seeded name from ALLOWED LITERALS -- a $NEW_USERNAME account does not exist yet.
 If the scenario needs a starting state that the allowed literals cannot establish (an existing record
 the requirement does not name, a second account with credentials), set "skip".
 "signed_in": true means the script first signs in with the fixture account; do not add sign-in steps.
 Prefer the shortest path that a real user of this product would take: open the seeded record, then
 the tab or page the scenario names, then act. End with at least one expect_visible/expect_absent taken
 from the THEN step (a quoted literal, a seeded name, or a status word the requirement names).
-Set confidence below 0.6 when you are guessing."""
+Set confidence below 0.5 only when you are guessing at controls the requirement does not name."""
 
 
 def ancestor_context(tree: Mapping | None) -> dict[str, str]:
@@ -143,8 +199,21 @@ def allowed_literals(node: Mapping, fixtures: Fixtures, context: str = "") -> li
     for scenario in node.get("scenarios") or []:
         for step in scenario.get("steps") or []:
             text += "\n" + str(step.get("content") or "")
+    for scenario in node.get("scenarios") or []:
+        # Templated titles carry their concrete values unquoted: "... the
+        # requested workflow Pivot1 the requested workflow Region ...".
+        title = str(scenario.get("name") or scenario.get("title") or "")
+        if TEMPLATE_TEXT.search(title):
+            for token in re.split(r"the\s+requested\s+workflow|[,;]", re.sub(r"^\s*REQ[\w-]*\s*-?", "", title), flags=re.I):
+                token = token.strip(" -")
+                if 1 < len(token) <= 40 and not TEMPLATE_TEXT.search(token):
+                    values.append(token)
     for match in _ANY_LITERAL.finditer(text):
-        values.append((match.group(1) or match.group(2) or match.group(3)).strip())
+        # "Last updated: <last updated value>" is a pattern; only its fixed
+        # prefix is something a script may look for.
+        value = literal_prefix((match.group(1) or match.group(2) or match.group(3)).strip())
+        if value and not TEMPLATE_TEXT.search(value) and not _descriptive(value):
+            values.append(value)
     for match in re.finditer(r"\b(?:displays?|shows?|marked(?:\s+as)?|status\s+(?:is|becomes|of)|becomes)\s+"
                              r"(?:the\s+)?([A-Z][a-z]{2,})\b", text):
         values.append(match.group(1))
@@ -157,10 +226,24 @@ def allowed_literals(node: Mapping, fixtures: Fixtures, context: str = "") -> li
     return list(dict.fromkeys(v for v in values if v and len(v) <= 120))
 
 
-def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mapping[str, str] | None = None) -> list[dict]:
+def suite_controls(leaves: Iterable[Mapping], fixtures: Fixtures, shared: str = "") -> list[str]:
+    """Every literal the whole requirement names: a control quoted for one
+    leaf ("Issues", "Code", "Branch") is a real control of the product, so any
+    script may navigate through it. Assertions stay local to the scenario."""
+    values: list[str] = []
+    for node in leaves:
+        values += allowed_literals(node, fixtures)
+    values += allowed_literals({"name": "", "description": shared}, fixtures)
+    return list(dict.fromkeys(values))
+
+
+def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mapping[str, str] | None = None,
+                   shared: str = "") -> list[dict]:
     """Scenarios that got no mechanical script, with what a proposal may name."""
     targets: list[dict] = []
     seen_steps: set[tuple] = set()
+    leaves = list(leaves)
+    controls = suite_controls(leaves, fixtures, shared)
     for node in leaves:
         node_id = str(node.get("id"))
         node_text = _node_text(node)
@@ -192,13 +275,20 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "name": str(node.get("name") or ""),
                             "description": re.sub(r"\s+", " ", str(node.get("description") or ""))[:2600],
                             "steps": steps, "allowed": allowed, "seeds": parsed.seeds,
-                            "signed_in": parsed.signed_in})
+                            "controls": controls, "signed_in": parsed.signed_in,
+                            "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
+                                                       r"\b[A-Z]{1,3}[0-9]{1,4}\s*=",
+                                                       node_text + " " + shared + " " + " ".join(steps), re.I))})
     return targets
 
 
 def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
     parts = ["Write one check script per scenario below, as JSON: {\"scenarios\": [ ... ]}.\n" + DSL]
     parts.append(f"\nFixture account: `{fixtures.account}` / `{fixtures.password}` (email `{fixtures.email}`).")
+    controls = [c for c in (targets[0].get("controls") or []) if len(c) <= 60][:160] if targets else []
+    if controls:
+        parts.append("\nCONTROLS (named anywhere in the requirement; usable as open/click/check/fill targets): "
+                     + json.dumps(controls, ensure_ascii=False))
     for target in targets:
         parts.append(f"\n### [{target['id']}] {target['title']}\nRequirement {target['node_id']} ({target['name']}): "
                      f"{target['description']}\n" + "\n".join(target["steps"]) +
@@ -227,6 +317,8 @@ def parse_reply(text: str) -> list[dict] | None:
 def _emit(step: dict) -> str | None:
     op, target = step.get("op"), step.get("target")
     if op == "open":
+        if HOME_TARGET.match(str(target).strip()):
+            return "await h.openHome(page);"
         return f"await h.openNamed(page, {_ts(target)});"
     if op == "click":
         return f"await h.clickNamed(page, {_ts(target)});"
@@ -236,18 +328,25 @@ def _emit(step: dict) -> str | None:
         return f"await h.checkNamed(page, {_ts(target)});"
     if op == "press":
         return f"await h.pressKey(page, {_ts(str(step.get('key')))});"
+    parts = seed_parts if step.get("seed_row") else (lambda value: [str(value)])
     if op == "expect_visible":
-        return f"await h.expectTextsVisible(page, [{_ts(target)}]);"
+        return f"await h.expectTextsVisible(page, [{', '.join(_ts(part) for part in parts(target))}]);"
     if op == "expect_absent":
-        return f"await h.expectAbsent(page, {_ts(target)});"
+        return f"await h.expectAbsent(page, {_ts(parts(target)[0])});"
     if op == "cell_click":
         return f"await h.clickCell(page, {_ts(target)});"
     if op == "cell_type":
-        return f"await h.typeInCell(page, {_ts(target)}, {_ts(str(step.get('value')))});"
+        # A seeded row `Item/Qty` names two cells; the first part goes in this one.
+        return f"await h.typeInCell(page, {_ts(target)}, {_ts(parts(str(step.get('value')))[0])});"
     if op == "expect_cell":
-        return f"await h.expectCell(page, {_ts(target)}, {_ts(str(step.get('value')))});"
+        return f"await h.expectCell(page, {_ts(target)}, {_ts(parts(str(step.get('value') or ''))[0] if step.get('value') else '')});"
     if op == "expect_role":
         return f"await h.expectRole(page, {_ts(str(step.get('role')))}, {_ts(target)});"
+    if op == "upload":
+        csv = str(step.get("csv") or "").replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+        return f"await h.uploadFile(page, {_ts(target)}, '{csv}');"
+    if op == "expect_download":
+        return f"await h.expectDownload(page, {_ts(target)}, {_ts(str(step.get('value')))});"
     return None
 
 
@@ -268,6 +367,25 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     if len(steps) > MAX_STEPS:
         problems.append(f"{len(steps)} steps; at most {MAX_STEPS}")
     allowed = set(target["allowed"]) | set(target.get("seeds") or [])
+    # A seeded row `East/1200` is shown as its parts once imported or listed.
+    for seed in target.get("seeds") or []:
+        if "/" in seed and seed.count("/") <= 3:
+            allowed |= {part.strip() for part in seed.split("/") if len(part.strip()) >= 3}
+    controls = allowed | set(target.get("controls") or [])
+
+    def is_control(value: object) -> bool:
+        """A control the requirement names anywhere, or a composed name such
+        as "Remove bob-reviewer" / "Worksheet options for Sheet1" whose prefix
+        is a named control and whose remainder is a seeded or allowed value."""
+        if not isinstance(value, str):
+            return False
+        value = value.strip()
+        if value in controls:
+            return True
+        for prefix in controls:
+            if value.startswith(prefix + " ") and value[len(prefix):].strip() in allowed:
+                return True
+        return False
     asserted = False
     for index, step in enumerate(steps, 1):
         if not isinstance(step, dict) or step.get("op") not in OPS:
@@ -281,18 +399,41 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             continue
         value = step.get("target")
         if op in {"cell_click", "cell_type", "expect_cell"}:
-            if not isinstance(value, str) or not CELL.match(value.strip()):
+            if not target.get("has_grid", True):
+                problems.append(f"step {index}: {op} needs a spreadsheet grid; this product has none")
+                continue
+            if not isinstance(value, str) or not (CELL.match(value.strip())
+                                                  or (op == "cell_click" and RANGE.match(value.strip()))):
                 problems.append(f"step {index}: {op} target {json.dumps(value, ensure_ascii=False)} is not a cell "
-                                f"coordinate such as A1")
+                                f"coordinate such as A1" + (" or a range such as A1:B2" if op == "cell_click" else ""))
             if op != "cell_click":
                 typed = step.get("value")
+                if isinstance(typed, (int, float)) and not isinstance(typed, bool):
+                    typed = step["value"] = str(typed)
                 if not isinstance(typed, str) or not (typed.strip() in allowed or typed.strip() in PLACEHOLDERS
-                                                      or NUMBER.match(typed.strip())):
+                                                      or NUMBER.match(typed.strip())
+                                                      or FORMULA.match(typed.strip())
+                                                      or (op == "expect_cell" and (typed.strip() == ""
+                                                                                   or ERROR_TOKEN.match(typed.strip())))):
                     problems.append(f"step {index}: {op} value {json.dumps(typed, ensure_ascii=False)} is not a seeded "
                                     f"value, number, placeholder or literal the requirement quotes")
             # v9.2.2 (cce3f5ad4f21): expect_cell did not count as an assertion, so
             # every cell-only script was rejected for "no expect step".
             asserted = asserted or op == "expect_cell"
+            continue
+        if op == "upload":
+            if not is_control(value):
+                problems.append(f"step {index}: upload target {json.dumps(value, ensure_ascii=False)} is not an allowed literal")
+            if str(step.get("value") or "").strip() != "$CSV":
+                problems.append(f"step {index}: upload value must be $CSV")
+            continue
+        if op == "expect_download":
+            if not is_control(value):
+                problems.append(f"step {index}: expect_download target {json.dumps(value, ensure_ascii=False)} is not an allowed literal")
+            suffix = str(step.get("value") or "").strip()
+            if not re.match(r"^\.[a-z0-9]{1,8}$", suffix):
+                problems.append(f"step {index}: expect_download value must be a file suffix such as .csv")
+            asserted = True
             continue
         if op == "expect_role":
             role = step.get("role")
@@ -304,7 +445,11 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             asserted = True
             continue
         placeholder_ok = op.startswith("expect_")
-        if not isinstance(value, str) or not (value.strip() in allowed or (placeholder_ok and value.strip() in PLACEHOLDERS)):
+        if op == "open" and isinstance(value, str) and HOME_TARGET.match(value.strip()):
+            continue
+        if not placeholder_ok and is_control(value):
+            pass
+        elif not isinstance(value, str) or not (value.strip() in allowed or (placeholder_ok and value.strip() in PLACEHOLDERS)):
             problems.append(f"step {index}: {op} target {json.dumps(value, ensure_ascii=False)} is not an allowed literal"
                             + ("" if placeholder_ok else " (placeholders are not control names)"))
         if op == "fill":
@@ -312,9 +457,88 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             if not isinstance(typed, str) or not (typed.strip() in allowed or typed.strip() in PLACEHOLDERS):
                 problems.append(f"step {index}: fill value {json.dumps(typed, ensure_ascii=False)} is not an allowed "
                                 f"literal or placeholder ({', '.join(PLACEHOLDERS)})")
+            # github review S14/S15: the fixture username typed as a repository
+            # or fork name. Names of new records are $NEW_NAME.
+            elif (fixtures.account and typed.strip() == fixtures.account and isinstance(value, str)
+                    and not re.search(r"user|account|email|login|member|assignee|reviewer|owner|collaborator|"
+                                      r"search|find|filter|sign|name of the (?:user|account)", value, re.I)):
+                problems.append(f"step {index}: fill value {json.dumps(typed)} is the fixture account, typed into "
+                                f"{json.dumps(value)}; a record the script creates is named $NEW_NAME")
         asserted = asserted or op.startswith("expect_")
     if not asserted:
         problems.append("no expect_visible/expect_absent step: the script must assert something from the THEN step")
+    else:
+        # Sheet review S11: "click Add worksheet ... expect_visible Add worksheet".
+        # An expectation is evidence only when it is not a control the script
+        # itself pressed or a value it typed into a cell or field.
+        acted = {str(step.get("target") or "").strip().lower() for step in steps if isinstance(step, dict)
+                 and step.get("op") in {"open", "click", "check", "fill", "upload"}}
+        typed_at = {}
+        for index, step in enumerate(steps):
+            if isinstance(step, dict) and step.get("op") in {"fill", "cell_type"}:
+                typed_at.setdefault(str(step.get("value") or "").strip().lower(), index)
+        submits = [index for index, step in enumerate(steps) if isinstance(step, dict)
+                   and (step.get("op") in {"click", "check", "upload"} or (step.get("op") == "press"
+                                                                            and step.get("key") in {"Enter", "Control+Enter"}))]
+
+        seeded_lower = {seed.lower() for seed in target.get("seeds") or []}
+        for seed in target.get("seeds") or []:
+            seeded_lower |= {part.lower() for part in seed_parts(seed)}
+
+        def is_evidence(index: int, step: dict) -> bool:
+            if step.get("op") in {"expect_cell", "expect_role", "expect_download"}:
+                return True
+            shown = str(step.get("target") or "").strip().lower()
+            if shown in acted:
+                return False
+            if shown in typed_at:
+                # Sheet review S31: typing the seeded `East` into an empty cell
+                # and expecting `East` visible passes on the untouched seed row.
+                if shown in seeded_lower:
+                    return False
+                # A typed name shown again after Create/Save proves the record.
+                return any(typed_at[shown] < submit < index for submit in submits)
+            return True
+
+        expects = [(index, step) for index, step in enumerate(steps) if isinstance(step, dict)
+                   and str(step.get("op") or "").startswith("expect_")]
+        evidence = [step for index, step in expects if is_evidence(index, step)]
+        if expects and not evidence:
+            problems.append("every expect step names a control the script itself clicked or a value it typed; assert "
+                            "the outcome the THEN step promises (a message, a new record, a changed status) instead")
+    # v9.2.4 github (1307196473c1): a script typed the verification code
+    # "123456" into its field and then expected "123456" to be visible; secrets
+    # and codes are not echoed as page text. Reject that pairing explicitly.
+    secret_values = {str(step.get("value")).strip() for step in steps if isinstance(step, dict)
+                     and step.get("op") == "fill" and isinstance(step.get("value"), str)
+                     and re.search(r"password|code|token|secret|pin\b", str(step.get("target") or ""), re.I)}
+    for index, step in enumerate(steps, 1):
+        if (isinstance(step, dict) and step.get("op") == "expect_visible"
+                and str(step.get("target") or "").strip() in secret_values):
+            problems.append(f"step {index}: expect_visible {json.dumps(step.get('target'))} is a value typed into a "
+                            f"password/code field; such values are not shown as page text -- assert the outcome instead")
+    # Sheet review S23: "type East, press Escape, expect_absent East" -- `East`
+    # is a seeded row that exists before the scenario, so a correct app fails
+    # the check. Absence of a seeded value needs a step that removes it first.
+    seeded = set(target.get("seeds") or [])
+    for seed in list(seeded):
+        seeded |= set(seed_parts(seed))
+    removing = False
+    for index, step in enumerate(steps, 1):
+        if not isinstance(step, dict):
+            continue
+        if step.get("op") in {"click", "open", "press"} and re.search(
+                r"delete|remove|discard|clear|\bcut\b|Control\+X|^Delete$|^Backspace$|^closed?$|^open$|filter|search|"
+                r"find|sort|status|label|assignee|author|milestone|\bonly\b|^all\b|hide|collapse|archive",
+                str(step.get("target") or step.get("key") or ""), re.I):
+            removing = True  # deleted, or hidden by a filter/search/status tab
+        if step.get("op") == "fill":
+            removing = True  # a search/filter box narrows the list
+        if step.get("op") == "expect_absent" and str(step.get("target") or "").strip() in seeded and not removing:
+            hint = ("assert the cell instead (expect_cell with the seeded value, or with \"\" for an emptied cell)"
+                    if target.get("has_grid") else "assert what the THEN step promises instead")
+            problems.append(f"step {index}: expect_absent {json.dumps(step.get('target'))} is a seeded value that exists "
+                            f"before the scenario; it stays on a correct app unless a step deletes or filters it out -- {hint}")
     if proposal.get("signed_in") and not (fixtures.account and fixtures.password):
         problems.append("signed_in requested but the suite has no fixture account")
     return problems
@@ -328,6 +552,11 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     scope = str(target["title"])
     for step in proposal["steps"]:
         step = dict(step)
+        if step["op"] == "upload":
+            step["csv"] = seed_csv(target.get("seeds") or [])
+        # Only a seeded `label/value` row splits into cells; "src/search.ts" is a path.
+        step["seed_row"] = str(step.get("target") or "") in set(target.get("seeds") or []) \
+            or str(step.get("value") or "") in set(target.get("seeds") or [])
         if step["op"] != "press":
             step["target"] = expand_placeholder(str(step["target"]).strip(), scope)
             if step["op"] in {"fill", "cell_type", "expect_cell"}:
@@ -404,4 +633,23 @@ def append_tests(spec_source: str, tests: list[str], node_id: str) -> str:
     if not spec_source:
         spec_source = (f"// requirement: {node_id}\n// Derived mechanically from requirements.yaml; not an official test.\n"
                        "import { test } from '@playwright/test';\nimport * as h from './helpers';\n\n")
-    return spec_source.rstrip("\n") + "\n\n" + "\n\n".join(tests) + "\n"
+    # Templated tasks yield the same script for sibling scenarios (sheet
+    # REQ-1-3-1 x3): one copy per leaf is enough.
+    def body(test: str) -> str:
+        return re.sub(r"^test\('[^']*',", "", test.strip(), count=1)
+    present = {body("test(" + part) for part in spec_source.split("\ntest(")[1:]}
+    titles = set(re.findall(r"^test\('((?:[^'\\]|\\.)*)'", spec_source, re.M))
+    kept: list[str] = []
+    for test in tests:
+        title = re.match(r"^test\('((?:[^'\\]|\\.)*)'", test.strip())
+        # Playwright refuses a file with two tests of one title (sheet
+        # REQ-1-2-1 lost all its model tests to that).
+        if body(test) in present or (title and title.group(1) in titles):
+            continue
+        present.add(body(test))
+        if title:
+            titles.add(title.group(1))
+        kept.append(test)
+    if not kept:
+        return spec_source
+    return spec_source.rstrip("\n") + "\n\n" + "\n\n".join(kept) + "\n"
