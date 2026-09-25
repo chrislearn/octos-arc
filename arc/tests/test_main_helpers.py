@@ -81,6 +81,24 @@ class DescribeNodeTests(unittest.TestCase):
 
 
 class RequirementContractRoutingTests(unittest.TestCase):
+    def test_application_repair_prompt_keeps_generated_and_official_oracles_distinct(self):
+        import argparse
+        from pathlib import Path
+        flow = m.Flow(argparse.Namespace(web_port=3000), Path("."), Path("."))
+        fields = dict(node_id="REQ-1", passed=0, total=1, failures="missing",
+                      test_location="tests", corrections="", slow="", sources="",
+                      smoke=3100, port=3000)
+        flow.derived_as_specs = False
+        self.assertIn("official acceptance tests", flow.app_repair_prompt(**fields))
+        flow.derived_as_specs = True
+        generated = flow.app_repair_prompt(**fields)
+        self.assertIn("generated acceptance tests", generated)
+        self.assertIn("requirements.yaml is the behavior authority", generated)
+        self.assertNotIn("read-only ground truth", generated)
+        verify = flow.verify_text(1)
+        self.assertIn("generated Playwright specs", verify)
+        self.assertNotIn("official Playwright specs", verify)
+
     def test_no_specs_use_derived_contract_in_all_prompt_paths(self):
         import argparse
         from pathlib import Path

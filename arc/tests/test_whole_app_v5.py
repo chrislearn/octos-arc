@@ -1,5 +1,6 @@
 """The v5 whole-app path keeps a measured, per-leaf repair fallback."""
 import argparse
+import json
 import os
 import tempfile
 import unittest
@@ -347,23 +348,34 @@ class WholeAppTests(unittest.TestCase):
         flow.tests_dir = None
         flow.runner = None
         flow.requirement_contracts = compile_contracts(self.nodes)
-        flow.codegen_implement_prompt = Mock(return_value="complete prompt")
-
-        def generated(*args, **kwargs):
-            flow.last_codegen_written = ["frontend/src/index.html"]
-            return True, "files"
-
-        flow.codegen_turn = Mock(side_effect=generated)
+        flow.whole_app_waves = Mock(return_value=True)
         with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
             self.assertTrue(flow.whole_app_codegen(self.tree, self.nodes))
-        _, contract = flow.codegen_implement_prompt.call_args.args
-        self.assertIn("not official Playwright tests", contract)
+        flow.whole_app_waves.assert_called_once_with(self.tree, self.nodes)
 
         flow.tests_dir = self.root / "tests"
         flow.runner = object()
-        flow.codegen_turn.reset_mock()
+        flow.whole_app_waves.reset_mock()
         with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
             self.assertFalse(flow.whole_app_codegen(self.tree, self.nodes))
+        flow.whole_app_waves.assert_not_called()
+
+    def test_forced_whole_app_uses_derived_contract_with_partial_generated_suite(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        flow.derived_as_specs = True
+        flow.requirement_contracts = compile_contracts(self.nodes)
+        flow.spec_map["C"] = []
+        flow.codegen_implement_prompt = Mock(return_value="complete prompt")
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/index.html"]
+            return True, "files"
+        flow.codegen_turn = Mock(side_effect=generated)
+        self.assertTrue(flow.whole_app_codegen(self.tree, self.nodes))
+        self.assertIn("derived from requirements.yaml", flow.codegen_implement_prompt.call_args.args[1])
+        flow.derived_as_specs = False
+        flow.codegen_turn.reset_mock()
+        self.assertFalse(flow.whole_app_codegen(self.tree, self.nodes))
         flow.codegen_turn.assert_not_called()
 
     def test_partial_waves_only_generate_unreached_nodes_if_suite_unavailable(self):
@@ -847,9 +859,13 @@ class WholeAppTests(unittest.TestCase):
         flow.whole_app_wave_gaps = Mock(side_effect=[[], ["incomplete"], []])
         flow.mark = Mock()
         seen = []
+        order = []
+        flow.prepare_derived_spec_batch = Mock(side_effect=lambda nodes: order.append(
+            ("spec", [node["id"] for node in nodes])))
 
         def generated(*args, **kwargs):
             seen.append([call.args[:2] for call in flow.mark.call_args_list])
+            order.append(("code", []))
             return self._applied()
 
         flow.whole_app_generation_turn = Mock(side_effect=generated)
@@ -861,6 +877,23 @@ class WholeAppTests(unittest.TestCase):
         self.assertIn(("implementation_done", "C"), marks)
         self.assertIn(("implementation_started", "B"), marks)
         self.assertNotIn(("implementation_done", "B"), marks)
+        self.assertEqual(order[0], ("spec", ["A"]))
+        self.assertEqual(order[1][0], "code")
+
+    def test_sequential_flow_prepares_each_spec_before_its_node_code(self):
+        flow = self.flow
+        order = []
+        flow.prepare_derived_spec_batch = Mock(side_effect=lambda nodes: order.append(
+            ("spec", [node["id"] for node in nodes])))
+        flow.node_cycle = Mock(side_effect=lambda node, *args, **kwargs: order.append(("code", [node["id"]])))
+        flow.regression_checkpoint = Mock()
+        flow.driver = Mock()
+        flow.final_phase_due = Mock(return_value=False)
+        flow.time_up = Mock(return_value=False)
+        flow.implement_sequential(self.tree, self.nodes, set())
+        self.assertEqual(order, [("spec", ["A"]), ("code", ["A"]),
+                                 ("spec", ["B"]), ("code", ["B"]),
+                                 ("spec", ["C"]), ("code", ["C"])])
 
     def test_should_not_require_files_the_previous_attempt_wrote_in_the_minimal_closure(self):
         flow = self.flow
@@ -1189,11 +1222,70 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         self.assertIn("B.spec.ts", prompt)
         self.assertIn("derived from requirements.yaml", flow.spec_bodies("B"))
         self.assertIn("h.clickNamed(page, 'Open B')", flow.spec_bodies("B"))
-        # The whole-app wave experiment stays off by default: the normal measured flow runs.
+        metrics = [json.loads(row) for row in (self.root / ".arc" / "flow-metrics.jsonl").read_text().splitlines()]
+        self.assertEqual({row["node_id"] for row in metrics if row.get("kind") == "derived_spec_node"
+                          and row.get("phase") == "mechanical"}, {"A", "B", "C"})
+        # Generated specs still carry their origin, so auto selects waves and
+        # every failed derived test receives the generated-spec audit.
         with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
             flow.runner = object()
-            flow.requirement_contracts = {"nodes": []}
-            self.assertFalse(flow.whole_app_experiment(self.tree, nodes))
+            from requirement_contracts import compile_contracts
+            flow.requirement_contracts = compile_contracts(nodes)
+            flow.whole_app_waves = Mock(return_value=True)
+            self.assertTrue(flow.whole_app_codegen(self.tree, nodes))
+            flow.whole_app_waves.assert_called_once_with(self.tree, nodes)
+
+    def test_missing_derived_specs_still_supply_contracts_to_default_waves(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        nodes = self._derived()
+        flow.tests_dir = self.root / "tests"
+        flow.derived_as_specs = True
+        flow.requirement_contracts = compile_contracts(nodes)
+        flow.spec_map = {node["id"]: [] for node in nodes}
+        contract = flow.batch_spec_bodies(["A", "B", "C"])
+        self.assertNotEqual(contract, "(none)")
+        self.assertIn("Open B", contract)
+        flow.whole_app_waves = Mock(return_value=True)
+        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
+            self.assertTrue(flow.whole_app_codegen(self.tree, nodes))
+        flow.whole_app_waves.assert_called_once_with(self.tree, nodes)
+
+    def test_partial_derived_batch_quotes_contract_for_uncovered_node(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        nodes = self._derived()
+        flow.tests_dir = self.root / "tests"
+        flow.derived_as_specs = True
+        flow.requirement_contracts = compile_contracts(nodes)
+        flow.spec_map = {"B": ["B.spec.ts"], "C": []}
+        body = flow.batch_spec_bodies(["B", "C"])
+        self.assertIn("--- B.spec.ts ---", body)
+        self.assertIn("--- Nodes without generated specs: requirement contracts ---", body)
+        self.assertIn("Open C", body)
+        self.assertIn("Open C", flow.spec_bodies("C"))
+        self.assertIn("Open C", flow.tests_prompt_for("C"))
+
+    def test_generated_spec_batches_preserve_plan_and_progress_between_nodes(self):
+        flow = self.flow
+        nodes = self._derived()
+        self.assertTrue(flow.prepare_derived_tests(nodes))
+        flow.adopt_derived_specs(["A", "B", "C"])
+        flow.text_turn = Mock(return_value=(False, "provider unavailable"))
+        flow.remaining = Mock(return_value=4000)
+        flow.final_phase_reserve = Mock(return_value=0)
+        flow.prepare_derived_spec_batch(nodes[:1])
+        plan_path = flow.derived_tests_dir / "review" / "plan.json"
+        statuses = {row["node_id"]: row["status"] for row in json.loads(plan_path.read_text())["targets"]}
+        self.assertEqual(statuses, {"A": "attempted", "B": "pending", "C": "pending"})
+        flow.prepare_derived_spec_batch(nodes[1:2])
+        statuses = {row["node_id"]: row["status"] for row in json.loads(plan_path.read_text())["targets"]}
+        self.assertEqual(statuses, {"A": "attempted", "B": "attempted", "C": "pending"})
+        self.assertTrue((flow.derived_tests_dir / "review" / "batch-1.txt").is_file())
+        self.assertTrue((flow.derived_tests_dir / "review" / "batch-2.txt").is_file())
+        self.assertEqual(flow.text_turn.call_count, 2)
+        flow.prepare_derived_spec_batch(nodes[:1])
+        self.assertEqual(flow.text_turn.call_count, 2)
 
     def test_model_review_adds_validated_scripts_before_the_suite_is_adopted(self):
         flow = self.flow
@@ -1207,7 +1299,13 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
                  '{"op": "click", "target": "Open B"}, {"op": "expect_visible", "target": "Done B"}]},'
                  '{"title": "B: Scenario 1", "signed_in": false, "confidence": 0.9, "steps": ['
                  '{"op": "click", "target": "Invented"}, {"op": "expect_visible", "target": "Done B"}]}]}')
-        flow.text_turn = Mock(return_value=(True, reply))
+        def reply_after_progress(*args, **kwargs):
+            metrics = [json.loads(row) for row in (self.root / ".arc" / "flow-metrics.jsonl").read_text().splitlines()]
+            self.assertTrue(any(row.get("kind") == "derived_spec_node" and row.get("phase") == "ai"
+                                and row.get("status") == "generating" and row.get("node_id") == "B"
+                                for row in metrics))
+            return True, reply
+        flow.text_turn = Mock(side_effect=reply_after_progress)
         flow.remaining = Mock(return_value=4000)
         flow.final_phase_reserve = Mock(return_value=0)
         self.assertEqual(flow.augment_derived_tests(nodes), 1)
@@ -1218,7 +1316,7 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         self.assertNotIn("Invented", after)
         prompt = flow.text_turn.call_args.args[0]
         self.assertIn("B: Scenario 1", prompt)
-        self.assertIn("A: Scenario 1", prompt)  # Every feature is planned before implementation.
+        self.assertIn("A: Scenario 1", prompt)  # This direct call explicitly selects all nodes.
         self.assertTrue((flow.derived_tests_dir / "review" / "plan.json").is_file())
         with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_LLM": "0"}):
             self.assertEqual(flow.augment_derived_tests(nodes), 0)

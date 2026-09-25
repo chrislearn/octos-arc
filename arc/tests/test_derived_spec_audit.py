@@ -322,7 +322,10 @@ class FlowAuditTests(unittest.TestCase):
         failed = RunSummary(passed=0, total=2, results=[
             TestOutcome("REQ-1: Open [model]", False, "failed", 1, file=path.name),
             TestOutcome("REQ-1: Save [model]", False, "failed", 1, file=path.name)])
-        self.assertIs(self.flow.audit_related_derived_specs([path.name], failed), failed)
+        self.flow.head = Mock(return_value="app-sha")
+        self.assertIsNone(self.flow.acceptance_loop(
+            "REQ-1", [path.name], time.time() + 120,
+            initial_summary=failed, source_versions={}))
         self.assertEqual(self.flow.text_turn.call_count, 2)
         self.assertEqual(self.flow.disputed_generated_failures(failed),
                          [("REQ-1", "REQ-1: Save [model]")])

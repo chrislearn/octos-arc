@@ -16,6 +16,18 @@ SEED = ("The visitor starts at the application home page in a fresh unauthentica
 
 
 class ScenarioCompilerTests(unittest.TestCase):
+    def test_suite_compiler_reports_progress_for_nodes_without_checks(self):
+        empty = leaf("A", [])
+        action = leaf("B", [("Open", [
+            ("WHEN", "The visitor clicks “Open”."),
+            ("THEN", "The page shows “Done”.")])])
+        progress = []
+        compile_suite([empty, action], progress=lambda *row: progress.append(row))
+        self.assertEqual([(row[0], row[1], row[2]) for row in progress],
+                         [("A", 1, 2), ("B", 2, 2)])
+        self.assertEqual(progress[0][-1], 0)
+        self.assertGreater(progress[1][-1], 0)
+
     def test_semantic_field_description_uses_declared_accessible_label(self):
         node = leaf("REQ-2-1-2", [("Create", [
             ("GIVEN", SEED),

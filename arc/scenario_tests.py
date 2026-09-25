@@ -26,7 +26,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from requirement_contracts import _ui_bindings
 
@@ -669,17 +669,21 @@ def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: s
 
 
 def compile_suite(leaves: Iterable[Mapping], context: Mapping[str, str] | None = None,
-                  shared: str = "") -> dict[str, str]:
+                  shared: str = "", *,
+                  progress: Callable[[str, int, int, int, int, int], None] | None = None) -> dict[str, str]:
     """{relative path: source}; leaves without any derivable check get no spec.
     `context` maps a leaf id to its ancestors' descriptions; `shared` is every
-    folder description (an ARIA contract stated on one module holds app-wide)."""
+    folder description (an ARIA contract stated on one module holds app-wide).
+    `progress` receives node id, position, total, scripts, entries, kept tests."""
     leaves = list(leaves)
     fixtures = suite_fixtures(leaves)
     files = {"helpers.ts": HELPERS.read_text(encoding="utf-8")}
     seen_bodies: set[str] = set()
-    for node in leaves:
+    for index, node in enumerate(leaves, 1):
         compiled = compile_leaf(node, fixtures, (context or {}).get(str(node.get("id")), ""), shared)
         if not (compiled.scripts or compiled.reach_checks):
+            if progress:
+                progress(compiled.node_id, index, len(leaves), 0, 0, 0)
             continue
         # The same check (sign in, reach `alice-dev`) compiled for five sibling
         # leaves runs five times and tells the suite nothing new; keep the first.
@@ -698,6 +702,9 @@ def compile_suite(leaves: Iterable[Mapping], context: Mapping[str, str] | None =
             kept.append(test)
         if kept:
             files[f"{compiled.node_id}.spec.ts"] = header + "\n\n" + "\n\n".join(kept) + "\n"
+        if progress:
+            progress(compiled.node_id, index, len(leaves), compiled.scripts,
+                     compiled.reach_checks, len(kept))
     return files
 
 
