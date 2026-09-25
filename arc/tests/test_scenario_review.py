@@ -376,6 +376,44 @@ class SpreadsheetOpsTests(unittest.TestCase):
         proposal["steps"].insert(4, {"op": "press", "key": "Enter"})
         self.assertEqual(proposal_problems(proposal, target, fixtures), [])
 
+    def test_reopening_seeded_workbook_allows_its_original_cell_value(self):
+        from scenario_review import proposal_problems
+        node = leaf("REQ-1-3-1", [("Import", [
+            ("GIVEN", "The seeded workbook `Q3 Sales` has cell A1 value `Region` and rows `East/1200`."),
+            ("WHEN", "The user clicks “Import CSV”, uploads through “CSV file”, and clicks “Confirm import”."),
+            ("THEN", "The imported workbook opens."),
+        ])], description='The home page has “Import CSV”, “CSV file”, and “Confirm import”.')
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures)[0]
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Import CSV"},
+            {"op": "upload", "target": "CSV file", "value": "$CSV"},
+            {"op": "click", "target": "Confirm import"},
+            {"op": "open", "target": "Q3 Sales"},
+            {"op": "expect_visible", "target": "Region"},
+        ]}
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+
+    def test_imported_file_name_has_its_own_assertion_placeholder(self):
+        from scenario_review import proposal_problems
+        node = leaf("REQ-1-3-1", [("Import", [
+            ("GIVEN", "The seeded workbook `Q3 Sales` has rows `East/1200` and `North/800`."),
+            ("WHEN", "The user clicks “Import CSV”, uploads through “CSV file”, and clicks “Confirm import”."),
+            ("THEN", "A new workbook is named after the CSV file."),
+        ])], description='The home page has “Import CSV”, “CSV file”, and “Confirm import”.')
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures)[0]
+        proposal = {"title": target["title"], "confidence": 0.9, "steps": [
+            {"op": "click", "target": "Import CSV"},
+            {"op": "upload", "target": "CSV file", "value": "$CSV"},
+            {"op": "click", "target": "Confirm import"},
+            {"op": "expect_visible", "target": "$NEW_NAME"},
+        ]}
+        self.assertIn("never entered", " | ".join(proposal_problems(proposal, target, fixtures)))
+        proposal["steps"][-1]["target"] = "$CSV_NAME"
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        self.assertIn("h.expectTextsVisible(page, ['derived-import'])", validate_proposal(proposal, target, fixtures))
+
 
 class ProposalIdentityTests(unittest.TestCase):
     """v9.2.2 sheet run cce3f5ad4f21: 71/100 proposals rejected although many were

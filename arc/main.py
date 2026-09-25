@@ -69,6 +69,7 @@ Environment (all optional):
     OCTOS_ARC_REQUIREMENT_CONTRACT_CHARS  prompt budget for deterministic no-spec contracts (12000/node, 30000/final)
     OCTOS_ARC_NO_SPEC_EDIT_REQUESTS  structured-edit request budget without official specs (default 12)
     OCTOS_ARC_NO_SPEC_REVIEW_SECONDS  maximum focused repair time after a scenario/seed audit (default 180)
+    OCTOS_ARC_DERIVED_SPEC_AUDIT  "0" disables requirement-grounded corrections of failing self-generated specs
     OCTOS_ARC_TRANSIENT_RETRY_SECONDS  time allowed after the first provider error for retries (default 240)
     OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS  cap for each request after the first provider error (default 180)
     OCTOS_ARC_WHOLE_APP_PROMPT_CHARS  input cap for each generation wave (default 60000)
@@ -126,6 +127,7 @@ from scenario_tests import compile_suite as compile_derived_suite, suite_fixture
 from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests,  # noqa: E402
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
                              folder_text, retry_prompt as build_review_retry, review_targets)
+from derived_spec_audit import repair_failed_generated_specs  # noqa: E402
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
 from web_checks import scaffold_issues  # noqa: E402
@@ -4185,6 +4187,71 @@ class Flow:
             return False
         return True
 
+    def audit_failed_derived_specs(self, node_id: str, specs: list[str], summary: RunSummary) -> RunSummary | None:
+        """Correct provably wrong generated assertions before repairing the app.
+
+        This branch never touches platform/public specs. Keep the old source for
+        inspection, load-check the replacement, then measure the unchanged app
+        again. The app repair loop consumes that new measurement if it still
+        fails; a passing replacement is not inferred from the spec edit alone.
+        """
+        if (not getattr(self, "derived_as_specs", False)
+                or self.tests_dir != getattr(self, "derived_tests_dir", None)
+                or os.environ.get("OCTOS_ARC_DERIVED_SPEC_AUDIT", "1") == "0"
+                or not self.suite_is_measured(summary, specs)
+                or summary.all_passed):
+            return None
+        node = getattr(self, "requirement_nodes", {}).get(node_id)
+        runner = getattr(self, "runner", None)
+        if not node or runner is None or not hasattr(runner, "list_specs"):
+            return None
+        fixtures = suite_fixtures(getattr(self, "derived_nodes", [node]))
+        changes: list[tuple[Path, str, str, tuple[str, ...]]] = []
+        for rel in specs:
+            path = self.tests_dir / rel
+            if not path.is_file():
+                continue
+            suffix = rel.replace("\\", "/")
+            failures = [row.title for row in summary.results if not row.ok and (
+                str(row.file or "").replace("\\", "/") == suffix or
+                str(row.file or "").replace("\\", "/").endswith("/" + suffix))]
+            if not failures:
+                continue
+            original = path.read_text(encoding="utf-8")
+            repair = repair_failed_generated_specs(original, failures, node, fixtures)
+            if repair.changed_titles:
+                changes.append((path, original, repair.source, repair.reasons))
+        if not changes:
+            self.metric("derived_spec_audit", node_id=node_id, outcome="no_provable_spec_error",
+                        failed_tests=sum(not row.ok for row in summary.results))
+            return None
+        archive = self.output_dir / ".arc" / "spec-audit" / node_id
+        archive.mkdir(parents=True, exist_ok=True)
+        for path, original, corrected, reasons in changes:
+            digest = hashlib.sha256(original.encode("utf-8")).hexdigest()[:12]
+            (archive / f"{path.stem}-{digest}.spec.ts").write_text(original, encoding="utf-8")
+            path.write_text(corrected, encoding="utf-8")
+            log(f"[derived] {node_id}: corrected generated spec {path.name}: {'; '.join(reasons)}")
+        loads, detail = runner.list_specs(specs)
+        if not loads:
+            for path, original, _, _ in changes:
+                path.write_text(original, encoding="utf-8")
+            self.metric("derived_spec_audit", node_id=node_id, outcome="rejected_load_error",
+                        detail=str(detail)[-300:])
+            log(f"[derived] {node_id}: corrected spec did not load; original restored: {str(detail)[-200:]}")
+            return None
+        # Model turns restore protected paths from this snapshot. Refresh it
+        # only after the harness itself has accepted the generated-spec edit.
+        self.snapshot_protected()
+        self.metric("derived_spec_audit", node_id=node_id, outcome="corrected",
+                    files=[str(path.name) for path, _, _, _ in changes],
+                    reasons=[reason for _, _, _, reasons in changes for reason in reasons])
+        observed = self.run_specs(specs)
+        log(f"[derived] {node_id}: unchanged app after spec correction: "
+            f"{observed.passed}/{observed.total} passed"
+            + (f"; {observed.error}" if observed.error else ""))
+        return observed
+
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
                         rebuild_prompt=None, initial_summary: RunSummary | None = None,
                         source_versions: dict | None = None) -> bool | None:
@@ -4204,6 +4271,10 @@ class Flow:
         self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
         for attempt in range(self.repair_rounds + 1):
             summary = initial_summary if attempt == 0 and initial_summary is not None else self.run_specs(specs)
+            if getattr(self, "derived_as_specs", False):
+                audited = self.audit_failed_derived_specs(node_id, specs, summary)
+                if audited is not None:
+                    summary = audited
             if summary.error and summary.killed:
                 log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
                 return None

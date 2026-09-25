@@ -49,6 +49,8 @@ PLACEHOLDERS = {
     "$BLANK": "whitespace only (an invalid empty input for a required field)",
     "$CSV": "a CSV file of the seeded `label/value` rows in seed order, no header row -- after import A1 holds "
             "the first seeded label, B1 its value, A2 the second label ... (only as the value of an upload step)",
+    "$CSV_NAME": "the name derived from the uploaded derived-import.csv file: derived-import "
+                 "(assertion after upload only, not a new-record fill value)",
     "$TABLE": "a tab/newline-delimited two-dimensional table of the seeded rows, for an external paste test",
 }
 
@@ -83,6 +85,7 @@ def expand_placeholder(value: str, scope: str) -> str:
         "$NEW_EMAIL": f"user-{slug}@example.test",
         "$NEW_PASSWORD": f"Derived-pass-{slug}!",
         "$NEW_NAME": f"derived-{slug}",
+        "$CSV_NAME": "derived-import",
         "$TEXT": f"Derived text {slug}",
         "$BLANK": "   ",
     }.get(value, value)
@@ -142,17 +145,19 @@ expect_visible/expect_absent targets must come from the scenario's own ALLOWED L
 Copy, cut, paste, undo and redo are done with press Control+C / Control+X / Control+V / Control+Z /
 Control+Y on the selected cell. A paste script must first copy in this script or use set_clipboard; an empty
 fresh browser clipboard is not a valid fixture. Import is scripted with the upload step and
-$CSV; export with expect_download on the control that triggers it.
+$CSV; after import, assert the file-derived workbook name with $CSV_NAME, not $NEW_NAME.
+Export uses expect_download on the control that triggers it.
 After each "Copy clone value" click, use expect_clipboard for that protocol and the seeded repository name;
 the "Copied" toast alone does not prove the clipboard contains the clone value.
 For a pivot table, formula, or other numeric result, assert the result in a destination cell with expect_cell;
 seeing the original source labels and values somewhere on the page does not prove the calculation.
 L and V MUST be copied verbatim from the ALLOWED LITERALS list of that scenario (control names the
 requirement quotes, seeded record names, or the fixture account/email/password). Never invent names.
-Values the user must make up are written as placeholders, allowed ONLY as fill values and as
+Values the user must make up are written as placeholders, allowed as fill values and as
 expect_visible/expect_absent targets (and cell_type values): $NEW_USERNAME, $NEW_EMAIL, $NEW_PASSWORD
 (also for the confirmation field), $NEW_NAME (the name of a repository, team, workbook, worksheet,
 branch or label the script creates -- assert it afterwards), $TEXT (comment body, title, description).
+$CSV_NAME is different: it is only an expect_visible target after $CSV upload.
 Never register or create records with the fixture account or with a word taken from the requirement
 prose as a name; use the placeholders for anything new. Placeholders are for records the script
 CREATES; to refer to an EXISTING account, repository or record (adding a member, assigning a reviewer)
@@ -419,6 +424,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     selected_cell = ""
     pasted_cells: dict[str, str] = {}
     uploaded_csv: list[list[str]] | None = None
+    uploaded = False
     edited_cells: set[str] = set()
     pending_clone_copies: list[tuple[int, str]] = []
     selected_protocol = ""
@@ -426,6 +432,9 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                   if re.search(r"\bcell\s+[A-Z]{1,3}[0-9]{1,4}\s+value\b", kind, re.I)]
     repository_seeds = {value for kind, value in target.get("seed_kinds") or []
                         if re.search(r"\brepository\b", kind, re.I)}
+    reset_prerequisite = re.search(
+        r"\bAfter\b[^.]{0,600}?\bclicks?\s+[“\"]([^”\"]+)[”\"][^.]{0,600}?Verification code",
+        str(target.get("description") or ""), re.I)
     for index, step in enumerate(steps, 1):
         if not isinstance(step, dict) or step.get("op") not in OPS:
             problems.append(f"step {index}: unknown op {json.dumps(step.get('op') if isinstance(step, dict) else step)}; "
@@ -532,6 +541,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 problems.append(f"step {index}: upload value must be $CSV")
             else:
                 uploaded_csv = [row.split(",") for row in seed_csv(target.get("seeds") or []).splitlines()]
+                uploaded = True
                 edited_cells.clear()
             continue
         if op == "expect_download":
@@ -565,10 +575,30 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             asserted = True
             continue
         placeholder_ok = op.startswith("expect_")
+        if op == "expect_visible" and uploaded and isinstance(value, str):
+            imported = {item for row in uploaded_csv or [] for item in row}
+            if value in cell_seeds and value not in imported:
+                problems.append(f"step {index}: {value!r} is a seeded cell value from the old workbook, "
+                                "not a result of the uploaded CSV")
+            if value == "$NEW_NAME" and not any(
+                    isinstance(previous, dict) and previous.get("op") == "fill"
+                    and previous.get("value") == "$NEW_NAME" for previous in steps[:index - 1]):
+                problems.append(f"step {index}: $NEW_NAME was never entered; a CSV import uses its uploaded "
+                                "file name, so assert $CSV_NAME instead")
+        if value == "$CSV_NAME" and (op != "expect_visible" or not uploaded):
+            problems.append(f"step {index}: $CSV_NAME is an assertion only after uploading $CSV")
+        if (reset_prerequisite and isinstance(value, str) and "Verification code" in value
+                and op.startswith("expect_") and not any(
+                    isinstance(previous, dict) and previous.get("op") == "click"
+                    and previous.get("target") == reset_prerequisite.group(1)
+                    for previous in steps[:index - 1])):
+            problems.append(f"step {index}: click {reset_prerequisite.group(1)!r} before asserting "
+                            "Verification code; the requirement shows it only in the next step")
         if op == "open" and isinstance(value, str) and HOME_TARGET.match(value.strip()):
             continue
         if op in {"open", "click"} and uploaded_csv and value in (target.get("seeds") or []):
             uploaded_csv = None  # Explicitly reopened the original seeded record.
+            uploaded = False
         if not placeholder_ok and is_control(value):
             pass
         elif not isinstance(value, str) or not (value.strip() in allowed or (placeholder_ok and value.strip() in PLACEHOLDERS)):
@@ -576,6 +606,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                             + ("" if placeholder_ok else " (placeholders are not control names)"))
         if op == "fill":
             typed = step.get("value")
+            if typed == "$CSV_NAME":
+                problems.append(f"step {index}: $CSV_NAME is derived from the upload and cannot be filled")
             if not isinstance(typed, str) or not (typed.strip() in allowed or typed.strip() in PLACEHOLDERS):
                 problems.append(f"step {index}: fill value {json.dumps(typed, ensure_ascii=False)} is not an allowed "
                                 f"literal or placeholder ({', '.join(PLACEHOLDERS)})")
