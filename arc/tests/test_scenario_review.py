@@ -63,6 +63,26 @@ class ReviewTargetTests(unittest.TestCase):
         self.assertEqual(proposal_problems(missing, target, fixtures), [])
         self.assertIn("h.hoverNamed(page, 'Delete me')", validate_proposal(missing, target, fixtures))
 
+    def test_full_plan_rejects_an_assertion_about_an_existing_given_value(self):
+        node = leaf("A", [("Create", [
+            ("GIVEN", "The page already shows “Existing”."),
+            ("WHEN", "The visitor clicks “Create”."),
+            ("THEN", "The page shows “Created”."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures, include_all=True)[0]
+        from scenario_review import proposal_problems
+        proposal = {"confidence": 0.9, "steps": [
+            {"op": "click", "target": "Create"},
+            {"op": "expect_visible", "target": "Existing"}]}
+        self.assertIn("Created", " | ".join(proposal_problems(proposal, target, fixtures)))
+        proposal["steps"][-1]["target"] = "Created"
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        proposal["steps"] = [{"op": "expect_visible", "target": "Created"},
+                             {"op": "click", "target": "Create"},
+                             {"op": "expect_visible", "target": "Existing"}]
+        self.assertIn("Created", " | ".join(proposal_problems(proposal, target, fixtures)))
+
     def test_allowed_literals_include_context_and_fixtures(self):
         allowed = allowed_literals(MERGE, suite_fixtures([MERGE]), context="Visitors use “Sign in” on the home page.")
         for value in ("Sign in", "Pull requests", "Confirm merge", "Merged", "main", "alice-dev", "Valid-password-123!"):

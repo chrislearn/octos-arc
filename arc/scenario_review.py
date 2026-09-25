@@ -292,6 +292,18 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                 bool(parsed.assertions) or not parsed.failure_path)
             when_text = " ".join(str(step.get("content") or "") for step in scenario.get("steps") or []
                                  if str(step.get("keyword") or "").upper() == "WHEN")
+            then_text = " ".join(str(step.get("content") or "") for step in scenario.get("steps") or []
+                                 if str(step.get("keyword") or "").upper() == "THEN")
+            preceding_text = " ".join(str(step.get("content") or "") for step in scenario.get("steps") or []
+                                      if str(step.get("keyword") or "").upper() in {"GIVEN", "WHEN"})
+            def quoted(text: str) -> list[str]:
+                return [literal_prefix((match.group(1) or match.group(2) or match.group(3)).strip())
+                        for match in _ANY_LITERAL.finditer(text)]
+            novel_outcomes = list(dict.fromkeys(value for value in quoted(then_text)
+                                                if value and value not in quoted(preceding_text)
+                                                and not TEMPLATE_TEXT.search(value)
+                                                and not re.match(r"^[A-Z]{1,3}[1-9]\d*\s*=", value)
+                                                and not _descriptive(value)))
             required_actions = ([] if not include_all or re.search(r"\sor\s", when_text, re.I) else [
                 match.group(1) for match in re.finditer(
                     r"\b(?:clicks?|chooses?|selects?|presses?|activates?|opens?)\b[^.;]{0,70}?[“\"`]([^”\"`]+)[”\"`]",
@@ -311,6 +323,8 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "description": re.sub(r"\s+", " ", str(node.get("description") or ""))[:2600],
                             "steps": steps, "allowed": allowed, "seeds": parsed.seeds,
                             "required_actions": required_actions[:8],
+                            "required_then_literal": (novel_outcomes[0] if include_all
+                                                      and len(novel_outcomes) == 1 else ""),
                             "seed_kinds": parsed.seed_kinds,
                             "controls": controls, "signed_in": parsed.signed_in,
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
@@ -663,6 +677,14 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         first_effect = next((index for index, step in enumerate(steps)
                              if isinstance(step, dict) and step.get("op") in {
                                  "click", "fill", "check", "press", "cell_type", "upload"}), None)
+        required_outcome = target.get("required_then_literal")
+        if required_outcome and not any(
+                index > max(cursor, first_effect if first_effect is not None else -1)
+                and isinstance(step, dict) and str(step.get("op") or "").startswith("expect_")
+                and required_outcome in {step.get("target"), step.get("value")}
+                for index, step in enumerate(steps)):
+            problems.append(f"THEN requires asserting {required_outcome!r} after the action; "
+                            "an earlier visible value is not evidence")
         if first_effect is not None and not any(
                 isinstance(step, dict) and str(step.get("op") or "").startswith("expect_")
                 for step in steps[first_effect + 1:]):

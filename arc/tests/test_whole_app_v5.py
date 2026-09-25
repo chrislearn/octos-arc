@@ -1022,6 +1022,18 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.derived_tests_dir.joinpath("helpers.ts").is_file())
         self.assertEqual(flow.derived_spec_map, {})
 
+    def test_ai_planning_without_a_model_proxy_keeps_the_plan_pending(self):
+        flow = self.flow
+        flow.tests_dir = None
+        nodes = self._derived_nodes()
+        flow.prepare_derived_tests(nodes)
+        flow.remaining = Mock(return_value=4000)
+        flow.final_phase_reserve = Mock(return_value=0)
+        self.assertEqual(flow.augment_derived_tests(nodes), 0)
+        plan = m.json.loads((flow.derived_tests_dir / "review" / "plan.json").read_text())
+        self.assertTrue(plan["targets"])
+        self.assertTrue(all(row["status"] == "attempted" for row in plan["targets"]))
+
     def test_should_report_derived_check_results_in_the_no_spec_verdict(self):
         passed, detail = m.Flow.no_spec_node_verdict("B", True, True, {}, {"B": False})
         self.assertFalse(passed)
@@ -1317,11 +1329,16 @@ class DerivedSuiteVerificationTests(WholeAppTests):
         self._derived()
         flow.runner = self._runner()
         path = flow.derived_tests_dir / "B.spec.ts"
+        plan_path = flow.derived_tests_dir / "review" / "plan.json"
+        plan_path.parent.mkdir(parents=True)
+        plan_path.write_text(m.json.dumps({"targets": [{"node_id": "B", "title": "B: x",
+                                                       "status": "accepted"}]}))
         path.write_text(path.read_text() + "\ntest('B: x [model]', async ({ page }) => { BROKEN (\n});\n")
         flow.adopt_derived_specs(["A", "B", "C"])
         self.assertNotIn("BROKEN", path.read_text())
         self.assertIn("h.clickNamed(page, 'Open B')", path.read_text())
         self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
+        self.assertEqual(m.json.loads(plan_path.read_text())["targets"][0]["status"], "rejected_load")
         self.assertTrue(flow.derived_suite_verified)
 
     def test_a_file_that_still_fails_after_recompilation_is_excluded(self):

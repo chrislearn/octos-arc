@@ -71,7 +71,7 @@ Environment (all optional):
     OCTOS_ARC_NO_SPEC_REVIEW_SECONDS  maximum focused repair time after a scenario/seed audit (default 180)
     OCTOS_ARC_DERIVED_SPEC_AUDIT  "0" disables requirement-grounded corrections of failing self-generated specs
     OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on pre-implementation AI spec-plan batches (default covers one per feature)
-    OCTOS_ARC_DERIVED_FAILURE_REVIEW  "0" disables independent review of failing AI-generated specs
+    OCTOS_ARC_DERIVED_FAILURE_REVIEW  "0" disables independent review of failing generated behaviour specs
     OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE  maximum AI spec reviews per related/full suite (default 3)
     OCTOS_ARC_TRANSIENT_RETRY_SECONDS  time allowed after the first provider error for retries (default 240)
     OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS  cap for each request after the first provider error (default 180)
@@ -2879,7 +2879,9 @@ class Flow:
         the system prompt live on the proxy/driver for the duration and are
         restored whatever happens. codegen_turn parses file blocks out of it;
         app_design parses a JSON object."""
-        proxy = self.llm_proxy
+        proxy = getattr(self, "llm_proxy", None)
+        if proxy is None:
+            return False, "model proxy unavailable"
         proxy.no_tools = True
         proxy.system_override = system
         mode_override = self.codegen_reasoning(spec_chars)
@@ -4499,7 +4501,9 @@ class Flow:
                                                error=regression.error, killed=regression.killed,
                                                load_errors=regression.load_errors)
                             if self.suite_is_measured(local, paths):
-                                self.test_verdict[prior] = local.all_passed
+                                self.test_verdict[prior] = (None if local.all_passed
+                                                             and self.derived_review_needed(prior)
+                                                             else local.all_passed)
                                 self.record_tests(prior, paths, local)
                                 if not local.all_passed:
                                     if prior != node_id and self.test_verdict.get(prior) is False:
@@ -5220,6 +5224,22 @@ class Flow:
             excluded.append(rel)
             log(f"[derived] {rel}: excluded from the suite; it does not load even after recompilation")
         self.metric("derived_suite_verification", excluded=excluded, total=len(specs))
+        plan_path = directory / "review" / "plan.json"
+        if plan_path.is_file():
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            changed = False
+            for row in plan.get("targets") or []:
+                if row.get("status") != "accepted":
+                    continue
+                source_path = directory / f"{row.get('node_id')}.spec.ts"
+                source = source_path.read_text(encoding="utf-8") if source_path.is_file() else ""
+                titles = {title.replace("\\'", "'") for title in re.findall(
+                    r"^test\('((?:\\.|[^'\\])*)'", source, re.M)}
+                if f"{row.get('title')} [model]" not in titles:
+                    row["status"] = "rejected_load"
+                    changed = True
+            if changed:
+                plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         self.derived_suite_verified = True
 
     def weak_derived_leaves(self, ordered: list[dict]) -> list[str]:
@@ -6492,6 +6512,20 @@ class Flow:
                     self.probe_summaries[node_id] = summary  # regression_cycle reuses it
         return out
 
+    def probe_existing_app(self, node_ids: list[str], unchanged: set[str]) -> set[str]:
+        """Judge an existing app against the finalized acceptance suite."""
+        if not self.evolution or self.runner is None:
+            return unchanged
+        unchanged |= self.already_passing_nodes([node for node in node_ids if node not in unchanged])
+        if self.probe_count and not unchanged:
+            # A template satisfying none of the final specs is not a useful base.
+            self.discard_template()
+            self.evolution = False
+        self.nodes_to_implement = len([node for node in node_ids if node not in unchanged])
+        log(f"[flow] {'evolution' if self.evolution else 'fresh build'} after probing the existing app: "
+            f"unchanged {sorted(unchanged)}, to implement {[node for node in node_ids if node not in unchanged]}")
+        return unchanged
+
     def regression_cycle(self, node: dict) -> None:
         """Evolution: unchanged node — carry the design/impl over, re-run its specs."""
         node_id = str(node.get("id"))
@@ -6548,7 +6582,11 @@ class Flow:
                     str(row.file or '').replace('\\', '/') == path or
                     str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths)]
                 local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
-                self.test_verdict[prior] = local.all_passed if self.suite_is_measured(local, paths) else None
+                self.test_verdict[prior] = ((None if local.all_passed
+                                             and getattr(self, "derived_as_specs", False) is True
+                                             and self.derived_review_needed(prior)
+                                             else local.all_passed)
+                                            if self.suite_is_measured(local, paths) else None)
                 if self.test_verdict[prior] is not None:
                     self.record_tests(prior, paths, local)
                 if self.test_verdict[prior] is False:
@@ -6702,8 +6740,8 @@ class Flow:
         healthy_nodes = set(healthy["verified"])
         for node in healthy_nodes:
             tracked.discard(node)
-            self.test_verdict[node] = True
-            if node in grouped:
+            self.test_verdict[node] = None if self.derived_review_needed(node) else True
+            if node in grouped and self.test_verdict[node] is True:
                 self.mark("test_passed", node, "restored the last healthy checkpoint after broad regression")
         rolled_back = sorted(node for node in verified if node not in healthy_nodes)
         for node in rolled_back:
@@ -7711,21 +7749,8 @@ class Flow:
             self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
             self.setup_playwright()
-            if self.evolution and self.runner is not None:
-                # The platform's template app carries no traceability records, so
-                # fingerprints cannot tell what is new. A node whose specs already
-                # pass against the existing app is unchanged — no LLM turn for it.
-                unchanged |= self.already_passing_nodes([n for n in node_ids if n not in unchanged])
-                if self.probe_count and not unchanged:
-                    # Nothing of the existing app satisfies any spec (a scaffold/placeholder
-                    # template, or an app the new specs no longer accept): it is not a usable
-                    # base. Set it aside and build the task fresh (cloud c30b29eab45b/10b04d36f704:
-                    # implement-then-rewrite on a placeholder cost 40-80x the fresh build).
-                    self.discard_template()
-                    self.evolution = False
-                self.nodes_to_implement = len([n for n in node_ids if n not in unchanged])
-                log(f"[flow] {'evolution' if self.evolution else 'fresh build'} after probing the existing app: "
-                    f"unchanged {sorted(unchanged)}, to implement {[i for i in node_ids if i not in unchanged]}")
+            if not getattr(self, "derived_as_specs", False):
+                unchanged = self.probe_existing_app(node_ids, unchanged)
 
             dry_run = os.environ.get("OCTOS_ARC_DRYRUN") == "1"
             if dry_run:
@@ -7752,6 +7777,9 @@ class Flow:
                 if not dry_run:
                     self.augment_derived_tests(ordered)
                 self.adopt_derived_specs(node_ids)  # re-map and load-check the final suite
+                # A mechanical entry check can pass an existing app while the
+                # newly planned behaviour does not. Probe only the final suite.
+                unchanged = self.probe_existing_app(node_ids, unchanged)
             # Snapshot after the suite is final: the snapshot is what every turn restores.
             self.snapshot_protected()
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
@@ -7820,6 +7848,14 @@ class Flow:
                 if rehearsed and any(value is None for value in self.test_verdict.values()) and self.runner is not None:
                     self.final_acceptance_passes()
                 for node_id in undecided:
+                    if getattr(self, "derived_as_specs", False):
+                        # A missing generated spec or unavailable runner cannot
+                        # become a feature pass from startup alone.
+                        if not self.spec_map.get(node_id):
+                            log(f"[flow] {node_id}: no executable derived spec; verdict remains unverified")
+                        elif self.runner is None:
+                            log(f"[flow] {node_id}: derived spec was not measured; verdict remains unverified")
+                        continue
                     if self.runner is not None and self.spec_map.get(node_id):
                         # Starting the server is not proof that a feature works.
                         continue
