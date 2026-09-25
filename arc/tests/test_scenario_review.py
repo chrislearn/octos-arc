@@ -498,6 +498,7 @@ class FileOpsTests(unittest.TestCase):
     def test_clone_copy_requires_clipboard_value_for_each_protocol(self):
         target, fixtures = self._target()
         target["allowed"].extend(["acme-docs", "Code", "HTTPS", "SSH", "Copy clone value", "Copied"])
+        target["seed_kinds"] = [("public repository", "acme-docs")]
         proposal = {"confidence": 0.9, "steps": [
             {"op": "click", "target": "Code"},
             {"op": "click", "target": "HTTPS"},
@@ -513,6 +514,13 @@ class FileOpsTests(unittest.TestCase):
         proposal["steps"].insert(3, {"op": "expect_clipboard", "target": "acme-docs", "protocol": "HTTPS"})
         self.assertEqual(proposal_problems(proposal, target, fixtures), [])
         self.assertIn("h.expectClipboard(page, 'acme-docs', 'HTTPS')", validate_proposal(proposal, target, fixtures))
+        proposal["steps"][3]["target"] = "Copied"
+        self.assertTrue(any("seeded repository name" in problem
+                            for problem in proposal_problems(proposal, target, fixtures)))
+        proposal["steps"][3]["target"] = "acme-docs"
+        proposal["steps"][3]["protocol"] = "SSH"
+        self.assertTrue(any("each Copy clone value" in problem
+                            for problem in proposal_problems(proposal, target, fixtures)))
 
     def test_pivot_source_text_is_not_a_result_assertion(self):
         target, fixtures = self._target()

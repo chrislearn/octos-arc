@@ -424,6 +424,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     selected_protocol = ""
     cell_seeds = [value for kind, value in target.get("seed_kinds") or []
                   if re.search(r"\bcell\s+[A-Z]{1,3}[0-9]{1,4}\s+value\b", kind, re.I)]
+    repository_seeds = {value for kind, value in target.get("seed_kinds") or []
+                        if re.search(r"\brepository\b", kind, re.I)}
     for index, step in enumerate(steps, 1):
         if not isinstance(step, dict) or step.get("op") not in OPS:
             problems.append(f"step {index}: unknown op {json.dumps(step.get('op') if isinstance(step, dict) else step)}; "
@@ -434,9 +436,11 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             value = step.get("target")
             if not isinstance(value, str) or value.strip() not in allowed:
                 problems.append(f"step {index}: expect_clipboard target must be a seeded or quoted literal")
+            if pending_clone_copies and value not in repository_seeds:
+                problems.append(f"step {index}: clone clipboard target must be the seeded repository name")
             if step.get("protocol") not in {"HTTPS", "SSH"}:
                 problems.append(f"step {index}: expect_clipboard protocol must be HTTPS or SSH")
-            elif pending_clone_copies and selected_protocol == step.get("protocol"):
+            elif pending_clone_copies and pending_clone_copies[-1][1] == step.get("protocol"):
                 pending_clone_copies.pop()
             asserted = True
             continue
