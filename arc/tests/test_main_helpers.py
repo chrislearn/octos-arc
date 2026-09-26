@@ -2219,7 +2219,7 @@ class InlineSourceBudgetTests(unittest.TestCase):
         self.assertEqual(flow.inline_source_chars(), flow.codegen_context_chars())
         with patch.dict("os.environ", {"OCTOS_ARC_INLINE_SOURCE_CHARS": "250000"}):
             self.assertEqual(flow.inline_source_chars(), 250000)
-            self.assertEqual(flow.codegen_context_chars(), 90000)   # output budget unmoved
+            self.assertEqual(flow.codegen_context_chars(), 96000)   # output budget unmoved
 
     def test_should_give_a_repair_the_budget_the_codegen_turn_gets(self):
         import argparse

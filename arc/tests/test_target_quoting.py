@@ -167,7 +167,7 @@ class RepairFallbackTests(unittest.TestCase):
             flow.tests_dir = root / "tests"; flow.spec_map = {"REQ-9": ["REQ-9.spec.ts"]}
             flow.requirement_nodes = {"REQ-9": {"id": "REQ-9", "description": "d"}}
             # A prompt that carries no requotable source block and is itself over the limit.
-            self.assertIsNone(flow.codegen_repair_prompt("REQ-9", "x" * 95_000, failures="f"))
+            self.assertIsNone(flow.codegen_repair_prompt("REQ-9", "x" * 110_000, failures="f"))
 
     def test_should_prefer_a_refused_path_over_a_spec_named_page(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -204,7 +204,7 @@ class OutlineFallbackTests(unittest.TestCase):
         flow.bind_edit_scope.return_value = None
         return flow
 
-    def test_should_outline_a_required_file_that_does_not_fit_the_source_budget(self):
+    def test_required_file_that_does_not_fit_defers_to_tools(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             hub = "import R from './R';\nexport default function Repository() {\n" + "  // x\n" * 6000 + "}\n"
@@ -216,12 +216,8 @@ class OutlineFallbackTests(unittest.TestCase):
             prompt = flow.codegen_implement_prompt(
                 node, "repository files spec", must_include={"frontend/src/pages/Repository.jsx", "frontend/src/App.jsx"},
                 context_limit=60_000, source_limit=12_000, focused_sources=True)
-            self.assertIsNotNone(prompt)
-            self.assertIn("frontend/src/App.jsx", m.quoted_paths(prompt))
-            self.assertNotIn("frontend/src/pages/Repository.jsx", m.quoted_paths(prompt))
-            self.assertIn("frontend/src/pages/Repository.jsx", m.outlined_paths(prompt))
-            self.assertIn("export default function Repository() {", prompt)
-            self.assertEqual(flow.codegen_budget.get("outlined"), ["frontend/src/pages/Repository.jsx"])
+            self.assertIsNone(prompt)
+            self.assertIn("frontend/src/pages/Repository.jsx", flow.codegen_budget["missing_required"])
             # Without the focused (wave) mode the strict refusal is unchanged.
             self.assertIsNone(flow.codegen_implement_prompt(
                 node, "repository files spec", must_include={"frontend/src/pages/Repository.jsx"},

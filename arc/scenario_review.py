@@ -91,6 +91,8 @@ def expand_placeholder(value: str, scope: str) -> str:
         "$TEXT": f"Derived text {slug}",
         "$BLANK": "   ",
     }.get(value, value)
+MAX_CASES = 8
+
 KEYS = {"Enter", "Escape", "Tab", "Delete", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
         "Home", "End", "PageUp", "PageDown", "Shift+Enter", "Shift+Tab", "Control+Enter", "Control+C", "Control+V",
         "Control+X", "Control+Z", "Control+Y", "Control+A"}
@@ -100,7 +102,11 @@ MAX_STEPS = 20
 SYSTEM = ("You convert product requirement scenarios into short browser check scripts. "
           "Reply with one JSON object only; no prose, no markdown.")
 
-DSL = """Each script is {"id": <the [S..] id shown before the scenario>, "title": <scenario title verbatim>,
+DSL = """Independent branches may use {"id":..., "title":..., "cases":[{"signed_in":false,"confidence":0.9,"steps":[...]}, ...]}.
+At most 8 cases per scenario and 20 steps per case. Every case starts with a fresh reset/browser;
+never rely on state from another case. Keep all required positive/negative outcomes across the cases.
+If using cases, do not also supply steps or skip. Case titles are assigned by the harness.
+Each script is {"id": <the [S..] id shown before the scenario>, "title": <scenario title verbatim>,
  "signed_in": true|false, "confidence": 0..1, "steps": [ ... ], "skip": "<reason>" }. The "id" is mandatory.
 Operations (use only these):
   {"op": "open", "target": L}            navigate to where L (a page, tab or menu entry name) is visible; click it if it is a control
@@ -272,8 +278,29 @@ def suite_controls(leaves: Iterable[Mapping], fixtures: Fixtures, shared: str = 
     return list(dict.fromkeys(values))
 
 
+def contract_outcomes(description: str) -> list[dict]:
+    """Conservative verbatim display/error obligations, with their source quote.
+
+    Conditional branches stay separate. This vocabulary is not an inferred
+    complete semantic oracle and never proves a test's runtime result.
+    """
+    outcomes = {}
+    quote = r'[“"`]([^”"`]+)[”"`]'
+    for sentence in _sentences(description):
+        patterns = [r'\b(?:shows?|displays?|returns?)\s+[^“"`.;]{0,100}' + quote,
+                    quote + r'\s+(?:error|error message)\b']
+        for pattern in patterns:
+            for match in re.finditer(pattern, sentence, re.I):
+                value = match.group(1).strip()
+                if re.search(r"(?:not|never|without)\s+(?:directly\s+)?$", sentence[max(0, match.start() - 24):match.start()], re.I):
+                    continue
+                if value and not _descriptive(value) and not TEMPLATE_TEXT.search(value):
+                    outcomes[value] = {"literal": value, "requirement_quote": sentence}
+    return list(outcomes.values())
+
+
 def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mapping[str, str] | None = None,
-                   shared: str = "", *, include_all: bool = False) -> list[dict]:
+                   shared: str = "", *, include_all: bool = False, dependency_tree: Mapping | None = None) -> list[dict]:
     """Scenario plans with requirement-grounded literals and controls.
 
     The legacy default selects unscripted scenarios. The no-official-spec
@@ -284,6 +311,27 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
     seen_steps: set[tuple] = set()
     leaves = list(leaves)
     controls = suite_controls(leaves, fixtures, shared)
+    nodes = {str(node.get("id")): node for node in leaves}
+    def dependency_literals(node):
+        evidence = {}
+        from requirement_order import dependency_ids
+        def deps(item):
+            return dependency_ids(dependency_tree, item) if dependency_tree else list(item.get("dependencies") or [])
+        todo = deps(node)
+        visited = {str(node.get("id"))}
+        while todo:
+            nid = str(todo.pop())
+            if nid in visited or nid not in nodes:
+                continue
+            visited.add(nid)
+            dependency = nodes[nid]
+            # Dependency contracts, never another scenario's fixture/outcome.
+            for match in _ANY_LITERAL.finditer(str(dependency.get("description") or "")):
+                literal = literal_prefix((match.group(1) or match.group(2) or match.group(3)).strip())
+                if literal and not _descriptive(literal):
+                    evidence.setdefault(literal, []).append(nid)
+            todo.extend(deps(dependency))
+        return evidence
     for node in leaves:
         node_id = str(node.get("id"))
         node_text = _node_text(node)
@@ -339,6 +387,8 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "setup_cells": [cell for step in scenario.get("steps") or []
                                             if str(step.get("keyword") or "").upper() == "GIVEN"
                                             for cell in setup_cells(str(step.get("content") or ""))],
+                            "contract_outcomes": contract_outcomes(str(node.get("description") or "")),
+                            "dependency_literals": dependency_literals(node),
                             "controls": controls, "signed_in": parsed.signed_in,
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
                                                        r"\b[A-Z]{1,3}[0-9]{1,4}\s*=",
@@ -423,6 +473,26 @@ def grounded_behavior_test(source: str, title: str, target: Mapping) -> bool:
     return False
 
 
+def positive_contract_evidence(source: str, title: str, literal: str) -> bool:
+    """A required displayed outcome cannot be covered by its absence."""
+    from test_policy import test_block
+    block = test_block(source, title)
+    if not block:
+        return False
+    action = re.search(r"await h\.(?!expect|openHome\(|signIn\()\w+\(", block)
+    if not action:
+        return False
+    for match in re.finditer(r"await h\.(expectTextsVisible|expectRole|expectIdentity|expectCell)\((.*?)\);", block, re.S):
+        if match.start() <= action.start() or _ts(literal) not in match.group(2):
+            continue
+        if match.group(1) == "expectIdentity" and re.search(r",\s*false\s*$", match.group(2)):
+            continue
+        if match.group(1) == "expectCell" and not match.group(2).rstrip().endswith(_ts(literal)):
+            continue
+        return True
+    return False
+
+
 def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
     parts = ["Plan and write one behavioural check per scenario below, as JSON: "
              "{\"scenarios\": [ ... ]}. Each check must perform the WHEN operation and verify the "
@@ -436,7 +506,11 @@ def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
     for target in targets:
         parts.append(f"\n### [{target['id']}] {target['title']}\nRequirement {target['node_id']} ({target['name']}): "
                      f"{target['description']}\n" + "\n".join(target["steps"]) +
-                     "\nALLOWED LITERALS: " + json.dumps(target["allowed"], ensure_ascii=False))
+                     "\nALLOWED LITERALS: " + json.dumps(target["allowed"], ensure_ascii=False)
+                     + "\nDEPENDENCY LITERALS (value -> requirement IDs): "
+                     + json.dumps(target.get("dependency_literals") or {}, ensure_ascii=False)
+                     + "\nCONTRACT OUTCOMES (cover in separate cases where conditional): "
+                     + json.dumps(target.get("contract_outcomes") or [], ensure_ascii=False))
     return "\n".join(parts)
 
 
@@ -527,9 +601,61 @@ def _emit(step: dict) -> str | None:
     return None
 
 
+def public_display_literal(target: Mapping, value: str) -> bool:
+    for sentence in _sentences(target.get("description") or ""):
+        if (value in [(m.group(1) or m.group(2) or m.group(3)).strip() for m in _ANY_LITERAL.finditer(sentence)]
+                and re.search(r"show|display|visible|reveal", sentence, re.I)
+                and not re.search(r"(?:not|never)\s+(?:(?:be|directly|visibly|publicly)\s+)*(?:show|display|reveal|visible)", sentence, re.I)
+                and re.search(r"verification[-\s]+code|fixed[-\s]+code|one.time\s+code|\bpin\b", sentence, re.I)):
+            return True
+    return False
+
+
+def identity_transition(steps: list, index: int, step: Mapping, fixtures: Fixtures, signed_in: bool = False) -> bool:
+    if step.get("op") not in {"expect_visible", "expect_absent"} or not fixtures.account:
+        return False
+    if str(step.get("target") or "").strip().lower() != fixtures.account.lower():
+        return False
+    action = r"^(?:sign\s*in|log\s*in)$" if step["op"] == "expect_visible" else r"^(?:sign\s*out|log\s*out|confirm\s+(?:sign\s*out|log\s*out))$"
+    prior = [item for item in steps[:index] if isinstance(item, dict)]
+    if not any(item.get("op") == "click" and re.match(action, str(item.get("target") or ""), re.I) for item in prior):
+        return False
+    if step["op"] == "expect_absent":
+        return signed_in or any(item.get("op") == "click" and re.match(r"^(?:sign\s*in|log\s*in)$", str(item.get("target") or ""), re.I)
+                                for item in prior)  # Hide a previously authenticated identity, not stored data.
+    return any(item.get("op") == "fill" and str(item.get("value") or "").strip() in {fixtures.account, fixtures.email}
+               and re.search(r"username|email|login", str(item.get("target") or ""), re.I) for item in prior)
+
+
+def signed_out_entry_transition(steps: list, index: int, step: Mapping, target: Mapping,
+                                signed_in: bool = False) -> bool:
+    """A requirement-grounded sign-in LINK after terminating a session."""
+    if step.get("op") != "expect_visible" or not re.fullmatch(r"sign\s*in|log\s*in", str(step.get("target") or ""), re.I):
+        return False
+    description = str(target.get("description") or "")
+    value = re.escape(str(step['target']))
+    if not re.search(r'(?:displays?|shows?)\s+(?:the\s+)?[“"`]' + value + r'[”"`]\s+link\b', description, re.I):
+        return False
+    prior = [item for item in steps[:index] if isinstance(item, dict)]
+    ending = r'^confirm\s+(?:sign\s*out|log\s*out)$' if re.search(r'confirm\s+(?:sign\s*out|log\s*out)', description, re.I) else r'^(?:sign\s*out|log\s*out)$'
+    ended_at = next((i for i, item in reversed(list(enumerate(prior)))
+                     if item.get('op') == 'click' and re.match(ending, str(item.get('target') or ''), re.I)), None)
+    return ended_at is not None and (signed_in or any(
+        item.get('op') == 'click' and re.fullmatch(r'sign\s*in|log\s*in', str(item.get('target') or ''), re.I)
+        for item in prior[:ended_at]))
+
+
 def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) -> list[str]:
     """Every rule the proposal breaks, worded so the model can fix it."""
     problems: list[str] = []
+    if proposal.get("validator_dispute"):
+        dispute = proposal["validator_dispute"]
+        if (isinstance(dispute, dict) and isinstance(dispute.get("requirement_quote"), str)
+                and len(dispute["requirement_quote"].strip()) >= 12
+                and dispute["requirement_quote"] in str(target.get("description") or "")
+                and isinstance(dispute.get("reason"), str) and dispute["reason"].strip()):
+            return ["validator_dispute (unresolved, not quarantined): " + json.dumps(dispute, ensure_ascii=False)]
+        return ["validator_dispute lacks a verbatim requirement quote and concrete reason"]
     if proposal.get("skip"):
         return [f"skipped by the model: {proposal.get('skip')}"]
     try:
@@ -566,7 +692,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             problems.append(f"WHEN requires acting on {required!r} in order before asserting the result")
         else:
             cursor = found
-    allowed = set(target["allowed"]) | set(target.get("seeds") or [])
+    allowed = set(target["allowed"]) | set(target.get("seeds") or []) | set(target.get("dependency_literals") or {})
     # A seeded row `East/1200` is shown as its parts once imported or listed.
     for seed in target.get("seeds") or []:
         if "/" in seed and seed.count("/") <= 3:
@@ -771,7 +897,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                                 "file name, so assert $CSV_NAME instead")
         if value == "$CSV_NAME" and (op != "expect_visible" or not uploaded):
             problems.append(f"step {index}: $CSV_NAME is an assertion only after uploading $CSV")
-        if (reset_prerequisite and isinstance(value, str) and "Verification code" in value
+        if (reset_prerequisite and isinstance(value, str)
+                and ("Verification code" in value or public_display_literal(target, value))
                 and op.startswith("expect_") and not any(
                     isinstance(previous, dict) and previous.get("op") == "click"
                     and previous.get("target") == reset_prerequisite.group(1)
@@ -842,6 +969,10 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             if step.get("op") in {"expect_cell", "expect_role", "expect_download"}:
                 return True
             shown = str(step.get("target") or "").strip().lower()
+            if signed_out_entry_transition(steps, index, step, target, bool(proposal.get("signed_in"))):
+                return True
+            if identity_transition(steps, index, step, fixtures, bool(proposal.get("signed_in"))) or (step.get("op") == "expect_visible" and public_display_literal(target, str(step.get("target") or ""))):
+                return True
             if shown in acted:
                 if step.get("op") == "expect_absent" and any(
                         isinstance(prior, dict) and prior.get("op") in {"click", "press"}
@@ -854,7 +985,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 # Sheet review S31: typing the seeded `East` into an empty cell
                 # and expecting `East` visible passes on the untouched seed row.
                 if shown in seeded_lower:
-                    return False
+                    return identity_transition(steps, index, step, fixtures, bool(proposal.get("signed_in")))
                 # A typed name shown again after Create/Save proves the record.
                 return any(typed_at[shown] < submit < index for submit in submits)
             return True
@@ -872,17 +1003,26 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                     for step in steps)
             and not any(isinstance(step, dict) and step.get("op") == "expect_cell" for step in steps)):
         problems.append("pivot table Apply needs expect_cell on the result worksheet; source text is not aggregation evidence")
-    # v9.2.4 github (1307196473c1): a script typed the verification code
-    # "123456" into its field and then expected "123456" to be visible; secrets
-    # and codes are not echoed as page text. Reject that pairing explicitly.
-    secret_values = {str(step.get("value")).strip() for step in steps if isinstance(step, dict)
-                     and step.get("op") == "fill" and isinstance(step.get("value"), str)
-                     and re.search(r"password|code|token|secret|pin\b", str(step.get("target") or ""), re.I)}
-    for index, step in enumerate(steps, 1):
-        if (isinstance(step, dict) and step.get("op") == "expect_visible"
-                and str(step.get("target") or "").strip() in secret_values):
-            problems.append(f"step {index}: expect_visible {json.dumps(step.get('target'))} is a value typed into a "
-                            f"password/code field; such values are not shown as page text -- assert the outcome instead")
+    # Passwords remain private. A requirement may explicitly DISPLAY a code;
+    # future code entry must not invalidate that earlier observation.
+    secret_entries = [(i, str(step.get("value")).strip(), str(step.get("target") or ""))
+                      for i, step in enumerate(steps) if isinstance(step, dict)
+                      and step.get("op") == "fill" and isinstance(step.get("value"), str)
+                      and re.search(r"password|code|token|secret|pin\b", str(step.get("target") or ""), re.I)]
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict) or step.get("op") != "expect_visible":
+            continue
+        value = str(step.get("target") or "").strip()
+        for entered_at, secret, field in secret_entries:
+            if value != secret:
+                continue
+            public_code = (re.search(r"code|pin\b", field, re.I)
+                           and not re.search(r"password|token|secret", field, re.I)
+                           and public_display_literal(target, value))
+            if not public_code:
+                problems.append(f"step {index + 1}: expect_visible {json.dumps(value)} is a value typed into a "
+                                "password/code field without an explicit public display contract; assert the outcome instead")
+                break
     # Sheet review S23: "type East, press Escape, expect_absent East" -- `East`
     # is a seeded row that exists before the scenario, so a correct app fails
     # the check. Absence of a seeded value needs a step that removes it first.
@@ -900,7 +1040,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             removing = True  # deleted, or hidden by a filter/search/status tab
         if step.get("op") == "fill":
             removing = True  # a search/filter box narrows the list
-        if step.get("op") == "expect_absent" and str(step.get("target") or "").strip() in seeded and not removing:
+        if (step.get("op") == "expect_absent" and str(step.get("target") or "").strip() in seeded
+                and not removing and not identity_transition(steps, index - 1, step, fixtures, bool(proposal.get("signed_in")))):
             hint = ("assert the cell instead (expect_cell with the seeded value, or with \"\" for an emptied cell)"
                     if target.get("has_grid") else "assert what the THEN step promises instead")
             problems.append(f"step {index}: expect_absent {json.dumps(step.get('target'))} is a seeded value that exists "
@@ -916,8 +1057,8 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return None
     lines: list[str] = []
     scope = str(target["title"])
-    for step in proposal["steps"]:
-        step = dict(step)
+    for step_index, original_step in enumerate(proposal["steps"]):
+        step = dict(original_step)
         if step["op"] == "upload":
             step["csv"] = seed_csv(target.get("seeds") or [])
         if step["op"] == "set_clipboard":
@@ -929,7 +1070,12 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             step["target"] = expand_placeholder(str(step["target"]).strip(), scope)
             if step["op"] in {"fill", "cell_type", "expect_cell"}:
                 step["value"] = expand_placeholder(str(step["value"]).strip(), scope)
-        code = _emit(step)
+        if signed_out_entry_transition(proposal["steps"], step_index, original_step, target, bool(proposal.get("signed_in"))):
+            code = f"await h.expectRole(page, 'link', {_ts(step['target'])});"
+        elif identity_transition(proposal["steps"], step_index, original_step, fixtures, bool(proposal.get("signed_in"))):
+            code = f"await h.expectIdentity(page, {_ts(step['target'])}, {'false' if step['op'] == 'expect_absent' else 'true'});"
+        else:
+            code = _emit(step)
         if code is None:
             return None
         lines.append("  " + code)
@@ -963,18 +1109,37 @@ def compile_reply(text: str, targets: list[dict], fixtures: Fixtures, with_retry
         if key in seen:
             dropped.append(f"{target['title']}: duplicate proposal")
             continue
-        problems = proposal_problems(proposal, target, fixtures)
+        cases = proposal.get("cases")
+        if cases is not None:
+            if (not isinstance(cases, list) or not 1 <= len(cases) <= MAX_CASES or proposal.get("skip")
+                    or "steps" in proposal or not all(isinstance(case, dict) for case in cases)):
+                dropped.append(f"{target['title']}: cases must be 1..{MAX_CASES} independent objects without parent steps/skip")
+                retryable.append({"id": target.get("id"), "title": target["title"], "reasons": [dropped[-1]]})
+                continue
+        else:
+            cases = [proposal]
+        emitted = []
+        problems = []
+        for index, case in enumerate(cases, 1):
+            case_target = dict(target, title=target['title'] + (f" [case {index}]" if proposal.get("cases") is not None else ""))
+            case_proposal = {**proposal, **case}
+            case_proposal.pop("cases", None)
+            case_problems = proposal_problems(case_proposal, case_target, fixtures)
+            if case_problems:
+                problems.extend((f"case {index}: " if proposal.get("cases") is not None else "") + item for item in case_problems)
+                continue
+            source = validate_proposal(case_proposal, case_target, fixtures)
+            if source is None:
+                problems.append(f"case {index}: could not be emitted")
+            else:
+                emitted.append(source)
         if problems:
             dropped.append(f"{target['title']}: " + "; ".join(problems))
-            if not proposal.get("skip"):
+            if not proposal.get("skip") and not proposal.get("validator_dispute"):
                 retryable.append({"id": target.get("id"), "title": target["title"], "reasons": problems})
-            continue
-        source = validate_proposal(proposal, target, fixtures)
-        if source is None:
-            dropped.append(f"{target['title']}: could not be emitted")
-            continue
+            continue  # Atomic proposal; a bad branch never silently disappears.
         seen.add(key)
-        scripts.setdefault(target["node_id"], []).append(source)
+        scripts.setdefault(target["node_id"], []).extend(emitted)
     return (scripts, dropped, retryable) if with_retryable else (scripts, dropped)
 
 
@@ -993,7 +1158,10 @@ def retry_prompt(rejected: list[dict], targets: list[dict], fixtures: Fixtures) 
                          for target in [by_key.get(item.get("id")) or by_key.get(item["title"])] if target is not None)
     return (prompt + "\n\nYour previous scripts for these scenarios were REJECTED for the reasons below. "
             "Fix exactly these problems (copy every target and value verbatim from ALLOWED LITERALS, use only the "
-            "listed operations, end with an expect step) or set \"skip\" with a reason:\n" + feedback)
+            "listed operations, end with an expect step). Preserve required outcomes; never replace an error message "
+            "with an entry control to satisfy validation. Split independent branches into cases instead of deleting assertions. "
+            "If the validator contradicts the requirement, return validator_dispute with the original quote and rule reason; "
+            "this records an unresolved proposal, not a passed test or a quarantine.\n" + feedback)
 
 
 def append_tests(spec_source: str, tests: list[str], node_id: str) -> str:

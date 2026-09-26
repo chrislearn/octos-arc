@@ -1235,8 +1235,23 @@ class AcceptanceRunner:
         shutil.copytree(self.tests_dir, self.work_dir / "tests",
                         ignore=shutil.ignore_patterns("node_modules", "test-results", "playwright-report"))
         shutil.copyfile(Path(__file__).with_name("page_errors.ts"), self.work_dir / "page_errors.ts")
+        policy = getattr(self, "derived_policy", None)
+        quarantines = (policy.quarantines() if policy is not None
+                       and self.tests_dir.resolve() == policy.directory else {})
+        self._quarantined = {}
         for spec in (self.work_dir / "tests").rglob("*.spec.ts"):
             source = spec.read_text(encoding="utf-8")
+            rel = spec.relative_to(self.work_dir / "tests").as_posix()
+            rows = quarantines.get(rel, [])
+            if rows:
+                # Revalidate copied bytes, in case the source changed during copying.
+                from test_policy import digest
+                titles = [row["title"] for row in rows if digest(source) == row["file_hash"]]
+                if titles:
+                    self._quarantined[rel] = set(titles)
+                    source += ("\ntest.beforeEach(({}, info) => { test.skip("
+                               + json.dumps(titles) + ".includes(info.title), "
+                               + json.dumps("Harness: independently confirmed invalid generated test") + "); });\n")
             alias = "__octosObservePageErrors"
             while alias in source:
                 alias += "_"
@@ -1333,6 +1348,14 @@ class AcceptanceRunner:
             except (OSError, json.JSONDecodeError):
                 pass  # Optional diagnostics never change acceptance outcomes.
             summary = summarize_report(report)
+            for i, row in enumerate(summary.results):
+                matches = [rel for rel, titles in self._quarantined.items()
+                           if row.title in titles and (str(row.file).replace("\\", "/") == rel
+                           or str(row.file).replace("\\", "/").endswith("/" + rel))]
+                if matches and row.status == "skipped":
+                    summary.results[i] = replace(row, ok=False, status="quarantined",
+                                                message="Invalid generated test; not a pass")
+            summary.passed = sum(row.ok for row in summary.results)
         except (OSError, json.JSONDecodeError) as exc:
             return RunSummary(error=f"unreadable playwright report: {exc}")
         summary.stdout_tail = _ANSI.sub("", tail)

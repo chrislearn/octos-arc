@@ -80,6 +80,60 @@ def topo_order(tree: dict) -> list[dict]:
     return ordered
 
 
+def dependency_ids(tree: dict, node: dict) -> list[str]:
+    """Use the same folder/unknown/self semantics as topological ordering."""
+    descendants = _descendant_atomic_ids(tree)
+    known = {str(item.get('id')) for item in flatten_atomic(tree)}
+    result = []
+    for dependency in node.get('dependencies') or []:
+        for atom in descendants.get(str(dependency), [str(dependency)]):
+            if atom in known and atom != str(node.get('id')) and atom not in result:
+                result.append(atom)
+    return result
+
+
+def dependency_graph(tree: dict) -> dict[str, list[str]]:
+    descendants = _descendant_atomic_ids(tree)
+    nodes = flatten_atomic(tree)
+    known = {str(item.get('id')) for item in nodes}
+    graph = {}
+    for item in nodes:
+        nid = str(item.get('id'))
+        graph[nid] = list(dict.fromkeys(atom for dep in item.get('dependencies') or []
+                                       for atom in descendants.get(str(dep), [str(dep)])
+                                       if atom in known and atom != nid))
+    return graph
+
+
+def dependency_signature(tree: dict) -> tuple:
+    """Only fields that affect edges, including folder membership."""
+    return (str(tree.get('id')), str(tree.get('type')), tuple(map(str, tree.get('dependencies') or [])),
+            tuple(dependency_signature(child) for child in tree.get('children') or [] if isinstance(child, dict)))
+
+
+def cyclic_dependency_ids(tree: dict, node: dict, *, graph: dict | None = None) -> set[str]:
+    """Intra-cycle edges need joint construction, not an impossible ready queue."""
+    graph = dependency_graph(tree) if graph is None else graph
+    target = str(node.get('id'))
+    def returns_to_target(start):
+        todo, seen = [start], set()
+        while todo:
+            current = todo.pop()
+            if current == target:
+                return True
+            if current not in seen:
+                seen.add(current)
+                todo.extend(graph.get(current, []))
+        return False
+    todo, reachable = [target], set()
+    while todo:
+        current = todo.pop()
+        if current not in reachable:
+            reachable.add(current)
+            todo.extend(graph.get(current, []))
+    return {dep for dep in reachable if dep != target and returns_to_target(dep)}
+
+
 def sibling_batches(tree: dict, ordered: list[dict], max_size: int = 3) -> list[list[str]]:
     """Adjacent sibling leaves safe to implement in one generation request.
 

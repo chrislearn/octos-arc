@@ -75,8 +75,8 @@ Environment (all optional):
     OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE  maximum AI spec reviews per related/full suite (default 3)
     OCTOS_ARC_TRANSIENT_RETRY_SECONDS  time allowed after the first provider error for retries (default 240)
     OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS  cap for each request after the first provider error (default 180)
-    OCTOS_ARC_WHOLE_APP_PROMPT_CHARS  input cap for each generation wave (default 60000)
-    OCTOS_ARC_WHOLE_APP_SOURCE_CHARS  full-source budget inside a wave (default 36000)
+    OCTOS_ARC_WHOLE_APP_PROMPT_CHARS  input cap for each generation wave (default 96000)
+    OCTOS_ARC_WHOLE_APP_SOURCE_CHARS  full-source budget inside a wave (default 60000)
     OCTOS_ARC_LLM_TIMEOUT_SECONDS  kernel HTTP timeout per LLM request; must exceed the proxy wait (default 900)
     OCTOS_ARC_BLOCK_ROUTE_WARNINGS  "1" makes a wave's own ROUTE_LINK warnings block completion (default advisory)
     OCTOS_ARC_PRIME_GENERATION_BUILD  "0" skips the one-time dependency/build preflight (default on)
@@ -361,62 +361,66 @@ def tree_outline(tree: dict, max_chars: int = 60000) -> str:
     return catalog + "".join(rendered) + marker
 
 
-def valid_app_design(design) -> dict | None:
-    """The design if its fields have the shapes the consumers index: data_model a
-    dict, routes and pages lists of dicts, notes a string, and at least one of
-    the three structural fields present. Anything else -- legal JSON with the
-    wrong types -- is no design at all; raising later (len() on an int) would
-    abort the run before its first node."""
+def app_design_errors(design) -> list[dict]:
+    """Schema errors with JSON pointers; never normalize requirement semantics."""
+    errors = []
+    def wrong(path, expected, actual):
+        errors.append({"path": path, "expected": expected, "actual": actual})
     if not isinstance(design, dict):
-        return None
-    data_model, routes, pages, notes = (design.get(k) for k in ("data_model", "routes", "pages", "notes"))
-    if data_model is not None and not isinstance(data_model, dict):
-        return None
-    for items in (routes, pages):
-        if items is not None and (not isinstance(items, list) or not all(isinstance(i, dict) for i in items)):
-            return None
-    for key, items in (("routes", routes), ("pages", pages)):
+        return [{"path": "/", "expected": "object", "actual": design}]
+    model = design.get("data_model")
+    if model is not None:
+        if not isinstance(model, dict):
+            wrong("/data_model", "object of collection objects", model)
+        else:
+            for key, value in model.items():
+                if not isinstance(key, str) or not key or not isinstance(value, dict):
+                    wrong("/data_model/" + str(key).replace("~", "~0").replace("/", "~1"), "collection object", value)
+    for kind in ("routes", "pages", "contracts", "modules"):
+        items = design.get(kind)
+        if items is None:
+            continue
+        if not isinstance(items, list):
+            wrong("/" + kind, "array of objects", items)
+            continue
         seen = set()
-        for item in items or []:
-            path = item.get("path")
-            method = item.get("method", "")
-            if not isinstance(method, str):
-                return None
-            if not isinstance(path, str) or not path.startswith("/") or re.search(r"\s", path):
-                return None
-            if key == "routes" and method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}:
-                return None
-            identity = (method, path)
-            if identity in seen:
-                return None
-            seen.add(identity)
-            if "requirements" in item and (not isinstance(item["requirements"], list)
-                    or not all(isinstance(nid, str) for nid in item["requirements"])):
-                return None
-    if data_model is not None and not all(isinstance(k, str) and k and isinstance(v, dict)
-                                          for k, v in data_model.items()):
-        return None
-    contracts = design.get("contracts")
-    if contracts is not None and (not isinstance(contracts, list)
-            or not all(isinstance(c, dict) and isinstance(c.get("invariants"), list)
-                       and c["invariants"] and all(isinstance(v, str) for v in c["invariants"])
-                       and isinstance(c.get("requirements"), list)
-                       and all(isinstance(v, str) for v in c["requirements"]) for c in contracts)):
-        return None
-    modules = design.get("modules")
-    if modules is not None and (not isinstance(modules, list)
-            or not all(isinstance(module, dict)
-                       and isinstance(module.get("path"), str)
-                       and module["path"].startswith(("frontend/", "backend/"))
-                       and isinstance(module.get("owns"), list) and module["owns"]
-                       and all(isinstance(owner, str) and owner for owner in module["owns"])
-                       for module in modules)):
-        return None
-    if notes is not None and not isinstance(notes, str):
-        return None
+        for index, item in enumerate(items):
+            path = f"/{kind}/{index}"
+            if not isinstance(item, dict):
+                wrong(path, "object", item)
+                continue
+            if kind in {"routes", "pages", "modules"}:
+                value = item.get("path")
+                valid = isinstance(value, str) and (value.startswith(("frontend/", "backend/")) if kind == "modules"
+                                                    else value.startswith("/") and not re.search(r"\s", value))
+                if not valid:
+                    wrong(path + "/path", "frontend/ or backend/ source path" if kind == "modules" else "absolute path without whitespace", value)
+            if kind in {"routes", "pages"}:
+                method = item.get("method", "")
+                if not isinstance(method, str) or (kind == "routes" and method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}):
+                    wrong(path + "/method", "HTTP method" if kind == "routes" else "string", method)
+                identity = (str(method), str(item.get("path")))
+                if identity in seen:
+                    wrong(path, "unique method/path pair", item)
+                seen.add(identity)
+            if "requirements" in item or kind == "contracts":
+                values = item.get("requirements")
+                if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+                    wrong(path + "/requirements", "array of requirement IDs", values)
+            field = "owns" if kind == "modules" else "invariants" if kind == "contracts" else None
+            if field:
+                values = item.get(field)
+                if not isinstance(values, list) or not values or not all(isinstance(v, str) and (v or kind == "contracts") for v in values):
+                    wrong(path + "/" + field, "nonempty array of strings", values)
+    if design.get("notes") is not None and not isinstance(design["notes"], str):
+        wrong("/notes", "string", design["notes"])
     if not any(design.get(k) for k in ("data_model", "routes", "pages")):
-        return None
-    return design
+        wrong("/", "at least one nonempty data_model, routes or pages", {})
+    return errors
+
+
+def valid_app_design(design) -> dict | None:
+    return design if not app_design_errors(design) else None
 
 
 def app_design_coverage(design: dict | None) -> set[str]:
@@ -496,7 +500,7 @@ def _relaxed_json(text: str) -> str:
     return "".join(out)
 
 
-def parse_app_design_reply(reply: str) -> dict | None:
+def parse_app_design_reply(reply: str, *, validate: bool = True) -> dict | None:
     """Find and validate one design object, with a bounded local recovery pass."""
     candidates: list[str] = []
     for match in re.finditer(r"```(?:json)?\s*(.*?)\s*```", reply or "", re.S | re.I):
@@ -530,18 +534,23 @@ def parse_app_design_reply(reply: str) -> dict | None:
                 start = None
 
     seen: set[str] = set()
+    raw_fallback = None
     for candidate in candidates:
         if candidate in seen:
             continue
         seen.add(candidate)
         for serialized in (candidate, _relaxed_json(candidate)):
             try:
-                design = valid_app_design(json.loads(serialized))
+                parsed = json.loads(serialized)
+                design = valid_app_design(parsed) if validate else parsed if isinstance(parsed, dict) else None
             except (json.JSONDecodeError, TypeError):
                 continue
             if design is not None:
+                if not validate and not any(key in design for key in ("data_model", "routes", "pages", "modules", "contracts")):
+                    raw_fallback = design
+                    continue
                 return design
-    return None
+    return raw_fallback if not validate else None
 
 
 def _design_catalog(design: dict) -> list[str]:
@@ -1733,7 +1742,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "18-route-prefix-ownership"
+APP_DESIGN_PROMPT_VERSION = "19-schema-repair-active-ownership"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate, onReset, reset; "
@@ -2504,6 +2513,8 @@ class Flow:
             self.driver.progress_deadline = None
             if proxy is not None:
                 proxy.progress_deadline = None
+            if sys.exc_info()[0] is not None:
+                self.restore_protected()
         if proxy is not None and getattr(proxy, "hard_budget_exhausted", False) is True:
             ok, text = False, "local_turn_budget_exhausted: partial edits retained; acceptance must measure them."
         elapsed = time.time() - t0
@@ -2628,7 +2639,7 @@ class Flow:
             probe_endpoint()
 
     def codegen_context_chars(self) -> int:
-        return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
+        return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "96000"))
 
     def source_change_counts(self) -> dict[str, int]:
         """Historical app-file edits, used only to order already selected quotes.
@@ -2695,7 +2706,7 @@ class Flow:
         """
         limit = self.codegen_context_chars()
         if context_limit is not None:
-            limit = min(limit, max(12000, int(context_limit)))
+            limit = max(12000, int(context_limit))  # input cap is independent of rewrite/output planning
         if len(spec) >= limit * 0.6:
             # Cheapest refusal there is; decided before any source file is read.
             self.codegen_budget = dict(spec=len(spec), entry=0, room=0, limit=limit,
@@ -2765,19 +2776,6 @@ class Flow:
             self.codegen_budget["reason"] = "serialized_sources_or_entry_exceed_budget"
             return None
         missing_required = set(must_include) - quoted_paths(sources)
-        if missing_required and focused_sources:
-            # v9.0: a required hub file that no longer fit the wave budget voided
-            # the prompt for every later leaf. Show it as an outline instead: its
-            # interface lines are exact anchors for EDIT blocks, and the write
-            # guard still refuses a whole-file rewrite of it.
-            outline_room = max(0, room - len(sources))
-            outlines = self.render_outlines(sorted(missing_required), outline_room)
-            if outlines:
-                sources += outlines
-                self.codegen_budget["outlined"] = sorted(missing_required)
-                log(f"[codegen] {node.get('id')}: {len(missing_required)} required file(s) too large to quote "
-                    f"whole; outlined for anchored edits: {', '.join(sorted(missing_required))}")
-                missing_required = set()
         if missing_required:
             self.codegen_budget["reason"] = "required_wave_sources_exceed_budget"
             self.codegen_budget["missing_required"] = sorted(missing_required)
@@ -3078,8 +3076,10 @@ class Flow:
         if ((ok and not design) or (not ok and 'output_truncated' in text)
                 or (design and len(wanted) >= coverage_floor and missing)) \
                 and retry_seconds >= 30 and not self.wound_down():
+            invalid = parse_app_design_reply(text, validate=False) if ok and design is None else None
+            schema_errors = app_design_errors(invalid) if invalid is not None else []
             reason = ("incomplete requirement ownership" if design and missing
-                      else "incomplete or invalid JSON")
+                      else "schema errors" if schema_errors else "incomplete or invalid JSON")
             log(f"[flow] application design: {reason}; one bounded contract retry")
             # Repeating the full 60k-character outline encourages another
             # oversized reply. A compact shared contract is more useful than
@@ -3088,14 +3088,27 @@ class Flow:
             retry_prompt = (stack_note(self.output_dir) +
                             'Create a compact shared web application contract for this requirement tree. '
                             'Return ONLY one valid JSON object, at most 12000 characters, with keys '
-                            'data_model (object), routes (array), pages (array), modules (array), '
-                            'contracts (array), notes (string). Each route needs method, absolute path, '
+                            'data_model (object of collection objects), routes (array), pages (array), modules (array), '
+                            'contracts (array), notes (string). Each module is {"path":"frontend/src/X.jsx","owns":["responsibility"]}; '
+                            'backend module paths start backend/. Each contract has nonempty invariants (string array) '
+                            'and requirements (ID array). Each route needs method, absolute path, '
                             'purpose and requirements; each page needs absolute path, purpose and requirements. '
                             'Every atomic requirement ID must appear in at least one route, page or contract '
                             'requirements list. Use one consistent, requirement-derived naming scheme and '
                             'cohesive module owners: exactly one backend route module per API resource prefix. '
                             'No markdown or prose.\n'
                             + compact_outline)
+            if schema_errors:
+                repair_context = ("\nCorrect only the invalid fields, preserving valid contracts and ownership."
+                                  "\nSCHEMA ERRORS:\n" + json.dumps(schema_errors[:12], ensure_ascii=False)
+                                  + "\nPREVIOUS OBJECT:\n" + json.dumps(invalid, ensure_ascii=False))
+                if len(retry_prompt) + len(repair_context) <= self.codegen_context_chars():
+                    retry_prompt += repair_context
+                else:
+                    retry_prompt += "\nSCHEMA ERRORS:\n" + json.dumps(schema_errors[:12], ensure_ascii=False)[:4000]
+            elif design and missing:
+                retry_prompt += "\nMissing ownership IDs: " + json.dumps(sorted(missing))
+            self.metric("design_retry", reason=reason, schema_errors=schema_errors[:12])
             ok, text = self.text_turn(
                 retry_prompt,
                 retry_seconds, "application design (format retry)", system=APP_DESIGN_SYSTEM,
@@ -3427,6 +3440,13 @@ class Flow:
         raw_reply = ""
         def result(ok: bool, text: str, outcome: str):
             self.last_codegen_outcome = outcome
+            paths = set(self.last_codegen_written) | set(self.last_codegen_refused)
+            application = {"label": label, "outcome": outcome,
+                           "applied": list(self.last_codegen_written), "refused": sorted(self.last_codegen_refused),
+                           "hashes": {rel: hashlib.sha256((self.output_dir / rel).read_bytes()).hexdigest()
+                                      for rel in paths if (self.output_dir / rel).is_file()}}
+            self.last_codegen_application = application
+            self.metric("codegen_application", **application)
             if not ok and raw_reply:
                 self.save_rejected_reply(label, outcome, raw_reply)
             self.remember_repair(label, prompt, outcome)
@@ -3493,6 +3513,11 @@ class Flow:
             html = strip_code_fences(text)
             if looks_like_markup(html):
                 files = {raw_target: html}
+        if (not raw_target and (ok or truncated) and getattr(self, "_atomic_codegen_response", False)
+                and (truncated or incomplete_blocks(text))):
+            error = "Incomplete FILE/EDIT output: no changes were applied; retry the complete active contract."
+            self.pending_corrections.append(error)
+            return result(False, error, "incomplete_blocks")
         if ok and not truncated and not raw_target and incomplete_blocks(text):
             error = ("Incomplete FILE/EDIT output: no changes were applied. "
                      "Return complete blocks with exact terminators; never nest FILE headers.")
@@ -3541,6 +3566,11 @@ class Flow:
                     f"Your previous reply changed {', '.join(refused)} without having been shown the file whole; "
                     "the block was discarded and the file kept as it was. Change only files quoted whole in the "
                     "prompt, or add new files.")
+            if refused and not self.last_codegen_deferred and getattr(self, "_atomic_codegen_response", False):
+                error = ("Atomic response not applied: required existing files were not quoted whole: "
+                         + ", ".join(refused) + ". No caller/callee changes from this response were written.")
+                self.pending_corrections.append(error)
+                return result(False, error, "guard_refused")
             if edits:
                 staged, errors = prepare_edit_files(self.output_dir, edits)
                 if errors:
@@ -3588,7 +3618,11 @@ class Flow:
                 error = "Invalid source envelope; no changes were applied: " + "; ".join(protocol_errors[:4])
                 self.pending_corrections.append(error)
                 return result(False, error, "format_error")
-            from generation_checks import helper_import_errors
+            from generation_checks import helper_import_errors, placeholder_overwrites
+            existing_sources = self.repair_source_index().sources
+            placeholders = placeholder_overwrites(existing_sources, files)
+            if placeholders:
+                return result(False, "; ".join(placeholders), "placeholder_overwrite")
             candidates = dict(self.repair_source_index().sources)
             candidates.update(files)
             interface_errors = helper_import_errors(candidates, files)
@@ -3596,8 +3630,10 @@ class Flow:
                 error = 'Invalid installed-helper imports; no changes applied: ' + '; '.join(interface_errors[:4])
                 self.pending_corrections.append(error)
                 return result(False, error, 'helper_contract_error')
-            from generation_checks import missing_export_errors
+            from generation_checks import missing_export_errors, missing_local_import_errors
             export_errors = missing_export_errors(candidates, files)
+            if getattr(self, "_atomic_codegen_response", False):
+                export_errors += missing_local_import_errors(candidates, files)
             if export_errors:
                 # Writing half of an interface change breaks the build for every
                 # later batch (v10.2 github: api.js). Requote both ends instead.
@@ -3705,8 +3741,8 @@ class Flow:
         prompt = prompt.replace("Output: complete FILE blocks for changed files only; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.",
                                 "Use tools for necessary changes only; finish when the requirements are satisfied.")
         prompt += ("\nThis is a tool-editing turn, not a text codegen response. Do not emit FILE/EDIT blocks or diffs. "
-                   "The relevant acceptance spec and helper code are already quoted in this prompt; do not search, "
-                   "list or read other acceptance files or future requirements. "
+                   "Use the relevant acceptance spec/helper quotations when present. If they are not quoted, "
+                   "read only the named active spec and its imported helpers; never scan future acceptance files. "
                    "Quoted source is the current disk snapshot; use it directly without redundant reads. "
                    "For unquoted files read current ranges, then use edit_file with path, old_string, new_string for small changes; "
                    "use write_file for new files or a necessary short full rewrite. Batch independent small calls. "
@@ -3721,6 +3757,8 @@ class Flow:
         saved = set(getattr(proxy, "extra_drop_tools", set()))
         saved_cap = getattr(proxy, "tool_max_tokens", 0)
         saved_compaction = getattr(proxy, "compact_reads", False)
+        saved_bounded = getattr(proxy, "bounded_edits", False)
+        proxy.bounded_edits = True
         proxy.compact_reads = True
         # SourceIndex already supplies the complete app file catalog. Glob was
         # used in a measured repair only to scan all future acceptance specs,
@@ -3730,22 +3768,24 @@ class Flow:
         started = time.monotonic()
         try:
             configured = os.environ.get("OCTOS_ARC_EDIT_REQUESTS")
+            if configured is None and phase_for_label(label) == 'implement':
+                configured = os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS")
             if configured is not None:
                 request_budget = int(configured)
-            elif not self.tests_dir:
-                # No executable acceptance loop can cheaply finish a partially
-                # edited feature. Give the initial focused turn enough room to
-                # complete; official-spec runs keep the measured eight-request
-                # default and can repair from concrete failures instead.
-                request_budget = int(os.environ.get("OCTOS_ARC_NO_SPEC_EDIT_REQUESTS", "12"))
             else:
                 request_budget = 8
+            before_progress = self.app_source_digest()
+            proxy.turn_progress = (lambda: self.app_source_digest() != before_progress) if configured is None else None
+            proxy.turn_extension_limit = max(8, int(os.environ.get("OCTOS_ARC_NO_SPEC_EDIT_REQUESTS", "12"))) if configured is None else 0
             ok, text = self.turn(prompt, timeout, label + " (structured edits)", expect_verification=False,
                                  request_budget=max(1, request_budget))
         finally:
+            proxy.turn_progress = None
+            proxy.turn_extension_limit = 0
             proxy.extra_drop_tools = saved
             proxy.tool_max_tokens = saved_cap
             proxy.compact_reads = saved_compaction
+            proxy.bounded_edits = saved_bounded
         after = {str(p.relative_to(self.output_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
                  for p in app_source_files(self.output_dir, exts=None)}
         self.last_codegen_written = sorted(rel for rel in before.keys() | after.keys() if before.get(rel) != after.get(rel))
@@ -4057,8 +4097,12 @@ class Flow:
         """Copy the official tests dir (and requirements) so any edit the model
         sneaks past the hook (e.g. via a shell redirect) is undone after the
         turn — the platform grades with THESE files."""
+        for _, snapshot, _ in getattr(self, 'protected_snapshots', []):
+            shutil.rmtree(snapshot.parent, ignore_errors=True)
         self.protected_snapshots = []
-        for live in (self.tests_dir, self.req_dir):
+        control = self.output_dir / '.arc' / 'test-control'
+        control.mkdir(parents=True, exist_ok=True)
+        for live in (self.tests_dir, self.req_dir, control):
             if not live or not live.is_dir():
                 continue
             snap = Path(tempfile.mkdtemp(prefix="octos-protected-"))
@@ -4180,12 +4224,38 @@ class Flow:
         return AppServer(self.output_dir, self.smoke_port, log, env_extra=env, grader_like=grader_like,
                          extra_ports=[p for p in spec_base_ports(self.tests_dir) if p != self.web_port])
 
+    def generated_load_errors(self, specs: list[str]) -> list[str]:
+        if (not getattr(self, "derived_as_specs", False)
+                or self.tests_dir != getattr(self, "derived_tests_dir", None)):
+            return []
+        try:
+            data = json.loads((self.output_dir / ".arc/test-control/load-errors/blocked-files.json").read_text())
+        except (OSError, ValueError):
+            return []
+        if not isinstance(data, dict):
+            return []
+        errors = []
+        for rel in specs:
+            row = data.get(rel)
+            if not isinstance(row, dict):
+                continue
+            try:
+                current = hashlib.sha256((self.tests_dir / rel).read_bytes()).hexdigest()
+            except OSError:
+                continue
+            if current == row.get("file_hash"):
+                errors.append(f"{rel}: {row.get('reason', 'generated test does not load')}")
+        return errors
+
     def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False,
                   runner: AcceptanceRunner | None = None) -> RunSummary:
         """Build, start, run the specs, then undo whatever the test run mutated
         (a persisted counter at -1 would otherwise be committed as the seed).
         `grader_like` starts the backend with only PORT set, as the platform does."""
         started = time.monotonic()
+        blocked = self.generated_load_errors(specs)
+        if blocked:
+            return RunSummary(error="generated test load blocked: " + "; ".join(blocked), load_errors=blocked)
         if self.time_up():
             return RunSummary(error="acceptance time budget exhausted")
         git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
@@ -4201,6 +4271,9 @@ class Flow:
             self.note_startable_commit(git_run)
             # A derived suite has one spec file per leaf (47 for the GitHub task);
             # a fixed 900s wall would kill the full run before its verdict.
+            policy = self.generated_test_policy()
+            active_runner = runner or self.runner
+            active_runner.derived_policy = policy
             wall = max(900, 30 * len(specs))
             if getattr(self, "derived_as_specs", False):
                 # Derived scripts mutate the shared seeds (rename the seeded
@@ -4366,6 +4439,7 @@ class Flow:
         if (not getattr(self, "derived_as_specs", False)
                 or self.tests_dir != getattr(self, "derived_tests_dir", None)
                 or os.environ.get("OCTOS_ARC_DERIVED_SPEC_AUDIT", "1") == "0"
+                or os.environ.get("OCTOS_ARC_DERIVED_SPEC_REPAIR", "1") == "0"
                 or not self.suite_is_measured(summary, specs)
                 or summary.all_passed):
             return None
@@ -4425,6 +4499,20 @@ class Flow:
             + (f"; {observed.error}" if observed.error else ""))
         return observed
 
+    def generated_test_policy(self):
+        from test_policy import TestPolicy, digest
+        directory = getattr(self, "derived_tests_dir", None)
+        if (not getattr(self, "derived_as_specs", False) or directory is None
+                or self.tests_dir != directory):
+            return None
+        helpers = {str(p.relative_to(directory)): p.read_text()
+                   for p in directory.rglob("*.ts") if not p.name.endswith(".spec.ts")}
+        policy = TestPolicy(directory, getattr(self, "requirement_tree", None)
+                            or getattr(self, "derived_nodes", []), digest(helpers))
+        self.derived_spec_disputes = {(Path(row["file"]).stem, row["title"]): row["evidence"]
+                                    for row in policy.valid_records() if row["state"] == "invalid"}
+        return policy
+
     def disputed_generated_failures(self, summary: RunSummary) -> list[tuple[str, str]]:
         """Failed generated tests whose oracle is not safe for application repair."""
         disputes = getattr(self, "derived_spec_disputes", {})
@@ -4457,6 +4545,19 @@ class Flow:
     def clear_derived_spec_dispute(self, node_id: str, title: str) -> None:
         getattr(self, "derived_spec_disputes", {}).pop((node_id, title), None)
 
+    def oracle_review_turn(self, prompt: str, label: str):
+        stage = getattr(self, "_repair_stage", None)
+        allowance = max(0, (stage[0] if stage else self.budget) * .10)
+        spent = getattr(self, "_oracle_review_seconds", 0)
+        available = min(180, allowance - spent, self.remaining() - self.final_phase_reserve())
+        if available < 30:
+            return False, "generated-test oracle review allowance exhausted"
+        started = time.monotonic()
+        try:
+            return self.text_turn(prompt, available, label, system=REVIEW_SYSTEM, spec_chars=len(prompt))
+        finally:
+            self._oracle_review_seconds = spent + time.monotonic() - started
+
     def review_failed_derived_spec_with_model(self, node_id: str, specs: list[str],
                                               summary: RunSummary,
                                               failure_title: str | None = None) -> RunSummary | None:
@@ -4477,13 +4578,16 @@ class Flow:
         runner = getattr(self, "runner", None)
         if not node or runner is None or not hasattr(runner, "list_specs"):
             return None
-        candidates = [row for row in summary.results if not row.ok
-                      and row.title.endswith((" [model]", " [script]"))
+        candidates = [row for row in summary.results if not row.ok and row.status != "quarantined"
                       and (failure_title is None or row.title == failure_title)]
         if not candidates:
             return None
         row = candidates[0]
-        key = (node_id, row.title, failure_signature(summary))
+        policy = self.generated_test_policy()
+        from test_policy import digest, test_block, grounded_verdict
+        version_key = digest({"context": policy.context if policy else "",
+                              "files": {rel: (self.tests_dir / rel).read_text() for rel in specs}})
+        key = (node_id, row.title, failure_signature(summary), version_key)
         reviewed = getattr(self, "derived_failure_reviews", set())
         if key in reviewed:
             return None
@@ -4492,12 +4596,25 @@ class Flow:
         fixtures = suite_fixtures(getattr(self, "derived_nodes", [node]))
         targets = review_targets(getattr(self, "derived_nodes", [node]), fixtures,
                                  ancestor_context(getattr(self, "requirement_tree", None)),
-                                 folder_text(getattr(self, "requirement_tree", None)), include_all=True)
+                                 folder_text(getattr(self, "requirement_tree", None)), include_all=True,
+                                 dependency_tree=getattr(self, "requirement_tree", None))
         target = next((item for item in targets if item["node_id"] == node_id
-                       and row.title in {f"{item['title']} [model]", f"{item['title']} [script]"}), None)
+                       and (row.title in {f"{item['title']} [model]", f"{item['title']} [script]"}
+                            or row.title.startswith(item['title'] + " [reach]")
+                            or row.title.startswith(item['title'] + " [entry]")
+                            or row.title.startswith(item['title'] + " [case "))), None)
         rel = next((path for path in specs if str(row.file or "").replace("\\", "/").endswith(path)), None)
-        if target is None or rel is None:
+        if rel is None:
             return None
+        if target is None:
+            # Some entry checks have no one-to-one scenario title. The complete
+            # test and original node still permit a grounded oracle decision.
+            from scenario_review import allowed_literals
+            target = {"id": "audit", "node_id": node_id, "title": row.title, "name": node.get("name", node_id),
+                      "description": str(node.get("description") or ""), "steps": [],
+                      "allowed": allowed_literals(node, fixtures), "controls": [], "seeds": []}
+        if " [case " in row.title:
+            target = dict(target, title=row.title.removesuffix(" [model]"))
         path = self.tests_dir / rel
         original = path.read_text(encoding="utf-8")
         prompt = ("Review a failed TEST, not the app implementation. The requirement is the oracle. "
@@ -4511,14 +4628,54 @@ class Flow:
                   + build_review_prompt([target], fixtures)
                   + "\n\nFAILED SPEC:\n" + original[:12000]
                   + "\nFAILURE EVIDENCE:\n" + (failure_summaries(summary) or "")[:4000])
-        ok, reply = self.text_turn(prompt, min(180, max(60, self.remaining() - self.final_phase_reserve())),
-                                   "derived failed-spec review", system=REVIEW_SYSTEM, spec_chars=len(prompt))
+        requirement = (json.dumps(node, ensure_ascii=False, sort_keys=True) + "\n" + str(node.get("description") or "")
+                       + "\n" + ancestor_context(getattr(self, "requirement_tree", None)).get(node_id, ""))
+        block = test_block(original, row.title)
+        if block is None:
+            return None
+        prompt += "\nCOMPLETE OFFENDING TEST:\n" + block
+        prompt += ("\nAUTHORITATIVE REQUIREMENT:\n" + requirement
+                   + "\nFor a test error include reason_code (requirement_conflict, unsupported_constraint, "
+                   "fixture_error, wrong_action), requirement_quote and test_quote copied exactly from "
+                   "the requirement and offending test action/assertion, plus a concrete explanation. "
+                   "App failures, missing UI, timeouts, HTTP 401 or unimplemented behavior alone "
+                   "are not evidence of test error.\n")
+        helper = self.tests_dir / "helpers.ts"
+        if helper.is_file():
+            prompt += "\nCOMPLETE TEST HELPER:\n" + helper.read_text(encoding="utf-8")
+        if len(prompt) > self.codegen_context_chars():
+            self.metric("derived_spec_failure_review", node_id=node_id, title=row.title, verdict="evidence_exceeds_context")
+            return None  # Never adjudicate with missing requirement/helper evidence.
+        # Harness files committed since the preceding model turn must be protected now.
+        self.snapshot_protected()
+        ok, reply = self.oracle_review_turn(prompt, "derived failed-spec review")
         if not ok:
             return None
         review = parse_failure_review(reply)
         if review is None:
             self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
                         verdict="invalid_response")
+            return None
+        if policy and block and grounded_verdict(review, requirement, block):
+            # A fresh, read-only request receives the original evidence, never the first verdict.
+            if self.remaining() < self.final_phase_reserve() + 240 or self.review_budget_spent():
+                return None
+            ok2, reply2 = self.oracle_review_turn(prompt, "independent generated-test oracle review")
+            second = parse_failure_review(reply2) if ok2 else None
+            agreed = (grounded_verdict(second, requirement, block)
+                      and second["reason_code"] == review["reason_code"]
+                      and second["requirement_quote"] == review["requirement_quote"]
+                      and second["test_quote"] == review["test_quote"])
+            policy.decide(rel, row.title, original, "invalid" if agreed else "unresolved",
+                          review["evidence"], [review, second], digest(sorted(map(str, failure_signature(summary)))))
+            self.snapshot_protected()
+            self.metric("derived_test_decision", node_id=node_id, title=row.title,
+                        state="invalid" if agreed else "unresolved", independent_reviews=2)
+            if agreed:
+                self.flag_derived_spec_dispute(node_id, row.title, review["evidence"])
+                observed = self.run_specs(specs)
+                self.write_derived_coverage(observed)
+                return observed
             return None
         label = review["verdict"]
         evidence = review["evidence"]
@@ -4529,12 +4686,15 @@ class Flow:
                 self.clear_derived_spec_dispute(node_id, row.title)
                 self.pending_corrections.append(f"Independent generated-spec review for {node_id}: {evidence[:500]}")
             elif label == "oracle_dispute" and evidence:
-                self.flag_derived_spec_dispute(node_id, row.title, str(evidence))
+                self.pending_corrections.append("Unproven generated-test concern: " + str(evidence)[:500])
             elif label == "uncertain" and evidence:
                 self.pending_corrections.append(
                     f"Generated-spec review for {node_id} was inconclusive: {str(evidence)[:500]}. "
                     "Check the requirement and observed behavior before changing the app.")
             return None
+        if (os.environ.get("OCTOS_ARC_DERIVED_SPEC_REPAIR", "1") == "0"
+                or not row.title.endswith((" [model]", " [script]"))):
+            return None  # Mechanical tests are audited, never converted to weaker model tests.
         scripts, dropped = compile_review_reply(json.dumps(review, ensure_ascii=False), [target], fixtures)
         replacement = next((test for test in scripts.get(node_id, [])
                             if f"{target['title']} [model]" in test.split("\n", 1)[0]), None)
@@ -4542,9 +4702,7 @@ class Flow:
         if not corrected:
             self.metric("derived_spec_failure_review", node_id=node_id, title=row.title,
                         verdict="rejected_unsafe_patch", reasons=dropped[:2])
-            self.flag_derived_spec_dispute(node_id, row.title,
-                                           "Reviewer identified a test error but no oracle-preserving repair loaded: "
-                                           + "; ".join(dropped[:2]))
+            # An unsupported opinion must never suppress an application failure.
             return None
         archive = self.output_dir / ".arc" / "spec-audit" / node_id
         archive.mkdir(parents=True, exist_ok=True)
@@ -4612,10 +4770,7 @@ class Flow:
                 if local.all_passed or not self.suite_is_measured(local, paths):
                     continue
                 for row in rows:
-                    if row.ok or not row.title.endswith((" [model]", " [script]")):
-                        continue
-                    if (node_id, row.title, failure_signature(local)) in getattr(
-                            self, "derived_failure_reviews", set()):
+                    if row.ok or row.status == "quarantined":
                         continue
                     if model_reviews >= model_limit:
                         break
@@ -4630,26 +4785,6 @@ class Flow:
                     break
             if not model_corrected:
                 break
-        if (model_limit and getattr(self, "driver", None) is not None
-                and os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW", "1") != "0"
-                and self.suite_is_measured(summary, specs)):
-            # A skipped or budget-limited review must not silently feed an
-            # unchecked generated oracle to application repair. Later suite
-            # passes can review it.
-            for node_id, paths in owners.items():
-                if not node_id or not paths or not set(paths) <= set(specs):
-                    continue
-                rows = [row for row in summary.results if any(
-                    str(row.file or "").replace("\\", "/") == path or
-                    str(row.file or "").replace("\\", "/").endswith("/" + path) for path in paths)]
-                local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
-                for row in rows:
-                    if (not row.ok and row.title.endswith((" [model]", " [script]"))
-                            and (node_id, row.title, failure_signature(local)) not in
-                            getattr(self, "derived_failure_reviews", set())
-                            and (node_id, row.title) not in getattr(self, "derived_spec_disputes", {})):
-                        self.flag_derived_spec_dispute(
-                            node_id, row.title, "Generated test failure awaits its independent oracle review")
         return summary
 
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
@@ -4676,11 +4811,17 @@ class Flow:
                     specs, summary, owner_specs={node_id: specs})
                 disputed = self.disputed_generated_failures(summary)
                 if disputed:
-                    log(f"[acceptance] {node_id}: generated oracle disputed; "
-                        "deferring application repair pending requirement-grounded spec resolution")
+                    raw = summary
+                    self.write_derived_coverage(raw)
+                    summary = self.uncontested_derived_results(raw)
                     self.metric("derived_spec_dispute", scope="node", node_id=node_id,
-                                tests=[title for _, title in disputed])
-                    return None
+                                tests=[title for _, title in disputed], active=summary.total)
+                    if not summary.total or summary.all_passed:
+                        self.record_tests(node_id, specs, raw)
+                        return None  # All active tests pass; invalid tests leave a coverage gap.
+            if summary.error and summary.error.startswith("generated test load blocked:"):
+                self.metric("acceptance", scope="node", node_id=node_id, verdict="blocked_test_file")
+                return None
             if summary.error and summary.killed:
                 log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
                 return None
@@ -4771,9 +4912,7 @@ class Flow:
                         if disputed:
                             for prior, _ in disputed:
                                 self.test_verdict[prior] = None
-                            log(f"[acceptance] {node_id}: related generated oracle disputed; "
-                                "deferring application repair")
-                            return None
+                            regression = self.uncontested_derived_results(regression)
                     self.metric("acceptance", scope="affected_regression", node_id=node_id,
                                 passed=regression.passed, total=regression.total,
                                 checked_specs=len(regression_specs), affected_specs=affected_count,
@@ -5159,7 +5298,14 @@ class Flow:
         """
         deadline = time.monotonic() + timeout
         self.whole_app_generation_requests = getattr(self, "whole_app_generation_requests", 0) + 1
-        ok, text = self.codegen_turn(prompt, timeout, label, spec_chars=spec_chars,
+        def generate(*args, **kwargs):
+            saved = getattr(self, "_atomic_codegen_response", False)
+            self._atomic_codegen_response = True
+            try:
+                return self.codegen_turn(*args, **kwargs)
+            finally:
+                self._atomic_codegen_response = saved
+        ok, text = generate(prompt, timeout, label, spec_chars=spec_chars,
                                      force_files='startup repair' in label)
         self.generation_batch_check(label)
         if ok and (getattr(self, "last_codegen_written", [])
@@ -5168,7 +5314,13 @@ class Flow:
         format_error = (text.startswith("codegen reply contained no ")
                         or text.startswith("mixed FILE and EDIT blocks")
                         or text.startswith("Incomplete FILE/EDIT output"))
-        correction = ("\nThe preceding answer was discarded without writing files: " + text[:240] +
+        if getattr(self, "last_codegen_written", []):
+            # Any tool edit/legacy recovery changed the snapshot. The wave caller
+            # rebuilds a fresh prompt; never retry an old full-file quotation.
+            self.pending_corrections.append("Partial application retained: " + ", ".join(self.last_codegen_written)
+                                            + ". Rebuild the next prompt from current disk; " + text[:600])
+            return ok, text
+        correction = ("\nNo application files from the preceding response were written: " + text[:600] +
                       "\nReturn ONLY complete <<<FILE ...>>> blocks, with exact "
                       "<<<END FILE>>> terminators. One block per path. "
                       "Do not explain the implementation.\n")
@@ -5181,7 +5333,7 @@ class Flow:
                                                               self.codegen_context_chars()))):
             log(f"[flow] {label}: format rejected; one corrected reply before splitting")
             self.whole_app_generation_requests += 1
-            result = self.codegen_turn(prompt + correction, retry_seconds, label + " (format retry)",
+            result = generate(prompt + correction, retry_seconds, label + " (format retry)",
                                        spec_chars=spec_chars, force_files='startup repair' in label)
             self.generation_batch_check(label)
             return result
@@ -5375,7 +5527,10 @@ class Flow:
                 owned = any(f": {path} " in value for path in current)
                 if value.startswith("API_CALL ") and owned:
                     if not self.api_call_planned_later(value, ids):
-                        gaps.append(value)
+                        self.metric("wave_api_advisory", node_ids=ids, warning=value,
+                                    verification="requires_runtime_evidence")
+                        if os.environ.get("OCTOS_ARC_BLOCK_API_WARNINGS", "0") == "1":
+                            gaps.append(value)
                 elif value.startswith("ROUTE_CONFLICT") and any(path in value for path in current):
                     # Statically certain: Express serves only the first
                     # registration, so the later handler is dead code.
@@ -5391,11 +5546,11 @@ class Flow:
             contracts = getattr(self, "requirement_contracts", None)
             if (not self.tests_dir or any(self.derived_review_needed(node_id) for node_id in ids)) \
                     and isinstance(contracts, dict):
-                # Requirement-declared initial records are part of the feature,
-                # not optional examples from a hidden test. Missing quoted
-                # identifiers are strong traceability evidence and force a
-                # focused review before this wave can be called complete.
-                gaps.extend(source_seed_gaps(contracts, sources, ids))
+                # A source substring cannot establish runtime seed semantics.
+                # Keep this evidence advisory and let browser checks decide.
+                hints = source_seed_gaps(contracts, sources, ids)
+                if hints:
+                    self.metric("seed_source_hint", node_ids=ids, advisory=True, hints=hints[:8])
             artifacts = self.whole_app_wave_design_items(ids)
             backend = "\n".join(text for path, text in sources.items() if path.startswith("backend/"))
             frontend_routes = "\n".join(
@@ -5532,10 +5687,8 @@ class Flow:
     def verify_derived_suite(self) -> None:
         """Every generated spec must load in Playwright.
 
-        The files are templated, so a load error can only come from a literal
-        that broke the template (or a model addition). Remediation is
-        deterministic: drop the model additions of the failing file, then
-        recompile the leaf mechanically, then exclude the file -- and say so.
+        Preserve and archive unloadable originals. A top-level import/parse
+        failure is a blocked file, never a collection of invalid test oracles.
         """
         runner = getattr(self, "runner", None)
         directory = self.derived_tests_dir
@@ -5546,52 +5699,30 @@ class Flow:
             return
         ok, detail = runner.list_specs(specs)
         if ok:
+            blocked_path = self.output_dir / ".arc/test-control/load-errors/blocked-files.json"
+            if blocked_path.exists():
+                blocked_path.write_text("{}\n")
+                self.snapshot_protected()
+            self._derived_suite_load_blocked = False
             self.derived_suite_verified = True
             log(f"[derived] all {len(specs)} spec files load in Playwright")
             return
         log(f"[derived] generated suite does not load; isolating the failing file(s): {detail[-300:]}")
-        by_id = {str(node.get("id")): node for node in getattr(self, "derived_nodes", [])}
-        fixtures = suite_fixtures(list(by_id.values()))
-        excluded: list[str] = []
+        blocked = {}
+        archive = self.output_dir / ".arc" / "test-control" / "load-errors"
+        archive.mkdir(parents=True, exist_ok=True)
         for rel in specs:
-            if runner.list_specs([rel])[0]:
-                continue
-            path = directory / rel
-            node_id = rel[:-len(".spec.ts")]
-            source = path.read_text(encoding="utf-8")
-            if "[model]" in source:
-                trimmed = re.split(r"\n\ntest\('[^\n]*\[model\]'", source, 1)[0].rstrip("\n") + "\n"
-                path.write_text(trimmed, encoding="utf-8")
-                log(f"[derived] {rel}: model-proposed tests removed (they did not load)")
-                if runner.list_specs([rel])[0]:
-                    continue
-            if node_id in by_id:
-                from scenario_tests import compile_leaf
-                path.write_text(compile_leaf(by_id[node_id], fixtures).source, encoding="utf-8")
-                log(f"[derived] {rel}: recompiled mechanically")
-                if runner.list_specs([rel])[0]:
-                    continue
-            path.unlink(missing_ok=True)
-            excluded.append(rel)
-            log(f"[derived] {rel}: excluded from the suite; it does not load even after recompilation")
-        self.metric("derived_suite_verification", excluded=excluded, total=len(specs))
-        plan_path = directory / "review" / "plan.json"
-        if plan_path.is_file():
-            plan = json.loads(plan_path.read_text(encoding="utf-8"))
-            changed = False
-            for row in plan.get("targets") or []:
-                if row.get("status") != "accepted":
-                    continue
-                source_path = directory / f"{row.get('node_id')}.spec.ts"
-                source = source_path.read_text(encoding="utf-8") if source_path.is_file() else ""
-                titles = {title.replace("\\'", "'") for title in re.findall(
-                    r"^test\('((?:\\.|[^'\\])*)'", source, re.M)}
-                if f"{row.get('title')} [model]" not in titles:
-                    row["status"] = "rejected_load"
-                    changed = True
-            if changed:
-                plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self.derived_suite_verified = True
+            loads, failure = runner.list_specs([rel])
+            if not loads:
+                source = (directory / rel).read_bytes()
+                (archive / (hashlib.sha256(source).hexdigest()[:12] + "-" + Path(rel).name)).write_bytes(source)
+                blocked[rel] = {"execution": "blocked", "reason": str(failure)[-1500:],
+                                "file_hash": hashlib.sha256(source).hexdigest()}
+        (archive / "blocked-files.json").write_text(json.dumps(blocked, ensure_ascii=False, indent=2) + "\n")
+        self.derived_suite_verified = False
+        self.metric("derived_suite_verification", blocked=list(blocked), total=len(specs))
+        self.snapshot_protected()
+        log(f"[derived] {len(blocked)} generated file(s) blocked by load errors; originals preserved, no passing verdict")
 
     def planned_derived_scenarios(self) -> list[dict]:
         """One stable target per distinct requirements.yaml scenario."""
@@ -5600,7 +5731,7 @@ class Flow:
             nodes = list(getattr(self, "derived_nodes", []))
             tree = getattr(self, "requirement_tree", None)
             cached = review_targets(nodes, suite_fixtures(nodes), ancestor_context(tree),
-                                    folder_text(tree), include_all=True)
+                                    folder_text(tree), include_all=True, dependency_tree=tree)
             self._derived_scenario_targets = cached
         return cached
 
@@ -5616,6 +5747,7 @@ class Flow:
             if target["node_id"] != node_id:
                 continue
             candidates = [f"{target['title']} [script]", f"{target['title']} [model]"]
+            candidates += sorted(title for title in valid if re.fullmatch(re.escape(target['title']) + r" \[case [1-8]\] \[model\]", title))
             matched = [title for title in candidates if title in valid and (node_id, title) not in disputes
                        and grounded_behavior_test(source, title, target)]
             disputed = [title for title in candidates if (node_id, title) in disputes]
@@ -5623,8 +5755,22 @@ class Flow:
                          "status": "covered" if matched else "disputed" if disputed else "missing",
                          "tests": matched,
                          "disputes": {title: disputes[(node_id, title)] for title in disputed}})
+        from scenario_review import contract_outcomes, positive_contract_evidence
+        from test_policy import test_block
+        node = next((node for node in getattr(self, "derived_nodes", []) if str(node.get("id")) == node_id), {})
+        outcomes = []
+        for outcome in contract_outcomes(str(node.get("description") or "")):
+            matched = []
+            for title in valid:
+                if (node_id, title) in disputes:
+                    continue
+                block = test_block(source, title)
+                if block and positive_contract_evidence(source, title, outcome["literal"]):
+                    matched.append(title)
+            outcomes.append({**outcome, "tests": sorted(matched), "status": "covered" if matched else "missing"})
         return {"node_id": node_id, "total": len(rows),
-                "covered": sum(row["status"] == "covered" for row in rows), "scenarios": rows}
+                "covered": sum(row["status"] == "covered" for row in rows), "scenarios": rows,
+                "contract_outcomes": outcomes, "missing_contract_outcomes": sum(not row["tests"] for row in outcomes)}
 
     def write_derived_coverage(self, summary: RunSummary | None = None) -> None:
         """Persist scenario coverage separately from raw Playwright pass counts."""
@@ -5632,15 +5778,23 @@ class Flow:
             return
         nodes = list(getattr(self, "derived_nodes", []))
         features = [self.derived_scenario_coverage(str(node.get("id"))) for node in nodes]
-        outcomes = {(Path(row.file or "").name, row.title): row.ok
-                    for row in (summary.results if summary else [])}
+        from test_policy import digest
+        cache = getattr(self, "_derived_runtime_cache", {})
+        versions = {p.name: digest(p.read_text()) for p in self.derived_tests_dir.glob("*.spec.ts")}
+        for row in summary.results if summary else []:
+            filename = Path(row.file or "").name
+            cache[(filename, row.title)] = (versions.get(filename), row.status)
+        cache = {key: value for key, value in cache.items() if versions.get(key[0]) == value[0]}
+        self._derived_runtime_cache = cache
+        outcomes = {key: value[1] for key, value in cache.items()}
         for feature in features:
             filename = f"{feature['node_id']}.spec.ts"
             for scenario in feature["scenarios"]:
                 titles = scenario["tests"] + list(scenario["disputes"])
                 checks = [outcomes[(filename, title)] for title in titles
                           if (filename, title) in outcomes]
-                scenario["runtime"] = ("passed" if checks and all(checks) else
+                scenario["runtime"] = ("quarantined" if "quarantined" in checks else
+                                       "passed" if checks and len(checks) == len(titles) and all(status == "passed" for status in checks) else
                                        "failed" if checks else "unmeasured")
         report = {"kind": "derived_scenario_coverage", "features": features,
                   "totals": {"scenarios": sum(item["total"] for item in features),
@@ -5649,6 +5803,16 @@ class Flow:
                                             for row in item["scenarios"]),
                              "disputed": sum(row["status"] == "disputed" for item in features
                                              for row in item["scenarios"])}}
+        if summary is not None:
+            quarantined = sum(row.status == "quarantined" for row in summary.results)
+            active_total = sum(row.status != "quarantined" for row in summary.results)
+            self._derived_execution_report = {"scope": "latest_run", "discovered": summary.total,
+                "files": sorted({Path(row.file or "").name for row in summary.results}),
+                "active_total": active_total, "active_passed": summary.passed,
+                "active_rate": summary.passed / active_total if active_total else None,
+                "quarantined": quarantined, "failed": sum(row.status in {"failed", "timedOut"} for row in summary.results),
+                "blocked": bool(summary.error or summary.load_errors or summary.killed)}
+        report["execution"] = getattr(self, "_derived_execution_report", None)
         path = self.output_dir / ".arc" / "derived-coverage.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -5664,7 +5828,8 @@ class Flow:
         if not getattr(self, "derived_as_specs", False):
             return False
         coverage = self.derived_scenario_coverage(node_id)
-        return coverage["total"] == 0 or coverage["covered"] < coverage["total"]
+        return (coverage["total"] == 0 or coverage["covered"] < coverage["total"]
+                or bool(coverage.get("missing_contract_outcomes")))
 
     def derived_completeness_pass(self, ordered: list[dict]) -> None:
         """Spend remaining budget on leaves the derived suite cannot judge.
@@ -5678,8 +5843,6 @@ class Flow:
         if not getattr(self, "derived_as_specs", False) or getattr(self, "runner", None) is None:
             return
         weak = self.weak_derived_leaves(ordered)
-        disputed_nodes = {node_id for node_id, _ in getattr(self, "derived_spec_disputes", {})}
-        weak = [node_id for node_id in weak if node_id not in disputed_nodes]
         if not weak:
             return
         per_leaf = max(120, int(os.environ.get("OCTOS_ARC_COMPLETENESS_SECONDS", "420")))
@@ -5708,7 +5871,8 @@ class Flow:
         all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
         summary = self.run_specs(all_specs, grader_like=True)
         measured = self.suite_is_measured(summary, all_specs)
-        if measured and summary.passed < summary.total:
+        active = self.uncontested_derived_results(summary)
+        if measured and any(not row.ok for row in active.results):
             failing = [r.title for r in summary.results if not r.ok][:6]
             log(f"[flow] completeness pass regressed the suite ({summary.passed}/{summary.total}: {failing}); "
                 f"restoring {str(before)[:8]}")
@@ -5807,6 +5971,7 @@ class Flow:
             plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             report_nodes(chunk, batch_number, "generating")
             prompt = build_review_prompt(chunk, fixtures)
+            self.snapshot_protected()  # commit harness plan/spec writes before calling the model
             ok, text = self.text_turn(prompt, timeout, "derived scenario review", system=REVIEW_SYSTEM,
                                       spec_chars=len(prompt))
             (review_dir / f"batch-{batch_number}.txt").write_text(
@@ -5820,6 +5985,7 @@ class Flow:
                 # One correction round: the model sees exactly which rule each
                 # rejected script broke; anything still invalid is dropped.
                 prompt = build_review_retry(retryable, chunk, fixtures)
+                self.snapshot_protected()  # includes accepted earlier batches and this review artifact
                 ok, text = self.text_turn(prompt, timeout, "derived scenario review (retry)", system=REVIEW_SYSTEM,
                                           spec_chars=len(prompt))
                 (review_dir / f"batch-{batch_number}-retry.txt").write_text(
@@ -5829,7 +5995,8 @@ class Flow:
                     for node_id, tests in fixed.items():
                         scripts.setdefault(node_id, []).extend(tests)
                     fixed_titles = {t.split("test('", 1)[1].split(" [model]")[0] for ts in fixed.values() for t in ts}
-                    dropped = [d for d in dropped if d.split(":", 1)[0] not in fixed_titles] + dropped_again
+                    fixed_titles = {re.sub(r" \[case [1-8]\]$", "", title) for title in fixed_titles}
+                    dropped = [d for d in dropped if not any(d.startswith(title + ": ") for title in fixed_titles)] + dropped_again
             dropped_total += dropped
             accepted_titles: set[str] = set()
             for node_id, tests in scripts.items():
@@ -5847,7 +6014,9 @@ class Flow:
                 accepted_titles.update(new_titles)
                 added += sum(title.endswith(" [model]") for title in new_titles)
             for target in chunk:
-                if f"{target['title']} [model]" in accepted_titles:
+                if (f"{target['title']} [model]" in accepted_titles
+                        or any(re.fullmatch(re.escape(target['title']) + r" \[case [1-8]\] \[model\]", title)
+                               for title in accepted_titles)):
                     plan_rows[target["id"]]["status"] = "accepted"
             plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             report_nodes(chunk, batch_number, "validated")
@@ -6015,12 +6184,12 @@ class Flow:
     def whole_app_budgets(self) -> tuple[int, int]:
         """Input and full-source caps for one feature wave.
 
-        The defaults are the measured v7.15 values: at 36000 source chars 15
-        of 47 hackathon leaves already could not fit their focused closure.
+        Experimental 96k/60k input caps address observed closure omissions.
+        Output caps remain independent; provider context is checked by the proxy.
         """
         prompt_cap = min(self.codegen_context_chars(), max(12000, int(os.environ.get(
-            "OCTOS_ARC_WHOLE_APP_PROMPT_CHARS", "60000"))))
-        source_cap = max(8000, int(os.environ.get("OCTOS_ARC_WHOLE_APP_SOURCE_CHARS", "36000")))
+            "OCTOS_ARC_WHOLE_APP_PROMPT_CHARS", "96000"))))
+        source_cap = max(8000, int(os.environ.get("OCTOS_ARC_WHOLE_APP_SOURCE_CHARS", "60000")))
         return prompt_cap, source_cap
 
     def whole_app_waves(self, tree: dict, ordered: list[dict]) -> bool:
@@ -6033,10 +6202,11 @@ class Flow:
         design turn failed, a bounded whole-tree outline supplies that context
         instead. No task- or test-specific code is preloaded.
         """
+        self._dependency_tree = tree
         global_context = ""
         if not getattr(self, "app_design_doc", None):
-            global_context = ("Whole-tree requirement map (keep a common data and route contract "
-                              "across waves):\n" + tree_outline(tree, max_chars=12000) + "\n\n")
+            global_context = ("BACKGROUND ONLY: Whole-tree requirement map. Do not implement inactive leaves; "
+                              "reuse names only to preserve shared contracts:\n" + tree_outline(tree, max_chars=12000) + "\n\n")
             log("[flow] whole-app waves: design reply unavailable; using bounded requirement map")
         max_nodes = max(1, int(os.environ.get("OCTOS_ARC_WHOLE_APP_WAVE_NODES", "6")))
         configured_max_nodes = max_nodes
@@ -6058,6 +6228,8 @@ class Flow:
         self.whole_app_generated_ids = set()
         self.whole_app_partial_ids = set()
         self.whole_app_deferred_ids = set()
+        self.whole_app_waiting_ids = set()
+        self.whole_app_tool_ids = set()
         attempts = 0
         requests_before = getattr(self, "whole_app_generation_requests", 0)
         # Files a reply rewrote without seeing them, per wave position: one
@@ -6116,6 +6288,18 @@ class Flow:
             while size:
                 group = ordered[start:start + size]
                 ids = [str(node.get("id")) for node in group]
+                waiting = {str(item.get("id")) for item in group
+                           if self.pending_dependencies(item, within=set(ids), wave=True)}
+                if waiting and size > 1:
+                    size = 1
+                    continue
+                if waiting:
+                    self.whole_app_waiting_ids.update(waiting)
+                    self.whole_app_deferred_ids.update(waiting)
+                    self.metric("wave_waiting_dependency", node_ids=ids,
+                                dependencies=self.pending_dependencies(group[0], wave=True))
+                    start += size
+                    break
                 self.prepare_derived_spec_batch(group)
                 spec = self.batch_spec_bodies(ids)
                 # The derived contract already carries the full scenarios.
@@ -6129,10 +6313,12 @@ class Flow:
                     size = max(1, size // 2)
                     continue
                 combined = {"id": f"application wave {wave + 1}",
-                            "description": "Implement ALL of these requirements as one coherent feature group "
-                                           "within the shared application. Preserve previously generated "
-                                           "features and their data contracts. Do not defer a listed requirement "
-                                           "to a later wave.\n\n" + global_context + details}
+                            "description": "ACTIVE REQUIREMENT IDs: " + ", ".join(ids) +
+                                           ". Implement only these active contracts as one coherent group. "
+                                           "Reuse required shared dependencies; do not implement other leaves in the background map. "
+                                           "Preserve existing routes, state and module owners. Every changed file must serve "
+                                           "an active contract or its necessary shared dependency.\n\nACTIVE DETAILS:\n" + details +
+                                           "\n\n" + global_context}
                 # Hot files are preferred, never required: the set only grows,
                 # and requiring it collapsed every later wave (v7.18 d629f86de409).
                 hot = {rel for rel, starts in refusal_starts.items() if len(starts) >= 2}
@@ -6148,21 +6334,29 @@ class Flow:
                 prompt = self.codegen_implement_prompt(
                     combined, spec, evidence=relationships, must_include=targets,
                     context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
-                if prompt is None and size == 1:
-                    # Keep the composition boundary and files this leaf must
-                    # rewrite; the rest stay ranked by relevance and are quoted
-                    # when they fit, instead of losing the whole leaf.
-                    minimal = ({rel for rel in targets if Path(rel).name in COMPOSITION_FILES}
-                               | (targets & set(getattr(self, "refused_paths", ()) or ())) | required_now)
-                    if minimal < targets:
-                        log(f"[flow] whole-app wave {wave + 1}: focused closure for {ids} did not fit "
-                            f"{prompt_cap}/{source_cap} prompt/source chars; retrying with "
-                            f"{len(minimal)} required file(s)")
-                        prompt = self.codegen_implement_prompt(
-                            combined, spec, evidence=relationships, must_include=minimal,
-                            context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
-                        if prompt is not None:
-                            targets = minimal
+                if (prompt is None and size == 1 and os.environ.get("OCTOS_ARC_ADAPTIVE_WAVE_CONTEXT") == "1"):
+                    proxy = getattr(self, "llm_proxy", None)
+                    capacities = getattr(proxy, "model_contexts", {})
+                    # A route can change after tools/history are serialized. Require
+                    # declared capacities for every eligible route, plus fallback.
+                    declared = [r.get("model") for r in getattr(proxy, "routes", [])
+                                if "implement" in r.get("phases", ["implement", "repair", "verify", "design"])]
+                    fallback = os.environ.get("OPENAI_MODEL")
+                    declared.append(fallback)
+                    if declared and all(model in capacities for model in declared):
+                        capacity = min(capacities[model] for model in declared)
+                        for enlarged_prompt, enlarged_source in ((128000, 80000), (192000, 128000)):
+                            if enlarged_prompt <= prompt_cap or enlarged_prompt + 32768 > capacity * .85:
+                                continue
+                            prompt = self.codegen_implement_prompt(
+                                combined, spec, evidence=relationships, must_include=targets,
+                                context_limit=enlarged_prompt, source_limit=enlarged_source, focused_sources=True)
+                            if prompt is not None:
+                                prompt_cap, source_cap = enlarged_prompt, enlarged_source
+                                self._whole_app_prompt_cap = prompt_cap
+                                self.metric("wave_context_growth", node_ids=ids, prompt_cap=prompt_cap,
+                                            source_cap=source_cap, declared_capacity=capacity)
+                                break
                 if prompt is None:
                     if size > 1:
                         log(f"[flow] whole-app wave {wave + 1}: focused source closure for {ids} "
@@ -6179,6 +6373,7 @@ class Flow:
                         continue
                     log(f"[flow] whole-app waves: {ids[0]} cannot fit its focused source closure; using node flow")
                     self.whole_app_deferred_ids.update(ids)
+                    self.whole_app_tool_ids.update(ids)
                     start += size
                     break
                 # A previously refused file is now shown whole. Do not carry it
@@ -6230,8 +6425,16 @@ class Flow:
                     log(f"[flow] whole-app wave {wave + 1}: capped structured edit rolled back; "
                         f"deferring {ids[0]} to targeted node flow")
                     self.whole_app_deferred_ids.update(ids)
+                    self.whole_app_tool_ids.update(ids)
                     start += size
                     break
+                gate = getattr(self, "_generation_gate_result", None)
+                if self.runtime is not None and isinstance(gate, dict) and gate.get("errors") and getattr(self, "last_codegen_written", []):
+                    self.restore_app(before_wave)
+                    self.last_codegen_written = []
+                    self.last_codegen_no_change = False
+                    ok = False
+                    self.metric("wave_rollback", node_ids=ids, errors=gate["errors"][:6])
                 carry |= set(getattr(self, "last_codegen_written", ()) or ())
                 gate = getattr(self, "_generation_gate_result", None)
                 if isinstance(gate, dict):
@@ -6284,8 +6487,29 @@ class Flow:
                     log(f"[flow] whole-app wave {wave + 1}: deferring {ids[0]} to targeted repair; "
                         "continuing remaining feature groups")
                     self.whole_app_deferred_ids.update(ids)
+                    self.whole_app_tool_ids.update(ids)
                     start += size
                     break
+                if (getattr(self, "runner", None) is not None and self.runtime is not None
+                        and self.remaining() > self.final_phase_reserve() + 180):
+                    own_specs = sorted({p for nid in ids for p in self.spec_map.get(nid, [])})
+                    affected = self.affected_regression_specs(set(getattr(self, "last_codegen_written", [])), own_specs)
+                    gate_specs = sorted(set(own_specs + affected))
+                    if gate_specs:
+                        measured = self.run_specs(gate_specs)
+                        self.record_full_suite(measured, {}, scope=gate_specs)
+                        active = self.uncontested_derived_results(measured)
+                        self.metric("wave_behavior_gate", node_ids=ids, passed=active.passed,
+                                    total=active.total, quarantined=len(measured.results) - len(active.results))
+                        if not active.all_passed or not self.suite_is_measured(measured, gate_specs):
+                            self.commit(f"whole application wave {wave + 1} (behavior repair pending)")
+                            self.whole_app_partial_ids.update(ids)
+                            self.whole_app_deferred_ids.update(ids)
+                            self._wave_behavior_blocked = True
+                            rest = [str(node.get("id")) for node in ordered[start + size:]]
+                            self.whole_app_waiting_ids.update(rest)
+                            log("[flow] wave behavior gate failed; resolve prerequisites in node flow before dependent groups")
+                            return True
                 self.commit(f"whole application wave {wave + 1} (experimental implement)")
                 self.whole_app_generated_ids.update(ids)
                 for node_id in ids:
@@ -6308,11 +6532,71 @@ class Flow:
             "running first full suite")
         return wave > 0
 
+    def pending_dependencies(self, node: dict, *, within: set[str] | None = None, wave: bool = False) -> list[str]:
+        """Only declared dependencies; absence of measurement is never a pass.
+
+        A wave may jointly implement its internal edges. Previously generated
+        external prerequisites need a verdict; deferred/incomplete ones block
+        even when no runtime is available. Independent leaves stay runnable.
+        """
+        within = within or set()
+        pending = []
+        tree = getattr(self, "_dependency_tree", None) or getattr(self, "requirement_tree", None)
+        cyclic = set()
+        if tree:
+            from requirement_order import dependency_graph, dependency_signature, cyclic_dependency_ids
+            signature = dependency_signature(tree)
+            cached = getattr(self, "_dependency_graph_cache", None)
+            if cached is None or cached[0] != signature:
+                cached = (signature, dependency_graph(tree), {})
+                self._dependency_graph_cache = cached
+            graph, cycles = cached[1:]
+            dependencies = list(graph.get(str(node.get("id")), []))
+            nid = str(node.get("id"))
+            if nid not in cycles:
+                cycles[nid] = cyclic_dependency_ids(tree, node, graph=graph)
+            cyclic = cycles[nid]
+            if cyclic:
+                for nid in sorted(cyclic):
+                    for external in graph[nid]:
+                        if external != str(node.get("id")) and external not in dependencies:
+                            dependencies.append(external)
+        else:
+            dependencies = [str(dep) for dep in node.get("dependencies") or [] if str(dep) != str(node.get("id"))]
+        if cyclic:
+            signature = (str(node.get("id")), tuple(sorted(cyclic)))
+            reported = getattr(self, "_reported_dependency_cycles", set())
+            if signature not in reported:
+                self.metric("dependency_cycle", node_id=signature[0], jointly_constructed_dependencies=sorted(cyclic),
+                            verification="combined_measurement_required")
+                self._reported_dependency_cycles = reported | {signature}
+        for dependency in dependencies:
+            nid = str(dependency)
+            if nid in cyclic:
+                # Permit construction of mutually dependent contracts. This is
+                # never a verification verdict; the combined suite still gates
+                # every member after the group has been built.
+                continue
+            if nid in within:
+                continue
+            incomplete = nid in getattr(self, "whole_app_deferred_ids", set())
+            verdict = getattr(self, "test_verdict", {}).get(nid)
+            if verdict is True and not incomplete:
+                continue
+            if (wave and not incomplete and (getattr(self, "runner", None) is None or getattr(self, "runtime", None) is None)
+                    and nid in getattr(self, "whole_app_generated_ids", set())):
+                # Generation-only mode can compose code; it cannot claim verification.
+                continue
+            pending.append(nid)
+        return pending
+
     def implement_sequential(self, tree: dict, ordered: list[dict], unchanged: set[str]) -> None:
         """Keep the dependency-ordered queue alive across bounded startup recovery."""
+        self._dependency_tree = tree
         batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "1"))
         batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
         preimplemented: set[str] = set()
+        waiting_nodes = []
         for index, node in enumerate(ordered, 1):
             node_id = str(node.get("id"))
             proxy = getattr(self, 'llm_proxy', None)
@@ -6342,7 +6626,20 @@ class Flow:
                 self.mark("implementation_failed", node_id, "skipped: time budget exhausted")
                 self.impl_failed.append(node_id)
                 continue
+            for nid, verdict in self.test_verdict.items():
+                if verdict is True:
+                    getattr(self, "whole_app_deferred_ids", set()).discard(nid)
+            blocked = self.pending_dependencies(node)
+            if blocked:
+                self.metric("implementation_waiting_dependency", node_id=node_id, dependencies=blocked)
+                self.mark("implementation_waiting", node_id, "waiting for verified dependencies: " + ", ".join(blocked))
+                self.test_verdict[node_id] = None
+                waiting_nodes.append(node)
+                continue
             group = batch_starts.get(node_id)
+            if group and any(self.pending_dependencies(item, within=set(group))
+                             for item in ordered[index - 1:index - 1 + len(group)]):
+                group = None
             group_nodes = ([ordered[index - 1 + offset] for offset in range(len(group))]
                            if group and not any(member in unchanged for member in group) else [node])
             self.prepare_derived_spec_batch(group_nodes)
@@ -6368,6 +6665,14 @@ class Flow:
             if not (isinstance(proxy, LlmProxy) and proxy.provider_unavailable):
                 self.regression_checkpoint(index, len(ordered))
             self.driver.end_scope("node")
+
+        # An independent leaf/checkpoint may repair a shared prerequisite.
+        # Retry the waiting subqueue only when at least one node became ready;
+        # each recursive pass executes a node, so this cannot spin on a cycle.
+        if (waiting_nodes and not self.time_up() and not self.final_phase_due()
+                and any(not self.pending_dependencies(node) for node in waiting_nodes)):
+            waiting_ids = {str(node.get("id")) for node in waiting_nodes}
+            self.implement_sequential(tree, waiting_nodes, unchanged & waiting_ids)
 
     def recover_sequential_startup(self, node_id: str) -> bool:
         """Repair infrastructure locally, measure the active node, then resume.
@@ -6508,7 +6813,8 @@ class Flow:
             log(f"[flow] whole-app first suite: runner killed; retrying with {workers} worker(s)")
             summary = measure()
         for attempt in range(2):
-            if not summary.error or summary.killed or summary.error in attempted_errors:
+            if (not summary.error or summary.killed or summary.error in attempted_errors
+                    or summary.error.startswith("generated test load blocked:")):
                 break
             attempted_errors.add(summary.error)
             if not self.whole_app_startup_repair(summary.error):
@@ -6613,9 +6919,16 @@ class Flow:
         """Generate globally, verify globally, then repair only failing leaves."""
         if not self.whole_app_codegen(tree, ordered):
             return False
-        failing = self.whole_app_first_suite(ordered)
-        if failing is not None:
-            failing = self.whole_app_shared_repair(ordered, failing)
+        if getattr(self, "_wave_behavior_blocked", False):
+            # The incremental gate already found a prerequisite failure. A full
+            # suite would repeat its dependent timeouts before any repair.
+            failing = {str(node.get("id")) for node in ordered
+                       if self.test_verdict.get(str(node.get("id"))) is not True}
+            log("[flow] prerequisite failure already measured; entering dependency-ordered repair before full suite")
+        else:
+            failing = self.whole_app_first_suite(ordered)
+            if failing is not None:
+                failing = self.whole_app_shared_repair(ordered, failing)
         generated = getattr(self, "whole_app_generated_ids", None)
         if generated is None:
             generated = {str(node.get("id")) for node in ordered}
@@ -6698,7 +7011,7 @@ class Flow:
         self.last_codegen_written = []
         self.last_turn_changed = False
         self._generation_gate_result = None
-        self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
+        self.codegen_blocked = node_id in getattr(self, "whole_app_tool_ids", set())
         source_versions = dict(self.repair_source_index().versions)
         self.refused_paths = set()
         if index > 1:
@@ -6810,7 +7123,20 @@ class Flow:
             else:
                 if self.codegen_mode():
                     self.log_codegen_fallback(node_id)
-                ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
+                fallback_proxy = getattr(self, "llm_proxy", None)
+                if isinstance(fallback_proxy, LlmProxy) and fallback_proxy.provider_unavailable:
+                    ok, text = False, "HTTP 503 temporarily unavailable; no fallback request sent"
+                elif (self.has_app() and fallback_proxy is not None
+                        and os.environ.get("OCTOS_ARC_CODEGEN", "1") != "0"
+                        and os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS") != "0"):
+                    focused_prompt = (prompt.replace(self.verify_text(total), "").replace(PORT_RULES, "") + "\nCurrent scope: " + node_id + ". This is an existing application. "
+                                      "Read only missing contract owners, preserve every required outcome, and apply focused edits. "
+                                      "If a generated test conflicts with requirements, report validator_dispute with exact quotes; "
+                                      "do not change tests or claim behavior verified from a build.\n")
+                    self.bind_edit_scope(focused_prompt, describe_node(node) + "\n" + spec_text, set(self.refused_paths))
+                    ok, text = self.structured_edit_turn(focused_prompt, implement_timeout, f"{node_id} implement")
+                else:
+                    ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
             # A truncated response made no write. Check the already generated app
             # before paying for a tool turn: later nodes can be satisfied by a
@@ -7142,10 +7468,9 @@ class Flow:
         if disputed:
             for node_id, _ in disputed:
                 self.test_verdict[node_id] = None
-            log(f"[acceptance] checkpoint {index}: generated oracle disputed; app repair deferred")
+            log(f"[acceptance] checkpoint {index}: excluding invalid generated oracles from repair evidence")
             self.metric("derived_spec_dispute", scope="checkpoint", checkpoint=index,
                         tests=[list(item) for item in disputed])
-            return
         all_specs = {spec for paths in self.spec_map.values() for spec in paths}
         self.metric('checkpoint_coverage', checkpoint=index, checked_specs=len(specs),
                     total_specs=len(all_specs), unobserved_specs=len(all_specs - set(specs)),
@@ -7154,7 +7479,7 @@ class Flow:
             f'{len(all_specs - set(specs))} not observed in this checkpoint')
         for node in selected:
             tracked.add(node)
-        grouped = nodes_for_failures(summary.results, verified)
+        grouped = nodes_for_failures(self.uncontested_derived_results(summary).results, verified)
         log(f"[acceptance] checkpoint {index}: {summary.passed}/{summary.total}; "
             f"regressed nodes {sorted(node for node in grouped if node)}")
         for row in [r for r in summary.results if not r.ok][:8]:
@@ -7245,7 +7570,9 @@ class Flow:
         healthy_nodes = set(healthy["verified"])
         for node in healthy_nodes:
             tracked.discard(node)
-            self.test_verdict[node] = None if self.derived_review_needed(node) else True
+            self.test_verdict[node] = (None if self.derived_review_needed(node)
+                                               or any(owner == node for owner, _ in self.disputed_generated_failures(summary))
+                                               else True)
             if node in grouped and self.test_verdict[node] is True:
                 self.mark("test_passed", node, "restored the last healthy checkpoint after broad regression")
         rolled_back = sorted(node for node in verified if node not in healthy_nodes)
@@ -7268,6 +7595,7 @@ class Flow:
 
     def queue_checkpoint_evidence(self, summary: RunSummary) -> None:
         """Bound checkpoint evidence, keeping both ends when source context is large."""
+        summary = self.uncontested_derived_results(summary)
         budget = int(os.environ.get("OCTOS_ARC_CHECKPOINT_EVIDENCE", "12000"))
         evidence = (failure_summaries(summary, max_snapshots=budget // 2)
                     + failure_source_context(summary, self.tests_dir))
@@ -7351,23 +7679,22 @@ class Flow:
                 if disputed:
                     for node_id, _ in disputed:
                         self.test_verdict[node_id] = None
-                    self._checkpoint_repair_summary = observed
-                    self._checkpoint_repair_grouped = grouped
-                    return True
             if not self.suite_is_measured(observed, specs):
                 self.queue_checkpoint_evidence(summary)
                 self._checkpoint_repair_summary = observed
                 self._checkpoint_repair_grouped = grouped
                 return True
             summary = observed
-            grouped = nodes_for_failures(summary.results, verified)
+            grouped = nodes_for_failures(self.uncontested_derived_results(summary).results, verified)
             log(f"[acceptance] checkpoint {index} after repair: {summary.passed}/{summary.total}; "
                 f"still regressed {sorted(node for node in grouped if node)}")
             for node in verified:
                 previous = self.test_verdict.get(node)
                 if node and node not in grouped:
                     tracked.discard(node)
-                    self.test_verdict[node] = None if self.derived_review_needed(node) else True
+                    self.test_verdict[node] = (None if self.derived_review_needed(node)
+                                               or any(owner == node for owner, _ in self.disputed_generated_failures(summary))
+                                               else True)
                     if self.test_verdict[node] is True and previous is not True:
                         self.mark("test_passed", node,
                                   "previously regressed behavior passed after checkpoint repair")
@@ -7463,6 +7790,15 @@ class Flow:
                         "repair will use only uncontested failures")
                     self.metric("derived_spec_dispute", scope="final_suite",
                                 tests=[list(item) for item in disputed])
+            if summary.error and summary.error.startswith("generated test load blocked:"):
+                self._derived_suite_load_blocked = True
+                self.final_suite_green = False
+                for node_id, paths in self.spec_map.items():
+                    if self.generated_load_errors(paths):
+                        self.test_verdict[node_id] = None
+                self.metric("acceptance", scope="final_suite", verdict="blocked_test_file",
+                            load_errors=summary.load_errors)
+                return
             repair_summary = self.uncontested_derived_results(summary)
             score = repair_summary.passed
             if best is not None:
@@ -7813,7 +8149,7 @@ class Flow:
         observed = {str(r.file or "").replace("\\", "/") for r in summary.results}
         return bool(specs and not summary.error and not summary.killed and not summary.load_errors
                     and summary.results and summary.total == len(summary.results)
-                    and all(r.status in {"passed", "failed", "timedOut"} for r in summary.results)
+                    and all(r.status in {"passed", "failed", "timedOut", "quarantined"} for r in summary.results)
                     and all(any(path == spec or path.endswith("/" + spec) for path in observed) for spec in specs))
 
     def final_acceptance_passes(self) -> None:
@@ -7891,6 +8227,8 @@ class Flow:
             else:
                 self.final_acceptance()
             retry_measurement = None
+            if getattr(self, "_derived_suite_load_blocked", False):
+                break
             if self.driver:
                 self.driver.end_scope("node")
             if (getattr(self, "final_spec_dispute", False)
@@ -8142,11 +8480,13 @@ class Flow:
                     log(f'[flow] provider-stop original source restore failed: {exc}')
         return False
 
-    def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
+    def record_full_suite(self, summary: RunSummary, grouped: dict, *, scope: list[str] | None = None) -> None:
         """Per-node verdicts and traceability from one full-suite round."""
         if summary.error or summary.killed or summary.load_errors:
             return
         for node_id, specs in self.spec_map.items():
+            if scope is not None and not set(specs) <= set(scope):
+                continue
             if node_id and specs and summary.results:
                 rows = [r for r in summary.results if any(
                     str(r.file or "").replace("\\", "/") == p or
@@ -8154,9 +8494,11 @@ class Flow:
                 local = RunSummary(results=rows, total=len(rows), passed=sum(r.ok for r in rows))
                 if self.suite_is_measured(local, specs):
                     self.record_tests(node_id, specs, local)
-                    self.test_verdict[node_id] = (None if self.disputed_generated_failures(local)
-                                                  or (local.all_passed and self.derived_review_needed(node_id))
-                                                  else local.all_passed)
+                    active = self.uncontested_derived_results(local)
+                    self.test_verdict[node_id] = (False if any(not r.ok for r in active.results) else
+                                                  None if self.disputed_generated_failures(local)
+                                                  or not active.total or self.derived_review_needed(node_id)
+                                                  else active.all_passed)
                 else:
                     self.test_verdict[node_id] = None
         self.write_derived_coverage(summary)

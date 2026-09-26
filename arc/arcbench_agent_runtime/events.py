@@ -66,6 +66,9 @@ class EventClient:
     def mark_implementation_failed(self, node_id: str, message: str | None = None) -> None:
         self._emit_requirement_state(node_id, "implement", "failed", message)
 
+    def mark_implementation_waiting(self, node_id: str, message: str | None = None) -> None:
+        self._emit_requirement_state(node_id, "implement", "blocked", message)
+
     def mark_test_passed(self, node_id: str, message: str | None = None) -> None:
         self._emit_requirement_state(node_id, "test", "passed", message)
 

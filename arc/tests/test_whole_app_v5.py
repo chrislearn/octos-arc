@@ -190,7 +190,7 @@ class WholeAppTests(unittest.TestCase):
         flow.codegen_turn = Mock(side_effect=generated)
         self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
         self.assertEqual(flow.codegen_turn.call_count, 2)
-        self.assertIn("preceding answer was discarded", flow.codegen_turn.call_args.args[0])
+        self.assertIn("No application files from the preceding response were written", flow.codegen_turn.call_args.args[0])
         flow.commit.assert_called_once()
 
     def test_unwritable_late_wave_keeps_completed_partial_app(self):
@@ -692,7 +692,7 @@ class WholeAppTests(unittest.TestCase):
         app.write_text('<Routes><Route path="/:owner/:repo/settings/access" element={<Access />} /></Routes>')
         self.assertEqual(flow.whole_app_wave_gaps(["REQ-2-3"]), [])
 
-    def test_wave_guard_requires_explicit_scenario_seed_literals(self):
+    def test_seed_source_literals_are_advisory(self):
         from requirement_contracts import compile_contracts
         flow = self.flow
         flow.tests_dir = None
@@ -711,7 +711,7 @@ class WholeAppTests(unittest.TestCase):
         flow.last_codegen_refused = set()
         flow._generation_gate_result = None
         gaps = flow.whole_app_wave_gaps(["REQ-SEED"])
-        self.assertTrue(any("SEED_DATA" in gap and '"Draft"' in gap for gap in gaps))
+        self.assertFalse(any("SEED_DATA" in gap for gap in gaps))
         path.write_text('module.exports = [{ title: "Project ideas", content: "Draft" }];')
         self.assertEqual(flow.whole_app_wave_gaps(["REQ-SEED"]), [])
 
@@ -897,7 +897,7 @@ class WholeAppTests(unittest.TestCase):
         split_targets = flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"]
         self.assertIn("frontend/src/Forgot.jsx", split_targets)
 
-    def test_should_retry_with_minimal_closure_before_node_flow(self):
+    def test_missing_required_closure_defers_leaf_without_reduced_retry(self):
         flow = self.flow
         flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
         flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx", "backend/routes/big.js"})
@@ -916,9 +916,9 @@ class WholeAppTests(unittest.TestCase):
         with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
             self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
         minimal = flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"]
-        self.assertEqual(minimal, {"frontend/src/App.jsx"})
-        self.assertEqual(flow.whole_app_generated_ids, {"A", "B", "C"})
-        self.assertEqual(flow.whole_app_deferred_ids, set())
+        self.assertEqual(minimal, {"frontend/src/App.jsx", "backend/routes/big.js"})
+        self.assertEqual(flow.whole_app_generated_ids, {"B", "C"})
+        self.assertEqual(flow.whole_app_deferred_ids, {"A"})
 
     def test_should_use_measured_wave_budgets_and_no_short_turn_cap_by_default(self):
         flow = self.flow
@@ -944,8 +944,8 @@ class WholeAppTests(unittest.TestCase):
                 os.environ.pop(key, None)
             self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
         kwargs = flow.codegen_implement_prompt.call_args.kwargs
-        self.assertEqual(kwargs["context_limit"], 60000)
-        self.assertEqual(kwargs["source_limit"], 36000)
+        self.assertEqual(kwargs["context_limit"], 96000)
+        self.assertEqual(kwargs["source_limit"], 60000)
         self.assertGreaterEqual(flow.whole_app_generation_turn.call_args.args[1], 600)
 
     def test_should_not_block_api_call_planned_for_a_later_leaf(self):
@@ -961,7 +961,9 @@ class WholeAppTests(unittest.TestCase):
             "but no Express route has a matching method and /api path."]}
         self.assertEqual(flow.whole_app_wave_gaps(["A"]), [])
         flow.app_design_doc["routes"][0]["requirements"] = ["A"]
-        self.assertTrue(any(gap.startswith("API_CALL") for gap in flow.whole_app_wave_gaps(["A"])))
+        self.assertFalse(any(gap.startswith("API_CALL") for gap in flow.whole_app_wave_gaps(["A"])))
+        with patch.dict(os.environ, {"OCTOS_ARC_BLOCK_API_WARNINGS": "1"}):
+            self.assertTrue(any(gap.startswith("API_CALL") for gap in flow.whole_app_wave_gaps(["A"])))
 
     def test_should_block_route_conflict_touching_the_current_write(self):
         flow = self.flow
@@ -1027,7 +1029,7 @@ class WholeAppTests(unittest.TestCase):
                                  ("spec", ["B"]), ("code", ["B"]),
                                  ("spec", ["C"]), ("code", ["C"])])
 
-    def test_should_not_require_files_the_previous_attempt_wrote_in_the_minimal_closure(self):
+    def test_unfittable_split_defers_leaf_and_preserves_later_generation(self):
         flow = self.flow
         big = self.root / "frontend/src/Big.jsx"
         big.parent.mkdir(parents=True, exist_ok=True)
@@ -1042,34 +1044,34 @@ class WholeAppTests(unittest.TestCase):
             self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
         minimal = flow.codegen_implement_prompt.call_args_list[2].kwargs["must_include"]
         self.assertEqual(minimal, {"frontend/src/App.jsx"})
-        self.assertNotIn("A", flow.whole_app_deferred_ids)
+        self.assertIn("A", flow.whole_app_deferred_ids)
 
     def test_should_quote_files_with_source_check_errors_until_fixed(self):
         flow = self.flow
         broken = self.root / "frontend/src/pages/Repos.jsx"
         broken.parent.mkdir(parents=True, exist_ok=True)
-        broken.write_text("import {requestJson} from '../../shared/request.js';")
-        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
-        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx", "frontend/src/Big.jsx"})
-        flow.whole_app_wave_gaps = Mock(return_value=[])
-        prompts = iter(["p", None, "p", None, "p"])
-        flow.codegen_implement_prompt = Mock(side_effect=lambda *a, **k: next(prompts))
+        broken.write_text("export default function Repos() {}")
+        flow._generation_gate_result = None
+        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx"})
+        flow.codegen_implement_prompt = Mock(return_value="p")
         calls = []
-
-        def generated(*args, **kwargs):
+        def generate(*a, **k):
             calls.append(1)
-            flow._generation_gate_result = {"errors": [
-                "frontend/src/pages/Repos.jsx: relative import ../../shared/request.js resolves to missing "
-                "frontend/shared/request.js."] if len(calls) == 1 else [], "warnings": []}
-            return self._applied()
-
-        flow.whole_app_generation_turn = Mock(side_effect=generated)
+            self._applied(["frontend/src/new.js"])
+            flow._generation_gate_result = ({"errors": ["frontend/src/pages/Repos.jsx: broken import"]}
+                                           if len(calls) == 1 else {"errors": []})
+            return True, "files"
+        flow.whole_app_generation_turn = Mock(side_effect=generate)
+        flow.restore_app = Mock()
+        flow.runtime = Mock()
+        flow.run_specs = Mock(return_value=m.RunSummary(error="build failed"))
+        flow.repair_wave_build = Mock(return_value=True)
         with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
             self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
-        second_leaf_minimal = flow.codegen_implement_prompt.call_args_list[2].kwargs["must_include"]
-        self.assertIn("frontend/src/pages/Repos.jsx", second_leaf_minimal)
-        third_leaf_minimal = flow.codegen_implement_prompt.call_args_list[4].kwargs["must_include"]
-        self.assertNotIn("frontend/src/pages/Repos.jsx", third_leaf_minimal)
+        flow.restore_app.assert_called()
+        self.assertIn("A", flow.whole_app_deferred_ids)
+        self.assertIn("frontend/src/pages/Repos.jsx",
+                      flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"])
 
     def test_should_keep_quoting_a_file_refused_in_two_waves(self):
         flow = self.flow
@@ -1088,27 +1090,17 @@ class WholeAppTests(unittest.TestCase):
         first_c_prompt = flow.codegen_implement_prompt.call_args_list[4].kwargs["must_include"]
         self.assertIn("backend/lib/auth.js", first_c_prompt)
 
-    def test_should_not_require_hot_files_in_the_minimal_closure(self):
+    def test_required_closure_is_never_reduced_to_fit(self):
         flow = self.flow
-        hot = self.root / "backend/lib/auth.js"
-        hot.parent.mkdir(parents=True, exist_ok=True)
-        hot.write_text("module.exports = {};")
-        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
-        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx"})
-        refusal = "write guard refused required existing file(s): backend/lib/auth.js"
-        flow.whole_app_wave_gaps = Mock(side_effect=[[refusal], [], [refusal], [], []])
-        # A (2 prompts) and B (2 prompts) fit; C's full closure with the hot
-        # file does not, and its minimal closure must not insist on it.
-        prompts = iter(["p", "p", "p", "p", None, "p"])
-        flow.codegen_implement_prompt = Mock(side_effect=lambda *a, **k: next(prompts))
-        replies = iter([["backend/lib/auth.js"], [], ["backend/lib/auth.js"], [], []])
-        flow.whole_app_generation_turn = Mock(side_effect=lambda *a, **k: self._applied(refused=next(replies)))
+        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx", "backend/lib/auth.js"})
+        flow.codegen_implement_prompt = Mock(return_value=None)
+        flow.whole_app_generation_turn = Mock()
         with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
-            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
-        self.assertIn("backend/lib/auth.js", flow.codegen_implement_prompt.call_args_list[4].kwargs["must_include"])
-        self.assertEqual(flow.codegen_implement_prompt.call_args_list[5].kwargs["must_include"],
-                         {"frontend/src/App.jsx"})
-        self.assertNotIn("C", flow.whole_app_deferred_ids)
+            self.assertFalse(flow.whole_app_waves(self.tree, self.nodes))
+        flow.whole_app_generation_turn.assert_not_called()
+        for call in flow.codegen_implement_prompt.call_args_list:
+            self.assertEqual(call.kwargs["must_include"], {"frontend/src/App.jsx", "backend/lib/auth.js"})
+        self.assertEqual(flow.whole_app_deferred_ids, {"A", "B", "C"})
 
     def test_should_retry_no_spec_review_with_minimal_closure(self):
         from requirement_contracts import compile_contracts
@@ -1272,7 +1264,9 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual(flow.whole_app_wave_gaps(["A"]), [])
         flow._generation_gate_result["warnings"].append(
             "API_CALL (heuristic): frontend/src/Current.jsx calls POST /api/x, but no route matches.")
-        gaps = flow.whole_app_wave_gaps(["A"])
+        self.assertEqual(flow.whole_app_wave_gaps(["A"]), [])  # Static API matching is heuristic.
+        with patch.dict(os.environ, {"OCTOS_ARC_BLOCK_API_WARNINGS": "1"}):
+            gaps = flow.whole_app_wave_gaps(["A"])
         self.assertEqual(len(gaps), 1)
         self.assertIn("API_CALL", gaps[0])
 
@@ -1591,7 +1585,7 @@ class DerivedSuiteVerificationTests(WholeAppTests):
              if "BROKEN" in (self.flow.derived_tests_dir / rel).read_text()), (True, "")))
         return runner
 
-    def test_model_additions_that_do_not_load_are_dropped_and_the_file_kept(self):
+    def test_unloadable_model_additions_are_preserved_as_blocked(self):
         flow = self.flow
         self._derived()
         flow.runner = self._runner()
@@ -1602,13 +1596,13 @@ class DerivedSuiteVerificationTests(WholeAppTests):
                                                        "status": "accepted"}]}))
         path.write_text(path.read_text() + "\ntest('B: x [model]', async ({ page }) => { BROKEN (\n});\n")
         flow.adopt_derived_specs(["A", "B", "C"])
-        self.assertNotIn("BROKEN", path.read_text())
+        self.assertIn("BROKEN", path.read_text())
         self.assertIn("h.clickNamed(page, 'Open B')", path.read_text())
         self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
-        self.assertEqual(m.json.loads(plan_path.read_text())["targets"][0]["status"], "rejected_load")
-        self.assertTrue(flow.derived_suite_verified)
+        self.assertEqual(m.json.loads(plan_path.read_text())["targets"][0]["status"], "accepted")
+        self.assertFalse(flow.derived_suite_verified)
 
-    def test_a_file_that_still_fails_after_recompilation_is_excluded(self):
+    def test_unloadable_mechanical_file_is_preserved_as_blocked(self):
         flow = self.flow
         nodes = self._derived()
         flow.runner = self._runner()
@@ -1617,8 +1611,8 @@ class DerivedSuiteVerificationTests(WholeAppTests):
         path = flow.derived_tests_dir / "B.spec.ts"
         path.write_text(path.read_text().replace("Open B", "BROKEN"))
         flow.adopt_derived_specs(["A", "B", "C"])
-        self.assertFalse(path.exists())
-        self.assertEqual(flow.spec_map["B"], [])
+        self.assertTrue(path.exists())
+        self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
         self.assertEqual(flow.spec_map["A"], ["A.spec.ts"])
 
     def test_model_review_retries_a_rejected_proposal_once_with_the_reason(self):

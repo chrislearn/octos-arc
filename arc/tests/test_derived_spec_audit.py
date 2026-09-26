@@ -234,7 +234,7 @@ class FlowAuditTests(unittest.TestCase):
         path.write_text(path.read_text().replace("['Open']", "['Done']"))
         self.assertFalse(self.flow.derived_review_needed("REQ-2"))
 
-    def test_disputed_generated_oracle_blocks_application_repair(self):
+    def test_unproven_oracle_concern_does_not_suppress_application_failure(self):
         node = {"id": "REQ-1", "name": "Open", "description": "The page has “Open”.",
                 "scenarios": [{"name": "REQ-1: action", "steps": [
                     {"keyword": "WHEN", "content": "The visitor clicks “Open”."},
@@ -259,22 +259,11 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.record_tests = Mock()
         failed = RunSummary(passed=0, total=1, results=[TestOutcome(
             "REQ-1: action [model]", False, "failed", 1, file=path.name)])
-        self.assertIsNone(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
-                                                    initial_summary=failed))
-        self.flow.node_repair_turn.assert_not_called()
-        self.assertTrue(self.flow.derived_review_needed("REQ-1"))
-        self.assertEqual(self.flow.derived_scenario_coverage("REQ-1")["scenarios"][0]["status"], "disputed")
-        self.flow.final_acceptance(initial_summary=failed)
-        self.assertTrue(self.flow.final_spec_dispute)
-        self.assertIsNone(self.flow.test_verdict["REQ-1"])
-        report = json.loads((self.root / ".arc" / "derived-coverage.json").read_text())
-        self.assertEqual(report["features"][0]["scenarios"][0]["runtime"], "failed")
-        self.flow.clear_derived_spec_dispute("REQ-1", "REQ-1: action [model]")
-        self.flow.derived_failure_reviews.clear()
-        self.flow.text_turn.return_value = (True, '{"verdict":"uncertain",'
-                                                 '"evidence":"A locator race is possible", "scenarios":[]}')
-        self.assertIsNone(self.flow.review_failed_derived_spec_with_model("REQ-1", [path.name], failed))
+        self.flow.repair_rounds = 0
+        self.assertFalse(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
+                                                   initial_summary=failed))
         self.assertEqual(self.flow.derived_spec_disputes, {})
+        self.assertEqual(self.flow.text_turn.call_count, 1)
 
     def test_related_regression_audits_its_spec_then_remeasures_both_features(self):
         other = self.directory / "other.spec.ts"
@@ -323,23 +312,11 @@ class FlowAuditTests(unittest.TestCase):
             TestOutcome("REQ-1: Open [model]", False, "failed", 1, file=path.name),
             TestOutcome("REQ-1: Save [model]", False, "failed", 1, file=path.name)])
         self.flow.head = Mock(return_value="app-sha")
-        self.assertIsNone(self.flow.acceptance_loop(
-            "REQ-1", [path.name], time.time() + 120,
-            initial_summary=failed, source_versions={}))
+        self.flow.repair_rounds = 0
+        self.assertFalse(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
+                                                   initial_summary=failed, source_versions={}))
         self.assertEqual(self.flow.text_turn.call_count, 2)
-        self.assertEqual(self.flow.disputed_generated_failures(failed),
-                         [("REQ-1", "REQ-1: Save [model]")])
-        self.flow.derived_failure_reviews.clear()
-        self.flow.derived_spec_disputes.clear()
-        self.flow.text_turn.side_effect = None
-        self.flow.text_turn.return_value = (
-            True, '{"verdict":"app_error","evidence":"Open action is missing","scenarios":[]}')
-        self.flow.text_turn.reset_mock()
-        with patch.dict("os.environ", {"OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE": "1"}):
-            self.flow.audit_related_derived_specs([path.name], failed)
-        self.assertEqual(self.flow.text_turn.call_count, 1)
-        self.assertEqual(self.flow.disputed_generated_failures(failed),
-                         [("REQ-1", "REQ-1: Save [model]")])
+        self.assertEqual(self.flow.disputed_generated_failures(failed), [])
 
     def test_final_suite_repairs_uncontested_failure_while_oracle_is_disputed(self):
         self.path.unlink()

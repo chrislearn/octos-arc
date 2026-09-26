@@ -104,7 +104,7 @@ def missing_local_import_errors(sources, changed):
 _JS_SUFFIXES = ('.js', '.jsx', '.ts', '.tsx', '.mjs')
 _NAMED_IMPORT = re.compile(r'''(?m)^\s*import\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}\s*from\s*['"](\.{1,2}/[^'"\n]+)['"]''')
 _DECLARED_EXPORT = re.compile(r'(?m)^\s*export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)')
-_EXPORT_LIST = re.compile(r'(?m)^\s*export\s*\{([^{}]*)\}(?!\s*from)')
+_EXPORT_LIST = re.compile(r'\bexport\s*\{([^{}]*)\}(?!\s*from)')
 _EXPORT_FROM = re.compile(r'(?m)^\s*export\s*(?:\*|\{[^{}]*\})\s*from\b')
 
 
@@ -119,6 +119,10 @@ def _module_exports(source):
     if _EXPORT_FROM.search(source) or 'module.exports' in source:
         return None
     names = set(_DECLARED_EXPORT.findall(source))
+    if re.search(r'\bexport\s+default\b', source):
+        names.add('default')
+    if re.search(r'\bmodule\.exports\s*=|\bexports\.', source):
+        return None  # CJS interop is the bundler's authority.
     for group in _EXPORT_LIST.findall(source):
         for part in group.split(','):
             part = part.strip()
@@ -159,14 +163,33 @@ def missing_export_errors(sources, changed):
             if exported is None:
                 continue
             wanted = [re.split(r'\s+as\s+', part.strip())[0].strip() for part in group.split(',') if part.strip()]
-            wanted = [name for name in wanted if name != 'default' and not name.startswith('type ')]
+            wanted = [name for name in wanted if not name.startswith('type ')]
             missing = [name for name in wanted if name not in exported]
             if missing:
                 available = ', '.join(sorted(exported)[:20]) or 'nothing'
                 errors.append(f'{importer} imports {", ".join(missing)} from {target}, which does not export '
                               f'{"them" if len(missing) > 1 else "it"} (exports: {available}). Add the export to '
                               f'{target} or change the import; keep every export other files still use.')
+    # Default-only imports were previously invisible, allowing comment-only
+    # overwrites to remove exports from unchanged callers.
+    for importer, source in sorted(sources.items()):
+        if not importer.startswith('frontend/') or not importer.endswith(_JS_SUFFIXES):
+            continue
+        for rel in re.findall(r"(?m)^\s*import\s+[A-Za-z_$][\w$]*\s*(?:,\s*\{[^}]*\})?\s+from\s*['\"](\.{1,2}/[^'\"]+)['\"]", _without_comments(source)):
+            target = _resolve_module(importer, rel, sources)
+            if target is None or (target not in changed and importer not in changed):
+                continue
+            exported = _module_exports(sources[target])
+            if exported is not None and 'default' not in exported:
+                errors.append(f'{importer} imports default from {target}, which does not export it')
     return errors[:8]
+
+
+def placeholder_overwrites(sources, changed):
+    return [f'{path}: refusing comment-only replacement of existing application source'
+            for path, source in changed.items()
+            if path in sources and path.endswith(_JS_SUFFIXES)
+            and _without_comments(sources[path]).strip() and not _without_comments(source).strip()]
 
 
 def _bounded_run(command, cwd, timeout):

@@ -296,6 +296,19 @@ function exactName(value: string): RegExp {
   return new RegExp('^\\s*' + escapeRegExp(value.trim()) + '\\s*$', 'i');
 }
 
+/** Session identity is visible text/control content, never a typed input value. */
+export async function expectIdentity(page: Page, value: string, present = true): Promise<void> {
+  const text = page.getByText(exactName(value));
+  // getByText matches submit input values too; exclude every editable/input node.
+  const identity = text.filter({ hasNot: page.locator('input, textarea, [contenteditable="true"]') });
+  await expect.poll(async () => {
+    for (const item of await identity.all()) {
+      if (await item.isVisible() && await item.evaluate(el => !el.matches('input, textarea, [contenteditable="true"]'))) return true;
+    }
+    return false;
+  }, { message: `Expected session identity ${value} to be ${present ? 'visible' : 'absent'}`, timeout: 8000 }).toBe(present);
+}
+
 /** An explicit ARIA promise of the requirement: an element with this role and accessible name. */
 export async function expectRole(page: Page, role: string, name: string): Promise<void> {
   await settle(page);

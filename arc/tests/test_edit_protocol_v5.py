@@ -82,7 +82,8 @@ class EditProtocolTests(TestCase):
         self.assertEqual(self.flow.last_codegen_outcome, 'tool_incomplete')
         self.assertNotIn('const before', observed[0])
         self.assertIn('Acceptance: keep the button.', observed[0])
-        self.assertIn('do not search, list or read other acceptance files', observed[0])
+        self.assertIn('read only the named active spec and its imported helpers', observed[0])
+        self.assertIn('never scan future acceptance files', observed[0])
         self.assertEqual(self.flow.llm_proxy.extra_drop_tools, {'original'})
 
     def test_tool_configuration_restored_on_failure(self):

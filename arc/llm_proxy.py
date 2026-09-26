@@ -784,6 +784,28 @@ def terminal_account_error(status: int, payload: bytes) -> bool:
                          for term in ('quota exhausted', 'balance too low', 'balance is exhausted'))
 
 
+def context_limit_error(body: bytes, capacities: dict) -> str | None:
+    """Conservative byte-token bound on the final routed, serialized request.
+
+    Only explicitly configured models are constrained; tools and history are
+    included. No provider context capacity is guessed from a model's name.
+    """
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    capacity = capacities.get(data.get("model"))
+    if capacity is None:
+        return None
+    output = int(data.get("max_completion_tokens") or data.get("max_tokens") or 32768)
+    required = len(body) + output
+    usable = int(int(capacity) * .85)
+    return (f"Serialized request upper bound {required} tokens exceeds {usable} usable "
+            f"tokens (15% headroom); shorten input or use targeted edits." if required > usable else None)
+
+
 class LlmProxy:
     def __init__(self, upstream_base: str, mode: str, log_path: Path | None = None, host: str = "127.0.0.1",
                  dump_dir: Path | None = None, dump_limit: int = 3, destream: bool = True, trim: bool = True,
@@ -803,6 +825,13 @@ class LlmProxy:
         self.system_override: str | None = None  # codegen turns: replace the kernel system prompt
         # Per-turn request cap (0 = unlimited); the flow calls begin_turn().
         self.turn_budget = 0
+        self.turn_progress = None
+        self.turn_budget_extended = False
+        self.turn_extension_limit = 0
+        self.model_contexts = json.loads(os.environ.get("OCTOS_ARC_MODEL_CONTEXT_TOKENS", "{}"))
+        if (not isinstance(self.model_contexts, dict) or any(not isinstance(v, int) or v <= 0
+                                                          for v in self.model_contexts.values())):
+            raise ValueError("OCTOS_ARC_MODEL_CONTEXT_TOKENS must map model names to positive token capacities")
         self.turn_requests = 0
         self.turn_upstream_requests = 0
         self._upstream_failures = 0
@@ -810,6 +839,7 @@ class LlmProxy:
         self.budget_hits = 0
         self.hard_budget_exhausted = False
         self.compact_reads = False
+        self.bounded_edits = False
         # Run-wide cost-guard usage: exact provider tokens when present, plus a
         # conservative reserve for requests that returned no usage block.
         self.total_requests = 0
@@ -850,8 +880,9 @@ class LlmProxy:
                         proxy.turn_requests += 1
                         upstream_used = proxy.turn_upstream_requests
                     if proxy.phase in {'implement', 'repair'} and not proxy.no_tools:
+                        proxy.maybe_extend_turn()
                         body = reserve_edit_budget(body, upstream_used, proxy.turn_budget, proxy.phase)
-                    if proxy.compact_reads and proxy.phase in {'implement', 'repair'} and not proxy.no_tools:
+                    if (proxy.bounded_edits or proxy.compact_reads) and proxy.phase in {'implement', 'repair'} and not proxy.no_tools:
                         elapsed = max(0.0, time.monotonic() - getattr(
                             proxy, "turn_started_at", time.monotonic()))
                         body = force_write_decision(
@@ -935,6 +966,12 @@ class LlmProxy:
     def _request_upstream(self, method: str, path: str, body: bytes, headers: dict) -> tuple:
         # Only pending identical completions are shared. Include credentials and
         # all forwarded headers; never share across distinct requests or phases.
+        if method == "POST" and body:
+            context_error = context_limit_error(body, self.model_contexts)
+            if context_error:
+                self.diagnostic(context_error)
+                return 400, json.dumps({"error": {"code": "local_context_limit", "message": context_error}}).encode(), {"Content-Type": "application/json"}
+        self.maybe_extend_turn()
         key = (method, path, body, tuple(sorted((k.lower(), v) for k, v in headers.items())), self.phase) \
             if method == "POST" and path.rstrip("/").endswith("/chat/completions") else None
         # Account failures survive phase/model/input changes, but never cross
@@ -1082,11 +1119,30 @@ class LlmProxy:
                 self._upstream_failures = 0
         return healthy
 
+    def maybe_extend_turn(self) -> None:
+        # Exactly one extension; progress comes from actual app-file hashes,
+        # never model claims or tool-call counts. Explicit caller budgets stay fixed.
+        if (self.turn_progress is not None and not self.turn_budget_extended
+                and self.turn_budget > 0 and self.turn_upstream_requests >= self.turn_budget - 2
+                and self.turn_extension_limit > self.turn_budget):
+            if self.turn_progress():
+                self.turn_budget = self.turn_extension_limit
+                self.turn_budget_extended = True
+                self.diagnostic(f"effective source edit observed; request budget extended to {self.turn_budget}")
+
+    def diagnostic(self, message: str) -> None:
+        """Best-effort operational notice, separate from request/usage records."""
+        try:
+            print("[proxy] " + message, flush=True)
+        except (OSError, ValueError):
+            pass  # A closed diagnostic stream must not abort an HTTP request.
+
     def begin_turn(self, budget: int) -> None:
         with self._lock:
             self.turn_serial += 1
             self.truncated_reply = None
             self.turn_budget = int(budget)
+            self.turn_budget_extended = False
             self.turn_requests = 0
             self.turn_upstream_requests = 0
             self.hard_budget_exhausted = False
