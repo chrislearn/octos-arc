@@ -48,7 +48,8 @@ assert.deepEqual(collection('entries', {initial, migrations}).all(), [{id:'a', t
 
     def test_installs_only_missing_generic_files_and_fills_ports(self):
         files = install_generic_template(self.root, m.BUNDLE_DIR, 34123, [34124, 34125])
-        self.assertEqual(files, ["frontend/package.json", "backend/server.js", "backend/lib/store.js", "backend/lib/collection.js",
+        self.assertEqual(files, ["frontend/package.json", "backend/server.js", "backend/lib/arc.js",
+                                 "backend/lib/store.js", "backend/lib/collection.js",
                                  "backend/lib/errors.js", "backend/lib/query.js",
                                  "frontend/build.mjs", "frontend/vite.config.mjs",
                                  "frontend/src/index.html", "frontend/src/app.js", "frontend/src/style.css",
@@ -176,7 +177,9 @@ import {requestJson} from './frontend/src/shared/request.js';
 globalThis.fetch = async () => new Response(JSON.stringify({error: 'invalid input'}),
   {status: 422, headers: {'Content-Type': 'application/json'}});
 await assert.rejects(requestJson('/api/items'), error =>
-  error.message === 'invalid input' && error.status === 422);
+  error.message === 'invalid input' && error.status === 422 && error instanceof Error
+  && error.body.error === 'invalid input' && [...error].join('') === 'invalid input'
+  && String(error) === 'invalid input');
 globalThis.fetch = async () => new Response(JSON.stringify({items: []}),
   {status: 200, headers: {'Content-Type': 'application/json'}});
 assert.deepEqual(await requestJson('/api/items'), {items: []});

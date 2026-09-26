@@ -116,6 +116,40 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Backend runtime exception", evidence)
         self.assertIn("/app/auth.js:12", evidence)
 
+    def test_should_attach_non_blocking_source_warnings_only_to_failures(self):
+        warning = ("POST /api/w/:id/filters (backend/routes/workbooks.js:177) is already registered as "
+                   "POST /api/w/:id/filters at backend/routes/filters.js:6")
+        failed = summarize_report(report(("filter", "failed", "not reachable", [], 1000)))
+        failed.scaffold_warnings = [warning]
+        evidence = failure_summaries(failed)
+        self.assertIn("did not stop this run", evidence)
+        self.assertIn("backend/routes/filters.js:6", evidence)
+        passed = summarize_report(report(("filter", "passed", "", [], 1000)))
+        passed.scaffold_warnings = [warning]
+        self.assertEqual(failure_summaries(passed), "")
+
+    def test_should_name_a_failure_shape_repeated_across_nodes_as_one_shared_defect(self):
+        # v10.0 sheet 819388a5f77b: one Grid.jsx bug (click + type never reached the editor)
+        # failed ~20 times across REQ-3-x/REQ-4-x; every node repaired only its own feature.
+        from acceptance import SharedFailureTracker
+        tracker = SharedFailureTracker()
+        def failing(message):
+            return summarize_report(report(("cell", "failed", message, [], 1000)))
+        self.assertEqual(tracker.note("REQ-3-1-1", failing(
+            'Error: gridcell "D1" shows "Item" on http://127.0.0.1:3100/workbook/wb-1\n\nExpected pattern: /^Item$/')), "")
+        self.assertEqual(tracker.note("REQ-3-1-1", failing('Error: gridcell "E1" shows "Qty" on http://x/y')), "",
+                         "one node repeating itself is not a shared defect")
+        self.assertEqual(tracker.note("REQ-3-2-1", failing('Error: gridcell "A1" shows "East" on http://x/y')), "")
+        note = tracker.note("REQ-4-1-1", failing('Error: gridcell "C2" shows "2000" on http://x/z'))
+        self.assertIn("REQ-3-1-1, REQ-3-2-1", note)
+        self.assertIn('gridcell "…" shows "…"', note)
+        self.assertIn("shared cause", note)
+        # Missing controls differ per feature; their common wording is not one defect.
+        for node in ("A", "B", "C"):
+            missing = tracker.note(node, failing(
+                'Error: Required control or text "Filter" is not reachable after 41s from http://x/ (3 page states)'))
+        self.assertEqual(missing, "")
+
     def test_should_not_report_normal_backend_output_as_an_exception(self):
         self.assertEqual(backend_error_digest("listening on 3000\nGET / 200"), "")
 

@@ -549,6 +549,26 @@ class CostGuardTests(unittest.TestCase):
         flow.llm_proxy.total_tokens = 80_000_000
         self.assertTrue(flow.wound_down())
 
+    def test_should_count_only_build_turns_against_the_turn_cap(self):
+        # v10.0 sheet 819388a5f77b: 24-node tree, cap 96, 38 turns were spec reviews.
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
+        flow.max_total_tokens, flow.max_turns = 60_000_000, 4
+        flow.llm_proxy = SimpleNamespace(total_tokens=7_000_000)
+        for label in ("application design", "derived scenario review", "derived scenario review (retry)",
+                      "derived failed-spec review", "derived failed-spec review"):
+            flow.note_turn(label)
+        self.assertEqual((flow.turn_count, flow.review_turn_count), (0, 5))
+        self.assertFalse(flow.wound_down())
+        self.assertTrue(flow.review_budget_spent())
+        for label in ("REQ-1 implement", "REQ-1 repair 1/3", "REQ-1 repair 2/3 (structured edits)"):
+            flow.note_turn(label)
+        self.assertFalse(flow.wound_down())
+        flow.note_turn("checkpoint 4 repair 1/2")
+        self.assertTrue(flow.wound_down())
+
     def test_should_honor_absolute_ceiling(self):
         import argparse
         from pathlib import Path

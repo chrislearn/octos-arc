@@ -261,6 +261,59 @@ class EditTurnTests(unittest.TestCase):
         self.assertIn('matched 0 times', self.flow.pending_corrections[-1])
         self.assertEqual(self.flow.refused_paths, {'frontend/src/index.html'})
 
+    def install_generic(self):
+        import main
+        from generic_template import install_generic_template
+        install_generic_template(self.root, main.BUNDLE_DIR, 3000, [])
+        self.flow.generic_template_installed = True
+        routes = self.root / 'backend/routes'
+        routes.mkdir(parents=True, exist_ok=True)
+        (routes / 'filters.js').write_text(
+            "module.exports = app => {\n  app.post('/api/w/:id/filters', (req, res) => res.end());\n};\n")
+
+    def test_should_refuse_reply_that_registers_an_owned_route_again_and_requote_owner(self):
+        # v10.0 sheet 819388a5f77b: workbooks.js re-registered filters.js's routes; the
+        # conflict surfaced only as a fatal preflight nodes later.
+        self.install_generic()
+        reply = ('<<<FILE backend/routes/workbooks.js>>>\nmodule.exports = app => {\n'
+                 "  app.get('/api/w', (req, res) => res.json([]));\n"
+                 "  app.post('/api/w/:workbookId/filters', (req, res) => res.end());\n};\n<<<END FILE>>>")
+        self.flow.text_turn.return_value = True, reply
+        ok, message = self.flow.codegen_turn('new routes', 60, 'REQ-5 implement')
+        self.assertFalse(ok)
+        self.assertEqual(self.flow.last_codegen_outcome, 'route_conflict')
+        self.assertFalse((self.root / 'backend/routes/workbooks.js').exists())
+        self.assertIn('backend/routes/filters.js:2', message)
+        self.assertIn('backend/routes/filters.js', self.flow.last_codegen_refused)
+        self.assertIn('backend/routes/filters.js', self.flow.refused_paths)
+        self.assertIn('already registered', self.flow.pending_corrections[-1])
+
+    def test_should_accept_moving_a_route_between_files_in_one_reply(self):
+        self.install_generic()
+        owner = (self.root / 'backend/routes/filters.js').read_text()
+        reply = ("<<<FILE backend/routes/filters.js>>>\nmodule.exports = () => {};\n<<<END FILE>>>\n"
+                 '<<<FILE backend/routes/workbooks.js>>>\nmodule.exports = app => {\n'
+                 "  app.post('/api/w/:id/filters', (req, res) => res.end());\n};\n<<<END FILE>>>")
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn('--- backend/routes/filters.js ---\n' + owner, 60, 'move')
+        self.assertTrue(ok)
+        self.assertEqual(sorted(self.flow.last_codegen_written),
+                         ['backend/routes/filters.js', 'backend/routes/workbooks.js'])
+
+    def test_should_refuse_generic_entry_rewrite_that_drops_runtime_but_apply_other_files(self):
+        self.install_generic()
+        entry = (self.root / 'backend/server.js').read_text()
+        reply = ("<<<FILE backend/server.js>>>\nconst express = require('express');\n"
+                 "express().listen(process.env.PORT);\n<<<END FILE>>>\n"
+                 "<<<FILE backend/routes/items.js>>>\nmodule.exports = app => app.get('/api/items', (q, s) => s.json([]));\n"
+                 "<<<END FILE>>>")
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn('--- backend/server.js ---\n' + entry, 60, 'entry rewrite')
+        self.assertTrue(ok)
+        self.assertEqual(self.flow.last_codegen_written, ['backend/routes/items.js'])
+        self.assertEqual((self.root / 'backend/server.js').read_text(), entry)
+        self.assertIn('backend/server.js is the installed generic entry', self.flow.pending_corrections[-1])
+
     def test_mixed_file_and_edit_for_one_path_is_refused(self):
         reply = (self.edit('frontend/src/index.html', 'old', 'new') + '\n'
                  '<<<FILE frontend/src/index.html>>>\n<p>whole</p>\n<<<END FILE>>>')

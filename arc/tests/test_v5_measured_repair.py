@@ -179,6 +179,43 @@ class MeasuredRepairTests(TestCase):
         self.assertFalse(f.rehearsal())
         f.turn.assert_not_called()
 
+    def test_failed_rehearsal_ships_the_last_startable_commit_instead_of_as_is(self):
+        f = self.flow
+        f.remaining = lambda: -1
+        f.last_startable_sha = 'good1234'
+        f.head = Mock(return_value='broken99')
+        f.restore_app = Mock()
+        f.commit = Mock()
+        f.test_verdict = {'A': True}
+        builds = iter(['start failed', 'start failed', None])
+        server = SimpleNamespace(build=lambda: next(builds), start=lambda: None, stop=Mock())
+        f.app_server = lambda **kw: server
+        f.turn = Mock()
+        self.assertTrue(f.rehearsal())
+        f.restore_app.assert_called_once_with('good1234')
+        self.assertEqual(f.test_verdict, {'A': None})
+        f.turn.assert_not_called()
+
+    def test_transient_rehearsal_failure_keeps_the_current_tree(self):
+        f = self.flow
+        f.remaining = lambda: -1
+        f.last_startable_sha = 'good1234'
+        f.head = Mock(return_value='current9')
+        f.restore_app = Mock()
+        builds = iter(['port busy', None])
+        f.app_server = lambda **kw: SimpleNamespace(build=lambda: next(builds), start=lambda: None, stop=Mock())
+        f.turn = Mock()
+        self.assertTrue(f.rehearsal())
+        f.restore_app.assert_not_called()
+
+    def test_startable_commit_is_recorded_only_when_the_tree_equals_head(self):
+        f = self.flow
+        f.head = Mock(return_value='abc')
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=1))
+        self.assertIsNone(getattr(f, 'last_startable_sha', None))
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0))
+        self.assertEqual(f.last_startable_sha, 'abc')
+
     def test_measurement_reserve_adapts_to_observed_suite_cost(self):
         f = self.flow
         with patch.dict('os.environ', {}, clear=True):

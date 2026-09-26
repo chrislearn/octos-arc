@@ -16,6 +16,24 @@ SEED = ("The visitor starts at the application home page in a fresh unauthentica
 
 
 class ScenarioCompilerTests(unittest.TestCase):
+    def test_should_reset_to_code_seeds_before_every_derived_test(self):
+        from scenario_review import append_tests
+        from scenario_tests import HELPERS
+        node = leaf("REQ-1", [("sign in", [
+            ("GIVEN", SEED),
+            ("WHEN", "The visitor enters the username or verified email in “Username or email”, "
+                     "enters the correct password in “Password”, and clicks “Sign in”."),
+            ("THEN", "The system enters the user's workspace, and the page shows “Your repositories”.")])])
+        compiled = compile_leaf(node, suite_fixtures([node]))
+        prelude = "test.beforeEach(async ({ request }) => { await h.resetState(request); });"
+        self.assertEqual(compiled.source.count(prelude), 1)
+        self.assertLess(compiled.source.index(prelude), compiled.source.index("\ntest("))
+        self.assertIn(prelude, append_tests("", ["test('x', async ({ page }) => {});"], "REQ-2"))
+        helpers = HELPERS.read_text()
+        self.assertIn("export async function resetState(request: APIRequestContext)", helpers)
+        self.assertIn("'/__arc/reset'", helpers)
+        self.assertIn("failOnStatusCode: false", helpers)
+
     def test_suite_compiler_reports_progress_for_nodes_without_checks(self):
         empty = leaf("A", [])
         action = leaf("B", [("Open", [

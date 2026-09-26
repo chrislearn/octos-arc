@@ -1,5 +1,20 @@
 # arc/ 适配层改动记录（工作流 A，分支 `wf-adapter`）
 
+## v10.1（工作区）：路由注册表、测试数据隔离与轮次预算
+
+来源：v10.0 线上运行 sheet `819388a5f77b`（6/100）与 github `6c1f2882e3df`（取消于 25/47 节点）的日志与下载产物分析。
+
+- **路由**：新增 blueprint `backend/lib/arc.js`（`arc-runtime.js`），由 `server.js` 调用 `trackRoutes/mountTestHooks/finishRegistration`，记录 Express 真实注册的路由及所属文件:行，报告完全重复与被遮蔽两类冲突；`ARC_ROUTE_DUMP=<file>` 只导出路由表不监听。冲突永远只是告警，不再让 build 失败（旧检查把 `filters.js` 与 `workbooks.js` 的同一路由误判为 fatal，导致 3 个节点与最终全量 0/0、预演失败“as-is”提交）。`web_checks.scaffold_warnings` 汇总路由冲突（有依赖时用运行时路由表，否则静态扫描）、Express 5 命名通配符却读 `req.params[0]`（github 产物所有子目录/文件 404 的根因）、以及 store 重置清不掉的模块级状态；告警挂在 `RunSummary.scaffold_warnings` 并进入失败证据。SPA 回退与未编译工具类 CSS 仍是阻断项。
+- **写入前拦截**：codegen 回复若新增与已有路由冲突的注册，整份回复不落盘，归属文件加入重引用并附带精确的“已在 X:行 注册，请改那个文件”纠正；实现提示词附“已注册 API 路由 → 归属文件:行”表。对 `backend/server.js` 的改写若丢失 generic entry 运行时则拒绝该文件（其余文件照常写入）。
+- **数据**：`store.js` 支持 `ARC_DATA_DIR`、`reset()`（删除数据并重放已注册的 migrations）与 `onReset(fn)`。验收服务器使用 `.arc/runtime-data/acceptance`（每次启动清空）并开启 `ARC_TEST_HOOKS=1` 的 `POST /__arc/reset`；每个派生 spec 头部统一 `test.beforeEach` 调用 `h.resetState`（其它应用 404 时回退到按文件隔离）。预演用 `.arc/runtime-data/rehearsal`、不挂测试钩子；模型工具回合的 smoke server 写 `.arc/runtime-data/tools`。postflight 删除 runtime-data。`backend/data` 不加入 `.gitignore`：不使用 lib/store 的应用仍依赖 git 在 spec 文件之间撤销测试写入。
+- **轮次预算**：`max_turns` 只计 implement/repair 等构建回合；派生场景审查、失败 spec 审查与设计回合单独计数与限额（sheet 96 回合中 38 次是审查，触顶时仍余 21743 s 与 5300 万 token）。修正误导日志“21743s is below the 300s”。
+- **预演兜底**：验收时记录 HEAD 与工作树一致且成功 build+start 的提交；预演最终失败时先复查当前树，仍失败才恢复该提交并使 verdict 失效复测，而非“submitting as-is”。
+- **跨节点共性缺陷**：`SharedFailureTracker` 把失败信息抽象为形状（如 `gridcell "…" shows "…"`），同一形状在 ≥3 个需求出现时在修复证据中声明共享缺陷、要求修共同组件（sheet 的 Grid 输入 bug 在约 20 次失败中从未被修）；“不可达/不可见”类按功能缺失处理，不计入。
+- **派生测试与前端 blueprint**：`fillField` 只按 label/可访问名称定位，仅 placeholder 匹配时失败并报告实际 label（github 登录框 label 为 “Email or username”，需求为 “Username or email”）。`requestJson` 抛出 `RequestError`（含 `status`、`body`），`useAsyncAction` 的错误同样可直接在 JSX 渲染为消息，避免 `{error}` 使 React 整页空白。
+- seed 冲突裁决按要求暂不做。
+- 验证：全套 1521 项通过（18 跳过；高负载下端口类计时测试 `BoundPortEvidenceTests`/`FinalWorkersAndReapTests` 偶发失败，基线同样失败，单独运行通过）；`ARC_TEST_NPM_INTEGRATION=1` 的真实 Express 5 脚手架测试通过；本地 Playwright 端到端 6/6（重置恢复 seed、onReset 清内存、placeholder 诊断、无 label 搜索框、命名通配符、重复路由告警）。在两个下载产物上回放：sheet 报出两条 filters 重复路由与 `undoHistory` 模块状态，github 报出 `repos.js:679` 的 `req.params[0]`，均不阻断。未执行线上模型评测。
+- 打包：`v10.2.zip`（sha256 `e91bc77e5499dcd5968bd88a99f0b1bcda8852c422102dfd8e2a2f9905b4fd1f`，115 个条目，自带内核 octos 2.0.3-rc.11），adapter 指纹 `c9eb5d00edc4c12bbbcf396fcca3d7dcc21ab93f87a5335b47f834d2c3163f1c`；ZIP CRC、重复路径、与工作区逐文件一致性检查通过，解压后 `main.py --help` 通过。
+
 ## v7.10：共享状态与嵌套编辑器诊断
 
 - 验收运行在恢复测试改动前，对小型 `backend/data/*.json` 计算有界的结构差异：指出被新增/删除的记录及变化字段，不把字段值写入修复提示。全量验收与检查点修复均能看到该证据，并明确不能从整场差异推断是哪条测试写入。

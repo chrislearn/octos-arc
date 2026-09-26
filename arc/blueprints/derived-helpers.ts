@@ -4,7 +4,7 @@
 // more tolerant still: a named control that is not on screen is searched for
 // through a bounded crawl of links, tabs and menus, because requirements name
 // controls but rarely the path to them.
-import { expect, Locator, Page } from '@playwright/test';
+import { APIRequestContext, expect, Locator, Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
 type Match = string | RegExp | Array<string | RegExp>;
@@ -202,6 +202,12 @@ export async function reach(page: Page, value: Match, depth = 3, budget = 60): P
     + `(${visits} page states explored). Explored: ${tried.slice(0, 12).join('; ') || '(no navigation controls)'}`);
 }
 
+/** Back to the code seeds before each test (generic entry, ARC_TEST_HOOKS=1).
+ *  Any other app answers 404 here; its state then resets per spec file. */
+export async function resetState(request: APIRequestContext): Promise<void> {
+  await request.post('/__arc/reset', { failOnStatusCode: false, timeout: 10_000 }).catch(() => undefined);
+}
+
 export async function openHome(page: Page): Promise<void> {
   signedInAs = null;
   await page.goto('/');
@@ -377,16 +383,35 @@ export async function checkNamed(page: Page, value: Match): Promise<void> {
   await target.check().catch(async () => target.click());
 }
 
+/** Fill the field the requirement names. The name must be the control's label
+ *  or accessible name: a grader locates "labelled controls" by label, so a field
+ *  whose requirement text is only its placeholder fails here with the actual
+ *  label (v10.0 github: label "Email or username", required "Username or email"). */
 export async function fillField(page: Page, label: Match, value: string): Promise<void> {
+  let placeholderOnly: Locator | null = null;
   for (const pattern of toPatterns(label)) {
-    for (const locator of [page.getByLabel(pattern), page.getByPlaceholder(pattern),
-      page.getByRole('textbox', { name: pattern }), page.getByRole('searchbox', { name: pattern })]) {
+    for (const locator of [page.getByLabel(pattern), page.getByRole('textbox', { name: pattern }),
+      page.getByRole('searchbox', { name: pattern }), page.getByRole('combobox', { name: pattern }),
+      page.getByRole('spinbutton', { name: pattern })]) {
       const candidate = locator.first();
       if (await candidate.isVisible({ timeout: 500 }).catch(() => false)) {
         await candidate.fill(value);
         return;
       }
     }
+    const byPlaceholder = page.getByPlaceholder(pattern).first();
+    if (!placeholderOnly && await byPlaceholder.isVisible({ timeout: 300 }).catch(() => false)) {
+      placeholderOnly = byPlaceholder;
+    }
+  }
+  if (placeholderOnly) {
+    const actual = await placeholderOnly.evaluate((element) => {
+      const input = element as HTMLInputElement;
+      const labels = Array.from(input.labels || []).map((node) => (node.textContent || '').trim()).filter(Boolean);
+      return input.getAttribute('aria-label') || labels.join(' ') || '(none)';
+    }).catch(() => '(unknown)');
+    throw new Error(`Field "${describe(label)}" matches only a placeholder on ${page.url()}; its label is "${actual}". `
+      + 'Label the control with the exact text the requirement names (a placeholder is not a label).');
   }
   const field = await reach(page, label);
   await field.fill(value);

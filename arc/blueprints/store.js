@@ -1,9 +1,12 @@
 'use strict';
 // Optional domain-neutral JSON persistence. Call update with a synchronous function.
+// ARC_DATA_DIR relocates the data (the harness keeps test data out of the worktree).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const directory = path.join(__dirname, '..', 'data');
+const directory = process.env.ARC_DATA_DIR ? path.resolve(process.env.ARC_DATA_DIR) : path.join(__dirname, '..', 'data');
+const migrated = new Map();
+const resetHooks = [];
 
 function fileFor(name) {
   if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error('invalid store name');
@@ -53,6 +56,7 @@ function migrate(name, fallback, migrations) {
     }
     ids.add(migration.id);
   }
+  migrated.set(name, {fallback, migrations});
   const data = read(name, fallback);
   if (!data || Array.isArray(data) || typeof data !== 'object') throw new Error('migration store must be an object');
   const ledger = data[key] === undefined ? [] : data[key];
@@ -75,4 +79,24 @@ function migrate(name, fallback, migrations) {
   return data;
 }
 
-module.exports = {read, write, update, migrate};
+// Keep in-memory state (undo stacks, caches) consistent with a reset:
+// onReset(() => stacks.clear()).
+function onReset(hook) {
+  if (typeof hook !== 'function') throw new TypeError('onReset requires a function');
+  resetHooks.push(hook);
+}
+
+// Back to the seeds: drop every persisted store, replay registered migrations
+// on their initial data, then run the reset hooks.
+function reset() {
+  let names = [];
+  try { names = fs.readdirSync(directory); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  for (const name of names) {
+    if (name.endsWith('.json') || name.endsWith('.tmp')) fs.rmSync(path.join(directory, name), {force: true});
+  }
+  for (const [name, {fallback, migrations}] of [...migrated]) migrate(name, fallback, migrations);
+  for (const hook of resetHooks) hook();
+}
+
+module.exports = {read, write, update, migrate, onReset, reset};

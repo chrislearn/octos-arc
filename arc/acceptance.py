@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Callable
 
 from frontend_assets import external_browser_assets
-from web_checks import scaffold_issues
+from web_checks import scaffold_issues, scaffold_warnings
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _SPEC_ID = re.compile(r"^(REQ-\d+(?:\.\d+)*)(?=[.\-_ ]|$)")
@@ -169,6 +169,7 @@ class RunSummary:
     stores_written: list[str] = field(default_factory=list)  # files this run left changed on disk
     store_changes: list[str] = field(default_factory=list)  # bounded structural JSON changes
     server_errors: str = ""  # bounded backend exception observed during a failed run
+    scaffold_warnings: list[str] = field(default_factory=list)  # non-blocking defects found by the build
 
     def slow(self, threshold_ms: int) -> list[str]:
         return [r.title for r in self.results if r.duration_ms >= threshold_ms]
@@ -404,6 +405,9 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
             blocks[-1] += "\n  Browser diagnostics (helpers may have recovered; correlate with the final failure):\n" + "\n".join(r.action_errors)[:4000]
     if blocks and summary.server_errors:
         blocks.append("Backend runtime exception observed during this failed run:\n" + summary.server_errors)
+    if blocks and summary.scaffold_warnings:
+        blocks.append("Source defects the build found (they did not stop this run; fix them where a failure "
+                      "above depends on them):\n" + "\n".join("- " + w for w in summary.scaffold_warnings[:6]))
     return "\n".join(blocks)
 
 
@@ -467,6 +471,57 @@ def failure_signature(summary: RunSummary, unstable: frozenset[str] = frozenset(
                       normalize(r.message), normalize(" | ".join(r.steps)))
                      for r in summary.results
                      if not r.ok and Path(r.file or "").name not in unstable)
+
+
+_FEATURE_SPECIFIC_SHAPE = re.compile(r"not reachable|to be visible|is visible on|is not visible", re.I)
+
+
+def observation_shape(message: str) -> str:
+    """The first line of a failure with its concrete values abstracted:
+    'gridcell "D1" shows "Item" on http://…' -> 'gridcell "…" shows "…" on <url>'."""
+    first = next((line for line in _ANSI.sub("", message or "").splitlines() if line.strip()), "")
+    first = re.sub(r"https?://\S+", "<url>", first)
+    first = re.sub(r'"[^"]*"', '"…"', first)
+    first = re.sub(r"'[^']*'", "'…'", first)
+    first = re.sub(r"\b\d+(?:\.\d+)?\b", "#", first)
+    return " ".join(first.split())[:200]
+
+
+class SharedFailureTracker:
+    """Across nodes, one defect in shared code (a grid, a dialog helper, the
+    session) fails every feature that passes through it. Each node's repair
+    sees only its own feature and patches around it. When the same failure
+    shape has failed in several nodes, say so in the repair evidence.
+    Missing controls and missing text are feature-specific and never count."""
+
+    def __init__(self, min_nodes: int = 3) -> None:
+        self.min_nodes = min_nodes
+        self.nodes: dict[str, set[str]] = {}
+        self.examples: dict[str, str] = {}
+
+    def note(self, node_id: str, summary: RunSummary) -> str:
+        shapes = []
+        for row in summary.results:
+            if row.ok:
+                continue
+            shape = observation_shape(row.message)
+            if len(shape) < 12 or _FEATURE_SPECIFIC_SHAPE.search(shape):
+                continue
+            self.nodes.setdefault(shape, set()).add(node_id)
+            self.examples.setdefault(shape, row.title)
+            if shape not in shapes:
+                shapes.append(shape)
+        notes = []
+        for shape in shapes:
+            others = sorted(self.nodes[shape] - {node_id})
+            if len(others) + 1 >= self.min_nodes:
+                notes.append(f"- '{shape}' also failed in {', '.join(others[:6])}")
+        if not notes:
+            return ""
+        return ("\nShared defect: the same failure already occurred in other requirements:\n" + "\n".join(notes[:3]) +
+                "\nThese features share one step (a common component, helper, handler or data path). Find and fix "
+                "that shared cause first -- trace the failing step through the shared code rather than patching "
+                "this feature around it.\n")
 
 
 # ---------------------------------------------------------------- processes
@@ -963,6 +1018,14 @@ class AppServer:
         self.extra_ports = extra_ports or []
         self.proc: subprocess.Popen | None = None
         self.log_file: Path | None = None
+        # Non-blocking defects found while building (route conflicts, Express 5
+        # wildcard misuse, unresettable module state): repair context, never a verdict.
+        self.warnings: list[str] = []
+
+    def preflight_warnings(self) -> list[str]:
+        """Static warnings; build() replaces them with Express's own route table
+        once the backend dependencies are installed."""
+        return scaffold_warnings(self.project)
 
     def _run(self, cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
         try:
@@ -981,9 +1044,10 @@ class AppServer:
         remote = external_browser_assets(frontend)
         if remote:
             return "frontend uses external browser assets; install and bundle them locally instead:\n" + "\n".join(remote[:8])
+        self.warnings = self.preflight_warnings()
         issues = scaffold_issues(self.project)
         if issues:
-            return "generic scaffold route checks failed:\n" + "\n".join(issues[:8])
+            return "generic scaffold checks failed:\n" + "\n".join(issues[:8])
         # A model can declare a package before any source imports it. When an
         # existing dependency tree still builds the current source, installing
         # that unused declaration here only burns the node deadline. The final
@@ -1047,10 +1111,21 @@ class AppServer:
         remote = external_browser_assets(frontend, built=True)
         if remote:
             return "built frontend uses external browser assets; bundle them locally instead:\n" + "\n".join(remote[:8])
+        self.warnings = scaffold_warnings(self.project, runtime=True)
         return None
+
+    def reset_data_dir(self) -> None:
+        """Every start begins from the code seeds: a private ARC_DATA_DIR is emptied."""
+        target = self.env_extra.get("ARC_DATA_DIR")
+        if not target:
+            return
+        path = Path(target)
+        shutil.rmtree(path, ignore_errors=True)
+        path.mkdir(parents=True, exist_ok=True)
 
     def start(self, wait_seconds: int = 45) -> str | None:
         free_port(self.port)
+        self.reset_data_dir()
         if self.grader_like:
             free_owned_ports(self.extra_ports, self.project)
         log_fd, log_name = tempfile.mkstemp(prefix="octos-app-", suffix=".log")

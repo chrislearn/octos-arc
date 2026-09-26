@@ -21,7 +21,8 @@ def generic_template_active(output_dir: Path) -> bool:
 def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: int,
                              extra_ports: list[int], *, react: bool = False,
                              capabilities: list[str] | None = None) -> list[str]:
-    assets = {"backend/server.js": "server.js", "backend/lib/store.js": "store.js",
+    assets = {"backend/server.js": "server.js", "backend/lib/arc.js": "arc-runtime.js",
+              "backend/lib/store.js": "store.js",
               "backend/lib/collection.js": "collection.js",
               "backend/lib/errors.js": "errors.js",
               "backend/lib/query.js": "query.js",
@@ -75,3 +76,13 @@ def install_generic_template(output_dir: Path, bundle_dir: Path, default_port: i
         destination.write_text(body, encoding="utf-8")
         written.append(target)
     return written
+
+
+ENTRY_RUNTIME_CALLS = ("require('./lib/arc')", "arc.mountTestHooks(app)", "arc.trackRoutes(app)",
+                       "arc.finishRegistration()")
+
+
+def generic_entry_intact(source: str) -> bool:
+    """A rewrite of backend/server.js may add middleware, but must keep the
+    generic entry's identity and its route registry/test-hook runtime."""
+    return "Generic web entry" in source[:200] and all(call in source for call in ENTRY_RUNTIME_CALLS)

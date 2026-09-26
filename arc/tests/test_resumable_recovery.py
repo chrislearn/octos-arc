@@ -76,6 +76,8 @@ class HelperContractTests(TestCase):
         self.assertIn('does not export loadTable', errors[0])
         sources['backend/routes/a.js'] = "const {read: load} = require('../lib/store.js');"
         self.assertEqual(helper_import_errors(sources, sources), [])
+        sources['backend/lib/undo.js'] = "const {onReset, reset} = require('./store');"
+        self.assertEqual(helper_import_errors(sources, ['backend/lib/undo.js']), [])
         sources['backend/routes/a.js'] = "const {loadTable} = require('../lib/store');"
         sources['backend/lib/store.js'] = 'module.exports = {loadTable};'
         self.assertEqual(helper_import_errors(sources, sources), [])

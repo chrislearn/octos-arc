@@ -16,7 +16,7 @@ import json
 import re
 from typing import Iterable, Mapping
 
-from scenario_tests import (Fixtures, _ANY_LITERAL, _compile_scenario, _descriptive, _node_text, _sentences, _ts,
+from scenario_tests import (Fixtures, spec_header, _ANY_LITERAL, _compile_scenario, _descriptive, _node_text, _sentences, _ts,
                             literal_prefix)
 
 OPS = {"open", "click", "hover", "fill", "check", "press", "set_clipboard", "expect_visible", "expect_absent",
@@ -950,8 +950,7 @@ def retry_prompt(rejected: list[dict], targets: list[dict], fixtures: Fixtures) 
 def append_tests(spec_source: str, tests: list[str], node_id: str) -> str:
     """Add model-proposed tests to a leaf's derived spec (creating the header when new)."""
     if not spec_source:
-        spec_source = (f"// requirement: {node_id}\n// Derived mechanically from requirements.yaml; not an official test.\n"
-                       "import { test } from '@playwright/test';\nimport * as h from './helpers';\n\n")
+        spec_source = spec_header(node_id)
     # Templated tasks yield the same script for sibling scenarios (sheet
     # REQ-1-3-1 x3): one copy per leaf is enough.
     def body(test: str) -> str:

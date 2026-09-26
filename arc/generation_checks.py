@@ -42,7 +42,7 @@ def helper_import_errors(sources, changed):
     No application modules are executed. Customized modules and dynamic imports
     are intentionally left to the compiler/runtime instead of guessed exports.
     """
-    contracts = {'store': {'read', 'write', 'update', 'migrate'},
+    contracts = {'store': {'read', 'write', 'update', 'migrate', 'onReset', 'reset'},
                  'collection': {'collection'}, 'errors': {'HttpError'},
                  'query': {'optionalBoolean', 'matchesFlags'}}
     known = {}

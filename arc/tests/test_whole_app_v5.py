@@ -298,7 +298,9 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.whole_app_startup_repair(
             "frontend: client-side links use history.pushState but only index.html exists"))
 
-    def test_route_preflight_repairs_before_first_full_suite(self):
+    def test_route_conflict_does_not_spend_a_startup_repair_before_first_full_suite(self):
+        # v10.0 sheet 819388a5f77b: a route conflict treated as a startup failure blocked
+        # measurement; it is a warning attached to failures instead.
         flow = self.flow
         m.write_codegen_manifests(self.root)
         m.install_generic_template(self.root, Path(m.__file__).parent, 3000, [])
@@ -312,8 +314,7 @@ class WholeAppTests(unittest.TestCase):
         flow.whole_app_startup_repair = Mock(return_value=True)
         flow.record_full_suite = Mock()
         self.assertEqual(flow.whole_app_first_suite(self.nodes), set())
-        self.assertIn("DELETE /api/notes/trash is shadowed",
-                      flow.whole_app_startup_repair.call_args.args[0])
+        flow.whole_app_startup_repair.assert_not_called()
         self.assertEqual(flow.run_specs.call_count, 1)
 
     def test_unreliable_first_suite_does_not_restart_all_nodes(self):
@@ -1016,6 +1017,31 @@ class WholeAppTests(unittest.TestCase):
         (self.root / "backend/server.js").write_text("// user application entry\n")
         self.assertFalse(self.flow.discard_runtime_store())
         self.assertTrue(data.exists())
+
+    def test_should_drop_private_runtime_data_before_grading(self):
+        runtime = self.root / ".arc/runtime-data/acceptance"
+        runtime.mkdir(parents=True)
+        (runtime / "notes.json").write_text("{}")
+        (self.root / "backend").mkdir(exist_ok=True)
+        (self.root / "backend/server.js").write_text("'use strict';\n// Generic web entry (Express).\n")
+        self.assertFalse(self.flow.discard_runtime_store(), "nothing was written into backend/data")
+        self.assertFalse(runtime.exists())
+
+    def test_acceptance_servers_use_private_resettable_data_and_rehearsal_mirrors_grader(self):
+        flow = self.flow
+        flow.smoke_port, flow.web_port, flow.tests_dir = 3100, 3000, None
+        acceptance = flow.app_server(False)
+        self.assertEqual(acceptance.env_extra["ARC_TEST_HOOKS"], "1")
+        self.assertEqual(Path(acceptance.env_extra["ARC_DATA_DIR"]), self.root / ".arc/runtime-data/acceptance")
+        rehearsal = flow.app_server(True, test_hooks=False)
+        self.assertNotIn("ARC_TEST_HOOKS", rehearsal.env_extra)
+        self.assertEqual(Path(rehearsal.env_extra["ARC_DATA_DIR"]), self.root / ".arc/runtime-data/rehearsal")
+        data = Path(acceptance.env_extra["ARC_DATA_DIR"])
+        data.mkdir(parents=True)
+        (data / "workbooks.json").write_text('{"items": [{"id": "renamed-by-a-test"}]}')
+        acceptance.reset_data_dir()
+        self.assertTrue(data.is_dir())
+        self.assertEqual(list(data.iterdir()), [])
 
     def test_should_retry_format_once_when_a_reply_has_an_incomplete_block(self):
         flow = self.flow

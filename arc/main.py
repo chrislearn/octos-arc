@@ -112,7 +112,7 @@ from acceptance import (  # noqa: E402
     failure_signature, failure_summaries, failure_source_context, locator_role_mismatch, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     mutated_by_tests, store_changes_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
-    startup_error_digest, backend_error_digest)
+    startup_error_digest, backend_error_digest, SharedFailureTracker)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
                      incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, prepare_edit_files, safe_relative_path,
                      source_protocol_errors, write_files)
@@ -120,7 +120,7 @@ from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from reply_quality import prune_degenerate_edits  # noqa: E402
 from repair_context import diagnosed_failure_evidence as balanced_failure_evidence  # noqa: E402
-from generic_template import generic_template_active, install_generic_template  # noqa: E402
+from generic_template import generic_entry_intact, generic_template_active, install_generic_template  # noqa: E402
 from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from progress_timeout import ProgressDeadline
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -134,7 +134,7 @@ from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_t
 from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle  # noqa: E402
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
-from web_checks import scaffold_issues  # noqa: E402
+from web_checks import introduced_route_conflicts, route_table_note, scaffold_issues  # noqa: E402
 
 BUNDLE_DIR = Path(__file__).resolve().parent
 
@@ -1735,7 +1735,7 @@ UI behavior follows the requirement and the current application:
 APP_DESIGN_PROMPT_VERSION = "18-route-prefix-ownership"
 
 COLLECTION_MIGRATION_CONTRACT = (
-    "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate; "
+    "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate, onReset, reset; "
     "backend/lib/collection exports collection. Frontend shared/request.js exports requestJson (raw JSON). "
     "Reuse these exact APIs; do not invent load/save aliases or plan replacement helpers. "
     "Assign one canonical module per collection: it owns initial records, migrations and shared access. "
@@ -1788,13 +1788,17 @@ Output: complete FILE blocks for changed files only; do not re-emit unchanged mo
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
 JSX (including Context providers) needs .jsx/.tsx, not .js/.ts; update imports. Fix source parse errors before changing build config.
 Collection API: const {collection} = require('../lib/collection'); do not call the module object. Pass initial: [{id:'example'}], NOT initial: {items:[...]}. Only migration callbacks receive the envelope {items:[...]}. Correct callers rather than changing shared exports. Invalid stored shapes require an explicit preserving migration, never deletion/reset of persisted data.
-Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes.
-From backend/routes/: require('../lib/store') exports read(name,fallback), write(name,value), update(name,fallback,synchronousChange). Prefer require('../lib/collection').collection(name,{idKey,initial,migrations,normalize}) for ordinary CRUD instead of regenerating persistence; it exports all/list/get/create/patch/remove/transact. initial applies only to a new store; persist changes to existing data via versioned migrations up(data) mutating data.items synchronously, preserving __arcMigrations. Never reseed deleted records. Optional normalize(record) returns an object with the SAME id on reads/create/patch and before/after transact; choose defaults from requirements, not fixtures. Reads do not persist normalization. transact(items => result) synchronously mutates one collection in one write; duplicate/missing IDs and async callbacks fail. Atomicity is single-store/single-process only; cross-store effects need one aggregate or transactional storage. require('../lib/errors').HttpError(status,message) gives explicit 4xx {error:message}; 5xx details are hidden. Define domain validation, authorization and messages from requirements.
+Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes. Each METHOD+path is registered once across all route files: change an existing route in the file that owns it. Express 5 wildcards are named: '/files/*path' gives req.params.path (an array of segments); req.params[0] is undefined.
+From backend/routes/: require('../lib/store') exports read(name,fallback), write(name,value), update(name,fallback,synchronousChange). Prefer require('../lib/collection').collection(name,{idKey,initial,migrations,normalize}) for ordinary CRUD instead of regenerating persistence; it exports all/list/get/create/patch/remove/transact. initial applies only to a new store; persist changes to existing data via versioned migrations up(data) mutating data.items synchronously, preserving __arcMigrations. Never reseed deleted records. Optional normalize(record) returns an object with the SAME id on reads/create/patch and before/after transact; choose defaults from requirements, not fixtures. Reads do not persist normalization. transact(items => result) synchronously mutates one collection in one write; duplicate/missing IDs and async callbacks fail. Atomicity is single-store/single-process only; cross-store effects need one aggregate or transactional storage. require('../lib/errors').HttpError(status,message) gives explicit 4xx {error:message}; 5xx details are hidden. Define domain validation, authorization and messages from requirements. Seed records live in code (collection initial); backend/data/ is runtime state (tests run on a private copy; it is deleted before grading), so never hand-write it. Module-level in-memory state (undo stacks, caches) must clear on require('../lib/store').onReset(() => ...).
 Optional require('../lib/query') exports optionalBoolean(value) (missing/true/false, invalid => 400) and matchesFlags(record,flags) (strict booleans, undefined ignored). Whitelist fields, resolve view defaults once, combine filters, and enforce ownership separately; clients cannot recover server-excluded rows.
 Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (empty successful response => null), or throws an Error with server message and numeric status on HTTP/JSON failure; no Response methods or {ok,value} envelope. Plain object/array request bodies are JSON-encoded; FormData/URLSearchParams bodies keep their native encoding. React uses main.jsx/App.jsx. Plain scaffold uses app.js, shared/dom.js (escapeHtml) and shared/router.js (startRouter(render), arc.spa=true). Optional build.mjs/vite.config.mjs: build is "node build.mjs"; bundle JSX/local assets. frontend/public copies to dist root. Define fields, pages, sessions and seed data from the task. Do not output FILE blocks for unchanged shared helpers.
 """
 
+# Text-only turns outside the build-turn cap (see Flow.note_turn).
+NON_BUILD_TURN_LABELS = ("derived scenario review", "derived failed-spec review", "application design")
+
 TASK_NEUTRAL_HELPERS = {
+    "backend/lib/arc.js": "arc-runtime.js",
     "backend/lib/query.js": "query.js",
     "frontend/src/shared/interactions.jsx": "react-interactions.jsx",
     "backend/lib/store.js": "store.js",
@@ -1806,6 +1810,13 @@ TASK_NEUTRAL_HELPERS = {
     "frontend/src/shared/request.js": "frontend-request.js",
     "frontend/src/shared/router.js": "frontend-router.js",
 }
+
+
+def read_text_or_empty(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def unchanged_task_neutral_helpers(output_dir: Path, paths: set[str]) -> bool:
@@ -2305,6 +2316,19 @@ class Flow:
         return 2 * self.final_measurement_reserve() + self.repair_minimum()
 
     # -- helpers ----------------------------------------------------------
+    def note_turn(self, label: str) -> None:
+        """The turn cap bounds build turns (implement/repair). Spec reviews and
+        the design turn are short, text-only and bounded by their own count:
+        v10.0 sheet 819388a5f77b spent 38 of its 96 turns on reviews and hit
+        the cap with 21743s and 53M tokens left."""
+        if label.startswith(NON_BUILD_TURN_LABELS):
+            self.review_turn_count = getattr(self, "review_turn_count", 0) + 1
+        else:
+            self.turn_count += 1
+
+    def review_budget_spent(self) -> bool:
+        return self.max_turns > 0 and getattr(self, "review_turn_count", 0) >= self.max_turns
+
     def wound_down(self) -> bool:
         """True once the run has spent its token or turn allowance: no more repair
         turns, remaining nodes get one implement turn each, one final suite, done."""
@@ -2435,7 +2459,7 @@ class Flow:
         t0 = time.time()
         execution_mode = "codegen" if proxy is not None and getattr(proxy, "no_tools", False) else "tools"
         before_sources = self.app_source_digest() if execution_mode == "tools" else None
-        self.turn_count += 1
+        self.note_turn(label)
         # Only the guarded tool-free SSE path exposes trustworthy upstream progress.
         lease = None
         if (proxy is not None and getattr(proxy, "no_tools", False)
@@ -2659,7 +2683,7 @@ class Flow:
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         if getattr(self, "generic_template_installed", False):
-            rules += GENERIC_TEMPLATE_NOTE
+            rules += GENERIC_TEMPLATE_NOTE + route_table_note(self.output_dir)
         rules += stack_note(self.output_dir)
         # The harness has already written package.json, which is enough for
         # has_app() but not for a runnable backend. Keep existing sources while
@@ -3507,8 +3531,33 @@ class Flow:
                     log(f"[codegen] {label}: {error}")
                     return result(False, error, "anchor_failed")
                 files.update(staged)
+            if (getattr(self, "generic_template_installed", False) and "backend/server.js" in files
+                    and not generic_entry_intact(files["backend/server.js"])
+                    and generic_entry_intact(read_text_or_empty(self.output_dir / "backend/server.js"))):
+                files.pop("backend/server.js")
+                self.pending_corrections.append(
+                    "backend/server.js is the installed generic entry; your rewrite dropped its header or its "
+                    "route registry (require('./lib/arc'), mountTestHooks, trackRoutes, finishRegistration) and was "
+                    "discarded. Register routes in backend/routes/*.js and keep the entry as it is.")
+                log(f"[codegen] {label}: refused backend/server.js: rewrite drops the generic entry runtime")
+                if not files:
+                    return result(False, "codegen reply only rewrote the installed generic entry", "guard_refused")
             if not files:
                 return result(False, f"codegen reply only changed files it was not shown: {', '.join(refused)}", "guard_refused")
+            if getattr(self, "generic_template_installed", False):
+                conflicts = introduced_route_conflicts(self.output_dir, files)
+                if conflicts:
+                    error = ("Route conflict; no changes from this response were applied:\n"
+                             + "\n".join("- " + c["message"] for c in conflicts[:4]))
+                    self.pending_corrections.append(error)
+                    # Requote the owning files so the retry changes the existing handler.
+                    targets = {rel for c in conflicts for rel in (c["owner_file"], c["file"])
+                               if (self.output_dir / rel).is_file()}
+                    self.last_codegen_refused.update(targets)
+                    if hasattr(self, "refused_paths"):
+                        self.refused_paths.update(targets)
+                    log(f"[codegen] {label}: {error.splitlines()[0]} {conflicts[0]['message'][:200]}")
+                    return result(False, error, "route_conflict")
             protocol_errors = source_protocol_errors(files)
             if protocol_errors:
                 error = "Invalid source envelope; no changes were applied: " + "; ".join(protocol_errors[:4])
@@ -4073,8 +4122,21 @@ class Flow:
             shutil.rmtree(private, ignore_errors=True)
             log(f"[acceptance] removed private Playwright install {private}")
 
-    def app_server(self, grader_like: bool) -> AppServer:
-        return AppServer(self.output_dir, self.smoke_port, log, grader_like=grader_like,
+    def runtime_data_dir(self, purpose: str) -> Path:
+        """Where a local server keeps its JSON stores: under .arc (git-ignored,
+        never shipped), one directory per purpose, never backend/data."""
+        return self.output_dir / ".arc" / "runtime-data" / purpose
+
+    def app_server(self, grader_like: bool, test_hooks: bool = True) -> AppServer:
+        """Acceptance servers start from the code seeds in a private data
+        directory and expose POST /__arc/reset, which every derived test calls
+        first. The startup rehearsal passes test_hooks=False: exactly the
+        grader's environment except where the data lives."""
+        purpose = "acceptance" if test_hooks else "rehearsal"
+        env = {"ARC_DATA_DIR": str(self.runtime_data_dir(purpose))}
+        if test_hooks:
+            env["ARC_TEST_HOOKS"] = "1"
+        return AppServer(self.output_dir, self.smoke_port, log, env_extra=env, grader_like=grader_like,
                          extra_ports=[p for p in spec_base_ports(self.tests_dir) if p != self.web_port])
 
     def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False,
@@ -4095,6 +4157,7 @@ class Flow:
                 err = server.start()
             if err is not None:
                 return RunSummary(error=err)
+            self.note_startable_commit(git_run)
             # A derived suite has one spec file per leaf (47 for the GitHub task);
             # a fixed 900s wall would kill the full run before its verdict.
             wall = max(900, 30 * len(specs))
@@ -4111,6 +4174,12 @@ class Flow:
                                           wall_timeout=max(1, min(wall, int(self.remaining()))))
             if not summary.all_passed:
                 summary.server_errors = backend_error_digest(server.tail(5000))
+            warnings = list(getattr(server, "warnings", None) or [])
+            summary.scaffold_warnings = warnings
+            if warnings and warnings != getattr(self, "_logged_scaffold_warnings", None):
+                self._logged_scaffold_warnings = warnings
+                log(f"[acceptance] {len(warnings)} source warning(s), not blocking: "
+                    + " | ".join(w[:160] for w in warnings[:3]))
             expected = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts")) if self.tests_dir else []
             if grader_like and sorted(specs) == expected and self.suite_is_measured(summary, specs):
                 self.last_suite_seconds = time.monotonic() - started
@@ -4360,7 +4429,8 @@ class Flow:
                 or getattr(self, "driver", None) is None
                 or os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW", "1") == "0"
                 or not self.suite_is_measured(summary, specs) or summary.all_passed
-                or self.wound_down() or self.remaining() < self.final_phase_reserve() + 240):
+                or self.wound_down() or self.review_budget_spent()
+                or self.remaining() < self.final_phase_reserve() + 240):
             return None
         node = getattr(self, "requirement_nodes", {}).get(node_id)
         runner = getattr(self, "runner", None)
@@ -4586,6 +4656,14 @@ class Flow:
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 if measured:
                     self.record_tests(node_id, specs, summary)
+                    tracker = getattr(self, "shared_failures", None)
+                    if tracker is None:
+                        tracker = self.shared_failures = SharedFailureTracker()
+                    shared = tracker.note(node_id, summary)
+                    if shared:
+                        failures += shared
+                        log(f"[acceptance] {node_id}: failure shared with earlier requirements; "
+                            f"repair targets the common cause ({shared.splitlines()[2][:200]})")
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
             self.last_node_own_pass = bool(measured and passed == summary.total
                                            and not self.derived_review_needed(node_id))
@@ -6253,7 +6331,8 @@ class Flow:
                 continue
         prompt = (stack_note(self.output_dir) + "The generated application failed its build/start preflight. Fix ONLY this concrete error; "
                   "preserve every implemented feature. For a literal route shadowed by a :parameter route "
-                  "of the same method, register the literal handler first. Do not rewrite unrelated files.\n"
+                  "of the same method, register the literal handler first; for a duplicate route keep one handler "
+                  "in the file that registers it first and never stub out a route file. Do not rewrite unrelated files.\n"
                   f"Error:\n{digest}\nCurrent source files (quoted whole):\n{''.join(sources)}")
         if sources and len(prompt) + len(FORMAT_INSTRUCTIONS) + 1 <= self.codegen_context_chars():
             ok, _ = self.whole_app_generation_turn(prompt, max(0, deadline - time.monotonic()),
@@ -6302,7 +6381,7 @@ class Flow:
         issues = scaffold_issues(self.output_dir)
         attempted_errors = set()
         if issues:
-            preflight = "generic scaffold route checks failed:\n" + "\n".join(issues[:8])
+            preflight = "generic scaffold checks failed:\n" + "\n".join(issues[:8])
             attempted_errors.add(preflight)
             self.whole_app_startup_repair(preflight)
         measurement = 0
@@ -7714,7 +7793,11 @@ class Flow:
             if (getattr(self, "final_suite_green", False)
                     or (self.test_verdict and all(verdict is True for verdict in self.test_verdict.values()))):
                 break
-            if self.wound_down() or self.remaining() < self.final_retry_admission():
+            if self.wound_down():
+                log(f"[flow] full suite still failing, but the cost guard is spent ({self.turn_count} build "
+                    f"turns / limit {self.max_turns}); {self.remaining():.0f}s left unused")
+                break
+            if self.remaining() < self.final_retry_admission():
                 log(f"[flow] full suite still failing, but {self.remaining():.0f}s is below the "
                     f"{self.final_retry_admission():.0f}s needed to measure, repair, and remeasure")
                 break
@@ -7997,11 +8080,47 @@ class Flow:
         return (self.output_dir / "frontend" / "package.json").is_file() and \
             (self.output_dir / "backend" / "package.json").is_file()
 
+    def note_startable_commit(self, git_run) -> None:
+        """Remember HEAD when the app just built and started from it unchanged
+        (run_specs staged the worktree; an empty cached diff means HEAD == tree)."""
+        try:
+            same = getattr(git_run(["diff", "--cached", "--quiet", "HEAD", "--", "frontend", "backend"]),
+                           "returncode", 1) == 0
+            if same:
+                self.last_startable_sha = self.head()
+        except Exception:  # noqa: BLE001 - bookkeeping must never fail a measurement
+            pass
+
+    def restore_startable_commit(self) -> bool:
+        """After a failed rehearsal, ship the last commit that built and started
+        rather than a tree that does not (v10.0 sheet: "giving up; submitting as-is")."""
+        sha = getattr(self, "last_startable_sha", None)
+        if not sha or sha == self.head():
+            return False
+        # A busy port or a slow npm can fail one attempt; never trade features for a transient error.
+        server = self.app_server(grader_like=True, test_hooks=False)
+        err = server.build() or server.start()
+        server.stop()
+        if err is None:
+            log("[rehearsal] current tree builds and starts on a second check; keeping it")
+            return True
+        self.restore_app(sha)
+        self.commit("fix: restore last startable commit after failed rehearsal")
+        server = self.app_server(grader_like=True, test_hooks=False)
+        err = server.build() or server.start()
+        server.stop()
+        if err is not None:
+            log(f"[rehearsal] restored {sha[:8]} also fails: {err.splitlines()[0][:200]}")
+            return False
+        log(f"[rehearsal] restored last startable commit {sha[:8]}; it builds and starts cleanly")
+        self.test_verdict = {key: None for key in self.test_verdict}
+        return True
+
     # -- final ------------------------------------------------------------
     def rehearsal(self) -> bool:
         for attempt in range(1, 4):
             log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {self.smoke_port}, grader-like env)")
-            server = self.app_server(grader_like=True)
+            server = self.app_server(grader_like=True, test_hooks=False)
             err = server.build() or server.start()
             server.stop()
             if err is None:
@@ -8009,6 +8128,8 @@ class Flow:
                 return True
             log(f"[rehearsal] FAILED: {err.splitlines()[0][:200]}")
             if attempt == 3 or self.remaining() < self.repair_minimum() or self.wound_down():
+                if self.restore_startable_commit():
+                    return True
                 log("[rehearsal] giving up; submitting as-is")
                 return False
             self.turn(REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(err, 1200), port=self.web_port, smoke=self.smoke_port),
@@ -8017,7 +8138,7 @@ class Flow:
             if self.last_turn_changed:
                 self.test_verdict = {key: None for key in self.test_verdict}
             self.commit("fix: startup rehearsal repair")
-        return False
+        return self.restore_startable_commit()
 
     def discard_runtime_store(self) -> bool:
         """Remove the scaffold's JSON store written by our own local runs.
@@ -8028,8 +8149,14 @@ class Flow:
         keeps its data.
         """
         from generic_template import generic_template_active
+        runtime = self.output_dir / ".arc" / "runtime-data"
+        if runtime.is_dir():
+            shutil.rmtree(runtime, ignore_errors=True)
         data = self.output_dir / "backend" / "data"
-        if not data.is_dir() or not generic_template_active(self.output_dir):
+        if not generic_template_active(self.output_dir):
+            return False
+        if not data.is_dir():
+            log("[flow] backend/data absent; grading starts from code seeds")
             return False
         shutil.rmtree(data, ignore_errors=True)
         log("[flow] discarded backend/data written by local runs; grading starts from seeds")
@@ -8138,6 +8265,8 @@ class Flow:
             env = build_octos_env(config_dir, protected)
             write_profile_defaults(data_dir, config_dir, protected_hooks(protected))
             env["PORT"] = str(self.smoke_port)  # a bare `npm start` inside a turn must not hit the grading port
+            # ...nor write its records into backend/data, where a later snapshot would take them for seeds.
+            env["ARC_DATA_DIR"] = str(self.runtime_data_dir("tools"))
             self.driver = DryRunDriver() if dry_run else OctosDriver(
                 octos_bin, self.output_dir, env, data_dir, int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),
                 events_log=self.output_dir / ".arc" / "octos-events.jsonl")

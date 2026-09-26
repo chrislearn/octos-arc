@@ -26,6 +26,24 @@ export function DialogSurface({title, description, children, style, onClick,
   </Dialog.Portal>;
 }
 
+// An Error in JSX ({error}) crashes React and blanks the page; this one renders
+// as its message. error.message and error.status keep working.
+class ActionError extends Error {
+  * [Symbol.iterator]() { yield this.message; }
+
+  toString() { return this.message; }
+}
+
+function renderableError(cause) {
+  if (cause && typeof cause[Symbol.iterator] === 'function' && cause instanceof Error) return cause;
+  const failure = new ActionError(cause instanceof Error ? cause.message : String(cause));
+  if (cause && typeof cause === 'object') {
+    for (const key of ['status', 'body']) if (key in cause) failure[key] = cause[key];
+    failure.cause = cause;
+  }
+  return failure;
+}
+
 // run(() => requestJson(...)) returns the action's value or rejects, just like
 // requestJson itself. No second {ok,value} envelope to confuse with fetch.
 // The owner catches rejection; only success may clear/close its draft.
@@ -42,7 +60,7 @@ export function useAsyncAction() {
     try {
       return await action();
     } catch (cause) {
-      const failure = cause instanceof Error ? cause : new Error(String(cause));
+      const failure = renderableError(cause);
       setError(failure);
       throw failure;
     } finally {

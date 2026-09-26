@@ -543,6 +543,19 @@ def _compile_scenario(scenario: Mapping, fixtures: Fixtures, node_text: str = ""
     return out
 
 
+# Every derived test starts from the code seeds: the generic entry resets its
+# store on POST /__arc/reset (harness-only; other apps answer 404 and keep
+# per-file isolation). One script renaming a seeded record or changing the
+# fixture password no longer fails every later test in the same file.
+SPEC_PRELUDE = ("import { test } from '@playwright/test';\nimport * as h from './helpers';\n\n"
+                "test.beforeEach(async ({ request }) => { await h.resetState(request); });\n\n")
+
+
+def spec_header(node_id: str) -> str:
+    return (f"// requirement: {node_id}\n// Derived mechanically from requirements.yaml; not an official test.\n"
+            + SPEC_PRELUDE)
+
+
 @dataclass
 class CompiledLeaf:
     node_id: str
@@ -663,8 +676,7 @@ def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: s
                 tests.append(f"test({_ts(unique(f'{title} [script]'))}, async ({{ page }}) => {{\n"
                              "  test.setTimeout(120_000);\n" + "\n".join(lines) + "\n});")
                 scripts += 1
-    header = (f"// requirement: {node_id}\n// Derived mechanically from requirements.yaml; not an official test.\n"
-              "import { test } from '@playwright/test';\nimport * as h from './helpers';\n\n")
+    header = spec_header(node_id)
     return CompiledLeaf(node_id, header + "\n\n".join(tests) + ("\n" if tests else ""), scripts, reach_checks)
 
 
