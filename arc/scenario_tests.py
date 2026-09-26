@@ -25,6 +25,8 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
+
+from seed_facts import SETUP_MARKER, setup_cells
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
@@ -331,6 +333,7 @@ class _Scenario:
     generic: bool = False
     failure_path: bool = False   # every THEN clause describes a rejection
     fallback_entry: str | None = None
+    setup_cells: list[tuple[str, str]] = field(default_factory=list)  # GIVEN "Scenario setup" values
 
 
 def _seed_for_kind(out: _Scenario, kind: str) -> str | None:
@@ -488,6 +491,11 @@ def _compile_scenario(scenario: Mapping, fixtures: Fixtures, node_text: str = ""
         phase = keyword if keyword in {"GIVEN", "WHEN", "THEN"} else phase
         for sentence in _sentences(step.get("content")):
             if phase == "GIVEN":
+                if SETUP_MARKER in sentence:
+                    out.setup_cells += setup_cells(sentence)
+                    continue
+                if "are entered where the scenario uses them" in sentence:
+                    continue
                 for seeds in _SEED_LIST.finditer(sentence):
                     for m in _SEED_ITEM.finditer(seeds.group("body")):
                         out.seed_kinds.append(((m.group("kind") or "").strip(), m.group("value")))
@@ -603,12 +611,19 @@ def _entry_script(parsed: "_Scenario", node_text: str, context: str,
         if name and name != entry and name not in values and len(name.split()) <= 4
         and not _descriptive(name)))[:4]
     lines = [f"  await h.clickNamed(page, {_ts(entry)});"]
+    if parsed.setup_cells:
+        # Starting values the resolved GIVEN moves out of the seed: the user enters them.
+        pairs = ", ".join(f"[{_ts(ref)}, {_ts(value)}]" for ref, value in parsed.setup_cells)
+        lines.append(f"  await h.typeCells(page, [{pairs}]);")
+        lines += [f"  await h.expectCell(page, {_ts(ref)}, {_ts(value)});"
+                  for ref, value in parsed.setup_cells if not value.startswith("=")]
     if values:
         lines.append(f"  await h.expectTextsVisible(page, [{', '.join(_ts(v) for v in values)}]);")
     lines += [f"  await h.expectCell(page, {_ts(cell)}, {_ts(value)});" for cell, value in cells]
     lines += [f"  await h.expectRole(page, {_ts(role)}, {_ts(name)});" for role, name in aria]
     lines += [f"  await h.expectReachable(page, {_ts(name)});" for name in controls]
-    key = ("entry", parsed.signed_in, entry, tuple(values), tuple(cells), tuple(aria), tuple(controls))
+    key = ("entry", parsed.signed_in, entry, tuple(parsed.setup_cells), tuple(values), tuple(cells), tuple(aria),
+           tuple(controls))
     return lines, key
 
 

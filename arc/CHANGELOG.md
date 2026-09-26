@@ -1,5 +1,25 @@
 # arc/ 适配层改动记录（工作流 A，分支 `wf-adapter`）
 
+## v11.0：seed 裁决、模块接口门禁、分波止损与 Canvas 状态
+
+在下方 seed 裁决的基础上，针对 v10.2 线上运行 sheet `17d24626341c` 与 github `5d65674359a4`（运行中分析）：
+- **模块接口门禁**：`generation_checks.missing_export_errors` 静态检查本地前端模块的具名导入。检查两个方向：新页面导入了共享模块未导出的名字；共享模块改写后丢掉了其它页面仍在使用的导出。它同时进入 codegen 写入前门禁与分批 early check。回复不一致时整份不落盘，两端文件重新全文引用后重试。github 运行中 `api.js` 缺导出导致 01:23 起前端构建一直失败；对其实时 workspace 回放，报出了 4 处仍未修复的断裂导入。
+- **分波止损**：每一波开始前，若上一波留下已确认的构建或源码检查错误，先做一次定向修复并复查（`repair_wave_build`）。同一错误修不好时，剩余叶子交给节点流程。连续 `OCTOS_ARC_WAVE_MAX_DEFERRALS`（默认 3）个叶子被推迟也立即转节点流程。sheet 运行此前用 53 分钟逐个推迟了 18/24 个叶子。
+- **Canvas 节点状态**：应用设计成功后按依赖顺序把所有叶子统一标为已设计；分波不再重复标记设计，只在实际写入后标为实现完成。此前 Canvas 只显示分波碰到的叶子，且顺序是分波顺序。
+- **派生测试 DSL**：新增 `cell_context`（右键单元格）、`header_context`（右键行号/列字母）、`expect_selected`（选区内 `aria-selected="true"`、紧邻外侧为 `"false"`），并加入校验与 helper `contextClickCell`/`contextClickHeader`/`expectSelected`。审查此前因为“无法打开行列头菜单”“无法检查 aria-selected”跳过了 REQ-2-2、REQ-3-1-3。新 helper 在 spike 的 ARIA 表格上经真实 Chromium 验证，负例能给出明确失败信息。
+
+- 打包：`v11.0.zip`（sha256 `90ac0cd23369e8672cee601200e9885b1b5842d2094284c53d575dacc9d44766`，116 个条目，自带内核 octos 2.0.3-rc.11），adapter 指纹 `038d98a11106dd3c7c3d37f76a16ba7dd5d6dcadf6f78b078ba38249c9c95d30`。已检查：ZIP CRC 无误，无重复路径，与工作区逐文件一致，main.py 导入的本地模块全部入包；解压后 `main.py --help` 通过，包内 `seed_facts` 对 sheet 需求改写 37 个场景。全套单元测试仅两个端口计时测试失败，未改动的 v10 在相同负载下同样失败。未执行线上评测。
+
+## v11-data-seed（工作区）：seed 冲突裁决
+
+来源：v10.0 sheet `819388a5f77b`。需求用 5 种方式描述同一个 `Q3 Sales` 种子：`Item/Qty` 在 A1:B2（22 个场景）、`A1=2, B1=3`（15 个）与表头表格 `Region/Sales/Status`（26 个）互相冲突。运行按节点改写 seed（A1 `Item` → `2` → `Region`），审查把每次翻转都判为 app_error。
+
+- 新模块 `seed_facts.py`：从 GIVEN 的 “evaluation seed contains …” 句子中机械提取已定位的单元格值（`A1=2`、`cell A1 value X`、带表头/行值的区域），不解析字面量内部的句点。按场景数取多数，兼容的描述并入同一个 canonical seed。冲突的场景保留非单元格部分，并追加 “Scenario setup (not part of the seed): … the user enters these starting values first: `Item` in A1, …”；THEN 中复述的 seed 同步改写。无位置的公式只在引用全部可解析时才顺延放置（`=A1+B1`、`=C1*2` → C1、D1），否则保持无位置。
+- `Flow.run` 把原始需求树交给平台 traceability，之后只使用裁决后的副本：设计、实现提示、契约 INITIAL 与 SEED_DATA 自检、派生测试编译以及审查都读同一个 seed。设计提示、工具模式节点提示与 codegen 实现提示附 “SEED CONTRACT”，列出 canonical 单元格，并声明冲突场景自行输入起始值。日志 `[seed] …` 与指标 `seed_resolution` 记录裁决结果。
+- 派生测试：机械编译器识别 setup 句子，入口脚本在打开 seed 记录后调用新 helper `h.typeCells` 输入起始值，再断言。审查 DSL 规定先 `cell_type` 输入 setup 值，校验拒绝缺少 setup 输入或在输入前就断言 setup 单元格的提案。
+- sheet 实测：裁决前派生套件同时断言 A1=`Region`（5 处）与 A1=`2`（4 处），必有一方失败；契约要求把 `Item/Qty`、`A1=2` 写入 seed。裁决后 canonical seed 为 A1:C4 的 `Region/Sales/Status` 表，37 个场景改为自行输入；A1=`Item`/`2` 的 9 处断言全部在 `typeCells` 之后；seed 字面量只剩 canonical 值。24 个 spec 文件在 Playwright 中全部加载。github 的 seed 描述互相兼容，需求树保持不变。
+- 验证：全套单元测试除两个端口计时测试外全部通过；这两个测试在高负载（load 约 9）下于未改动的 v10 worktree 上同样失败。未执行线上评测。
+
 ## v10.1（工作区）：路由注册表、测试数据隔离与轮次预算
 
 来源：v10.0 线上运行 sheet `819388a5f77b`（6/100）与 github `6c1f2882e3df`（取消于 25/47 节点）的日志与下载产物分析。

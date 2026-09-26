@@ -135,6 +135,7 @@ from derived_spec_audit import repair_failed_generated_specs, replace_failed_tes
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
 from web_checks import introduced_route_conflicts, route_table_note, scaffold_issues  # noqa: E402
+from seed_facts import SeedResolution, resolve_seeds, seed_contract_note  # noqa: E402
 
 BUNDLE_DIR = Path(__file__).resolve().parent
 
@@ -1812,6 +1813,12 @@ TASK_NEUTRAL_HELPERS = {
 }
 
 
+def seed_contract_text(flow) -> str:
+    """The resolved seed contract for prompts ("" without a resolved conflict)."""
+    resolution = getattr(flow, "seed_resolution", None)
+    return seed_contract_note(resolution) if isinstance(resolution, SeedResolution) else ""
+
+
 def read_text_or_empty(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8", errors="replace")
@@ -2316,6 +2323,23 @@ class Flow:
         return 2 * self.final_measurement_reserve() + self.repair_minimum()
 
     # -- helpers ----------------------------------------------------------
+    def resolve_seed_conflicts(self, tree: dict) -> dict:
+        """Choose one seed when the GIVENs describe the seeded records differently
+        (see seed_facts); conflicting scenarios enter their own starting values."""
+        resolution = resolve_seeds(tree)
+        self.seed_resolution = resolution
+        if not resolution.conflicting:
+            return tree
+        detail = "; ".join(f"{v.scenarios} scenario(s) set " + ", ".join(
+            f"{ref}={mine!r} (seed {theirs!r})" for ref, (mine, theirs) in list(v.conflicts.items())[:4])
+            for v in resolution.conflicting.values())
+        log(f"[seed] {len(resolution.variants)} seed descriptions; canonical seed has "
+            f"{len(resolution.canonical)} cell value(s); {resolution.rewritten} scenario(s) rewritten to enter "
+            f"their own starting values: {detail}")
+        self.metric("seed_resolution", variants=len(resolution.variants), canonical_cells=len(resolution.canonical),
+                    conflicting=len(resolution.conflicting), rewritten=resolution.rewritten)
+        return resolution.tree
+
     def note_turn(self, label: str) -> None:
         """The turn cap bounds build turns (implement/repair). Spec reviews and
         the design turn are short, text-only and bounded by their own count:
@@ -2684,7 +2708,7 @@ class Flow:
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         if getattr(self, "generic_template_installed", False):
             rules += GENERIC_TEMPLATE_NOTE + route_table_note(self.output_dir)
-        rules += stack_note(self.output_dir)
+        rules += stack_note(self.output_dir) + seed_contract_text(self)
         # The harness has already written package.json, which is enough for
         # has_app() but not for a runnable backend. Keep existing sources while
         # explicitly requiring the missing entry in this generation request.
@@ -2979,7 +3003,8 @@ class Flow:
         if self.codegen_mode() and os.environ.get("OCTOS_SKELETON_ALWAYS") != "1":
             if not self.evolution:
                 log(f"[flow] {len(ordered)}-node tree: codegen mode, harness manifests replace the skeleton turn")
-            self.app_design(tree, ordered)
+            if self.app_design(tree, ordered):
+                self.mark_designed(ordered)
         elif not self.evolution and (len(ordered) >= self.skeleton_min_nodes
                                      or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
             self.skeleton(tree)
@@ -3037,7 +3062,7 @@ class Flow:
             # An existing app is its own design; only a stored design made for
             # this exact tree is trusted over the code.
             return None
-        prompt = stack_note(self.output_dir) + APP_DESIGN_PROMPT.format(outline=outline)
+        prompt = stack_note(self.output_dir) + seed_contract_text(self) + APP_DESIGN_PROMPT.format(outline=outline)
         deadline = time.monotonic() + self.design_timeout
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
@@ -3571,6 +3596,22 @@ class Flow:
                 error = 'Invalid installed-helper imports; no changes applied: ' + '; '.join(interface_errors[:4])
                 self.pending_corrections.append(error)
                 return result(False, error, 'helper_contract_error')
+            from generation_checks import missing_export_errors
+            export_errors = missing_export_errors(candidates, files)
+            if export_errors:
+                # Writing half of an interface change breaks the build for every
+                # later batch (v10.2 github: api.js). Requote both ends instead.
+                error = ('Broken module interface; no changes from this response were applied:\n'
+                         + "\n".join("- " + e for e in export_errors[:4]))
+                self.pending_corrections.append(error)
+                targets = {rel for e in export_errors
+                           for rel in re.findall(r"frontend/[\w./-]+\.(?:jsx?|tsx?|mjs)", e)
+                           if (self.output_dir / rel).is_file()}
+                self.last_codegen_refused.update(targets)
+                if hasattr(self, "refused_paths"):
+                    self.refused_paths.update(targets)
+                log(f"[codegen] {label}: {error.splitlines()[0]} {export_errors[0][:200]}")
+                return result(False, error, "export_contract")
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
             self.last_codegen_no_change = not written and not refused
@@ -5146,6 +5187,42 @@ class Flow:
             return result
         return ok, text
 
+    def mark_designed(self, ordered: list[dict]) -> None:
+        """One application design covers every leaf: show them all as designed,
+        in dependency order, before any implementation starts. Otherwise the
+        Canvas lists only the leaves a wave happened to reach (v10.2 sheet
+        17d24626341c: 10 of 24 leaves visible, in wave order)."""
+        if getattr(self, "events", None) is None:
+            return  # no platform event client (unit tests, dry runs)
+        for node in ordered:
+            node_id = str(node.get("id"))
+            if node_id in getattr(self, "_designed_ids", set()):
+                continue
+            self._designed_ids = getattr(self, "_designed_ids", set()) | {node_id}
+            self.mark("design_started", node_id)
+            self.mark("design_done", node_id, "covered by the application design")
+
+    def repair_wave_build(self, errors: list[str]) -> bool:
+        """A confirmed build/source error left by an earlier wave breaks every
+        later wave's completion check. Repair it before the next group instead
+        of deferring each following leaf (v10.2 github 5d65674359a4: one missing
+        api.js export deferred every wave after 01:23)."""
+        digest = "\n".join(errors)[:3000]
+        log(f"[flow] whole-app waves: build/source check still failing before the next group; "
+            f"focused repair first: {errors[0].splitlines()[0][:200] if errors[0] else ''}")
+        self.metric("wave_build_repair", errors=len(errors))
+        self.whole_app_startup_repair("source check failed:\n" + digest)
+        # Re-check the tree as it is now, whichever path (codegen or tools) repaired it.
+        self.last_codegen_written = sorted(set(getattr(self, "_generation_gate_paths", ()) or ())
+                                           | {"frontend/package.json"})
+        self._generation_checked_versions = None
+        self._generation_gate_result = None
+        self.generation_batch_check("wave build repair check")
+        gate = getattr(self, "_generation_gate_result", None)
+        repaired = not (isinstance(gate, dict) and gate.get("errors"))
+        log(f"[flow] whole-app waves: build repair {'cleared the check' if repaired else 'did not clear the check'}")
+        return repaired
+
     def generation_batch_check(self, label):
         changed = getattr(self, 'last_codegen_written', [])
         if not changed or not hasattr(self, 'max_total_tokens'):
@@ -5991,10 +6068,36 @@ class Flow:
         # later check clears them; otherwise their fix is refused forever.
         self._wave_error_files = set()
         marked: set[str] = set()
+        # Waves pay off only while groups keep landing. A run of leaves that
+        # cannot fit or finish goes to node flow (v10.2 sheet: 18 of 24 leaves
+        # deferred one by one over 53 minutes).
+        max_deferrals = max(1, int(os.environ.get("OCTOS_ARC_WAVE_MAX_DEFERRALS", "3")))
+        deferred_run = 0
+        repaired_builds: set[str] = set()
         while start < len(ordered):
             if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
                 log("[flow] whole-app waves: insufficient budget; measuring any partial application")
                 return wave > 0
+            gate = getattr(self, "_generation_gate_result", None)
+            gate_errors = list(gate.get("errors") or []) if isinstance(gate, dict) else []
+            if wave and gate_errors:
+                digest = "\n".join(gate_errors)[:3000]
+                if digest in repaired_builds or not self.repair_wave_build(gate_errors):
+                    rest = [str(node.get("id")) for node in ordered[start:]]
+                    log(f"[flow] whole-app waves: build still failing after a focused repair; handing "
+                        f"{len(rest)} remaining leaves to node flow")
+                    self.whole_app_deferred_ids.update(rest)
+                    break
+                repaired_builds.add(digest)
+            if deferred_run >= max_deferrals:
+                rest = [str(node.get("id")) for node in ordered[start:]]
+                log(f"[flow] whole-app waves: {deferred_run} consecutive leaves deferred; handing the "
+                    f"remaining {len(rest)} leaves to node flow")
+                self.metric("wave_early_stop", deferred_run=deferred_run, remaining=len(rest))
+                self.whole_app_deferred_ids.update(rest)
+                break
+            landed_before = len(self.whole_app_generated_ids)
+            start_before = start
             # Files an earlier attempt at this position wrote or had refused:
             # a split or same-wave retry must see them whole, or its rewrite
             # of a file it never saw is refused again.
@@ -6098,8 +6201,9 @@ class Flow:
                 for node_id in ids:
                     if node_id not in marked:
                         marked.add(node_id)
-                        self.mark("design_started", node_id)
-                        self.mark("design_done", node_id, "covered by whole-application design")
+                        if node_id not in getattr(self, "_designed_ids", set()):
+                            self.mark("design_started", node_id)
+                            self.mark("design_done", node_id, "covered by whole-application design")
                         self.mark("implementation_started", node_id, f"whole-app wave {wave + 1}")
                 self._generation_gate_result = None
                 before_wave = self.head()
@@ -6194,6 +6298,8 @@ class Flow:
                 start += size
                 wave += 1
                 break
+            if start != start_before:
+                deferred_run = 0 if len(self.whole_app_generated_ids) > landed_before else deferred_run + 1
         log(f"[flow] whole-app waves: {len(self.whole_app_generated_ids)} complete, "
             f"{len(self.whole_app_partial_ids)} partial, {len(self.whole_app_deferred_ids)} deferred leaves "
             f"in {wave} applied waves "
@@ -6637,7 +6743,7 @@ class Flow:
             design_text = GENERIC_TEMPLATE_NOTE + design_text
             if not (self.output_dir / "frontend" / "src" / "index.html").is_file():
                 design_text += "Only shared infrastructure exists so far; create the required frontend page(s).\n"
-        design_text = stack_note(self.output_dir) + design_text
+        design_text = stack_note(self.output_dir) + seed_contract_text(self) + design_text
         if self.has_app():
             preamble = NODE_PREAMBLE_EXTEND.format(node_id=node_id)
         else:  # single-node tree without a skeleton turn: create the app in this turn
@@ -8196,8 +8302,10 @@ class Flow:
             log(f"[flow] adapter source sha256={provenance['sha256']} ({provenance['scope']})")
             previous = previous_requirement_records(self.output_dir)
             tree = load_requirement_tree(self.req_dir)
-            self.requirement_tree = tree
             self.runtime.traceability.store_requirement_tree(tree)
+            # Generation reads one consistent seed; the platform keeps the original tree.
+            tree = self.resolve_seed_conflicts(tree)
+            self.requirement_tree = tree
             ordered = topo_order(tree)
             self.requirement_nodes = {str(node.get("id")): node for node in ordered}
             if not ordered:

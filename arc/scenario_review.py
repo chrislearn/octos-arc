@@ -16,12 +16,14 @@ import json
 import re
 from typing import Iterable, Mapping
 
+from seed_facts import setup_cells
 from scenario_tests import (Fixtures, spec_header, _ANY_LITERAL, _compile_scenario, _descriptive, _node_text, _sentences, _ts,
                             literal_prefix)
 
 OPS = {"open", "click", "hover", "fill", "check", "press", "set_clipboard", "expect_visible", "expect_absent",
        "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download",
-       "expect_clipboard"}
+       "expect_clipboard", "cell_context", "header_context", "expect_selected"}
+HEADER = re.compile(r"^(?:[1-9][0-9]{0,4}|[A-Z]{1,3})$")
 # "open the home page" needs no literal: it is the application root.
 HOME_TARGET = re.compile(r"^(?:the\s+)?(?:application\s+|app\s+|workbook\s+)?home(?:\s*page)?$", re.I)
 # Template wording of the task itself ("the requested workflow") is never a literal.
@@ -118,6 +120,11 @@ Operations (use only these):
                                          formula quoted by the requirement); commit with {"op": "press", "key": "Enter"}
   {"op": "expect_cell", "target": "C1", "value": V}  assert the cell shows V (seeded value or number; "" = the
                                          cell is empty, e.g. after Escape cancels an edit or after Undo)
+  {"op": "cell_context", "target": "A1"}  right-click the cell (opens the grid context menu, e.g. "Paste")
+  {"op": "header_context", "target": "2"}  right-click row header "2" or column header "B" (opens its menu;
+                                         then click the menu command the requirement names)
+  {"op": "expect_selected", "target": "A1:B2"}  assert exactly this rectangle is selected: every gridcell in it
+                                         has aria-selected="true" and the cells just outside it "false"
   {"op": "expect_role", "role": R, "target": L}  assert an element with ARIA role R and accessible name L
                                          (roles: grid, gridcell, tab, dialog, menu, menuitem, button, link, ...)
   {"op": "upload", "target": L, "value": "$CSV"}  choose a file in the file input named/labelled L; $CSV is a
@@ -163,6 +170,9 @@ Never register or create records with the fixture account or with a word taken f
 prose as a name; use the placeholders for anything new. Placeholders are for records the script
 CREATES; to refer to an EXISTING account, repository or record (adding a member, assigning a reviewer)
 use the seeded name from ALLOWED LITERALS -- a $NEW_USERNAME account does not exist yet.
+A GIVEN sentence starting "Scenario setup (not part of the seed):" lists starting cell values that are NOT
+in the seed: right after opening the seeded record, enter each listed value with cell_type (in the listed cell)
+followed by press Enter, then perform the scenario. Never expect a setup value before typing it.
 If the scenario needs a starting state that the allowed literals cannot establish (an existing record
 the requirement does not name, a second account with credentials), set "skip".
 "signed_in": true means the script first signs in with the fixture account; do not add sign-in steps.
@@ -326,6 +336,9 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "required_then_literal": (novel_outcomes[0] if include_all
                                                       and len(novel_outcomes) == 1 else ""),
                             "seed_kinds": parsed.seed_kinds,
+                            "setup_cells": [cell for step in scenario.get("steps") or []
+                                            if str(step.get("keyword") or "").upper() == "GIVEN"
+                                            for cell in setup_cells(str(step.get("content") or ""))],
                             "controls": controls, "signed_in": parsed.signed_in,
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
                                                        r"\b[A-Z]{1,3}[0-9]{1,4}\s*=",
@@ -496,6 +509,12 @@ def _emit(step: dict) -> str | None:
         return f"await h.expectCell(page, {_ts(target)}, {_ts(parts(str(step.get('value') or ''))[0] if step.get('value') else '')});"
     if op == "expect_role":
         return f"await h.expectRole(page, {_ts(str(step.get('role')))}, {_ts(target)});"
+    if op == "cell_context":
+        return f"await h.contextClickCell(page, {_ts(target)});"
+    if op == "header_context":
+        return f"await h.contextClickHeader(page, {_ts(target)});"
+    if op == "expect_selected":
+        return f"await h.expectSelected(page, {_ts(target)});"
     if op == "upload":
         csv = str(step.get("csv") or "").replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
         return f"await h.uploadFile(page, {_ts(target)}, '{csv}');"
@@ -524,6 +543,20 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return problems + ["no steps"]
     if len(steps) > MAX_STEPS:
         problems.append(f"{len(steps)} steps; at most {MAX_STEPS}")
+    typed_at: dict[str, int] = {}
+    for index, step in enumerate(steps):
+        if isinstance(step, dict) and step.get("op") == "cell_type":
+            typed_at.setdefault(str(step.get("target") or "").strip().upper(), index)
+    for ref, value in target.get("setup_cells") or []:
+        if ref not in typed_at:
+            problems.append(f"the GIVEN scenario setup enters {value!r} in {ref}: start with cell_type {ref} "
+                            f"{value!r} + press Enter (it is not seed data)")
+            continue
+        early = next((index for index, step in enumerate(steps) if isinstance(step, dict)
+                      and step.get("op") == "expect_cell" and str(step.get("target") or "").strip().upper() == ref
+                      and index < typed_at[ref]), None)
+        if early is not None:
+            problems.append(f"expect_cell {ref} before the scenario setup typed it; type the setup values first")
     action_steps = [(index, str(step.get("target") or "")) for index, step in enumerate(steps)
                     if isinstance(step, dict) and step.get("op") in {"open", "click", "check", "expect_download"}]
     cursor = -1
@@ -699,6 +732,22 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                     problems.append(f"step {index}: CSV export must check downloaded contents for a seeded "
                                     "cell or imported row value")
             asserted = True
+            continue
+        if op in {"cell_context", "header_context", "expect_selected"}:
+            if not target.get("has_grid", True):
+                problems.append(f"step {index}: {op} needs a spreadsheet grid; this product has none")
+                continue
+            text = value.strip() if isinstance(value, str) else ""
+            if op == "cell_context" and not CELL.match(text):
+                problems.append(f"step {index}: cell_context target {json.dumps(value)} is not a cell such as A1")
+            if op == "header_context" and not HEADER.match(text):
+                problems.append(f"step {index}: header_context target {json.dumps(value)} is not a row number "
+                                "such as 2 or a column letter such as B")
+            if op == "expect_selected":
+                if not (CELL.match(text) or RANGE.match(text)):
+                    problems.append(f"step {index}: expect_selected target {json.dumps(value)} is not a cell or "
+                                    "a range such as A1:B2")
+                asserted = True
             continue
         if op == "expect_role":
             role = step.get("role")

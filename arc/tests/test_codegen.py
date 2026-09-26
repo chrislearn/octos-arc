@@ -314,6 +314,30 @@ class EditTurnTests(unittest.TestCase):
         self.assertEqual((self.root / 'backend/server.js').read_text(), entry)
         self.assertIn('backend/server.js is the installed generic entry', self.flow.pending_corrections[-1])
 
+    def test_should_reject_a_page_importing_a_name_its_refused_module_lacks_and_requote_it(self):
+        # v10.2 github 5d65674359a4: the page landed, the api.js rewrite was refused, the build broke.
+        from unittest.mock import Mock
+        api = self.root / 'frontend/src/api.js'
+        api.write_text("export function listRepos() {}\n")
+        self.flow.repair_source_index = Mock(return_value=Mock(sources={
+            'frontend/src/api.js': api.read_text(), 'frontend/src/index.html': ''}))
+        reply = ("<<<FILE frontend/src/pages/Org.jsx>>>\nimport {getOrganization} from '../api.js';\n"
+                 "export default function Org() { return null; }\n<<<END FILE>>>\n"
+                 "<<<FILE frontend/src/api.js>>>\nexport function listRepos() {}\nexport function getOrganization() {}\n"
+                 "<<<END FILE>>>")
+        self.flow.text_turn.return_value = True, reply
+        ok, message = self.flow.codegen_turn('new page', 60, 'REQ-2 implement')
+        self.assertFalse(ok)
+        self.assertEqual(self.flow.last_codegen_outcome, 'export_contract')
+        self.assertFalse((self.root / 'frontend/src/pages/Org.jsx').exists())
+        self.assertIn('frontend/src/api.js', self.flow.last_codegen_refused)
+        self.assertIn('imports getOrganization', message)
+        # With api.js shown whole, the same reply applies.
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn('--- frontend/src/api.js ---\n' + api.read_text(), 60, 'REQ-2 retry')
+        self.assertTrue(ok)
+        self.assertIn('getOrganization', api.read_text())
+
     def test_mixed_file_and_edit_for_one_path_is_refused(self):
         reply = (self.edit('frontend/src/index.html', 'old', 'new') + '\n'
                  '<<<FILE frontend/src/index.html>>>\n<p>whole</p>\n<<<END FILE>>>')

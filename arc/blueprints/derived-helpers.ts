@@ -327,6 +327,69 @@ export async function typeInCell(page: Page, ref: string, value: string): Promis
   await page.keyboard.type(value);
 }
 
+/** Right-click a gridcell: the grid context menu ("Paste"). */
+export async function contextClickCell(page: Page, ref: string): Promise<void> {
+  const cell = cellLocator(page, ref);
+  await expect(cell, `gridcell "${ref}" is visible on ${page.url()}`).toBeVisible({ timeout: 8000 });
+  await cell.click({ button: 'right' });
+}
+
+/** Right-click row header "2" (rowheader) or column header "B" (columnheader). */
+export async function contextClickHeader(page: Page, name: string): Promise<void> {
+  const role = /^\d+$/.test(name) ? 'rowheader' : 'columnheader';
+  const header = page.getByRole(role, { name, exact: true }).first();
+  await expect(header, `${role} "${name}" is visible on ${page.url()}`).toBeVisible({ timeout: 8000 });
+  await header.click({ button: 'right' });
+}
+
+function cellParts(ref: string): [number, number] {
+  const match = /^([A-Z]+)(\d+)$/.exec(ref);
+  if (!match) throw new Error(`not a cell reference: ${ref}`);
+  let column = 0;
+  for (const char of match[1]) column = column * 26 + char.charCodeAt(0) - 64;
+  return [column, Number(match[2])];
+}
+
+function cellName(column: number, row: number): string {
+  let letters = '';
+  for (let n = column; n > 0; n = Math.floor((n - 1) / 26)) letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters;
+  return `${letters}${row}`;
+}
+
+/** Exactly this rectangle is selected: aria-selected="true" inside, "false" on the cells just outside. */
+export async function expectSelected(page: Page, range: string): Promise<void> {
+  await settle(page);
+  const [first, last = first] = range.split(':');
+  const [c1, r1] = cellParts(first);
+  const [c2, r2] = cellParts(last);
+  const [left, right, top, bottom] = [Math.min(c1, c2), Math.max(c1, c2), Math.min(r1, r2), Math.max(r1, r2)];
+  for (let row = top; row <= bottom; row += 1) {
+    for (let column = left; column <= right; column += 1) {
+      const ref = cellName(column, row);
+      await expect(cellLocator(page, ref), `gridcell "${ref}" is selected on ${page.url()}`)
+        .toHaveAttribute('aria-selected', 'true', { timeout: 8000 });
+    }
+  }
+  const outside = [cellName(right + 1, top), cellName(left, bottom + 1)];
+  if (left > 1) outside.push(cellName(left - 1, top));
+  if (top > 1) outside.push(cellName(left, top - 1));
+  for (const ref of outside) {
+    const cell = cellLocator(page, ref);
+    if (await cell.count()) {
+      await expect(cell, `gridcell "${ref}" outside ${range} is not selected on ${page.url()}`)
+        .toHaveAttribute('aria-selected', 'false', { timeout: 8000 });
+    }
+  }
+}
+
+/** Enter a scenario's own starting values (GIVEN "Scenario setup"): click, type, Enter per cell. */
+export async function typeCells(page: Page, cells: Array<[string, string]>): Promise<void> {
+  for (const [ref, value] of cells) {
+    await typeInCell(page, ref, value);
+    await page.keyboard.press('Enter');
+  }
+}
+
 export async function expectCell(page: Page, ref: string, value: string): Promise<void> {
   await settle(page);
   const cell = cellLocator(page, ref);

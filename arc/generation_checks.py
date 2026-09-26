@@ -101,6 +101,74 @@ def missing_local_import_errors(sources, changed):
     return errors[:8]
 
 
+_JS_SUFFIXES = ('.js', '.jsx', '.ts', '.tsx', '.mjs')
+_NAMED_IMPORT = re.compile(r'''(?m)^\s*import\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}\s*from\s*['"](\.{1,2}/[^'"\n]+)['"]''')
+_DECLARED_EXPORT = re.compile(r'(?m)^\s*export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)')
+_EXPORT_LIST = re.compile(r'(?m)^\s*export\s*\{([^{}]*)\}(?!\s*from)')
+_EXPORT_FROM = re.compile(r'(?m)^\s*export\s*(?:\*|\{[^{}]*\})\s*from\b')
+
+
+def _without_comments(source):
+    return re.sub(r'/\*[\s\S]*?\*/|^\s*//[^\n]*', '', source, flags=re.M)
+
+
+def _module_exports(source):
+    """Named exports of an ES module, or None when they cannot be known
+    statically (re-exports, CommonJS)."""
+    source = _without_comments(source)
+    if _EXPORT_FROM.search(source) or 'module.exports' in source:
+        return None
+    names = set(_DECLARED_EXPORT.findall(source))
+    for group in _EXPORT_LIST.findall(source):
+        for part in group.split(','):
+            part = part.strip()
+            if part:
+                names.add(re.split(r'\s+as\s+', part)[-1].strip())
+    return names
+
+
+def _resolve_module(importer, rel, sources):
+    base = posixpath.normpath(posixpath.join(posixpath.dirname(importer), rel))
+    candidates = [base] if base.endswith(_JS_SUFFIXES) else []
+    candidates += [base + suffix for suffix in _JS_SUFFIXES]
+    candidates += [base + '/index' + suffix for suffix in _JS_SUFFIXES]
+    return next((path for path in candidates if path in sources), None)
+
+
+def missing_export_errors(sources, changed):
+    """Named imports of local frontend modules that the module does not export.
+
+    Checks every import edge touching a changed file in either direction: a
+    new page importing a name the shared module lacks, and a rewrite of the
+    shared module that drops a name an unchanged page still imports. Vite
+    fails the whole build on either (v10.2 github: api.js).
+    """
+    changed = set(changed)
+    exports_cache = {}
+    errors = []
+    for importer in sorted(sources):
+        if not importer.startswith('frontend/') or not importer.endswith(_JS_SUFFIXES):
+            continue
+        for group, rel in _NAMED_IMPORT.findall(_without_comments(sources[importer])):
+            target = _resolve_module(importer, rel, sources)
+            if target is None or (importer not in changed and target not in changed):
+                continue
+            if target not in exports_cache:
+                exports_cache[target] = _module_exports(sources[target])
+            exported = exports_cache[target]
+            if exported is None:
+                continue
+            wanted = [re.split(r'\s+as\s+', part.strip())[0].strip() for part in group.split(',') if part.strip()]
+            wanted = [name for name in wanted if name != 'default' and not name.startswith('type ')]
+            missing = [name for name in wanted if name not in exported]
+            if missing:
+                available = ', '.join(sorted(exported)[:20]) or 'nothing'
+                errors.append(f'{importer} imports {", ".join(missing)} from {target}, which does not export '
+                              f'{"them" if len(missing) > 1 else "it"} (exports: {available}). Add the export to '
+                              f'{target} or change the import; keep every export other files still use.')
+    return errors[:8]
+
+
 def _bounded_run(command, cwd, timeout):
     """A timed-out npm build must not leave its compiler descendants running."""
     with subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -548,7 +616,8 @@ def contract_warnings(sources, changed):
 
 def check_batch(root: Path, changed, budget=30, sources=None):
     deadline = time.monotonic() + budget
-    errors = helper_import_errors(sources or {}, changed) + missing_local_import_errors(sources or {}, changed)
+    errors = (helper_import_errors(sources or {}, changed) + missing_local_import_errors(sources or {}, changed)
+              + missing_export_errors(sources or {}, changed))
     checked, deferred = [], []
 
     def run(command, cwd, label):

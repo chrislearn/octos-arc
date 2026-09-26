@@ -209,6 +209,137 @@ class WholeAppTests(unittest.TestCase):
             self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
         self.assertEqual(flow.commit.call_count, 1)
 
+    def five_leaves(self):
+        nodes = [{"id": f"L{i}", "name": f"L{i}", "type": "ATOMIC", "description": f"Feature {i}"} for i in range(1, 6)]
+        for node in nodes:
+            (self.flow.tests_dir / f"{node['id']}.spec.ts").write_text(f"test('{node['id']}', () => {{}});")
+        self.flow.spec_map = {node["id"]: [f"{node['id']}.spec.ts"] for node in nodes}
+        return {"id": "ROOT", "type": "FOLDER", "children": nodes}, nodes
+
+    def test_waves_hand_the_rest_to_node_flow_after_consecutive_deferrals(self):
+        # v10.2 sheet 17d24626341c: 18 of 24 leaves were deferred one at a time over 53 minutes.
+        flow = self.flow
+        tree, nodes = self.five_leaves()
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value=None)   # no leaf fits its closure
+        flow.split_oversized_hub = Mock(return_value=False)
+        flow.codegen_turn = Mock()
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1", "OCTOS_ARC_WAVE_MAX_DEFERRALS": "2"}):
+            self.assertFalse(flow.whole_app_waves(tree, nodes))
+        flow.codegen_turn.assert_not_called()
+        self.assertEqual(flow.whole_app_deferred_ids, {"L1", "L2", "L3", "L4", "L5"})
+        self.assertEqual(flow.codegen_implement_prompt.call_count, 2, "stops after two deferred leaves")
+
+    def test_a_landed_wave_resets_the_deferral_run(self):
+        flow = self.flow
+        tree, nodes = self.five_leaves()
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        fits = iter([None, "prompt", None, "prompt", None])   # L1 no, L2 yes, L3 no, L4 yes, L5 no
+        flow.codegen_implement_prompt = Mock(side_effect=lambda *a, **k: next(fits))
+        flow.split_oversized_hub = Mock(return_value=False)
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            return True, "files"
+
+        flow.codegen_turn = Mock(side_effect=generated)
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1", "OCTOS_ARC_WAVE_MAX_DEFERRALS": "2"}):
+            self.assertTrue(flow.whole_app_waves(tree, nodes))
+        self.assertEqual(flow.whole_app_generated_ids, {"L2", "L4"})
+        self.assertEqual(flow.whole_app_deferred_ids, {"L1", "L3", "L5"})
+
+    def test_a_broken_build_is_repaired_before_the_next_wave_not_deferred_leaf_by_leaf(self):
+        # v10.2 github 5d65674359a4: a missing api.js export failed every later wave's check.
+        flow = self.flow
+        tree, nodes = self.five_leaves()
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="prompt")
+        build_error = {"errors": ["frontend build:\nsrc/pages/Org.jsx: \"getOrganization\" is not exported"]}
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow._generation_gate_result = build_error if flow.codegen_turn.call_count == 1 else {"errors": []}
+            return True, "files"
+
+        flow.codegen_turn = Mock(side_effect=generated)
+        repairs = []
+
+        def repair(errors):
+            repairs.append(errors)
+            flow._generation_gate_result = {"errors": []}
+            return True
+
+        flow.repair_wave_build = Mock(side_effect=repair)
+        flow.whole_app_wave_gaps = Mock(side_effect=lambda ids: (
+            ["source check: frontend build"] if (flow._generation_gate_result or {}).get("errors") else []))
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(tree, nodes))
+        self.assertEqual(len(repairs), 1)
+        self.assertIn("getOrganization", repairs[0][0])
+        self.assertEqual(flow.whole_app_generated_ids, {"L2", "L3", "L4", "L5"})
+
+    def test_an_unrepairable_build_hands_the_remaining_leaves_to_node_flow(self):
+        flow = self.flow
+        tree, nodes = self.five_leaves()
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="prompt")
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            flow._generation_gate_result = {"errors": ["frontend build: broken"]}
+            return True, "files"
+
+        flow.codegen_turn = Mock(side_effect=generated)
+        flow.repair_wave_build = Mock(return_value=False)
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        with patch.dict("os.environ", {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            flow.whole_app_waves(tree, nodes)
+        self.assertEqual(flow.codegen_turn.call_count, 1)
+        flow.repair_wave_build.assert_called_once()
+        self.assertEqual(flow.whole_app_deferred_ids, {"L2", "L3", "L4", "L5"})
+
+    def test_wave_build_repair_rechecks_the_tree_it_repaired(self):
+        flow = self.flow
+        flow.whole_app_startup_repair = Mock(return_value=True)
+        flow._generation_gate_paths = {"frontend/src/pages/Org.jsx"}
+
+        def check(label):
+            self.assertEqual(label, "wave build repair check")
+            self.assertIn("frontend/src/pages/Org.jsx", flow.last_codegen_written)
+            flow._generation_gate_result = {"errors": []}
+
+        flow.generation_batch_check = Mock(side_effect=check)
+        self.assertTrue(flow.repair_wave_build(["frontend build:\nOrg.jsx: getOrganization is not exported"]))
+        self.assertIn("getOrganization", flow.whole_app_startup_repair.call_args.args[0])
+        flow.generation_batch_check = Mock(side_effect=lambda label: setattr(
+            flow, "_generation_gate_result", {"errors": ["still broken"]}))
+        self.assertFalse(flow.repair_wave_build(["frontend build: broken"]))
+
+    def test_every_leaf_is_marked_designed_in_dependency_order_once(self):
+        flow = self.flow
+        flow.events = Mock()
+        flow.mark_designed(self.nodes)
+        flow.mark_designed(self.nodes)
+        designed = [c.args[0] for c in flow.events.mark_design_done.call_args_list]
+        self.assertEqual(designed, ["A", "B", "C"])
+
+    def test_waves_do_not_repeat_design_marks_for_designed_leaves(self):
+        flow = self.flow
+        flow.events = Mock()
+        flow.mark_designed(self.nodes)
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value="prompt")
+
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            return True, "files"
+
+        flow.codegen_turn = Mock(side_effect=generated)
+        flow.whole_app_waves(self.tree, self.nodes)
+        self.assertEqual(flow.events.mark_design_done.call_count, 3)
+        self.assertEqual([c.args[0] for c in flow.events.mark_implementation_done.call_args_list],
+                         ["A", "B", "C"])
+
     def test_waves_still_have_a_global_contract_if_design_turn_failed(self):
         flow = self.flow
         flow.codegen_implement_prompt = Mock(return_value="wave prompt")
