@@ -16,6 +16,31 @@ from pathlib import Path
 LEGACY_RAW_REQUEST_SHA256 = 'd88375d1a8519a79ba19d5cb9191f63fd0b77d447c258dceeee407f3d02e393b'
 
 
+def preflight_failure_evidence(error) -> dict:
+    """Keep a useful, secret-free reason instead of a bare failed/120s metric."""
+    raw = str(error or '')
+    low = raw.lower()
+    if re.search(r'\b(?:syntaxerror|parse error|module not found|failed to resolve import)\b', low):
+        cause = 'source_or_module'
+    elif re.search(r'\b(?:timed?\s*out|timeout|etimedout)\b', low):
+        cause = 'timeout'
+    elif re.search(r'\b(?:eai_again|enotfound|econnreset|econnrefused|network)\b', low):
+        cause = 'network'
+    elif re.search(r'\b(?:npm err|npm error|install|eresolve|e404)\b', low):
+        cause = 'dependency_install'
+    else:
+        cause = 'unknown'
+    safe = re.sub(r'https?://[^\s\]"\']+', '[url]', raw, flags=re.I)
+    safe = re.sub(r'(?i)\b(?:authorization|proxy-authorization)\s*[:=]\s*(?:bearer|basic)\s+\S+',
+                  'authorization=[redacted]', safe)
+    safe = re.sub(r'(?i)\b(?:bearer|basic)\s+\S+', 'credential=[redacted]', safe)
+    safe = re.sub(r'(?i)\b(authorization|api[_-]?key|token|password|secret)\s*[:=]\s*\S+',
+                  r'\1=[redacted]', safe)
+    safe = re.sub(r'\b[A-Za-z0-9+/_=-]{28,}\b', '[redacted]', safe)
+    return {'cause_class': cause, 'error_excerpt': safe[-500:],
+            'error_sha256': hashlib.sha256(raw.encode()).hexdigest()}
+
+
 def raw_request_adapter(source: str) -> bool:
     current = (Path(__file__).parent / 'blueprints/frontend-request.js').read_text()
     return source == current or hashlib.sha256(source.encode()).hexdigest() == LEGACY_RAW_REQUEST_SHA256
@@ -98,6 +123,93 @@ def missing_local_import_errors(sources, changed):
             if target not in sources:
                 errors.append(f'{path}: relative import {rel} resolves to missing {target}. '
                               'Fix the path or generate the module before the next batch.')
+    return errors[:8]
+
+
+_RELATIVE_REQUIRE = re.compile(r'''\brequire\(\s*(['"])(\.{1,2}/[^'"\n]+)\1\s*\)''')
+_RELATIVE_BACKEND_IMPORT = re.compile(
+    r'''(?m)^\s*import\s+(?:[^;\n]*?\s+from\s*)?(['"])(\.{1,2}/[^'"\n]+)\1''')
+_BACKEND_SUFFIXES = ('.js', '.cjs', '.mjs', '.json')
+
+
+def missing_backend_module_errors(sources, changed):
+    """Find literal backend module edges that would crash the current snapshot.
+
+    This only checks static local requires/imports touching changed files;
+    dynamic resolution remains a runtime concern. Nothing is executed.
+    """
+    errors = []
+    for importer in sorted(set(changed)):
+        if not importer.startswith('backend/') or not importer.endswith(('.js', '.cjs', '.mjs')):
+            continue
+        source = sources.get(importer, '')
+        opaque = [m.span() for m in re.finditer(
+            r'''//[^\n]*|/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`''', source)]
+        for match in list(_RELATIVE_REQUIRE.finditer(source)) + list(_RELATIVE_BACKEND_IMPORT.finditer(source)):
+            if any(left <= match.start() < right for left, right in opaque):
+                continue
+            rel = match.group(2)
+            base = posixpath.normpath(posixpath.join(posixpath.dirname(importer), rel))
+            if not base.startswith('backend/') or '?' in base or '#' in base:
+                continue
+            candidates = ([base] if base.endswith(_BACKEND_SUFFIXES) else
+                          [base + ext for ext in _BACKEND_SUFFIXES] +
+                          [base + '/index' + ext for ext in _BACKEND_SUFFIXES])
+            if not any(path in sources for path in candidates):
+                errors.append(f'{importer}: static module reference {rel} has no local module in current snapshot; '
+                              'generate it or correct the path before claiming the backend starts')
+    return errors[:8]
+
+
+_CJS_NAMED_REQUIRE = re.compile(
+    r'''(?m)^\s*(?:const|let|var)\s*\{([^{}\n]+)\}\s*=\s*require\(\s*['"](\.{1,2}/[^'"\n]+)['"]\s*\)''')
+_CJS_STATIC_EXPORT = re.compile(r'\bmodule\.exports\s*=\s*\{([^{}]*)\}\s*;?\s*$', re.S)
+
+
+def missing_backend_export_errors(sources, changed):
+    """Advisory for literal CJS destructuring against a simple final export object.
+
+    Dynamic/computed/spread exports are deliberately unknown. Check an edge
+    when either endpoint changed; a deleted export breaks unchanged callers.
+    """
+    changed = set(changed)
+    errors = []
+    for importer, source in sorted(sources.items()):
+        if not importer.startswith('backend/') or not importer.endswith(('.js', '.cjs')):
+            continue
+        opaque = [m.span() for m in re.finditer(
+            r'''//[^\n]*|/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`''', source)]
+        for match in _CJS_NAMED_REQUIRE.finditer(source):
+            if any(left <= match.start() < right for left, right in opaque):
+                continue
+            group, rel = match.groups()
+            target = _resolve_module(importer, rel, sources)
+            if target is None or (importer not in changed and target not in changed):
+                continue
+            exported_source = _without_comments(sources[target])
+            exports = _CJS_STATIC_EXPORT.search(exported_source)
+            if (not exports or len(re.findall(r'\bmodule\.exports\s*=', exported_source)) != 1
+                    or re.search(r'\b(?:exports|module\.exports)\s*\[|\bexports\.', exported_source)):
+                continue
+            entries = [entry.strip() for entry in exports.group(1).split(',') if entry.strip()]
+            if not entries or any('...' in entry or '[' in entry or ']' in entry for entry in entries):
+                continue
+            known = set()
+            for entry in entries:
+                match = re.fullmatch(r'''([A-Za-z_$][\w$]*)(?:\s*:\s*[\s\S]+)?''', entry)
+                if not match:
+                    known = set()
+                    break
+                known.add(match.group(1))
+            if not known:
+                continue
+            wanted = [item.strip().split(':', 1)[0].strip() for item in group.split(',') if item.strip()]
+            if not all(re.fullmatch(r'[A-Za-z_$][\w$]*', item) for item in wanted):
+                continue
+            missing = sorted(set(wanted) - known)
+            if missing:
+                errors.append(f'{importer}: {target} does not export {", ".join(missing)} '
+                              f'(static CJS exports: {", ".join(sorted(known))}); check caller and module')
     return errors[:8]
 
 
@@ -299,6 +411,10 @@ def nested_route_paths(source):
             paths.add(full)
         else:
             full = parent
+            # A pathless layout preserves its parent's URL. Its index child
+            # is the concrete route at that URL (including the root URL).
+            if re.search(r'\bindex\b', text):
+                paths.add(full or '/')
         if kind == 'open':
             stack.append(full)
     return paths
@@ -498,6 +614,12 @@ def contract_warnings(sources, changed):
     bundled_request = request_path in sources and raw_request_adapter(sources[request_path])
     bundled_collection = (collection_path in sources and
                           sources[collection_path] == (blueprints / 'collection.js').read_text())
+    collection_bindings = {}
+    if bundled_collection:
+        for owner_path, owner_source in sources.items():
+            if owner_path.startswith('backend/'):
+                collection_bindings[owner_path] = set(re.findall(
+                    r'\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*collection\s*\(', owner_source))
     owners = {}
     routes = {}
     for path, source in sources.items():
@@ -531,6 +653,22 @@ def contract_warnings(sources, changed):
                             'and existing-store behavior. Do not reset data or resurrect deleted records.')
     for path in sorted(affected):
         source = sources.get(path, '')
+        if bundled_collection and path.startswith('backend/') and path.endswith(('.js', '.cjs')):
+            receivers = set(collection_bindings.get(path, set()))
+            for match in re.finditer(r'''\b(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\(['"](\.[^'"]+)['"]\)''', source):
+                owner = posixpath.normpath(posixpath.join(posixpath.dirname(path), match.group(2)))
+                owner = next((name for name in (owner, owner + '.js', owner + '.cjs') if name in sources), '')
+                if owner:
+                    exported = re.search(r'\bmodule\.exports\s*=\s*\{([^}]+)\}', sources[owner])
+                    if exported:
+                        names = set(re.findall(r'\b[A-Za-z_$][\w$]*\b', exported.group(1)))
+                        receivers.update(set(re.findall(r'\b[A-Za-z_$][\w$]*\b', match.group(1)))
+                                         & names & collection_bindings.get(owner, set()))
+            for receiver in sorted(receivers):
+                if re.search(r'\b' + re.escape(receiver) + r'\s*\.\s*update\s*\(', source):
+                    warnings.append(f'COLLECTION_METHOD (heuristic): {path} calls {receiver}.update(), '
+                                    'but the bundled collection helper exposes patch(id, fields), not update(). '
+                                    'Verify the actual receiver and route behavior before changing it.')
         if bundled_collection and path.startswith('backend/routes/') and path.endswith(('.js', '.cjs')):
             # Returning a replacement array from collection.transact does not
             # replace data.items. This caught a real "deleted: N" false success.
@@ -605,6 +743,12 @@ def contract_warnings(sources, changed):
                 warnings.append(f'EMPTY_HANDLER (heuristic): {path} renders an interactive handler with '
                                 'an empty body. Connect the visible action to a state/request transition or '
                                 'remove the action; a successful build cannot verify behavior.')
+            if re.search(r'<Link\b(?:(?!</Link>).){0,500}\bonClick\s*=\s*\{\s*'
+                         r'(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*(?:[A-Za-z_$][\w$]*\.)?preventDefault\s*\(\s*\)',
+                         source, re.S):
+                warnings.append(f'INERT_LINK (heuristic): {path} renders a Link whose click handler '
+                                'prevents navigation. Verify that this visible link reaches its destination; '
+                                'do not add inert shortcuts solely to satisfy a reach test.')
             # A nested React Router layout receives its child route through
             # Outlet, even when the JSX nesting looks like children props.
             for layout in set(re.findall(
@@ -639,9 +783,16 @@ def contract_warnings(sources, changed):
 
 def check_batch(root: Path, changed, budget=30, sources=None):
     deadline = time.monotonic() + budget
-    errors = (helper_import_errors(sources or {}, changed) + missing_local_import_errors(sources or {}, changed)
+    errors = (helper_import_errors(sources or {}, changed)
+              + missing_local_import_errors(sources or {}, changed)
               + missing_export_errors(sources or {}, changed))
     checked, deferred = [], []
+    # A later wave may generate the missing local module. Keep the current
+    # snapshot marked unstartable, but never turn that gap into a test gate.
+    deferred.extend('backend module: ' + issue for issue in missing_backend_module_errors(
+        sources or {}, [path for path in (sources or {}) if path.startswith('backend/')]))
+    deferred.extend('backend export: ' + issue for issue in missing_backend_export_errors(
+        sources or {}, [path for path in (sources or {}) if path.startswith('backend/')]))
 
     def run(command, cwd, label):
         left = deadline - time.monotonic()
@@ -690,5 +841,8 @@ def check_batch(root: Path, changed, budget=30, sources=None):
             run(['npm', 'run', 'build'], frontend, 'frontend build')
         else:
             deferred.append('frontend build: dependencies not verified or syntax errors pending; full acceptance still required')
+    readiness = ('source_error' if errors else 'build_deferred' if any(
+        item.startswith(('frontend build:', 'backend module:', 'backend export:')) for item in deferred) else
+        'build_passed' if 'frontend build' in checked else 'syntax_checked')
     return {'errors': errors, 'checked': checked, 'deferred': deferred,
-            'warnings': contract_warnings(sources or {}, changed)}
+            'readiness': readiness, 'warnings': contract_warnings(sources or {}, changed)}

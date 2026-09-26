@@ -640,6 +640,13 @@ def compile_leaf(node: Mapping, fixtures: Fixtures, context: str = "", shared: s
         return title if titles[title] == 1 else f"{title} ({titles[title]})"
 
     for scenario in node.get("scenarios") or []:
+        given = " ".join(str(step.get("content") or "") for step in scenario.get("steps") or []
+                         if str(step.get("keyword") or "").upper() == "GIVEN")
+        if re.search(r"\bteam maintainer\b", given, re.I):
+            # The generic fixture authenticates one account but does not prove
+            # its team-maintainer role. A reach test from an anonymous/Owner
+            # browser would violate this GIVEN and mislead app repair.
+            continue
         parsed = _compile_scenario(scenario, fixtures, node_text)
         title = parsed.title if parsed.title.startswith(node_id) else f"{node_id}: {parsed.title}"
         actions = [a for a in parsed.actions if not a.startswith("await h.signIn(")]

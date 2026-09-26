@@ -219,8 +219,9 @@ export async function expectReachable(page: Page, value: Match): Promise<void> {
   await expect(target).toBeVisible();
 }
 
-export async function clickNamed(page: Page, value: Match): Promise<void> {
-  const target = await reach(page, value);
+async function clickLocated(page: Page, target: Locator, value: Match): Promise<void> {
+  const beforeUrl = page.url();
+  const href = await target.evaluate((el) => (el.closest('a[href]') as HTMLAnchorElement | null)?.href || '').catch(() => '');
   try {
     await target.click({ timeout: 10_000 });
   } catch (error) {
@@ -229,7 +230,17 @@ export async function clickNamed(page: Page, value: Match): Promise<void> {
     throw new Error(`"${describe(value)}" was found on ${page.url()} but could not be clicked within 10s: `
       + `${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
   }
+  if (href && new URL(href).origin === new URL(beforeUrl).origin && href !== beforeUrl) {
+    await expect.poll(() => page.url() !== beforeUrl, {
+      message: `clicking "${describe(value)}" did not navigate to ${href}`,
+      timeout: 5000,
+    }).toBe(true);
+  }
   await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+}
+
+export async function clickNamed(page: Page, value: Match): Promise<void> {
+  await clickLocated(page, await reach(page, value), value);
 }
 
 export async function hoverNamed(page: Page, value: Match): Promise<void> {
@@ -242,8 +253,7 @@ export async function openNamed(page: Page, value: Match): Promise<void> {
   const target = await reach(page, value);
   const role = await target.evaluate((el) => (el.getAttribute('role') || el.tagName || '').toLowerCase()).catch(() => '');
   if (['a', 'button', 'tab', 'menuitem', 'link', 'option'].includes(role)) {
-    await target.click();
-    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+    await clickLocated(page, target, value);
   }
 }
 
@@ -415,8 +425,9 @@ export async function expectCell(page: Page, ref: string, value: string): Promis
 }
 
 /** Choose a file in the file input the requirement names (label, aria-label or nearby button). */
-export async function uploadFile(page: Page, value: Match, csv: string): Promise<void> {
-  const file = { name: 'derived-import.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') };
+export async function uploadFile(page: Page, value: Match, csv: string,
+                                 fileName: 'derived-import.csv' | 'derived-invalid.csv' = 'derived-import.csv'): Promise<void> {
+  const file = { name: fileName, mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') };
   const named = page.getByLabel(toPatterns(value)[0]).first();
   if (await named.isVisible({ timeout: 1000 }).catch(() => false) && await named.getAttribute('type') === 'file') {
     await named.setInputFiles(file);
@@ -464,21 +475,33 @@ export async function checkNamed(page: Page, value: Match): Promise<void> {
  *  whose requirement text is only its placeholder fails here with the actual
  *  label (v10.0 github: label "Email or username", required "Username or email"). */
 export async function fillField(page: Page, label: Match, value: string): Promise<void> {
-  let placeholderOnly: Locator | null = null;
-  for (const pattern of toPatterns(label)) {
-    for (const locator of [page.getByLabel(pattern), page.getByRole('textbox', { name: pattern }),
-      page.getByRole('searchbox', { name: pattern }), page.getByRole('combobox', { name: pattern }),
-      page.getByRole('spinbutton', { name: pattern })]) {
+  const labels = Array.isArray(label) ? label : [label];
+  const patterns = labels.map((item) => item instanceof RegExp ? item : exactName(item));
+  const candidates = patterns.flatMap((pattern) => [page.getByLabel(pattern),
+    page.getByRole('textbox', { name: pattern }), page.getByRole('searchbox', { name: pattern }),
+    page.getByRole('combobox', { name: pattern }), page.getByRole('spinbutton', { name: pattern })]);
+  const visibleField = async (): Promise<Locator | null> => {
+    for (const locator of candidates) {
       const candidate = locator.first();
-      if (await candidate.isVisible({ timeout: 500 }).catch(() => false)) {
-        await candidate.fill(value);
-        return;
-      }
+      if (await candidate.isVisible({ timeout: 100 }).catch(() => false)) return candidate;
     }
+    return null;
+  };
+  await expect.poll(async () => Boolean(await visibleField()), {
+    message: `Field "${describe(label)}" was not available by its exact label on ${page.url()}`,
+    timeout: 8000,
+  }).toBe(true).catch(() => undefined);
+  const field = await visibleField();
+  if (field) {
+    await field.fill(value);
+    await expect(field, `Field "${describe(label)}" lost its value after filling on ${page.url()}`)
+      .toHaveValue(value, { timeout: 3000 });
+    return;
+  }
+  let placeholderOnly: Locator | null = null;
+  for (const pattern of patterns) {
     const byPlaceholder = page.getByPlaceholder(pattern).first();
-    if (!placeholderOnly && await byPlaceholder.isVisible({ timeout: 300 }).catch(() => false)) {
-      placeholderOnly = byPlaceholder;
-    }
+    if (!placeholderOnly && await byPlaceholder.isVisible({ timeout: 100 }).catch(() => false)) placeholderOnly = byPlaceholder;
   }
   if (placeholderOnly) {
     const actual = await placeholderOnly.evaluate((element) => {
@@ -489,8 +512,7 @@ export async function fillField(page: Page, label: Match, value: string): Promis
     throw new Error(`Field "${describe(label)}" matches only a placeholder on ${page.url()}; its label is "${actual}". `
       + 'Label the control with the exact text the requirement names (a placeholder is not a label).');
   }
-  const field = await reach(page, label);
-  await field.fill(value);
+  throw new Error(`Field "${describe(label)}" is not a visible exactly-labelled input on ${page.url()}`);
 }
 
 export async function expectTextsVisible(page: Page, values: Array<string | RegExp>): Promise<void> {
@@ -502,10 +524,16 @@ export async function expectTextsVisible(page: Page, values: Array<string | RegE
   }
 }
 
-/** Sign in through the visible UI; succeeds when the password form is gone. */
-export async function signIn(page: Page, account: string, password: string): Promise<void> {
+async function submitSignIn(page: Page, account: string, password: string): Promise<Locator> {
   const passwordField = page.locator('input[type="password"]:visible').first();
-  if (!(await passwordField.isVisible({ timeout: 1500 }).catch(() => false))) {
+  const currentForm = page.locator('form').filter({ has: passwordField }).first();
+  const hasCurrentForm = await currentForm.count() > 0;
+  const currentScope = hasCurrentForm ? currentForm : page.locator('body');
+  const currentSubmit = currentScope.getByRole('button', { name: /sign\s*in|log\s*in|login|continue/i }).first();
+  const loginFormReady = (await passwordField.isVisible({ timeout: 500 }).catch(() => false))
+    && ((hasCurrentForm && await currentSubmit.isVisible({ timeout: 100 }).catch(() => false))
+      || /(?:sign[/-]?in|log[/-]?in|login)(?:\/|$)/i.test(new URL(page.url()).pathname));
+  if (!loginFormReady) {
     await clickNamed(page, [/^\s*sign\s*in\s*$/i, /^\s*log\s*in\s*$/i, /sign\s*in|log\s*in|login/i]);
   }
   await expect(passwordField, 'the sign-in form shows a password field').toBeVisible();
@@ -517,6 +545,12 @@ export async function signIn(page: Page, account: string, password: string): Pro
   const submit = scope.getByRole('button', { name: /sign\s*in|log\s*in|login|submit|continue/i }).first();
   if (await submit.isVisible({ timeout: 500 }).catch(() => false)) await submit.click();
   else await scope.locator('input[type="password"]').first().press('Enter');
+  return passwordField;
+}
+
+/** Sign in through the visible UI; succeeds when the password form is gone. */
+export async function signIn(page: Page, account: string, password: string): Promise<void> {
+  await submitSignIn(page, account, password);
   await expect(page.locator('input[type="password"]:visible'),
     `signing in as ${account} leaves the sign-in form`).toHaveCount(0, { timeout: 8000 });
   await expect.poll(async () => !(await signInEntryVisible(page)), {
@@ -524,4 +558,15 @@ export async function signIn(page: Page, account: string, password: string): Pro
     timeout: 8000,
   }).toBe(true);
   signedInAs = account;
+}
+
+/** Invalid credentials must leave the login form and anonymous entry visible. */
+export async function expectSignInRejected(page: Page, account: string, password: string): Promise<void> {
+  await submitSignIn(page, account, password);
+  await expect(page.locator('input[type="password"]:visible'),
+    `credentials for ${account} unexpectedly established a session`).toHaveCount(1, { timeout: 8000 });
+  await expect.poll(() => signInEntryVisible(page), {
+    message: `rejected credentials for ${account} did not leave an anonymous sign-in entry`,
+    timeout: 8000,
+  }).toBe(true);
 }

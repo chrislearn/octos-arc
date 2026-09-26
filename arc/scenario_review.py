@@ -1,8 +1,8 @@
 """Requirement-grounded model proposals for generated acceptance scripts.
 
 The model proposes; the harness verifies. A proposal is a short list of
-whitelisted operations (open/click/fill/check/press/expect_visible/
-expect_absent). Every target and value must be a literal the requirement
+whitelisted operations (including open/click/fill/check/press/reload/sign_in
+and grounded assertions). Every target and value must be a literal the requirement
 itself quotes (“…”, "…" or `…`), a seeded value, or a suite fixture. A
 proposal naming anything else, using an unknown operation, asserting nothing,
 or reporting low confidence is dropped whole -- a partial sequence would fail
@@ -20,7 +20,7 @@ from seed_facts import setup_cells
 from scenario_tests import (Fixtures, spec_header, _ANY_LITERAL, _compile_scenario, _descriptive, _node_text, _sentences, _ts,
                             literal_prefix)
 
-OPS = {"open", "click", "hover", "fill", "check", "press", "set_clipboard", "expect_visible", "expect_absent",
+OPS = {"open", "click", "hover", "fill", "check", "press", "reload", "sign_in", "expect_sign_in_rejected", "set_clipboard", "expect_visible", "expect_absent",
        "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download",
        "expect_clipboard", "cell_context", "header_context", "expect_selected"}
 HEADER = re.compile(r"^(?:[1-9][0-9]{0,4}|[A-Z]{1,3})$")
@@ -44,6 +44,7 @@ ROLES = {"grid", "gridcell", "tab", "tablist", "tabpanel", "dialog", "menu", "me
 PLACEHOLDERS = {
     "$NEW_USERNAME": "a new, unused username (lowercase letters, digits, hyphens)",
     "$NEW_EMAIL": "a new, unused email address",
+    "$UNKNOWN_EMAIL": "a syntactically valid email address that is not a registered account",
     "$NEW_PASSWORD": "a new compliant password (12+ chars); reuse it for the confirmation field",
     "$NEW_NAME": "a new, unused record name (repository, team, workbook, worksheet, branch, label): lowercase "
                  "letters, digits, hyphens; assert it afterwards to prove the record was created",
@@ -53,6 +54,10 @@ PLACEHOLDERS = {
             "the first seeded label, B1 its value, A2 the second label ... (only as the value of an upload step)",
     "$CSV_NAME": "the name derived from the uploaded derived-import.csv file: derived-import "
                  "(assertion after upload only, not a new-record fill value)",
+    "$INVALID_CSV": "a fixed malformed CSV with a field whose opening quote is never closed; "
+                    "only for upload when the requirement explicitly requires invalid CSV rejection",
+    "$INVALID_CSV_NAME": "the absent workbook name derived from derived-invalid.csv: derived-invalid "
+                         "(assertion after invalid upload only)",
     "$TABLE": "a tab/newline-delimited two-dimensional table of the seeded rows, for an external paste test",
 }
 
@@ -85,9 +90,11 @@ def expand_placeholder(value: str, scope: str) -> str:
     return {
         "$NEW_USERNAME": f"user-{slug}",
         "$NEW_EMAIL": f"user-{slug}@example.test",
+        "$UNKNOWN_EMAIL": f"unknown-{slug}@example.test",
         "$NEW_PASSWORD": f"Derived-pass-{slug}!",
         "$NEW_NAME": f"derived-{slug}",
         "$CSV_NAME": "derived-import",
+        "$INVALID_CSV_NAME": "derived-invalid",
         "$TEXT": f"Derived text {slug}",
         "$BLANK": "   ",
     }.get(value, value)
@@ -116,6 +123,12 @@ Operations (use only these):
   {"op": "check", "target": L}           check the checkbox named L
   {"op": "press", "key": "Enter"}        press a key: Enter, Escape, Tab, Delete, Backspace, Arrow keys,
                                          Home, End, Shift+Enter, Shift+Tab, Control+C/V/X/Z/Y/A, Control+Enter
+  {"op": "reload"}                      reload the current browser page before checking persistence
+  {"op": "sign_in", "target": V, "value": V}  sign in after a prior workflow with the named account/email
+                                         and password; use the SAME $NEW_USERNAME/$NEW_EMAIL/$NEW_PASSWORD
+                                         placeholders entered during registration, never the seeded account
+  {"op": "expect_sign_in_rejected", "target": V, "value": V}  try these credentials through the login UI;
+                                         assert the session stays anonymous (for unknown email or old password)
   {"op": "set_clipboard", "value": "$TABLE"}  put the seeded two-dimensional table on the browser clipboard
                                          before testing paste from an external source
   {"op": "expect_visible", "target": L}  assert the text or control L is visible
@@ -133,8 +146,9 @@ Operations (use only these):
                                          has aria-selected="true" and the cells just outside it "false"
   {"op": "expect_role", "role": R, "target": L}  assert an element with ARIA role R and accessible name L
                                          (roles: grid, gridcell, tab, dialog, menu, menuitem, button, link, ...)
-  {"op": "upload", "target": L, "value": "$CSV"}  choose a file in the file input named/labelled L; $CSV is a
-                                         CSV of the seeded label/value rows, no header (A1 = first label)
+  {"op": "upload", "target": L, "value": "$CSV"|"$INVALID_CSV"} choose a file in the named file input.
+                                         $CSV has seeded rows, no header; $INVALID_CSV is a fixed unclosed quote
+                                         and is allowed only when the leaf requires invalid CSV rejection.
   {"op": "expect_download", "target": L, "value": ".csv", "contains": ["Region"]}
                                          click L; assert the download suffix and file contents. For CSV
                                          export, include a seeded cell value (or an imported row value).
@@ -171,7 +185,10 @@ Values the user must make up are written as placeholders, allowed as fill values
 expect_visible/expect_absent targets (and cell_type values): $NEW_USERNAME, $NEW_EMAIL, $NEW_PASSWORD
 (also for the confirmation field), $NEW_NAME (the name of a repository, team, workbook, worksheet,
 branch or label the script creates -- assert it afterwards), $TEXT (comment body, title, description).
-$CSV_NAME is different: it is only an expect_visible target after $CSV upload.
+$CSV_NAME is only an expect_visible target after $CSV upload. $INVALID_CSV_NAME is only
+an expect_absent target after $INVALID_CSV upload and an attempted import. An invalid
+CSV check must assert the documented error, then return home/reload and assert the
+invalid workbook absent; do not replace that negative oracle with entry/reach.
 Never register or create records with the fixture account or with a word taken from the requirement
 prose as a name; use the placeholders for anything new. Placeholders are for records the script
 CREATES; to refer to an EXISTING account, repository or record (adding a member, assigning a reviewer)
@@ -183,8 +200,9 @@ If the scenario needs a starting state that the allowed literals cannot establis
 the requirement does not name, a second account with credentials), set "skip".
 "signed_in": true means the script first signs in with the fixture account; do not add sign-in steps.
 Prefer the shortest path that a real user of this product would take: open the seeded record, then
-the tab or page the scenario names, then act. End with at least one expect_visible/expect_absent taken
-from the THEN step (a quoted literal, a seeded name, or a status word the requirement names).
+the tab or page the scenario names, then act. End with a grounded expect step taken from the THEN
+outcome: expect_visible/expect_absent for a named result or expect_sign_in_rejected for credentials
+the requirement explicitly says must fail.
 Set confidence below 0.5 only when you are guessing at controls the requirement does not name."""
 
 
@@ -299,6 +317,64 @@ def contract_outcomes(description: str) -> list[dict]:
     return list(outcomes.values())
 
 
+def semantic_contracts(steps: Iterable[str]) -> list[dict]:
+    """Small, explicit state transitions a visible-text oracle cannot prove.
+
+    These are derived from the scenario's own THEN text, never inferred from
+    its title or generic workflow template. Unknown contracts remain outside
+    this bounded vocabulary rather than being counted as covered.
+    """
+    then = [str(step) for step in steps if str(step).startswith("THEN:")]
+    rules = (
+        ("new_account_sign_in", r"(?:new account|account.s email).{0,100}(?:sign.in|sign in)|"
+         r"(?:sign.in|sign in).{0,100}new account"),
+        ("unknown_email_recovery", r"unknown email.{0,180}(?:does not|do not|no account|not modify|verification)"),
+        ("unknown_email_no_account", r"unknown email.{0,180}(?:does not modify any account|does not create an account|"
+         r"no account is created)"),
+        ("cancel_keeps_session", r"cancel.{0,100}(?:session remains|session is retained|session remains valid|"
+         r"remains signed.in|original page remains accessible)"),
+        ("sign_out_survives_reload", r"(?:refresh|reopen).{0,180}(?:unauthenticated|re.authenticat|signed.out session)"),
+    )
+    found = []
+    for kind, pattern in rules:
+        quote = next((step for step in then if re.search(pattern, step, re.I | re.S)), None)
+        if quote:
+            found.append({"kind": kind, "requirement_quote": quote})
+    return found
+
+
+def semantic_contract_evidence(source: str, title: str, kind: str) -> bool:
+    """Require an action and its outcome in one independently reset test case."""
+    from test_policy import test_block
+    block = test_block(source, title) or ""
+    if not block:
+        return False
+    if kind == "new_account_sign_in":
+        filled = re.search(r"h\.fillField\([^;]*['\"]user-([0-9a-f]{6})['\"]\)", block)
+        if not filled:
+            return False
+        signed = re.search(r"h\.signIn\([^;]*['\"]user-" + filled.group(1)
+                           + r"(?:@example\.test)?['\"]", block[filled.end():])
+        return bool(signed and re.search(r"h\.expectIdentity\([^;]*,\s*true\)",
+                                         block[filled.end() + signed.end():]))
+    if kind == "unknown_email_recovery":
+        return bool(re.search(r"h\.fillField\([^;]*['\"]unknown-[0-9a-f]{6}@example\.test['\"].*?"
+                              r"h\.clickNamed\([^;]*Send reset link.*?"
+                              r"h\.expect(?:TextsVisible|Role)\([^;]*123456", block, re.S))
+    if kind == "unknown_email_no_account":
+        filled = re.search(r"h\.fillField\([^;]*['\"]unknown-([0-9a-f]{6})@example\.test['\"]", block)
+        return bool(filled and re.search(r"h\.clickNamed\([^;]*Reset password.*?"
+                                         r"h\.expectSignInRejected\([^;]*['\"]unknown-" + filled.group(1)
+                                         + r"@example\.test['\"]", block[filled.end():], re.S))
+    if kind == "cancel_keeps_session":
+        return bool(re.search(r"h\.clickNamed\(page, ['\"]Cancel['\"]\);.*?"
+                              r"h\.expectIdentity\([^;]*,\s*true\)", block, re.S))
+    if kind == "sign_out_survives_reload":
+        return bool(re.search(r"Confirm sign out.*?page\.reload\(.*?"
+                              r"h\.expectIdentity\([^;]*,\s*false\)", block, re.S))
+    return False
+
+
 def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mapping[str, str] | None = None,
                    shared: str = "", *, include_all: bool = False, dependency_tree: Mapping | None = None) -> list[dict]:
     """Scenario plans with requirement-grounded literals and controls.
@@ -388,6 +464,11 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                                             if str(step.get("keyword") or "").upper() == "GIVEN"
                                             for cell in setup_cells(str(step.get("content") or ""))],
                             "contract_outcomes": contract_outcomes(str(node.get("description") or "")),
+                            "semantic_contracts": semantic_contracts(steps),
+                            "actor_precondition": ("team maintainer role has no proven fixture account"
+                                                   if re.search(r"\bteam maintainer\b", " ".join(
+                                                       step for step in steps if step.startswith("GIVEN:")), re.I)
+                                                   else ""),
                             "dependency_literals": dependency_literals(node),
                             "controls": controls, "signed_in": parsed.signed_in,
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
@@ -493,7 +574,7 @@ def positive_contract_evidence(source: str, title: str, literal: str) -> bool:
     return False
 
 
-def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
+def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "") -> str:
     parts = ["Plan and write one behavioural check per scenario below, as JSON: "
              "{\"scenarios\": [ ... ]}. Each check must perform the WHEN operation and verify the "
              "observable THEN outcome; merely finding an entry control is a smoke check, not feature evidence. "
@@ -503,6 +584,9 @@ def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
     if controls:
         parts.append("\nCONTROLS (named anywhere in the requirement; usable as open/click/check/fill targets): "
                      + json.dumps(controls, ensure_ascii=False))
+    if phase_context:
+        parts.append("\nTOP-LEVEL CATEGORY CONTRACT (shared context for these scenarios; "
+                     "each assertion must still be grounded in its own scenario): " + phase_context)
     for target in targets:
         parts.append(f"\n### [{target['id']}] {target['title']}\nRequirement {target['node_id']} ({target['name']}): "
                      f"{target['description']}\n" + "\n".join(target["steps"]) +
@@ -510,7 +594,12 @@ def build_prompt(targets: list[dict], fixtures: Fixtures) -> str:
                      + "\nDEPENDENCY LITERALS (value -> requirement IDs): "
                      + json.dumps(target.get("dependency_literals") or {}, ensure_ascii=False)
                      + "\nCONTRACT OUTCOMES (cover in separate cases where conditional): "
-                     + json.dumps(target.get("contract_outcomes") or [], ensure_ascii=False))
+                     + json.dumps(target.get("contract_outcomes") or [], ensure_ascii=False)
+                     + "\nSEMANTIC OUTCOMES (each needs action and proof in one independent case): "
+                     + json.dumps(target.get("semantic_contracts") or [], ensure_ascii=False)
+                     + ("\nUNVERIFIED GIVEN ACTOR: " + target["actor_precondition"]
+                        + "; use skip or a grounded validator dispute, not a different account."
+                        if target.get("actor_precondition") else ""))
     return "\n".join(parts)
 
 
@@ -562,6 +651,12 @@ def _emit(step: dict) -> str | None:
         return f"await h.hoverNamed(page, {_ts(target)});"
     if op == "fill":
         return f"await h.fillField(page, {_ts(target)}, {_ts(str(step.get('value')))});"
+    if op == "reload":
+        return "await page.reload({ waitUntil: 'domcontentloaded' });"
+    if op == "sign_in":
+        return f"await h.signIn(page, {_ts(target)}, {_ts(str(step.get('value')))});"
+    if op == "expect_sign_in_rejected":
+        return f"await h.expectSignInRejected(page, {_ts(target)}, {_ts(str(step.get('value')))});"
     if op == "check":
         return f"await h.checkNamed(page, {_ts(target)});"
     if op == "press":
@@ -591,6 +686,8 @@ def _emit(step: dict) -> str | None:
         return f"await h.expectSelected(page, {_ts(target)});"
     if op == "upload":
         csv = str(step.get("csv") or "").replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+        if step.get("value") == "$INVALID_CSV":
+            return f"await h.uploadFile(page, {_ts(target)}, '{csv}', 'derived-invalid.csv');"
         return f"await h.uploadFile(page, {_ts(target)}, '{csv}');"
     if op == "expect_download":
         content = step.get("contains") or []
@@ -616,8 +713,14 @@ def identity_transition(steps: list, index: int, step: Mapping, fixtures: Fixtur
         return False
     if str(step.get("target") or "").strip().lower() != fixtures.account.lower():
         return False
-    action = r"^(?:sign\s*in|log\s*in)$" if step["op"] == "expect_visible" else r"^(?:sign\s*out|log\s*out|confirm\s+(?:sign\s*out|log\s*out))$"
     prior = [item for item in steps[:index] if isinstance(item, dict)]
+    if step["op"] == "expect_visible" and signed_in and any(
+            item.get("op") == "click" and re.fullmatch(r"cancel", str(item.get("target") or ""), re.I)
+            for item in prior) and any(item.get("op") == "click" and re.fullmatch(
+                r"sign\s*out|log\s*out", str(item.get("target") or ""), re.I) for item in prior):
+        return not any(item.get("op") == "click" and re.fullmatch(
+            r"confirm\s+(?:sign\s*out|log\s*out)", str(item.get("target") or ""), re.I) for item in prior)
+    action = r"^(?:sign\s*in|log\s*in)$" if step["op"] == "expect_visible" else r"^(?:sign\s*out|log\s*out|confirm\s+(?:sign\s*out|log\s*out))$"
     if not any(item.get("op") == "click" and re.match(action, str(item.get("target") or ""), re.I) for item in prior):
         return False
     if step["op"] == "expect_absent":
@@ -665,6 +768,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     if confidence < MIN_CONFIDENCE:
         problems.append(f"confidence {confidence:.2f} is below {MIN_CONFIDENCE}")
     steps = proposal.get("steps")
+    if target.get("actor_precondition"):
+        return problems + ["unverified GIVEN actor: " + str(target["actor_precondition"])]
     if not isinstance(steps, list) or not steps:
         return problems + ["no steps"]
     if len(steps) > MAX_STEPS:
@@ -719,6 +824,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     pasted_cells: dict[str, str] = {}
     uploaded_csv: list[list[str]] | None = None
     uploaded = False
+    uploaded_invalid = False
+    any_invalid_upload = False
     edited_cells: set[str] = set()
     pending_clone_copies: list[tuple[int, str]] = []
     selected_protocol = ""
@@ -746,6 +853,25 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             elif pending_clone_copies and pending_clone_copies[-1][1] == step.get("protocol"):
                 pending_clone_copies.pop()
             asserted = True
+            continue
+        if op == "reload":
+            if step.get("target") not in (None, "") or step.get("value") not in (None, ""):
+                problems.append(f"step {index}: reload takes no target or value")
+            continue
+        if op in {"sign_in", "expect_sign_in_rejected"}:
+            value = step.get("target")
+            if not isinstance(value, str) or value.strip() not in (allowed | {"$NEW_USERNAME", "$NEW_EMAIL", "$UNKNOWN_EMAIL"}):
+                problems.append(f"step {index}: {op} target must be a seeded account/email or account placeholder")
+            password = step.get("value")
+            if not isinstance(password, str) or password.strip() not in (allowed | {"$NEW_PASSWORD"}):
+                problems.append(f"step {index}: {op} password must be a seeded or new password")
+            if op == "sign_in" and value == "$UNKNOWN_EMAIL":
+                problems.append(f"step {index}: unknown email cannot be a successful sign-in fixture")
+            if value in {"$NEW_USERNAME", "$NEW_EMAIL"} and op == "sign_in" and not any(
+                    isinstance(previous, dict) and previous.get("op") == "fill"
+                    and previous.get("value") == value for previous in steps[:index - 1]):
+                problems.append(f"step {index}: sign_in uses {value} before this case registered it")
+            asserted = asserted or op == "expect_sign_in_rejected"
             continue
         if op == "set_clipboard":
             if not target.get("has_grid", True):
@@ -831,12 +957,26 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         if op == "upload":
             if not is_control(value):
                 problems.append(f"step {index}: upload target {json.dumps(value, ensure_ascii=False)} is not an allowed literal")
-            if str(step.get("value") or "").strip() != "$CSV":
-                problems.append(f"step {index}: upload value must be $CSV")
-            else:
+            upload_value = str(step.get("value") or "").strip()
+            if upload_value == "$CSV":
                 uploaded_csv = [row.split(",") for row in seed_csv(target.get("seeds") or []).splitlines()]
                 uploaded = True
+                uploaded_invalid = False
                 edited_cells.clear()
+            elif upload_value == "$INVALID_CSV":
+                contract = str(target.get("description") or "") + " " + " ".join(
+                    map(str, target.get("steps") or []))
+                if not re.search(r"invalid\s+CSV|unclosed\s+(?:double\s+)?quote|no\s+closing\s+double\s+quote",
+                                 contract, re.I):
+                    problems.append(f"step {index}: invalid CSV fixture is not authorized by this requirement")
+                if "Invalid CSV file format. Import failed." not in contract:
+                    problems.append(f"step {index}: the fixed invalid CSV error oracle is not in this requirement")
+                uploaded_csv = None
+                uploaded = False
+                uploaded_invalid = True
+                any_invalid_upload = True
+            else:
+                problems.append(f"step {index}: upload value must be $CSV or an authorized $INVALID_CSV")
             continue
         if op == "expect_download":
             if not is_control(value):
@@ -897,6 +1037,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                                 "file name, so assert $CSV_NAME instead")
         if value == "$CSV_NAME" and (op != "expect_visible" or not uploaded):
             problems.append(f"step {index}: $CSV_NAME is an assertion only after uploading $CSV")
+        if value == "$INVALID_CSV_NAME" and (op != "expect_absent" or not uploaded_invalid):
+            problems.append(f"step {index}: $INVALID_CSV_NAME is an absence assertion only after $INVALID_CSV upload")
         if (reset_prerequisite and isinstance(value, str)
                 and ("Verification code" in value or public_display_literal(target, value))
                 and op.startswith("expect_") and not any(
@@ -919,6 +1061,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             typed = step.get("value")
             if typed == "$CSV_NAME":
                 problems.append(f"step {index}: $CSV_NAME is derived from the upload and cannot be filled")
+            if typed == "$INVALID_CSV_NAME":
+                problems.append(f"step {index}: $INVALID_CSV_NAME is derived from the upload and cannot be filled")
             if not isinstance(typed, str) or not (typed.strip() in allowed or typed.strip() in PLACEHOLDERS):
                 problems.append(f"step {index}: fill value {json.dumps(typed, ensure_ascii=False)} is not an allowed "
                                 f"literal or placeholder ({', '.join(PLACEHOLDERS)})")
@@ -930,13 +1074,57 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 problems.append(f"step {index}: fill value {json.dumps(typed)} is the fixture account, typed into "
                                 f"{json.dumps(value)}; a record the script creates is named $NEW_NAME")
         asserted = asserted or op.startswith("expect_")
+    if any_invalid_upload:
+        invalid_at = next((i for i, step in enumerate(steps) if isinstance(step, dict)
+                           and step.get("op") == "upload" and step.get("value") == "$INVALID_CSV"), -1)
+        submit_at = next((i for i, step in enumerate(steps) if i > invalid_at and isinstance(step, dict)
+                          and step.get("op") == "click" and re.search(r"confirm\s+import|import", str(step.get("target") or ""), re.I)), -1)
+        error_text = "Invalid CSV file format. Import failed."
+        error_at = next((i for i, step in enumerate(steps) if i > submit_at and isinstance(step, dict)
+                         and step.get("op") == "expect_visible" and step.get("target") == error_text), -1)
+        home_at = next((i for i, step in enumerate(steps) if i > error_at and isinstance(step, dict)
+                        and (step.get("op") == "reload" or (step.get("op") == "open"
+                        and HOME_TARGET.match(str(step.get("target") or "").strip())))), -1)
+        absence_at = next((i for i, step in enumerate(steps) if i > home_at and isinstance(step, dict)
+                           and step.get("op") == "expect_absent"
+                           and step.get("target") == "$INVALID_CSV_NAME"), -1)
+        if min(submit_at, error_at, home_at, absence_at) < 0:
+            problems.append("invalid CSV must be submitted, show the exact rejection message, "
+                            "return home or reload, then assert $INVALID_CSV_NAME absent")
+        seeded_workbooks = [seed for kind, seed in target.get("seed_kinds") or []
+                            if re.search(r"\bworkbook\b", str(kind), re.I)]
+        seeded_cells = [(match.group(1), seed) for kind, seed in target.get("seed_kinds") or []
+                        if (match := re.search(r"\bcell\s+([A-Z]{1,3}[0-9]{1,4})\s+value\b", str(kind), re.I))]
+        if seeded_workbooks and seeded_cells:
+            workbook_at = next((i for i, step in enumerate(steps) if i > absence_at and isinstance(step, dict)
+                                and step.get("op") == "open" and step.get("target") == seeded_workbooks[0]), -1)
+            cell, seed = seeded_cells[0]
+            retained_at = next((i for i, step in enumerate(steps) if i > workbook_at and isinstance(step, dict)
+                                and step.get("op") == "expect_cell" and step.get("target") == cell
+                                and step.get("value") == seed), -1)
+            if workbook_at < 0 or retained_at < 0:
+                problems.append("invalid CSV must leave the original seeded workbook and cell unchanged "
+                                "after checking that no new workbook was created")
     if not asserted:
-        problems.append("no expect_visible/expect_absent step: the script must assert something from the THEN step")
+        problems.append("no expect step: the script must assert something from the THEN step")
     else:
         first_effect = next((index for index, step in enumerate(steps)
                              if isinstance(step, dict) and step.get("op") in {
-                                 "click", "fill", "check", "press", "cell_type", "upload"}), None)
+                                 "click", "fill", "check", "press", "reload", "sign_in", "cell_type", "upload"}), None)
         required_outcome = target.get("required_then_literal")
+        cancel_branch = (any(isinstance(step, dict) and step.get("op") == "click"
+                             and re.fullmatch(r"cancel", str(step.get("target") or ""), re.I)
+                             for step in steps)
+                         and not any(isinstance(step, dict) and step.get("op") == "click"
+                                     and re.fullmatch(r"confirm\s+(?:sign\s*out|log\s*out)",
+                                                      str(step.get("target") or ""), re.I)
+                                     for step in steps)
+                         and re.search(r"(?:cancel|closing the dialog)[^.]{0,100}(?:retain|remain|keep)",
+                                       " ".join(target.get("steps") or []) + " " + str(target.get("description") or ""), re.I))
+        if cancel_branch and required_outcome and re.fullmatch(r"sign\s*in|log\s*in", required_outcome, re.I):
+            # The mother's THEN names the confirmed branch's sign-in entry;
+            # requiring it after Cancel would demand the opposite behavior.
+            required_outcome = ""
         if required_outcome and not any(
                 index > max(cursor, first_effect if first_effect is not None else -1)
                 and isinstance(step, dict) and str(step.get("op") or "").startswith("expect_")
@@ -1060,15 +1248,16 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     for step_index, original_step in enumerate(proposal["steps"]):
         step = dict(original_step)
         if step["op"] == "upload":
-            step["csv"] = seed_csv(target.get("seeds") or [])
+            step["csv"] = ('Region,"unterminated\n' if step.get("value") == "$INVALID_CSV"
+                           else seed_csv(target.get("seeds") or []))
         if step["op"] == "set_clipboard":
             step["table"] = seed_csv(target.get("seeds") or []).replace(",", "\t")
         # Only a seeded `label/value` row splits into cells; "src/search.ts" is a path.
         step["seed_row"] = str(step.get("target") or "") in set(target.get("seeds") or []) \
             or str(step.get("value") or "") in set(target.get("seeds") or [])
-        if step["op"] not in {"press", "set_clipboard"}:
+        if step["op"] not in {"press", "reload", "set_clipboard"}:
             step["target"] = expand_placeholder(str(step["target"]).strip(), scope)
-            if step["op"] in {"fill", "cell_type", "expect_cell"}:
+            if step["op"] in {"fill", "sign_in", "expect_sign_in_rejected", "cell_type", "expect_cell"}:
                 step["value"] = expand_placeholder(str(step["value"]).strip(), scope)
         if signed_out_entry_transition(proposal["steps"], step_index, original_step, target, bool(proposal.get("signed_in"))):
             code = f"await h.expectRole(page, 'link', {_ts(step['target'])});"

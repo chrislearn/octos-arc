@@ -36,7 +36,8 @@ class UnknownVerdictTests(TestCase):
         self.assertIn('No functional acceptance verdict', repair_prompts[0])
         self.assertIn('data is not iterable', repair_prompts[0])
         f.record_tests.assert_called_once()
-        first = f.metric.call_args_list[0].kwargs
+        first = next(call.kwargs for call in f.metric.call_args_list
+                     if call.args[0] == 'acceptance' and call.kwargs.get('scope') == 'node')
         self.assertEqual(first['verdict'], 'unknown')
         self.assertEqual(first['total'], 0)  # never invent one failed test per spec
         self.assertEqual(first['error'], 'backend: data is not iterable')

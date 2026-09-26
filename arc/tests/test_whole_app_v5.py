@@ -553,7 +553,7 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
         self.assertTrue(flow.node_cycle.call_args_list[0].kwargs.get("preimplemented"))
 
-    def test_disputed_derived_suite_keeps_other_measured_verdicts(self):
+    def test_derived_suite_is_deferred_until_budgeted_final_measurement(self):
         flow = self.flow
         flow.derived_as_specs = True
         flow.whole_app_codegen = Mock(return_value=True)
@@ -563,7 +563,8 @@ class WholeAppTests(unittest.TestCase):
         flow.whole_app_first_suite = Mock(side_effect=disputed)
         flow.mark = Mock()
         self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
-        self.assertEqual(flow.test_verdict, {"A": True, "B": None, "C": True})
+        flow.whole_app_first_suite.assert_not_called()
+        self.assertEqual(flow.test_verdict, {"A": None, "B": None, "C": None})
 
     def test_failed_unreached_node_is_not_treated_as_preimplemented(self):
         flow = self.flow
@@ -575,8 +576,7 @@ class WholeAppTests(unittest.TestCase):
         flow.time_up = Mock(return_value=False)
         flow.driver = SimpleNamespace(end_scope=Mock())
         self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
-        flow.node_cycle.assert_called_once_with(self.nodes[2], self.nodes, 3, 3,
-                                                preimplemented=False)
+        flow.node_cycle.assert_called_once_with(self.nodes[2], self.nodes, 3, 3)
 
     def test_only_failing_leaf_receives_a_node_repair_turn(self):
         flow = self.flow
@@ -1434,9 +1434,24 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         self.assertEqual(statuses, {"A": "attempted", "B": "attempted", "C": "pending"})
         self.assertTrue((flow.derived_tests_dir / "review" / "batch-1.txt").is_file())
         self.assertTrue((flow.derived_tests_dir / "review" / "batch-2.txt").is_file())
-        self.assertEqual(flow.text_turn.call_count, 2)
+        self.assertGreaterEqual(flow.text_turn.call_count, 2)
+        self.assertTrue((flow.derived_tests_dir / "review" / "cases.json").is_file())
         flow.prepare_derived_spec_batch(nodes[:1])
-        self.assertEqual(flow.text_turn.call_count, 2)
+        self.assertLessEqual(flow.derived_augmentation_attempts["A"], 2)
+
+    def test_derived_generation_marks_nodes_designing_until_preflight_ends(self):
+        flow = self.flow
+        nodes = self._derived()
+        flow.events = Mock()
+        self.assertTrue(flow.prepare_derived_tests(nodes))
+        self.assertEqual([c.args[0] for c in flow.events.mark_design_started.call_args_list],
+                         ["A", "B", "C"])
+        flow.events.mark_design_done.assert_not_called()
+        flow.mark_designed(nodes, "requirement/test design preflight ended")
+        self.assertEqual([c.args[0] for c in flow.events.mark_design_done.call_args_list],
+                         ["A", "B", "C"])
+        flow.mark("design_started", "A")
+        self.assertEqual(flow.events.mark_design_started.call_count, 3)
 
     def test_model_review_adds_validated_scripts_before_the_suite_is_adopted(self):
         flow = self.flow
@@ -1656,7 +1671,11 @@ class RollbackAttributionTests(WholeAppTests):
         self.assertEqual(flow.restore_app.call_args_list[0].args, ("before-node",))
         self.assertEqual(flow.restore_app.call_args_list[-1].args, ("after-node",))
         self.assertTrue(flow.test_verdict["B"])
-        self.assertFalse(flow.test_verdict["A"])
+        # A was measured on the temporarily restored source. Keeping the
+        # extension invalidates that measurement until A is rechecked.
+        self.assertIsNone(flow.test_verdict["A"])
+        flow.events.mark_test_unverified.assert_called_with(
+            "A", "extension source after-node; restored-source measurement is stale")
 
     def test_rollback_stands_when_the_prior_passes_again_on_the_restored_source(self):
         flow = self.flow
@@ -1671,6 +1690,8 @@ class RollbackAttributionTests(WholeAppTests):
         self.assertEqual(flow.restore_app.call_count, 1)
         self.assertTrue(flow.test_verdict["A"])
         self.assertFalse(flow.test_verdict["B"])
+        flow.events.mark_test_passed.assert_called_with(
+            "A", "restored source before-node: 1/1 measured")
 
 
 class CompletenessPassTests(WholeAppTests):
@@ -1698,10 +1719,10 @@ class CompletenessPassTests(WholeAppTests):
         self.flow.test_verdict = {"A": True, "B": True, "C": True}
         return self.nodes
 
-    def test_only_weak_leaves_get_a_completeness_turn_and_regressions_roll_back(self):
+    def test_weak_leaves_receive_read_only_self_audit(self):
         flow = self.flow
         nodes = self._prepare()
-        self.assertEqual(flow.weak_derived_leaves(nodes), ["B"])
+        self.assertEqual(flow.weak_derived_leaves(nodes), ["A", "B", "C"])
         flow.turn = Mock(return_value=(True, "verified"))
         flow.head = Mock(return_value="before-pass")
         flow.restore_app = Mock()
@@ -1711,19 +1732,10 @@ class CompletenessPassTests(WholeAppTests):
             TestOutcome(title=n, ok=True, status="passed", duration_ms=1, file=f"{n}.spec.ts") for n in "ABC"]))
         flow.suite_is_measured = Mock(return_value=True)
         flow.derived_completeness_pass(nodes)
-        self.assertEqual(flow.turn.call_count, 1)
-        prompt, _, label = flow.turn.call_args.args[:3]
-        self.assertIn("B", label)
-        self.assertIn("Open B", prompt)
+        flow.turn.assert_not_called()
+        flow.run_specs.assert_not_called()
+        self.assertTrue((self.root / ".arc" / "review" / "source-self-audit.jsonl").is_file())
         flow.restore_app.assert_not_called()
-        # A regression of the full suite restores the tree taken before the pass.
-        flow.turn.reset_mock()
-        flow.run_specs = Mock(return_value=RunSummary(passed=2, total=3, results=[
-            TestOutcome(title="A", ok=False, status="failed", duration_ms=1, file="A.spec.ts"),
-            TestOutcome(title="B", ok=True, status="passed", duration_ms=1, file="B.spec.ts"),
-            TestOutcome(title="C", ok=True, status="passed", duration_ms=1, file="C.spec.ts")]))
-        flow.derived_completeness_pass(nodes)
-        flow.restore_app.assert_called_once_with("before-pass")
 
     def test_pass_is_skipped_without_time(self):
         flow = self.flow

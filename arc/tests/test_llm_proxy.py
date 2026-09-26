@@ -1,10 +1,77 @@
 import json
 import unittest
+from unittest.mock import MagicMock, patch
 
-from llm_proxy import BUDGET_NOTICE, WRITE_DECISION_NOTICE, destream_request, enforce_turn_budget, ensure_max_tokens, force_write_decision, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
+from llm_proxy import BUDGET_NOTICE, WRITE_DECISION_NOTICE, LlmProxy, completed_without_action, destream_request, enforce_turn_budget, ensure_max_tokens, force_write_decision, inject_reasoning, lower_stalled_tool_reasoning, request_shape, route_request, to_sse, trim_request, trim_system_prompt, usage_record
 
 
 class InjectTests(unittest.TestCase):
+    def test_two_reasoning_only_tool_replies_stop_local_turn_without_third_provider_call(self):
+        proxy = LlmProxy('http://127.0.0.1:1/v1', 'medium')
+        try:
+            proxy.begin_turn(8)
+            body = json.dumps({'model': 'glm-5.3-flash', 'messages': []}).encode()
+            response = {'choices': [{'finish_reason': 'stop', 'message':
+                        {'role': 'assistant', 'content': '', 'reasoning_content': 'I should edit.'}}],
+                        'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}
+            upstream = MagicMock()
+            upstream.status = 200
+            upstream.headers = {'Content-Type': 'application/json'}
+            upstream.read.return_value = json.dumps(response).encode()
+            upstream.__enter__.return_value = upstream
+            with patch('llm_proxy.open_upstream', return_value=upstream) as send:
+                for _ in range(2):
+                    self.assertEqual(proxy._request_upstream('POST', '/chat/completions', body, {})[0], 200)
+                status, local, _ = proxy._request_upstream('POST', '/chat/completions', body, {})
+                self.assertEqual(status, 200)
+                self.assertTrue(json.loads(local)['arc_local_response'])
+                self.assertIn('local_no_action_limit', json.loads(local)['choices'][0]['message']['content'])
+                self.assertEqual(send.call_count, 2)
+                self.assertTrue(proxy.no_action_exhausted)
+            proxy.begin_turn(8)
+            self.assertFalse(proxy.no_action_exhausted)
+        finally:
+            proxy.server.server_close()
+
+    def test_reasoning_only_completed_reply_is_not_action_and_retry_is_low(self):
+        empty = {'choices': [{'finish_reason': 'stop', 'message':
+                 {'role': 'assistant', 'content': '', 'reasoning_content': 'I should edit the file.'}}]}
+        self.assertTrue(completed_without_action(json.dumps(empty).encode()))
+        empty['choices'][0]['message']['tool_calls'] = [{'id': 'edit1'}]
+        self.assertFalse(completed_without_action(json.dumps(empty).encode()))
+        empty['choices'][0]['message'].pop('tool_calls')
+        empty['arc_stream_integrity'] = 'upstream_incomplete'
+        self.assertFalse(completed_without_action(json.dumps(empty).encode()))
+        request = json.dumps({'model': 'glm-5.3-flash', 'messages': [],
+                              'reasoning_effort': 'medium'}).encode()
+        self.assertEqual(json.loads(lower_stalled_tool_reasoning(request))['reasoning_effort'], 'low')
+        self.assertEqual(lower_stalled_tool_reasoning(request.replace(b'glm-5.3-flash', b'other')), request.replace(b'glm-5.3-flash', b'other'))
+
+    def test_qwen37_route_default_and_wire_both_use_medium(self):
+        body = json.dumps({'model': 'base', 'messages': []}).encode()
+        rules = [{'model': 'qwen3.7-plus', 'phases': ['implement']}]
+        with patch.dict('os.environ', {}, clear=True):
+            routed = json.loads(route_request(body, rules, 'implement'))
+            self.assertTrue(routed['enable_thinking'])
+            self.assertEqual(routed['reasoning_effort'], 'medium')
+            wire = json.loads(inject_reasoning(json.dumps(routed).encode(), 'medium'))
+            self.assertTrue(wire['enable_thinking'])
+            self.assertEqual(wire['reasoning_effort'], 'medium')
+            self.assertEqual(json.loads(route_request(body, rules, 'implement', 'medium',
+                                                      'derived scenario review'))['reasoning_effort'], 'medium')
+            self.assertEqual(json.loads(route_request(body, rules, 'implement', 'low',
+                                                      'whole application implement'))['reasoning_effort'], 'low')
+        with patch.dict('os.environ', {'OCTOS_ARC_REASONING': 'none'}):
+            routed = json.loads(route_request(body, rules, 'implement'))
+            self.assertFalse(routed['enable_thinking'])
+            self.assertNotIn('reasoning_effort', routed)
+            self.assertFalse(json.loads(inject_reasoning(json.dumps(routed).encode(), 'none'))['enable_thinking'])
+        with patch.dict('os.environ', {'OCTOS_ARC_REASONING': 'auto'}):
+            self.assertEqual(json.loads(route_request(body, rules, 'implement', 'low'))['reasoning_effort'], 'low')
+        rules[0]['parameters'] = {'reasoning_effort': 'high'}
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertEqual(json.loads(route_request(body, rules, 'implement'))['reasoning_effort'], 'high')
+
     def test_qwen37_plus_uses_explicit_enable_thinking(self):
         for model in ('qwen3.7-plus', 'qwen3.7-plus-2026-05-26', 'provider/qwen3.7-plus'):
             body = json.dumps({'model': model, 'messages': [], 'thinking': {'type': 'enabled'},
@@ -14,7 +81,9 @@ class InjectTests(unittest.TestCase):
                 self.assertIs(out['enable_thinking'], False)
                 self.assertNotIn('thinking', out)
                 self.assertNotIn('reasoning_effort', out)
-            self.assertTrue(json.loads(inject_reasoning(body, 'low'))['enable_thinking'])
+            enabled = json.loads(inject_reasoning(body, 'low'))
+            self.assertTrue(enabled['enable_thinking'])
+            self.assertEqual(enabled['reasoning_effort'], 'high')  # explicit caller setting wins
             self.assertEqual(inject_reasoning(body, 'passthrough'), body)
 
     def test_should_add_low_effort_and_thinking_for_deepseek(self):

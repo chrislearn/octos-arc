@@ -44,6 +44,7 @@ class EventClient:
                 ("implement", "failed"): "FAILED",
                 ("test", "passed"): "PASSED",
                 ("test", "failed"): "FAILED",
+                ("test", "unverified"): "IMPLEMENTED",
             }.get((str(phase or "").strip(), str(status or "").strip()))
             if state:
                 self._requirement_state_writer(normalized_node_id, state, str(phase or "").strip())
@@ -74,6 +75,9 @@ class EventClient:
 
     def mark_test_failed(self, node_id: str, message: str | None = None) -> None:
         self._emit_requirement_state(node_id, "test", "failed", message)
+
+    def mark_test_unverified(self, node_id: str, message: str | None = None) -> None:
+        self._emit_requirement_state(node_id, "test", "unverified", message)
 
     def _emit_runner_state(self, state: str, message: str | None = None) -> None:
         append_jsonl(

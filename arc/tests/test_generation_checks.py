@@ -5,16 +5,61 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
-from generation_checks import check_batch, contract_warnings
+from generation_checks import check_batch, contract_warnings, missing_backend_export_errors, nested_route_paths
 
 
 class GenerationChecksTests(TestCase):
+    def test_cjs_missing_named_export_is_advisory_and_dynamic_exports_are_unknown(self):
+        sources = {
+            'backend/routes/orgs.js': "const {orgs, collaborators} = require('../collections/orgs');\n",
+            'backend/collections/orgs.js': "const orgs = {};\nmodule.exports = {orgs};\n",
+        }
+        self.assertIn('collaborators', missing_backend_export_errors(sources, ['backend/routes/orgs.js'])[0])
+        self.assertIn('collaborators', missing_backend_export_errors(sources, ['backend/collections/orgs.js'])[0])
+        with tempfile.TemporaryDirectory() as folder:
+            gate = check_batch(Path(folder), ['backend/routes/orgs.js'], sources=sources)
+            self.assertEqual(gate['errors'], [])  # advisory cannot block later source waves
+            self.assertEqual(gate['readiness'], 'build_deferred')
+            self.assertTrue(any('collaborators' in issue for issue in gate['deferred']))
+        sources['backend/collections/orgs.js'] = "module.exports = makeExports();\n"
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/collections/orgs.js'] = "module.exports = {...base, orgs};\n"
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/collections/orgs.js'] = "module.exports = {orgs};\n"
+        sources['backend/routes/orgs.js'] = "// const {collaborators} = require('../collections/orgs');\n"
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/routes/orgs.js'] = "const doc = `\nconst {collaborators} = require('../collections/orgs');\n`;\n"
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+
     def bundled_sources(self):
         blueprints = Path(__file__).resolve().parents[1] / 'blueprints'
         return {
             'backend/lib/collection.js': (blueprints / 'collection.js').read_text(),
             'frontend/src/shared/request.js': (blueprints / 'frontend-request.js').read_text(),
         }
+
+    def test_pathless_index_and_relative_children_resolve_without_false_route_warnings(self):
+        app = ('<Routes><Route element={<Layout />}><Route index element={<Home />} />'
+               '<Route path="organizations/:orgId" element={<Org />} /></Route></Routes>')
+        self.assertIn('/', nested_route_paths(app))
+        sources = {'frontend/src/App.jsx': app,
+                   'frontend/src/Nav.jsx': '<Link to="/">Home</Link><Link to={`/organizations/${orgId}`}>Org</Link>'}
+        self.assertFalse(any('ROUTE_LINK' in warning for warning in
+                             contract_warnings(sources, ['frontend/src/Nav.jsx'])))
+
+    def test_inert_reach_shortcut_and_missing_collection_method_are_reported(self):
+        sources = self.bundled_sources()
+        sources['frontend/src/Org.jsx'] = (
+            '<Link to="/organizations/acme/teams/frontend" onClick={e => e.preventDefault()}>Members</Link>')
+        sources['backend/routes/auth.js'] = (
+            "const {collection} = require('../lib/collection');\n"
+            "const accounts = collection('accounts', {initial: []});\n"
+            "module.exports = {accounts};\n")
+        sources['backend/routes/reset.js'] = (
+            "const {accounts} = require('./auth');\naccounts.update('alice', {password: 'new'});\n")
+        warnings = contract_warnings(sources, ['frontend/src/Org.jsx', 'backend/routes/reset.js'])
+        self.assertTrue(any('INERT_LINK' in warning for warning in warnings))
+        self.assertTrue(any('COLLECTION_METHOD' in warning for warning in warnings))
 
     def test_transaction_replacement_and_empty_react_action_are_reported(self):
         sources = self.bundled_sources()

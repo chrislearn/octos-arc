@@ -331,6 +331,9 @@ class StreamingTests(TestCase):
                 self.assertIn('<<<FILE', proxy.take_truncated_reply('wave 1'))
                 record = json.loads(log.read_text())
                 self.assertEqual(record['stream_guard'], 'repeated_operation_cycle')
+                self.assertEqual(record['stream_integrity'], 'locally_interrupted')
+                self.assertGreater(record['stream_events'], 0)
+                self.assertFalse(record['provider_usage_known'])
                 self.assertTrue(record['no_usage'])
                 self.assertEqual(json.loads(payload)['choices'][0]['finish_reason'], 'length')
             finally:

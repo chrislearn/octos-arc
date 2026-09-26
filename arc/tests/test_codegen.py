@@ -169,7 +169,7 @@ class ParseTests(unittest.TestCase):
 class EditTurnTests(unittest.TestCase):
     def setUp(self):
         import main
-        from unittest.mock import Mock
+        from unittest.mock import Mock, patch
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -476,7 +476,7 @@ class BestRepairStateTests(unittest.TestCase):
     def test_restores_uncommitted_regression_even_when_commit_id_is_unchanged(self):
         import main
         import time
-        from unittest.mock import Mock
+        from unittest.mock import Mock, patch
         from acceptance import RunSummary, TestOutcome
         flow = object.__new__(main.Flow)
         flow.runner = object()
@@ -503,7 +503,8 @@ class BestRepairStateTests(unittest.TestCase):
                                           RunSummary(passed=0, total=2, results=[failure]),
                                           RunSummary(passed=1, total=2, results=[failure])])
         rebuild = Mock(return_value='Rewrite everything')
-        self.assertFalse(flow.acceptance_loop('node', ['example.spec.ts'], time.time()+1000, rebuild))
+        with patch.dict('os.environ', {'OCTOS_ARC_F1_REPAIR_ROUNDS': '2'}):
+            self.assertFalse(flow.acceptance_loop('node', ['example.spec.ts'], time.time()+1000, rebuild))
         rebuild.assert_not_called()
         self.assertEqual(flow.turn.call_count, 2)
         flow.restore_app.assert_called_once_with('same-commit')
@@ -598,7 +599,8 @@ class RepairModeTransitionTests(unittest.TestCase):
                     TestOutcome('behavior', tools_succeed, 'passed' if tools_succeed else 'failed',
                                 1, message='' if tools_succeed else 'still missing control')]))
                 flow.run_specs = Mock(side_effect=summaries)
-                with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_REPAIRS': '2'}):
+                with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_REPAIRS': '2',
+                                            'OCTOS_ARC_F1_REPAIR_ROUNDS': str(rounds)}):
                     self.assertEqual(flow.acceptance_loop('node', ['generic.spec.ts'], time.time()+1000),
                                      tools_succeed)
                 self.assertEqual(flow.codegen_turn.call_count, 2)

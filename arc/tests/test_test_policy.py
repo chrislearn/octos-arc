@@ -254,16 +254,16 @@ class IncrementalGateTests(unittest.TestCase):
             flow=Flow(argparse.Namespace(web_port=3000),root,root/'requirements')
             flow._wave_behavior_blocked=True
             flow.whole_app_codegen=Mock(return_value=True)
-            flow.whole_app_first_suite=Mock(side_effect=AssertionError('no redundant full suite'))
-            flow.whole_app_shared_repair=Mock()
+            flow.whole_app_first_suite=Mock(return_value=set())
+            flow.whole_app_shared_repair=Mock(return_value=set())
             flow.test_verdict={};flow.whole_app_generated_ids=set();flow.whole_app_partial_ids={'A'}
             flow.driver=SimpleNamespace(end_scope=Mock());flow.node_cycle=Mock()
             flow.remaining=Mock(return_value=4000);flow.time_up=Mock(return_value=False)
             nodes=[{'id':'A'},{'id':'B'}]
             self.assertTrue(flow.whole_app_experiment({'id':'ROOT','children':nodes},nodes))
             self.assertEqual(flow.node_cycle.call_count,2)
-            self.assertTrue(flow.node_cycle.call_args_list[0].kwargs['preimplemented'])
-            self.assertFalse(flow.node_cycle.call_args_list[1].kwargs['preimplemented'])
+            self.assertEqual([call.args[0]['id'] for call in flow.node_cycle.call_args_list], ['A', 'B'])
+            flow.whole_app_first_suite.assert_called_once()
             flow.whole_app_shared_repair.assert_not_called()
 
 class CheckpointQuarantineTests(unittest.TestCase):

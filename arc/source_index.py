@@ -31,6 +31,35 @@ class SourceIndex:
                 return found
             found = expanded
 
+    def planned_artifact_candidates(self, artifacts, limit=12):
+        """Bounded heuristic mapping of planned URLs/files to current source.
+
+        An exact quoted route wins; a same-named route/page file is only a
+        candidate. This is for self-audit context, never a completion verdict.
+        """
+        found = set()
+        for artifact in artifacts:
+            value = str(artifact.get('path') or '')
+            if value in self.sources:
+                found.add(value)
+                continue
+            if not value.startswith('/') or len(value) < 2:
+                continue
+            exact = [path for path, source in self.sources.items()
+                     if re.search(r'''['"`]''' + re.escape(value) + r'''['"`]''', source)]
+            if exact:
+                found.update(exact)
+                continue
+            parts = [p.lower() for p in value.split('/') if p and not p.startswith(':')]
+            if not parts:
+                continue
+            stem = parts[-1]
+            if stem in {'api', 'app'}:
+                continue
+            found.update(path for path in self.sources
+                         if posixpath.basename(path).split('.', 1)[0].lower() == stem)
+        return sorted(found)[:limit]
+
     def render(self, paths, limit=5000):
         lines = ['Source relationships (heuristic; verify callers before changing contracts):']
         for path in sorted(self.related(paths)):

@@ -288,7 +288,7 @@ class FlowRegression(unittest.TestCase):
         f.node_cycle = Mock(side_effect=run)
         with patch.dict(os.environ, {'OCTOS_ARC_SIBLING_BATCH_SIZE':'1'}):
             f.implement_sequential(tree,nodes,set())
-        self.assertEqual(visited,['A','C','B'])
+        self.assertEqual(visited,['A','B','C'])  # failed tests do not delay dependent source generation
 
 
     def test_absent_error_message_does_not_cover_required_display(self):

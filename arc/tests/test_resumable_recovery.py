@@ -170,12 +170,9 @@ class RecoveryControlTests(TestCase):
         with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '1'}):
             f.implement_sequential(self.tree, self.nodes, set())
         self.assertEqual(entered, ['A', 'B', 'C'])
-        self.assertEqual(f.run_specs.call_count, 2)
-        f.suite_repair_turn.assert_called_once()
-        self.assertFalse(f.suite_repair_turn.call_args.kwargs['prefer_codegen'])
-        self.assertEqual(f._unresolved_startup_error, '')
-        self.assertEqual(f.test_verdict, {'A': False, 'B': False, 'C': False})
-        self.assertFalse(f.final_suite_green)
+        f.suite_repair_turn.assert_not_called()  # full-suite failures cannot gate the queue
+        self.assertEqual(f._unresolved_startup_error, 'missing module export')
+        self.assertFalse(getattr(f, 'final_suite_green', False))
 
     def test_incomplete_suite_does_not_release_the_queue(self):
         f = self.flow
@@ -185,11 +182,9 @@ class RecoveryControlTests(TestCase):
         f.suite_repair_turn = Mock(return_value=('tools', 'still incomplete'))
         with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '1'}):
             f.implement_sequential(self.tree, self.nodes, set())
-        self.assertEqual(entered, ['A'])
-        self.assertFalse(f.final_startup_recovered)
-        self.assertEqual(f.run_specs.call_count, 2)
-        deferred = [c.kwargs for c in f.metric.call_args_list if c.args[0] == 'implementation_deferred']
-        self.assertEqual(deferred[0]['remaining_nodes'], ['B', 'C'])
+        self.assertEqual(entered, ['A', 'B', 'C'])
+        self.assertFalse(getattr(f, 'final_startup_recovered', False))
+        f.suite_repair_turn.assert_not_called()
 
     def test_deferred_recovery_obeys_budget_and_final_phase_guards(self):
         f = self.flow
@@ -209,9 +204,7 @@ class RecoveryControlTests(TestCase):
             return True
         f.recover_deferred_startup = Mock(side_effect=recover)
         f.implement_sequential(self.tree, self.nodes, set())
-        self.assertEqual(entered, ['A'])
-        deferred = [c.kwargs for c in f.metric.call_args_list if c.args[0] == 'final_phase_started']
-        self.assertEqual(deferred[0]['deferred_nodes'], ['B', 'C'])
+        self.assertEqual(entered, ['A', 'B', 'C'])
 
     def rollback_flow(self, restored_summary):
         f = self.flow
@@ -298,7 +291,8 @@ class RecoveryControlTests(TestCase):
             f.last_repair_changed = next(changed)
             return 'tools', 'repair'
         f.suite_repair_turn = Mock(side_effect=repair)
-        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '1', 'OCTOS_FINAL_SUITE_PASSES': '3'}):
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '1', 'OCTOS_FINAL_SUITE_PASSES': '3',
+                                      'OCTOS_ARC_FINAL_CONFIRM_RUNS': '2'}):
             f.final_acceptance_passes()
         self.assertEqual(f.run_specs.call_count, 3)  # baseline + green + green confirmation
         self.assertEqual(f.suite_repair_turn.call_count, 2)
@@ -325,7 +319,8 @@ class RecoveryControlTests(TestCase):
             f.last_repair_changed = next(changes)
             return 'tools', 'repair'
         f.suite_repair_turn = Mock(side_effect=repair)
-        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '3', 'OCTOS_FINAL_SUITE_PASSES': '3'}):
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '3', 'OCTOS_FINAL_SUITE_PASSES': '3',
+                                      'OCTOS_ARC_FINAL_CONFIRM_RUNS': '2'}):
             f.final_acceptance_passes()
         self.assertEqual(f.run_specs.call_count, 4)
         self.assertEqual(f.suite_repair_turn.call_count, 3)
@@ -339,7 +334,7 @@ class RecoveryControlTests(TestCase):
         with patch.dict('os.environ', {'OCTOS_FINAL_SUITE_PASSES': '1'}):
             f.final_acceptance_passes()
         f.run_specs.assert_called_once()
-        f.suite_repair_turn.assert_called_once()
+        f.suite_repair_turn.assert_not_called()  # default final pass observes without repair
 
     def test_source_changes_between_passes_invalidate_cached_measurement(self):
         f = self.flow

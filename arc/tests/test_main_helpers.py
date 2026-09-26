@@ -788,7 +788,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         calls = []
         original = flow.run_specs
         flow.run_specs = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
-        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "0"}):
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "0", "OCTOS_ARC_FINAL_CONFIRM_RUNS": "2"}):
             flow.final_acceptance()
         self.assertEqual(len(calls), 2)
         self.assertFalse(flow.test_verdict["REQ-2"])
@@ -797,7 +797,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         calls = []
         original = flow.run_specs
         flow.run_specs = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
-        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "0"}):
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "0", "OCTOS_ARC_FINAL_CONFIRM_RUNS": "2"}):
             flow.final_acceptance()
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(flow.test_verdict.values()))
@@ -1070,7 +1070,8 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             calls.append(message)
             return summary
         flow.run_specs = run_specs
-        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2",
+                                        "OCTOS_ARC_FINAL_CONFIRM_RUNS": "2"}):
             flow.final_acceptance()
         self.assertEqual(len(calls), 4)  # unchanged-app confirmation after the green round
         self.assertTrue(all(flow.test_verdict.values()))
@@ -1159,7 +1160,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.final_acceptance = Mock()
         with patch.dict('os.environ', {}, clear=True):
             flow.final_acceptance_passes()
-        self.assertEqual(flow.final_acceptance.call_count, 3)
+        self.assertEqual(flow.final_acceptance.call_count, 1)
 
     def test_should_stop_repeating_once_the_full_suite_is_green(self):
         from unittest.mock import patch
@@ -1721,7 +1722,8 @@ class KilledSuiteRetryTests(unittest.TestCase):
     def test_should_halve_the_workers_after_a_kill_instead_of_giving_up(self):
         from unittest.mock import patch
         flow = self._flow([None, None, 2])  # killed at 4 and at 2, runs at 1
-        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1", "OCTOS_ARC_FINAL_WORKERS": "4"}):
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1", "OCTOS_ARC_FINAL_WORKERS": "4",
+                                        "OCTOS_ARC_FINAL_CONFIRM_RUNS": "2"}):
             flow.final_acceptance()
         self.assertEqual(self.seen, [4, 2, 1, 1])
         self.assertTrue(all(flow.test_verdict.values()))
@@ -1770,9 +1772,16 @@ class PostflightReapTests(unittest.TestCase):
         self.assertEqual(order, ['driver', 'reap'])
 
     def test_should_be_what_the_run_teardown_calls(self):
+        import ast
         import inspect
-        teardown = inspect.getsource(m.Flow.run).rsplit('finally:', 1)[-1]
-        self.assertIn('self.postflight()', teardown)
+        import textwrap
+        tree = ast.parse(textwrap.dedent(inspect.getsource(m.Flow.run)))
+        self.assertTrue(any(isinstance(node, ast.Try) and any(
+            isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name) and call.func.value.id == 'self'
+            and call.func.attr == 'postflight'
+            for statement in node.finalbody for call in ast.walk(statement))
+            for node in ast.walk(tree)))
 
 
 class InterferenceNoteTests(unittest.TestCase):

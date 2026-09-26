@@ -213,7 +213,9 @@ class FlowAuditTests(unittest.TestCase):
         self.assertTrue(self.flow.derived_review_needed("REQ-2"))
         self.flow.write_derived_coverage()
         report = json.loads((self.root / ".arc" / "derived-coverage.json").read_text())
-        self.assertEqual(report["totals"], {"scenarios": 2, "covered": 1, "missing": 1, "disputed": 0})
+        self.assertEqual(report["totals"], {"scenarios": 2, "covered": 1, "missing": 1,
+                                             "disputed": 0, "semantic_contracts": 0,
+                                             "missing_semantic_contracts": 0})
         path.write_text(path.read_text() + "\ntest('REQ-2: Save [model]', async ({ page }) => {\n"
                         "  await h.clickNamed(page, 'Save');\n"
                         "  await h.expectTextsVisible(page, ['Saved']);\n});\n")
@@ -263,7 +265,7 @@ class FlowAuditTests(unittest.TestCase):
         self.assertFalse(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
                                                    initial_summary=failed))
         self.assertEqual(self.flow.derived_spec_disputes, {})
-        self.assertEqual(self.flow.text_turn.call_count, 1)
+        self.assertEqual(self.flow.text_turn.call_count, 2)  # schema-only retry; failure stays active
 
     def test_related_regression_audits_its_spec_then_remeasures_both_features(self):
         other = self.directory / "other.spec.ts"
@@ -307,6 +309,7 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.audit_failed_derived_specs = Mock(return_value=None)
         self.flow.text_turn = Mock(side_effect=[
             (True, '{"verdict":"app_error","evidence":"Open action is missing","scenarios":[]}'),
+            (True, '{"verdict":"oracle_dispute","evidence":"Save expectation conflicts","scenarios":[]}'),
             (True, '{"verdict":"oracle_dispute","evidence":"Save expectation conflicts","scenarios":[]}')])
         failed = RunSummary(passed=0, total=2, results=[
             TestOutcome("REQ-1: Open [model]", False, "failed", 1, file=path.name),
@@ -315,7 +318,7 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.repair_rounds = 0
         self.assertFalse(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
                                                    initial_summary=failed, source_versions={}))
-        self.assertEqual(self.flow.text_turn.call_count, 2)
+        self.assertEqual(self.flow.text_turn.call_count, 3)  # second claim gets a schema-only retry
         self.assertEqual(self.flow.disputed_generated_failures(failed), [])
 
     def test_final_suite_repairs_uncontested_failure_while_oracle_is_disputed(self):
@@ -399,11 +402,13 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.wound_down = Mock(return_value=False)
         self.flow.remaining = Mock(return_value=1000)
         self.flow.final_phase_reserve = Mock(return_value=0)
-        self.flow.text_turn = Mock(return_value=(True, '{"verdict":"spec_error","evidence":"WHEN clicks Open",'
-                                                 '"scenarios":[{"id":"S1","title":"REQ-1: action",'
-                                                 '"confidence":0.9,"signed_in":false,"steps":['
-                                                 '{"op":"click","target":"Open"},'
-                                                 '{"op":"expect_visible","target":"Done"}]}]}'))
+        grounded = {'verdict': 'spec_error', 'evidence': 'The test asserts Done before performing the Open action.',
+                    'reason_code': 'wrong_action', 'requirement_quote': 'The visitor clicks “Open”.',
+                    'test_quote': "await h.expectTextsVisible(page, ['Done']);",
+                    'scenarios': [{'id': 'S1', 'title': 'REQ-1: action', 'confidence': .9,
+                                   'signed_in': False, 'steps': [{'op': 'click', 'target': 'Open'},
+                                                                {'op': 'expect_visible', 'target': 'Done'}]}]}
+        self.flow.text_turn = Mock(return_value=(True, json.dumps(grounded)))
         for suffix in ("model", "script"):
             with self.subTest(suffix=suffix):
                 path.write_text(f"test('REQ-1: action [{suffix}]', async ({{ page }}) => {{\n"

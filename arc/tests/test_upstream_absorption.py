@@ -392,7 +392,7 @@ class RepairOutcomeTests(unittest.TestCase):
         flow.final_acceptance = Mock()
         with patch.dict("os.environ", {}, clear=True):
             flow.final_acceptance_passes()
-        self.assertEqual(flow.final_acceptance.call_count, 3)
+        self.assertEqual(flow.final_acceptance.call_count, 1)
 
     def test_final_pass_progress_resets_stall_counter(self):
         self.prepare_final_suite()

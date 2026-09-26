@@ -43,6 +43,8 @@ def _collect_codegen_stream(response, deadline: float | None = None, progress=No
     text, reasoning, usage, finish = "", "", None, None
     identity = {}
     aborted = None
+    saw_done = False
+    event_count = 0
     for raw in response:
         if deadline is not None and time.monotonic() >= deadline:
             aborted = "turn_deadline"
@@ -51,7 +53,9 @@ def _collect_codegen_stream(response, deadline: float | None = None, progress=No
             continue
         payload = raw[5:].strip()
         if payload == b"[DONE]":
+            saw_done = True
             break
+        event_count += 1
         try:
             event = json.loads(payload)
         except (ValueError, UnicodeError):
@@ -77,6 +81,8 @@ def _collect_codegen_stream(response, deadline: float | None = None, progress=No
             break
         if grew and progress is not None:
             progress()
+    if not aborted and not saw_done:
+        aborted = "incomplete_stream"
     if aborted or not finish:
         aborted = aborted or "incomplete_stream"
         finish = "length"
@@ -96,6 +102,11 @@ def _collect_codegen_stream(response, deadline: float | None = None, progress=No
         result["arc_usage_estimated"] = True
     if aborted:
         result["arc_stream_stop"] = aborted
+    result["arc_stream_integrity"] = ("complete" if not aborted else
+                                      "upstream_incomplete" if aborted == "incomplete_stream" else
+                                      "locally_interrupted")
+    result["arc_stream_events"] = event_count
+    result["arc_provider_usage_known"] = usage is not None
     return json.dumps(result, ensure_ascii=False).encode(), aborted
 
 
@@ -160,6 +171,7 @@ def collect_codegen_stream(response, deadline: float | None = None, lease=None) 
         if reason[0]:
             data = json.loads(payload)
             data["arc_stream_stop"] = reason[0]
+            data["arc_stream_integrity"] = "locally_interrupted"
             data["choices"][0]["finish_reason"] = "length"
             return json.dumps(data, ensure_ascii=False).encode(), reason[0]
         return payload, stopped
@@ -259,7 +271,34 @@ def configured_model_routes(env=None, bundle_dir: Path | None = None) -> str:
     return raw
 
 
-def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
+def default_reasoning_for_model(model: str, env=None) -> str:
+    """An explicit task setting wins; GLM 5.3 Flash and Qwen3.7 Plus default to medium."""
+    env = os.environ if env is None else env
+    if "OCTOS_ARC_REASONING" in env:
+        return env["OCTOS_ARC_REASONING"]
+    return "medium" if re.search(r"(?:^|/)(?:glm-5\.3-flash|qwen3\.7-plus)(?:-|$)", str(model).lower()) else "low"
+
+
+def turn_reasoning_for_model(model: str, label: str, env=None) -> str:
+    """Keep test generation/review at the model default; spend less on code.
+
+    A model's medium task default remains visible in config. The turn override
+    is limited to implementation and repair; explicit settings always win.
+    """
+    env = os.environ if env is None else env
+    mode = default_reasoning_for_model(model, env)
+    if any(name in env for name in ("OCTOS_ARC_REASONING", "OCTOS_ARC_IMPLEMENT_REASONING",
+                                    "OCTOS_ARC_RECOVERY_REASONING")):
+        return mode
+    label = label.lower()
+    test_review = any(word in label for word in ("derived", "generated-test"))
+    if mode == "medium" and not test_review and not any(word in label for word in ("design", "final check")):
+        return "low"
+    return mode
+
+
+def route_request(body: bytes, rules: list[dict], phase: str, reasoning_mode: str | None = None,
+                  turn_label: str = "") -> bytes:
     """Choose per request from phase, complete input size and tool/image needs.
 
     Configuration order expresses preference; provider catalogs need not expose
@@ -298,14 +337,41 @@ def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
         if "max_tokens" in opts:
             data.pop("max_completion_tokens", None)
         data.update(opts)
+        selected_model = str(data["model"]).lower()
+        explicit_turn = any(name in os.environ for name in
+                            ("OCTOS_ARC_REASONING", "OCTOS_ARC_IMPLEMENT_REASONING",
+                             "OCTOS_ARC_RECOVERY_REASONING"))
+        if (re.search(r"(?:^|/)glm-5\.3-flash(?:-|$)", selected_model)
+                and "reasoning_effort" not in opts):
+            mode = (turn_reasoning_for_model(data["model"], turn_label)
+                    if turn_label else default_reasoning_for_model(data["model"]))
+            if reasoning_mode and (explicit_turn or mode in {"auto", "passthrough"}):
+                mode = reasoning_mode
+            if mode in {"low", "medium", "high"}:
+                data["reasoning_effort"] = mode
+        elif re.search(r"(?:^|/)qwen3\.7-plus(?:-|$)", selected_model):
+            # Hybrid thinking has a separate on/off toggle. Send the effort
+            # level as well; merely enabling thinking leaves provider intensity
+            # at its own default instead of the requested medium.
+            mode = opts.get("reasoning_effort", (turn_reasoning_for_model(data["model"], turn_label)
+                                                 if turn_label else default_reasoning_for_model(data["model"])))
+            if "reasoning_effort" not in opts and reasoning_mode and (explicit_turn or mode in {"auto", "passthrough"}):
+                mode = reasoning_mode
+            if "enable_thinking" not in opts and mode != "passthrough":
+                data["enable_thinking"] = mode not in {"none", "off", "disabled"}
+            if data.get("enable_thinking", True) and mode in {"low", "medium", "high"}:
+                data["reasoning_effort"] = mode
+            else:
+                data.pop("reasoning_effort", None)
+            data.pop("thinking", None)
         return json.dumps(data, ensure_ascii=False).encode()
     return body
 
 
-def inject_reasoning(body: bytes, mode: str) -> bytes:
+def inject_reasoning(body: bytes, mode: str, *, force: bool = False) -> bytes:
     """mode: "low"|"medium"|"high" -> reasoning_effort (+ thinking enabled);
-    "none"/"off" -> thinking disabled. The turn's toggle takes precedence over
-    kernel defaults; an existing enabled effort level is otherwise respected."""
+    "none"/"off" -> thinking disabled. A caller's explicit effort is preserved
+    unless the proxy enforces a turn mode; explicit route options apply later."""
     if not mode or mode == "passthrough":
         return body
     try:
@@ -315,13 +381,21 @@ def inject_reasoning(body: bytes, mode: str) -> bytes:
     if not isinstance(data, dict) or "messages" not in data:
         return body
     model = str(data.get("model") or "").lower()
-    # Qwen3.7 Plus uses a different wire parameter from DeepSeek. Sending
-    # DeepSeek's thinking object (or no toggle) does not disable its default
-    # reasoning mode. Limit this adapter to the documented hybrid family.
+    # Qwen3.7 Plus uses a hybrid-thinking toggle in addition to effort.
+    # DeepSeek's thinking object cannot disable its default reasoning mode.
     if re.search(r"(?:^|/)qwen3\.7-plus(?:-|$)", model):
         data["enable_thinking"] = mode not in ("none", "off", "disabled")
         data.pop("thinking", None)
-        data.pop("reasoning_effort", None)
+        if not data["enable_thinking"]:
+            data.pop("reasoning_effort", None)
+        elif mode in ("low", "medium", "high") and (force or data.get("reasoning_effort") in
+                                                     (None, "none", "off", "disabled")):
+            data["reasoning_effort"] = mode
+        return json.dumps(data, ensure_ascii=False).encode("utf-8")
+    if re.search(r"(?:^|/)glm-5\.3-flash(?:-|$)", model):
+        if mode in ("low", "medium", "high") and (force or data.get("reasoning_effort") in
+                                                 (None, "none", "off", "disabled")):
+            data["reasoning_effort"] = mode
         return json.dumps(data, ensure_ascii=False).encode("utf-8")
     if "deepseek" not in model:
         return body
@@ -337,6 +411,37 @@ def inject_reasoning(body: bytes, mode: str) -> bytes:
         opts.setdefault("include_usage", True)
         data["stream_options"] = opts
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
+def completed_without_action(payload: bytes) -> bool:
+    """A complete model reply with neither visible text nor executable calls."""
+    try:
+        data = json.loads(payload)
+        if data.get('arc_stream_integrity') == 'upstream_incomplete' or data.get('arc_local_response'):
+            return False
+        choices = data.get('choices') or []
+        if not choices:
+            return False
+        return all(isinstance(choice, dict)
+                   and choice.get('finish_reason') in {'stop', 'length'}
+                   and isinstance(choice.get('message'), dict)
+                   and not str(choice['message'].get('content') or '').strip()
+                   and not choice['message'].get('tool_calls') for choice in choices)
+    except (ValueError, UnicodeError, TypeError, AttributeError):
+        return False
+
+
+def lower_stalled_tool_reasoning(body: bytes) -> bytes:
+    """Give a default-medium GLM tool retry room to produce an action."""
+    try:
+        data = json.loads(body)
+        if not re.search(r'(?:^|/)glm-5\.3-flash(?:-|$)', str(data.get('model') or '').lower()):
+            return body
+        data.pop('reasoning_effort', None)
+        data.pop('thinking', None)
+        return inject_reasoning(json.dumps(data, ensure_ascii=False).encode(), 'low')
+    except (ValueError, UnicodeError, TypeError, AttributeError):
+        return body
 
 
 def _usage_from_body(response_body: bytes):
@@ -383,6 +488,77 @@ def request_shape(body: bytes) -> dict | None:
             chars += len(json.dumps(msg["tool_calls"], ensure_ascii=False))
         shape[f"{role}_chars"] = shape.get(f"{role}_chars", 0) + chars
     return shape
+
+
+def reject_unoffered_tool_calls(request_body: bytes, response_body: bytes) -> tuple[bytes, list[str]]:
+    """Enforce the actual tool schema at the last boundary before kernel execution.
+
+    The kernel may execute a tool named in a model response even when that tool
+    was withdrawn from the request. Never forward such a call. Preserve allowed
+    calls and provider usage; an all-rejected response becomes a local assistant
+    refusal instead of a fabricated tool result.
+    """
+    try:
+        request = json.loads(request_body)
+        response = json.loads(response_body)
+    except (TypeError, ValueError):
+        return response_body, []
+    if not isinstance(request, dict) or not isinstance(response, dict):
+        return response_body, []
+    offered = request.get('tools')
+    if not isinstance(offered, list):
+        offered = []
+    allowed = {str(tool.get('function', {}).get('name')) for tool in offered
+               if isinstance(tool, dict) and isinstance(tool.get('function'), dict)}
+    legacy = request.get('functions')
+    if isinstance(legacy, list):
+        allowed.update(str(tool['name']) for tool in legacy
+                       if isinstance(tool, dict) and isinstance(tool.get('name'), str))
+    if request.get('tool_choice') == 'none' or request.get('function_call') == 'none':
+        allowed.clear()
+    rejected = []
+    choices = response.get('choices')
+    if not isinstance(choices, list):
+        return response_body, []
+    for choice in choices:
+        message = choice.get('message') if isinstance(choice, dict) else None
+        if not isinstance(message, dict):
+            continue
+        refused_here = []
+        legacy_call = message.get('function_call')
+        if isinstance(legacy_call, dict) and legacy_call.get('name') not in allowed:
+            refused_here.append(str(legacy_call.get('name') or '(unknown)'))
+            message.pop('function_call', None)
+            choice['finish_reason'] = 'stop'
+        if not isinstance(message.get('tool_calls'), list):
+            if refused_here:
+                content = message.get('content')
+                message['content'] = ((content if isinstance(content, str) else '') + '\n'
+                                      + 'Tool call refused by local policy; use the available tools only.').strip()
+                rejected.extend(refused_here)
+            continue
+        kept = []
+        for call in message['tool_calls']:
+            function = call.get('function') if isinstance(call, dict) else None
+            name = function.get('name') if isinstance(function, dict) else None
+            if isinstance(name, str) and name in allowed:
+                kept.append(call)
+            else:
+                refused_here.append(str(name or '(unknown)'))
+        if len(kept) == len(message['tool_calls']) and not refused_here:
+            continue
+        rejected.extend(refused_here)
+        note = 'Tool call refused by local policy: ' + ', '.join(sorted(set(refused_here))) + \
+               ' was not offered in this turn. Use the available tools only.'
+        content = message.get('content')
+        message['content'] = ((content if isinstance(content, str) else '') + '\n' + note).strip()
+        if kept:
+            message['tool_calls'] = kept
+            choice['finish_reason'] = 'tool_calls'
+        else:
+            message.pop('tool_calls', None)
+            choice['finish_reason'] = 'stop'
+    return (json.dumps(response, ensure_ascii=False).encode() if rejected else response_body), rejected
 
 
 # System-prompt sections of the octos coding profile that no ARC task uses.
@@ -751,6 +927,14 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
                 reasons.add(reason)
     if reasons:
         rec["finish_reasons"] = sorted(reasons)
+    if not text.lstrip().startswith("data:"):
+        try:
+            envelope = json.loads(text)
+            if isinstance(envelope, dict) and envelope.get("arc_stream_integrity"):
+                rec["stream_integrity"] = envelope["arc_stream_integrity"]
+                rec["provider_usage_known"] = bool(envelope.get("arc_provider_usage_known"))
+        except (ValueError, TypeError):
+            pass
     for key in ("prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens",
                 "prompt_cache_miss_tokens"):
         if key in usage:
@@ -838,6 +1022,8 @@ class LlmProxy:
         self._provider_headers: dict[str, str] = {}
         self.budget_hits = 0
         self.hard_budget_exhausted = False
+        self.no_action_count = 0
+        self.no_action_exhausted = False
         self.compact_reads = False
         self.bounded_edits = False
         # Run-wide cost-guard usage: exact provider tokens when present, plus a
@@ -873,7 +1059,7 @@ class LlmProxy:
                 was_streaming = False
                 unrouted = None
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
-                    body = inject_reasoning(body, proxy.mode)
+                    body = inject_reasoning(body, proxy.mode, force=True)
                     body = ensure_max_tokens(body, proxy.min_max_tokens)
                     with proxy._lock:
                         used = proxy.turn_requests
@@ -906,7 +1092,15 @@ class LlmProxy:
                     body = cap_output_tokens(body, limit)
                     unrouted = body
                     with proxy._lock:
-                        body = route_request(body, proxy.routes, proxy.phase)
+                        body = route_request(body, proxy.routes, proxy.phase, proxy.mode,
+                                             getattr(proxy, 'label', ''))
+                    explicit_effort = any(any(field in rule.get('parameters', {}) for field in
+                                              ('reasoning_effort', 'thinking', 'enable_thinking'))
+                                          for rule in proxy.routes)
+                    if (proxy.no_action_count and not proxy.no_tools and proxy.phase in {'implement', 'repair'}
+                            and 'OCTOS_ARC_REASONING' not in os.environ
+                            and 'OCTOS_ARC_IMPLEMENT_REASONING' not in os.environ and not explicit_effort):
+                        body = lower_stalled_tool_reasoning(body)
                     body = cap_output_tokens(body, limit)
                     proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
@@ -984,6 +1178,15 @@ class LlmProxy:
                 self.terminal_blocked_requests += 1
                 return self._terminal_accounts[account]
             future = self._inflight.get(key) if key is not None else None
+            if key is not None and future is None and self.no_action_exhausted:
+                payload = {'id': 'arc-local-no-action-limit', 'object': 'chat.completion',
+                           'model': json.loads(body).get('model', 'arc-local'),
+                           'created': int(time.time()), 'arc_local_response': True,
+                           'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+                           'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {
+                               'role': 'assistant', 'content': 'local_no_action_limit: '
+                               'this node is incomplete; preserve partial files and continue.'}}]}
+                return 200, json.dumps(payload).encode(), {'Content-Type': 'application/json'}
             if (key is not None and future is None and self.turn_budget > 0
                     and self.turn_upstream_requests >= self.turn_budget):
                 # A local terminal message ends the kernel loop without provider
@@ -1041,6 +1244,10 @@ class LlmProxy:
                         if guarded_stream and "text/event-stream" in resp.headers.get("Content-Type", ""):
                             payload, stopped = collect_codegen_stream(resp, deadline, lease)
                             meta["stream_guard"] = stopped or "completed"
+                            stream_result = json.loads(payload)
+                            meta["stream_integrity"] = stream_result.get("arc_stream_integrity")
+                            meta["stream_events"] = stream_result.get("arc_stream_events", 0)
+                            meta["provider_usage_known"] = bool(stream_result.get("arc_provider_usage_known"))
                             result = resp.status, payload, {"Content-Type": "application/json"}
                         else:
                             result = resp.status, resp.read(), resp.headers
@@ -1061,6 +1268,19 @@ class LlmProxy:
                     break
                 time.sleep(1)
             status, payload, _ = result
+            if status == 200 and key is not None:
+                payload, rejected_tools = reject_unoffered_tool_calls(body, payload)
+                if rejected_tools:
+                    meta['rejected_tool_calls'] = sorted(set(rejected_tools))
+                    result = status, payload, {'Content-Type': 'application/json'}
+                if not self.no_tools and self.phase in {'implement', 'repair'}:
+                    with self._lock:
+                        if completed_without_action(payload):
+                            self.no_action_count += 1
+                            self.no_action_exhausted = self.no_action_count >= 2
+                            meta['consecutive_no_action'] = self.no_action_count
+                        else:
+                            self.no_action_count = 0
             if (key is not None and status >= 500 and not may_have_generated
                     and usage_record(payload, 0, self.mode) is None):
                 with self._lock:
@@ -1121,7 +1341,8 @@ class LlmProxy:
 
     def maybe_extend_turn(self) -> None:
         # Exactly one extension; progress comes from actual app-file hashes,
-        # never model claims or tool-call counts. Explicit caller budgets stay fixed.
+        # never model claims or tool-call counts. The caller caps the possible
+        # extension before the turn starts.
         if (self.turn_progress is not None and not self.turn_budget_extended
                 and self.turn_budget > 0 and self.turn_upstream_requests >= self.turn_budget - 2
                 and self.turn_extension_limit > self.turn_budget):
@@ -1146,6 +1367,8 @@ class LlmProxy:
             self.turn_requests = 0
             self.turn_upstream_requests = 0
             self.hard_budget_exhausted = False
+            self.no_action_count = 0
+            self.no_action_exhausted = False
             self.turn_started_at = time.monotonic()
 
     def enable_edit_preflight(self) -> str:
@@ -1192,7 +1415,10 @@ class LlmProxy:
         provider finish reason to success, and never reuse a late previous turn.
         """
         try:
-            choices = json.loads(payload).get("choices", [])
+            data = json.loads(payload)
+            choices = data.get("choices", [])
+            if data.get("arc_stream_integrity") == "upstream_incomplete":
+                return
             choice = choices[0] if len(choices) == 1 else {}
             content = choice.get("message", {}).get("content")
             if choice.get("finish_reason") != "length" or not isinstance(content, str):
