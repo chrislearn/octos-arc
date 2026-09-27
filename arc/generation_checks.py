@@ -297,6 +297,176 @@ def missing_export_errors(sources, changed):
     return errors[:8]
 
 
+_HOOK_DESTRUCTURE = re.compile(
+    r'\b(?:const|let)\s*\{([^{}]+)\}\s*=\s*(use[A-Z][\w$]*)\s*\(')
+
+
+def _matching_brace(source: str, opening: int) -> int | None:
+    """Find a literal object's end, ignoring braces inside quoted strings."""
+    depth, quote, escaped = 0, None, False
+    for offset in range(opening, len(source)):
+        char = source[offset]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in "\"'`":
+            quote = char
+        elif char == '{':
+            depth += 1
+        elif char == '}':
+            depth -= 1
+            if depth == 0:
+                return offset
+    return None
+
+
+def _literal_return_keys(source: str, hook: str) -> set[str] | None:
+    """Read only a named hook's final literal return; dynamic shapes are unknown."""
+    clean = _strip_js_comments(source)
+    declaration = re.search(r'\bexport\s+function\s+' + re.escape(hook) + r'\s*\(', clean)
+    if not declaration:
+        return None
+    opening = clean.find('{', declaration.end())
+    closing = _matching_brace(clean, opening) if opening >= 0 else None
+    if closing is None:
+        return None
+    returns = []
+    depth, quote, escaped = 1, None, False
+    for offset in range(opening + 1, closing):
+        char = clean[offset]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in "\"'`":
+            quote = char
+            continue
+        if char == 'r' and depth == 1 and (offset == opening + 1 or not re.match(r'[\w$]', clean[offset - 1])):
+            match = re.match(r'return\s*\{', clean[offset:])
+            if match:
+                returns.append(offset + match.end() - 1)
+        if char == '{':
+            depth += 1
+        elif char == '}':
+            depth -= 1
+    if not returns:
+        return None
+    obj_open = returns[-1]
+    obj_end = _matching_brace(clean, obj_open)
+    if obj_end is None or obj_end > closing:
+        return None
+    body = clean[obj_open + 1:obj_end]
+    keys = set()
+    depth, start, quote, escaped = 0, 0, None, False
+    pieces = []
+    for offset, char in enumerate(body):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in "\"'`":
+            quote = char
+        elif char in '{[(':
+            depth += 1
+        elif char in '}])':
+            depth -= 1
+        elif char == ',' and depth == 0:
+            pieces.append(body[start:offset].strip())
+            start = offset + 1
+    pieces.append(body[start:].strip())
+    for piece in pieces:
+        if not piece:
+            continue
+        match = re.match(r'^([A-Za-z_$][\w$]*)\s*(?::|$)', piece)
+        if not match:
+            return None  # spreads, computed keys and methods are not inferred
+        keys.add(match.group(1))
+    return keys
+
+
+def missing_hook_return_errors(sources, changed):
+    """Catch a literal hook destructure absent from its static return object.
+
+    Inspect an edge when either the caller or hook changed. Unknown/dynamic
+    hook returns are left to build and behavior checks rather than guessed.
+    """
+    changed = set(changed)
+    errors = []
+    for caller, source in sorted(sources.items()):
+        if not caller.startswith('frontend/') or not caller.endswith(_JS_SUFFIXES):
+            continue
+        imports = {}
+        for group, rel in _NAMED_IMPORT.findall(_without_comments(source)):
+            target = _resolve_module(caller, rel, sources)
+            if target is None:
+                continue
+            for part in group.split(','):
+                name = re.split(r'\s+as\s+', part.strip())[-1].strip()
+                if re.fullmatch(r'use[A-Z][\w$]*', name):
+                    imports[name] = target
+        for group, hook in _HOOK_DESTRUCTURE.findall(_strip_js_comments(source)):
+            target = imports.get(hook)
+            if target is None or (caller not in changed and target not in changed):
+                continue
+            keys = _literal_return_keys(sources[target], hook)
+            if keys is None:
+                continue
+            wanted = [part.strip().split(':', 1)[0].strip() for part in group.split(',') if part.strip()]
+            if not all(re.fullmatch(r'[A-Za-z_$][\w$]*', name) for name in wanted):
+                continue
+            missing = sorted(set(wanted) - keys)
+            if missing:
+                errors.append(f'{caller}: {hook} from {target} does not return '
+                              f'{", ".join(missing)}; add the hook operation or fix the caller')
+    return errors[:8]
+
+
+def cross_layer_advisories(sources, changed):
+    """Narrow, source-backed schema hints; never a behavioral verdict."""
+    changed = set(changed)
+    warnings = []
+    backend = {path: source for path, source in sources.items() if path.startswith('backend/')}
+    frontend = {path: source for path, source in sources.items()
+                if path.startswith('frontend/') and not path.startswith('frontend/dist/')}
+    numeric_pr_routes = [path for path, source in backend.items()
+                         if re.search(r'''['"]/api/[^'"\n]*/pulls/:id(?:/[^'"\n]*)?['"]''', source)
+                         and re.search(r'\bparseInt\s*\(\s*id\s*,\s*10\s*\)', source)]
+    nonnumeric_pr_ids = [path for path, source in backend.items()
+                         if re.search(r'''\bid\s*:\s*(?:crypto\.randomUUID\s*\(|['"]pr-)''', source)]
+    if numeric_pr_routes and nonnumeric_pr_ids:
+        for path, source in frontend.items():
+            if path not in changed and not (set(numeric_pr_routes + nonnumeric_pr_ids) & changed):
+                continue
+            if re.search(r'/pulls/\$\{[A-Za-z_$][\w$]*\.id\}', source):
+                warnings.append(f'NUMERIC_ROUTE_ID (heuristic): {path} places a record .id in /pulls/ URL, '
+                                f'but {numeric_pr_routes[0]} parses that segment as a number while '
+                                f'{nonnumeric_pr_ids[0]} creates nonnumeric IDs. Use the public number '
+                                'or align the backend route; verify detail, review and merge actions.')
+    raw_member_writers = [path for path, source in backend.items()
+                          if re.search(r'\bmembers\s*:\s*\[\s*req\.userId\s*\]', source)]
+    object_member_readers = [path for path, source in backend.items()
+                             if re.search(r'\bmembers\s*\.\s*(?:some|find|filter)\s*\(\s*\w+\s*=>\s*\w+\.user_id\b',
+                                          source)]
+    if raw_member_writers and object_member_readers and changed & set(raw_member_writers + object_member_readers):
+        warnings.append(f'MEMBER_SHAPE (heuristic): {raw_member_writers[0]} stores member IDs as strings, '
+                        f'but {object_member_readers[0]} reads member.user_id. Normalize the schema and '
+                        'verify creator/member access on fresh and persisted data.')
+    return warnings[:6]
+
+
 def placeholder_overwrites(sources, changed):
     return [f'{path}: refusing comment-only replacement of existing application source'
             for path, source in changed.items()
@@ -603,7 +773,8 @@ def contract_warnings(sources, changed):
     from source_index import SourceIndex
     index = SourceIndex(sources)
     affected = index.affected(set(changed))
-    warnings = (route_link_warnings(sources, changed) + api_call_warnings(sources, changed)
+    warnings = (cross_layer_advisories(sources, changed)
+                + route_link_warnings(sources, changed) + api_call_warnings(sources, changed)
                 + route_conflict_warnings(sources, changed) + file_size_warnings(sources, changed))
     # These contracts are known only while the bundled helpers are unchanged.
     # A generated app may deliberately replace either helper with different
@@ -785,7 +956,8 @@ def check_batch(root: Path, changed, budget=30, sources=None):
     deadline = time.monotonic() + budget
     errors = (helper_import_errors(sources or {}, changed)
               + missing_local_import_errors(sources or {}, changed)
-              + missing_export_errors(sources or {}, changed))
+              + missing_export_errors(sources or {}, changed)
+              + missing_hook_return_errors(sources or {}, changed))
     checked, deferred = [], []
     # A later wave may generate the missing local module. Keep the current
     # snapshot marked unstartable, but never turn that gap into a test gate.

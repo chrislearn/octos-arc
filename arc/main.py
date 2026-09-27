@@ -124,6 +124,7 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
+from implementation_evidence import STATUSES as IMPLEMENTATION_STATUSES, initial_status  # noqa: E402
 from derived_case_review import (collect_cases, parse_review_decisions, review_request_admissible,
                                  requirement_text, skip_category,
                                  validate_review, safe_records, sha as case_sha)  # noqa: E402
@@ -2278,6 +2279,8 @@ class Flow:
         self.test_verdict: dict[str, bool | None] = {}
         # Source progress and test observations are independent state axes.
         self.generation_state: dict[str, str] = {}
+        self.implementation_status: dict[str, str] = {}
+        self.implementation_evidence: dict[str, dict] = {}
         self.test_state: dict[str, str] = {}
         self.phase_plan: dict | None = None
         # Batch generation still verifies every leaf. Record its first-pass
@@ -2402,18 +2405,35 @@ class Flow:
 
     def write_quality_summary(self, *, startable: bool, node_ids: list[str]) -> None:
         reviews = getattr(self, "derived_case_reviews", {})
+        approved_behavior_nodes = {str(row.get("node_id")) for row in reviews.values()
+                                   if row.get("status") == "approved_behavior"}
         current_source = self.app_source_digest()
         findings = list(getattr(self, "quality_observations", {}).values())
+        from generation_checks import cross_layer_advisories, missing_hook_return_errors
+        sources = {str(path.relative_to(self.output_dir)):
+                   path.read_text(encoding="utf-8", errors="replace")
+                   for path in app_source_files(self.output_dir)}
+        static_contract_errors = missing_hook_return_errors(sources, sources) if sources else []
+        static_contract_advisories = cross_layer_advisories(sources, sources) if sources else []
         phase_rows = []
         for phase in (getattr(self, "phase_plan", None) or {}).get("phases", []):
             leaves = phase["leaves"]
             written = sum(self.generation_state.get(leaf) == "source_written" for leaf in leaves)
+            plausible = sum(self.implementation_status.get(leaf) in
+                            {"implemented_unverified", "behavior_verified"} for leaf in leaves)
             phase_rows.append({"id": phase["id"], "leaves": len(leaves), "source_written": written,
-                               "status": "source_written_startable_unverified" if written == len(leaves) and startable else
-                               "integrated_unverified" if written == len(leaves) else "partially_written"})
-        summary = {"version": 1, "startable": startable, "leaves": len(node_ids),
+                               "plausible_implementation": plausible,
+                               "status": "integrated_startable_unverified" if plausible == len(leaves) and startable else
+                               "integrated_unverified" if plausible == len(leaves) else "incomplete_or_unattributed"})
+        summary = {"version": 2, "startable": startable, "leaves": len(node_ids),
                    "generation": {state: sum(self.generation_state.get(node, "not_started") == state for node in node_ids)
                                   for state in ("not_started", "attempted", "source_written", "attempted_with_risk")},
+                   "implementation": {
+                       "states": {state: sum(self.implementation_status.get(node, "attempted") == state
+                                       for node in node_ids) for state in IMPLEMENTATION_STATUSES},
+                       "evidence": {node: self.implementation_evidence[node] for node in node_ids
+                                    if node in self.implementation_evidence},
+                   },
                    "test": {"passed": sum(self.test_verdict.get(node) is True for node in node_ids),
                             "failed": sum(self.test_verdict.get(node) is False for node in node_ids),
                             "unverified": sum(self.test_verdict.get(node) is None for node in node_ids),
@@ -2424,14 +2444,22 @@ class Flow:
                                      for state in ("approved_behavior", "approved_smoke_only", "needs_correction",
                                                    "disputed", "unreviewed", "skipped_unreviewed", "unverified_gap",
                                                    "skipped_with_reason")},
+                   "derived_behavior": {"approved_leaf_count": sum(node in approved_behavior_nodes
+                                                                       for node in node_ids),
+                                        "leaves_without_approved_behavior": [node for node in node_ids
+                                                                             if node not in approved_behavior_nodes]},
                    "quality_findings": {level: sum(row["severity"] == level and row["source_hash"] == current_source
                                                    for row in findings)
                                         for level in ("F0", "F1", "F2", "T", "I")},
                    "critical_suspected_unverified": sum(row.get("risk") == "critical_suspected_unverified"
                                                         and row["source_hash"] == current_source for row in findings),
                    "stale_findings": sum(row["source_hash"] != current_source for row in findings),
+                   "static_contract_errors": static_contract_errors,
+                   "static_contract_advisories": static_contract_advisories,
                    "phases": phase_rows,
-                   "note": "Derived tests are internal diagnostics, not official benchmark scores."}
+                   "note": ("Per-leaf source_written requires an attributed source change or trusted acceptance. "
+                            "Shared waves remain implemented_unverified until attributed or measured. "
+                            "Derived tests are internal diagnostics, not official benchmark scores.")}
         path = self.output_dir / ".arc" / "quality-summary.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -2593,12 +2621,28 @@ class Flow:
             self._designed_ids = getattr(self, "_designed_ids", set()) | {node_id}
         if kind == "implementation_started":
             self.generation_state[node_id] = "attempted"
+            self.implementation_status.setdefault(node_id, "attempted")
         elif kind == "implementation_done":
-            self.generation_state[node_id] = "source_written"
+            # The external event closes the implementation *attempt*. The SDK
+            # projects it to IMPLEMENTED for platform compatibility; leaf-level
+            # evidence below must not inherit that optimistic projection.
+            status = self.implementation_status.get(node_id, "attempted")
+            self.implementation_status[node_id] = status
+            evidence = self.implementation_evidence.get(node_id, {})
+            self.generation_state[node_id] = ("source_written" if status in
+                                              {"implemented_unverified", "behavior_verified"}
+                                              and (evidence.get("changed") or status == "behavior_verified")
+                                              else "attempted_with_risk")
         elif kind == "implementation_failed":
             self.generation_state[node_id] = "attempted_with_risk"
+            self.implementation_status.setdefault(node_id, "contract_incomplete")
         elif kind == "test_passed":
             self.test_state[node_id] = "passed"
+            if not getattr(self, "derived_as_specs", False) and node_id in self.implementation_status:
+                self.record_implementation_evidence(node_id, "behavior_verified",
+                                                    outcome="trusted_acceptance",
+                                                    changed=self.implementation_evidence.get(node_id, {}).get("changed", False))
+                self.generation_state[node_id] = "source_written"
         elif kind == "test_failed":
             self.test_state[node_id] = "failed"
         fn = getattr(self.events, f"mark_{kind}")
@@ -2607,6 +2651,20 @@ class Flow:
             for alias, target in self.aliases.items():
                 if target == node_id:
                     fn(alias, message)
+
+    def record_implementation_evidence(self, node_id: str, status: str, *,
+                                       outcome: str, changed: bool, refused: bool = False,
+                                       changed_paths: list[str] | None = None) -> None:
+        if status not in IMPLEMENTATION_STATUSES:
+            raise ValueError(f"invalid implementation status: {status}")
+        if changed_paths is None:
+            changed_paths = self.implementation_evidence.get(node_id, {}).get("changed_paths", [])
+        row = {"status": status, "outcome": outcome, "changed": bool(changed),
+               "changed_paths": sorted(set(changed_paths)), "refused": bool(refused),
+               "source_hash": self.app_source_digest()}
+        self.implementation_status[node_id] = status
+        self.implementation_evidence[node_id] = row
+        self.metric("implementation_evidence", node_id=node_id, **row)
 
     def protected_prefixes(self) -> list[str]:
         prefixes = [".arc/", str(self.output_dir / ".arc"), "requirements/", str(self.req_dir)]
@@ -3894,8 +3952,10 @@ class Flow:
                 error = 'Invalid installed-helper imports; no changes applied: ' + '; '.join(interface_errors[:4])
                 self.pending_corrections.append(error)
                 return result(False, error, 'helper_contract_error')
-            from generation_checks import missing_export_errors, missing_local_import_errors
+            from generation_checks import (missing_export_errors, missing_hook_return_errors,
+                                           missing_local_import_errors)
             export_errors = missing_export_errors(candidates, files)
+            export_errors += missing_hook_return_errors(candidates, files)
             if getattr(self, "_atomic_codegen_response", False):
                 export_errors += missing_local_import_errors(candidates, files)
             if export_errors:
@@ -7425,6 +7485,10 @@ class Flow:
                 self.commit(f"whole application wave {wave + 1} (experimental implement)")
                 self.whole_app_generated_ids.update(ids)
                 for node_id in ids:
+                    # A wave wrote shared files, but cannot attribute a concrete
+                    # source delta or behavior to each leaf. Preserve that limit.
+                    self.record_implementation_evidence(node_id, "implemented_unverified",
+                                                        outcome=f"whole_app_wave_{wave + 1}", changed=False)
                     self.mark("implementation_done", node_id,
                               f"implemented by whole-app wave {wave + 1}; verification pending")
                 clean_waves += 1
@@ -7436,7 +7500,7 @@ class Flow:
                 break
             if start != start_before:
                 deferred_run = 0 if len(self.whole_app_generated_ids) > landed_before else deferred_run + 1
-        log(f"[flow] whole-app waves: {len(self.whole_app_generated_ids)} source-written, "
+        log(f"[flow] whole-app waves: {len(self.whole_app_generated_ids)} generated-unverified, "
             f"{len(self.whole_app_partial_ids)} partial, {len(self.whole_app_deferred_ids)} deferred leaves "
             f"in {wave} applied waves "
             f"({attempts} group attempts, "
@@ -7944,10 +8008,14 @@ class Flow:
         before_sha = self.head()
         proven_before = {prior for prior, value in self.test_verdict.items() if value is True}
         self.last_codegen_written = []
+        self.last_codegen_outcome = ""
+        self.last_codegen_refused = set()
         self.last_turn_changed = False
         self._generation_gate_result = None
         self.codegen_blocked = node_id in getattr(self, "whole_app_tool_ids", set())
         source_versions = dict(self.repair_source_index().versions)
+        implementation_versions = {path: version for path, version in source_versions.items()
+                                   if not path.startswith("backend/data/")}
         self.refused_paths = set()
         if index > 1:
             reap_workspace_processes(self.output_dir, log)
@@ -8073,6 +8141,24 @@ class Flow:
                     ok, text = self.structured_edit_turn(focused_prompt, implement_timeout, f"{node_id} implement")
                 else:
                     ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
+        if (not ok and codegen_prompt is not None and self.codegen_mode()
+                and getattr(self, "last_codegen_outcome", "") in {"incomplete_blocks", "no_blocks"}
+                and not getattr(self, "last_codegen_written", []) and not self.wound_down()):
+            # A response with no complete block has made no application change.
+            # Give this leaf one focused completion attempt inside its existing
+            # time and request caps; do not advance as though source was written.
+            retry_time = min(self.node_timeout, deadline - time.time())
+            if retry_time > 0:
+                focused = self.codegen_implement_prompt(
+                    node, spec_text, self.corrections_text(),
+                    evidence=("The previous response had no complete applicable file block. "
+                              "Return only the missing complete FILE/EDIT blocks, with exact terminators. "
+                              "Keep the edit small enough to finish in this response.\n"))
+                if focused is not None:
+                    log(f"[flow] {node_id}: no complete codegen block; one bounded completion retry")
+                    ok, text = self.codegen_turn(focused, retry_time,
+                                                f"{node_id} implement (complete blocks retry)",
+                                                spec_chars=self.current_spec_chars)
         if not ok and "truncated" in text.lower():
             # A truncated response made no write. Check the already generated app
             # before paying for a tool turn: later nodes can be satisfied by a
@@ -8164,7 +8250,26 @@ class Flow:
                 self.mark("design_done", node_id, "design JSON written inline to .arc/design/" + node_id + ".json")
             else:
                 self.mark("design_done", node_id, "design folded into the implementation turn (no JSON file)")
-        self.mark("implementation_done", node_id, (text[-500:] or None) if ok else "implementation incomplete; existing code awaiting acceptance")
+        final_versions = {path: version for path, version in self.repair_source_index().versions.items()
+                          if not path.startswith("backend/data/")}
+        # Only the final on-disk source delta counts. A write later reverted in
+        # the same turn is an attempted edit, not evidence of changed source.
+        changed_paths = sorted(path for path in final_versions.keys() | implementation_versions.keys()
+                               if final_versions.get(path) != implementation_versions.get(path))
+        changed = bool(changed_paths)
+        outcome = getattr(self, "last_codegen_outcome", "") if self.codegen_mode() else "tool_turn"
+        refused = bool(getattr(self, "last_codegen_refused", set()))
+        status = initial_status(ok=ok, outcome=outcome, changed=changed,
+                                refused=refused, preexisting=preimplemented)
+        self.record_implementation_evidence(node_id, status, outcome=outcome or "unknown",
+                                            changed=changed, refused=refused,
+                                            changed_paths=changed_paths)
+        # A reached turn is externally closed as before. A partial/refused
+        # response remains incomplete in our independent evidence ledger; the
+        # platform event is a process milestone, not behavior verification.
+        self.mark("implementation_done", node_id,
+                  (f"implementation attempt ended; internal status={status}" if status in
+                   {"partial_or_rejected", "contract_incomplete"} else text[-500:] or None))
         self.commit(f"{node_id} (implement): {node.get('name', '')}")
 
         def rebuild_prompt(failures: str) -> str:
@@ -8196,6 +8301,9 @@ class Flow:
                                          node_passed=bool(getattr(self, "last_node_own_pass", False)))
             verdict = self.test_verdict.get(node_id)
         if verdict is True:
+            if (status in {"partial_or_rejected", "contract_incomplete"}
+                    and not getattr(self, "derived_as_specs", False)):
+                self.mark("implementation_done", node_id, "existing application passed trusted acceptance")
             self.mark("test_passed", node_id, f"{len(specs)} acceptance spec file(s) pass locally")
             try:
                 for iface in self.runtime.traceability.list_interfaces(req_id=node_id):
