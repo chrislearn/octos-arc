@@ -34,6 +34,16 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 # Base URL 填 https://api.arc-bench.com/v1，然后选题、Run
 ```
 
+## 没有官方测试 spec 时的测试自检
+
+测试套件在应用代码生成前建立：先机械编译需求场景，再由 AI 补充行为测试，随后用独立 AI 回合审查前置条件、动作顺序、结果断言和用例隔离。审查不会读取应用代码或测试运行结果。标为 `needs_correction` 的场景会在预算内重新生成一次，并再次独立审查；原文件保存在 `.arc/derived-tests/review/before-correction-*.ts`。无效修正不会覆盖原测试，修正后的测试不会沿用旧审批。Playwright 加载检查和运行失败后的测试审查仍保留。
+
+需求明确提供密码登录时，套件额外建立“未注册账号不能登录”和“已注册账号使用错误密码不能登录”两个基础不变量；后者需要有真实的种子凭据。邮箱登录使用合法邮箱，检查包括提交凭据后和回到首页刷新后的匿名状态，不要求某句特定错误文案。它们即使在 AI 规划关闭或预算不足时也会生成，但必须经过独立审查才能指导应用修复。无登录、免密或游客登录需求不会自动套用这些规则。
+
+AI 规划提示还要求按当前需求补充必填校验、取消不改已保存数据、刷新后持久化、失败操作不产生副作用和已声明的访问限制。控件、断言和前置数据仍由 DSL 校验；无法建立的条件会留下覆盖缺口。推导的不变量在 `review/cases.json` 和 `.arc/derived-coverage.json` 中标为 `baseline_invariant`，不会冒充官方测试或官方分数。
+
+自检修正默认最多请求 2 批，每个场景至多一轮修正；`OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS=0` 可关闭。独立审查仍受原有请求、累计时间和预检 token 预算限制，修正前预留一次再审查请求。预算耗尽的用例保持未验证，不阻塞应用代码生成。
+
 ## 改了内核怎么让平台用上
 
 当前 v4 包在全新 codegen 任务开始前会安装跨任务通用的 Express 5 `backend/server.js`、`backend/lib/store.js` 和 `backend/lib/collection.js`；它们只提供路由、静态文件与通用持久化，不包含题目数据或业务规则。后端依赖写在 `backend/package.json`。已有应用不会被覆盖；设置 `OCTOS_ARC_GENERIC_TEMPLATE=0` 可关闭此行为。v3 包是原生 Node HTTP 版本，v2 无模板。

@@ -132,6 +132,7 @@ def collect_cases(directory: Path, targets: list[dict], node_ids: set[str],
                          "title": title, "file": path.name,
                          "requirements_hash": sha(requirement), "file_hash": sha(source),
                          "case_hash": sha(block), "status": status,
+                         "origin": target.get("origin", "requirement_scenario") if target else "unmatched",
                          "requirement": requirement, "outcome": outcome_text(target), "case": block})
     return rows
 
@@ -142,7 +143,7 @@ def assertion_after_action(case: str, quote: str) -> bool:
         return False
     # expectDownload clicks the named control and verifies the resulting file
     # in one helper call, so it is both the action and the assertion.
-    if re.search(r"\bexpectDownload\s*\(", quote):
+    if re.search(r"\b(?:expectDownload|expectSignInRejected)\s*\(", quote):
         return True
     actions = list(re.finditer(r"await\s+h\.(?!expect\w*\s*\(|openHome\s*\(|signIn\s*\(|resetState\s*\()\w+\s*\(", case))
     if not actions:

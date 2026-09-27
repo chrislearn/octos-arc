@@ -46,6 +46,7 @@ PLACEHOLDERS = {
     "$NEW_EMAIL": "a new, unused email address",
     "$UNKNOWN_EMAIL": "a syntactically valid email address that is not a registered account",
     "$NEW_PASSWORD": "a new compliant password (12+ chars); reuse it for the confirmation field",
+    "$WRONG_PASSWORD": "a compliant password different from the fixture password; rejection checks only",
     "$NEW_NAME": "a new, unused record name (repository, team, workbook, worksheet, branch, label): lowercase "
                  "letters, digits, hyphens; assert it afterwards to prove the record was created",
     "$TEXT": "a short free-form text (comment body, title, description)",
@@ -92,6 +93,7 @@ def expand_placeholder(value: str, scope: str) -> str:
         "$NEW_EMAIL": f"user-{slug}@example.test",
         "$UNKNOWN_EMAIL": f"unknown-{slug}@example.test",
         "$NEW_PASSWORD": f"Derived-pass-{slug}!",
+        "$WRONG_PASSWORD": f"Wrong-pass-{slug}!",
         "$NEW_NAME": f"derived-{slug}",
         "$CSV_NAME": "derived-import",
         "$INVALID_CSV_NAME": "derived-invalid",
@@ -485,6 +487,45 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
     return targets
 
 
+def authentication_invariants(leaves: Iterable[Mapping], fixtures: Fixtures,
+                              shared: str = "") -> list[dict]:
+    """Bounded baseline contracts for an explicitly required password login.
+
+    These are inferred safety properties, not verbatim requirement scenarios.
+    Keep their origin visible and send them through the same independent audit.
+    Passwordless/guest login and products without login get no such targets.
+    """
+    leaves = list(leaves)
+    for node in leaves:
+        description = str(node.get("description") or "")
+        text = str(node.get("name") or "") + " " + description
+        if not (re.search(r"\blog\s*in\b|\bsign[ -]?in\b|登录", text, re.I)
+                and re.search(r"password|密码", description, re.I)):
+            continue
+        if re.search(r"passwordless|without (?:a )?password|guest|anonymous login|免密|游客", text, re.I):
+            continue
+        node_id = str(node.get("id"))
+        controls = suite_controls(leaves, fixtures, shared)
+        email_only = bool(re.search(r"email|邮箱", description, re.I) and not re.search(r"username|用户名", description, re.I))
+        pairs = [("unregistered_account", "$UNKNOWN_EMAIL" if email_only else "$NEW_USERNAME", "$NEW_PASSWORD",
+                  "An account that has not been registered cannot establish an authenticated session.")]
+        existing_account = fixtures.email if email_only else fixtures.account
+        if existing_account and fixtures.password:
+            pairs.append(("wrong_password", existing_account, "$WRONG_PASSWORD",
+                          "An existing account cannot establish an authenticated session with an incorrect password."))
+        return [{"id": f"I-{kind}", "node_id": node_id,
+                 "title": f"{node_id}: invariant {kind}", "name": str(node.get("name") or ""),
+                 "description": description, "origin": "baseline_invariant",
+                 "invariant_kind": kind, "invariant_credentials": [account, password],
+                 "steps": ["GIVEN: A fresh anonymous browser; reset seed state; no registration in this case.",
+                           f"WHEN: Attempt password login with `{account}` and `{password}`.",
+                           "THEN: " + outcome],
+                 "allowed": allowed_literals(node, fixtures), "controls": controls,
+                 "signed_in": False, "seeds": [], "has_grid": False}
+                for kind, account, password, outcome in pairs]
+    return []
+
+
 def prioritize_review_targets(targets: list[dict]) -> list[dict]:
     """Give every feature a first AI planning chance before extra scenarios."""
     first: list[dict] = []
@@ -515,7 +556,7 @@ def behavior_test_titles(source: str) -> set[str]:
         body = source[start.end():end]
         action = re.search(r"await h\.(?!expect|openHome\(|signIn\()\w+\(", body)
         assertion = re.search(r"await h\.expect\w+\(", body)
-        download = re.search(r"await h\.expectDownload\(", body)
+        download = re.search(r"await h\.(?:expectDownload|expectSignInRejected)\(", body)
         if (action and assertion and action.start() < assertion.start()) or download:
             valid.add(title)
     return valid
@@ -529,6 +570,14 @@ def grounded_behavior_test(source: str, title: str, target: Mapping) -> bool:
     """
     if title not in behavior_test_titles(source):
         return False
+    if target.get("invariant_credentials"):
+        from test_policy import test_block
+        account, password = target["invariant_credentials"]
+        scope = re.sub(r" \[(?:model|script)\]$", "", title)
+        account = expand_placeholder(account, scope)
+        password = expand_placeholder(password, scope)
+        block = test_block(source, title) or ""
+        return f"h.expectSignInRejected(page, {_ts(account)}, {_ts(password)})" in block
     starts = list(re.finditer(r"^test\('((?:\\.|[^'\\])*)',", source, re.M))
     for index, start in enumerate(starts):
         if start.group(1).replace("\\'", "'") != title:
@@ -579,6 +628,12 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
              "{\"scenarios\": [ ... ]}. Each check must perform the WHEN operation and verify the "
              "observable THEN outcome; merely finding an entry control is a smoke check, not feature evidence. "
              "Use skip with a concrete reason if the requirement cannot ground a sound check.\n" + DSL]
+    parts.append("\nCheck basic invariants as separate isolated cases when supported by this scenario's contract: "
+                 "required fields reject missing input; cancel preserves saved data; reload preserves committed changes; "
+                 "failed actions do not create or mutate records; protected resources enforce the stated access rules. "
+                 "Cover both valid and invalid branches. Establish all prerequisites in each case and assert the resulting "
+                 "state, not just a toast. Do not invent error wording, validation limits, roles, routes or product policies. "
+                 "If a prerequisite or oracle cannot be established with this DSL and these fixtures, report a concrete gap.")
     parts.append(f"\nFixture account: `{fixtures.account}` / `{fixtures.password}` (email `{fixtures.email}`).")
     controls = [c for c in (targets[0].get("controls") or []) if len(c) <= 60][:160] if targets else []
     if controls:
@@ -588,6 +643,11 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
         parts.append("\nTOP-LEVEL CATEGORY CONTRACT (shared context for these scenarios; "
                      "each assertion must still be grounded in its own scenario): " + phase_context)
     for target in targets:
+        if target.get("origin") == "baseline_invariant":
+            parts.append("\nBASELINE INVARIANT (inferred from the required password login, not a quoted scenario). "
+                         "Use exactly one expect_sign_in_rejected step with target/value "
+                         + json.dumps(target["invariant_credentials"]) +
+                         "; signed_in=false. Do not register an account or assert an invented error message.")
         parts.append(f"\n### [{target['id']}] {target['title']}\nRequirement {target['node_id']} ({target['name']}): "
                      f"{target['description']}\n" + "\n".join(target["steps"]) +
                      "\nALLOWED LITERALS: " + json.dumps(target["allowed"], ensure_ascii=False)
@@ -774,6 +834,10 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return problems + ["no steps"]
     if len(steps) > MAX_STEPS:
         problems.append(f"{len(steps)} steps; at most {MAX_STEPS}")
+    if target.get("invariant_credentials"):
+        account, password = target["invariant_credentials"]
+        if proposal.get("signed_in") or steps != [{"op": "expect_sign_in_rejected", "target": account, "value": password}]:
+            problems.append("baseline login invariant requires exactly its anonymous credential rejection step")
     typed_at: dict[str, int] = {}
     for index, step in enumerate(steps):
         if isinstance(step, dict) and step.get("op") == "cell_type":
@@ -863,7 +927,10 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             if not isinstance(value, str) or value.strip() not in (allowed | {"$NEW_USERNAME", "$NEW_EMAIL", "$UNKNOWN_EMAIL"}):
                 problems.append(f"step {index}: {op} target must be a seeded account/email or account placeholder")
             password = step.get("value")
-            if not isinstance(password, str) or password.strip() not in (allowed | {"$NEW_PASSWORD"}):
+            password_values = allowed | {"$NEW_PASSWORD"}
+            if op == "expect_sign_in_rejected":
+                password_values.add("$WRONG_PASSWORD")
+            if not isinstance(password, str) or password.strip() not in password_values:
                 problems.append(f"step {index}: {op} password must be a seeded or new password")
             if op == "sign_in" and value == "$UNKNOWN_EMAIL":
                 problems.append(f"step {index}: unknown email cannot be a successful sign-in fixture")
@@ -1259,6 +1326,10 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             step["target"] = expand_placeholder(str(step["target"]).strip(), scope)
             if step["op"] in {"fill", "sign_in", "expect_sign_in_rejected", "cell_type", "expect_cell"}:
                 step["value"] = expand_placeholder(str(step["value"]).strip(), scope)
+                if original_step.get("value") == "$WRONG_PASSWORD" and step["value"] == fixtures.password:
+                    return None  # never certify a correct password as an invalid credential
+            if target.get("invariant_kind") == "unregistered_account" and step["target"] in {fixtures.account, fixtures.email}:
+                return None
         if signed_out_entry_transition(proposal["steps"], step_index, original_step, target, bool(proposal.get("signed_in"))):
             code = f"await h.expectRole(page, 'link', {_ts(step['target'])});"
         elif identity_transition(proposal["steps"], step_index, original_step, fixtures, bool(proposal.get("signed_in"))):

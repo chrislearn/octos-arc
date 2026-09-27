@@ -39,7 +39,7 @@ class GenerationPolicyTests(unittest.TestCase):
                 (tests / "review").mkdir(exist_ok=True)
                 (tests / "review/plan.json").write_text('{"accepted": true}\n')
 
-            def review(_):
+            def review(_, **kwargs):
                 self.assertEqual(flow.restore_protected(), [])
                 self.assertIn("approved", (tests / "A.spec.ts").read_text())
                 (tests / "A.spec.ts").write_text("test('weakened', () => {});\n")

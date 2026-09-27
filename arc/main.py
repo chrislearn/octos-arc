@@ -73,6 +73,7 @@ Environment (all optional):
     OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on pre-implementation AI spec-plan batches (default at most 4)
     OCTOS_ARC_DERIVED_LLM_WALL_SECONDS  total AI spec-planning wall cap (default 480)
     OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS / OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS  independent case-review caps (6 / 300)
+    OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS  cap on pre-implementation audit correction batches (default 2; 0 disables)
     OCTOS_ARC_DERIVED_FAILURE_REVIEW  "0" disables independent review of failing generated behaviour specs
     OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE  maximum AI spec reviews per related/full suite (default 3)
     OCTOS_ARC_TRANSIENT_RETRY_SECONDS  time allowed after the first provider error for retries (default 240)
@@ -6102,6 +6103,19 @@ class Flow:
             self.metric("derived_spec_node", node_id=node_id, phase="mechanical", status=status,
                         index=index, total=total, behavior=scripts, entry=entries, kept=kept)
         files = compile_derived_suite(ordered, ancestor_context(tree), folder_text(tree), progress=progress)
+        # These two baseline checks have a fixed, validated DSL recipe. Emit
+        # them even if AI planning runs out of budget; audit still decides trust.
+        from scenario_review import authentication_invariants, validate_proposal
+        fixtures = suite_fixtures(ordered)
+        for target in authentication_invariants(ordered, fixtures, folder_text(tree)):
+            account, password = target["invariant_credentials"]
+            source = validate_proposal({"signed_in": False, "confidence": 1,
+                                        "steps": [{"op": "expect_sign_in_rejected", "target": account, "value": password}]},
+                                       target, fixtures)
+            if source:
+                source = source.replace(" [model]',", " [script]',", 1)
+                rel = f"{target['node_id']}.spec.ts"
+                files[rel] = append_tests(files.get(rel, ""), [source], target["node_id"])
         specs = sorted(rel for rel in files if rel.endswith(".spec.ts"))
         if not specs:
             log("[derived] no scenario yielded a mechanical check; AI will plan the first behavioural specs")
@@ -6214,6 +6228,8 @@ class Flow:
             tree = getattr(self, "requirement_tree", None)
             cached = review_targets(nodes, suite_fixtures(nodes), ancestor_context(tree),
                                     folder_text(tree), include_all=True, dependency_tree=tree)
+            from scenario_review import authentication_invariants
+            cached += authentication_invariants(nodes, suite_fixtures(nodes), folder_text(tree))
             self._derived_scenario_targets = cached
         return cached
 
@@ -6234,6 +6250,7 @@ class Flow:
                        and grounded_behavior_test(source, title, target)]
             disputed = [title for title in candidates if (node_id, title) in disputes]
             rows.append({"id": target["id"], "title": target["title"],
+                         "origin": target.get("origin", "requirement_scenario"),
                          "status": "covered" if matched else "disputed" if disputed else "missing",
                          "tests": matched,
                          "disputes": {title: disputes[(node_id, title)] for title in disputed}})
@@ -6566,7 +6583,7 @@ class Flow:
                     rejected_reasons=dropped_total[:12])
         return added
 
-    def review_derived_cases(self, node_ids: set[str]) -> None:
+    def review_derived_cases(self, node_ids: set[str], *, reserve_requests: int = 0) -> None:
         """Review generated cases before application behavior can bias the review.
 
         Every case gets a versioned deterministic record. A separate, read-only
@@ -6608,6 +6625,15 @@ class Flow:
                                  "status": "skipped_unreviewed", "requirement": str(target.get("description") or ""),
                                  "case": str(entry.get("skip_reason") or ""),
                                  "skip_category": entry.get("skip_category") or skip_category(entry.get("skip_reason") or "")})
+        # A second audit of corrected files must retain approvals only for
+        # unchanged case, requirement, helper and fixture versions.
+        for row in rows:
+            previous = getattr(self, "derived_case_reviews", {}).get((row["node_id"], row["title"]))
+            if previous and previous.get("status") in {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only"} and all(
+                    previous.get(key) == row.get(key) for key in
+                    ("case_hash", "requirements_hash", "helper_hash", "fixture_hash")):
+                row.update({key: previous[key] for key in
+                            ("status", "outcome_quote", "assertion_quote", "reason", "review_request") if key in previous})
         candidates = [row for row in rows if row["status"] in {"unreviewed", "skipped_unreviewed"}]
         phase_plan = getattr(self, "phase_plan", None) or {}
         leaf_phase = phase_plan.get("leaf_phase", {})
@@ -6620,9 +6646,10 @@ class Flow:
                                          not bool(re.search(r"sign.?in|sign.?out|password|permission|delete|persist|access", row["requirement"], re.I)),
                                          row["node_id"], row["title"]))
         spent = getattr(self, "derived_case_review_requests", 0)
-        cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS", "6")))
+        cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS", "6")) - reserve_requests)
         batch_size = max(1, min(6, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH", "4"))))
         wall_cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS", "300")))
+        review_seconds = getattr(self, "derived_case_review_seconds", 0)
         review_started = time.monotonic()
         chunks = []
         for row in candidates:
@@ -6631,7 +6658,7 @@ class Flow:
             chunks[-1].append(row)
         for chunk in chunks:
             preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-            if (spent >= cap or time.monotonic() - review_started >= wall_cap
+            if (spent >= cap or review_seconds + time.monotonic() - review_started >= wall_cap
                     or self.wound_down() or self.review_budget_spent()
                     or preflight_left < 30 or self.derived_preflight_tokens_spent()
                     or self.remaining() < self.final_phase_reserve() + 300
@@ -6645,7 +6672,8 @@ class Flow:
                             requests=spent, reserved=future_reserve)
                 continue
             shown = [{"id": row["id"], "requirement": row["requirement"][:3000],
-                      "case": row["case"][:4500], "kind": "skip" if row["status"] == "skipped_unreviewed" else "test"}
+                      "case": row["case"][:4500], "origin": row.get("origin", "requirement_scenario"),
+                      "kind": "skip" if row["status"] == "skipped_unreviewed" else "test"}
                      for row in chunk]
             prompt = ("Independently audit each generated Playwright case against its authoritative requirement. "
                       "You have no application code or test results. Check GIVEN setup, identity, WHEN action order, "
@@ -6656,6 +6684,10 @@ class Flow:
                       "skipped_with_reason. Quotes must be verbatim. requirement_quote must come from the "
                       "leaf description or a THEN step, not GIVEN/WHEN; test_quote must be an assertion that "
                       "proves that outcome. Do not approve entry-only checks.\n"
+                      "Cases marked baseline_invariant are inferred password-login safety properties, not "
+                      "verbatim product scenarios. Check that the original requirement supports password login "
+                      "and that the supplied invariant THEN is valid; dispute it if the product permits an exception. "
+                      "expectSignInRejected submits credentials and checks the anonymous login state.\n"
                       + "\nAuthoritative seed fixtures: " + fixtures_text[:3000]
                       + "\nShared test helper: " + (helper.read_text(encoding="utf-8")[:3500] if helper.is_file() else "absent")
                       + "\nCases: " + json.dumps(shown, ensure_ascii=False))
@@ -6663,7 +6695,7 @@ class Flow:
             parse_error = None
             for attempt in range(2):
                 preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-                if (spent >= cap or time.monotonic() - review_started >= wall_cap
+                if (spent >= cap or review_seconds + time.monotonic() - review_started >= wall_cap
                         or not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap)
                         or preflight_left < 30 or self.derived_preflight_tokens_spent()
                         or self.wound_down() or self.review_budget_spent()
@@ -6673,7 +6705,7 @@ class Flow:
                 phase_counts[current_phase] = phase_counts.get(current_phase, 0) + 1
                 self.derived_case_review_requests = spent
                 allowance = max(1, int(min(
-                    120, max(1, wall_cap - (time.monotonic() - review_started)),
+                    120, max(1, wall_cap - review_seconds - (time.monotonic() - review_started)),
                     max(1, self.remaining() - self.final_phase_reserve() - 180), preflight_left)))
                 review_prompt = prompt if attempt == 0 else prompt + (
                     "\nThe previous reply had an invalid JSON envelope. Return exactly one JSON array "
@@ -6710,6 +6742,10 @@ class Flow:
                 self.metric("derived_case_review_decision", case_id=row["id"], status=row["status"],
                             outcome="quote_invalid" if decision.get("status") == "approved_behavior"
                             and row["status"] != "approved_behavior" else row["status"])
+        self.derived_case_review_seconds = review_seconds + time.monotonic() - review_started
+        present = {(row["node_id"], row["title"]) for row in rows}
+        self.derived_case_reviews = {key: row for key, row in self.derived_case_reviews.items()
+                                     if key[0] not in node_ids or key in present}
         for row in rows:
             self.derived_case_reviews[(row["node_id"], row["title"])] = row
         (review_dir / "cases.json").write_text(json.dumps({"version": 1, "cases": safe_records(
@@ -6718,6 +6754,72 @@ class Flow:
         self.metric("derived_case_review", cases=len(rows), approved=sum(r["status"] == "approved_behavior" for r in rows),
                     unreviewed=sum(r["status"] in {"unreviewed", "skipped_unreviewed", "unverified_gap"} for r in rows),
                     requests=spent)
+
+    def correct_derived_cases(self, node_ids: set[str]) -> set[str]:
+        """One bounded regeneration after independent review, before app code.
+
+        Only validated DSL proposals replace a scenario. Archive the old file;
+        replacement cases need a fresh independent approval before guiding code.
+        """
+        cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS", "2")))
+        spent = getattr(self, "derived_case_correction_requests", 0)
+        review_cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS", "6")))
+        left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
+        if (spent >= cap or getattr(self, "derived_case_review_requests", 0) >= review_cap
+                or getattr(self, "derived_case_review_seconds", 0) >= max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS", "300")))
+                or left < 30 or self.derived_preflight_tokens_spent() or self.wound_down()
+                or self.review_budget_spent() or self.remaining() < self.final_phase_reserve() + 300):
+            return set()
+        chosen, feedback = [], []
+        attempted = getattr(self, "derived_case_correction_attempted", set())
+        for target in self.planned_derived_scenarios():
+            if (target["node_id"], target["id"]) in attempted:
+                continue
+            bad = [row for row in getattr(self, "derived_case_reviews", {}).values()
+                   if row["node_id"] in node_ids and row.get("scenario_id") == target["id"]
+                   and row.get("status") == "needs_correction"]
+            if bad:
+                chosen.append(target)
+                feedback.append({"id": target["id"], "title": target["title"],
+                                 "reasons": [row.get("reason") or "missing action/outcome evidence" for row in bad],
+                                 "previous_cases": [row.get("case", "")[:4500] for row in bad[:2]]})
+            if len(chosen) >= 4:
+                break
+        if not chosen:
+            return set()
+        fixtures = suite_fixtures(getattr(self, "derived_nodes", []))
+        prompt = build_review_retry(feedback, chosen, fixtures) + "\nIndependent audit feedback and previous cases:\n" + json.dumps(feedback, ensure_ascii=False)
+        self.snapshot_protected()
+        self.derived_case_correction_attempted = attempted | {(target["node_id"], target["id"]) for target in chosen}
+        self.derived_case_correction_requests = spent + 1
+        ok, reply = self.text_turn(prompt, max(1, int(min(120, left, self.remaining() - self.final_phase_reserve() - 180))),
+                                   "derived scenario review (audit correction)", system=REVIEW_SYSTEM, spec_chars=len(prompt))
+        review_dir = self.derived_tests_dir / "review"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        (review_dir / f"correction-{spent + 1}.txt").write_text(reply, encoding="utf-8")
+        scripts, dropped = compile_review_reply(reply, chosen, fixtures) if ok else ({}, ["unavailable"])
+        touched = set()
+        from test_policy import test_block
+        for node_id, tests in scripts.items():
+            path = self.derived_tests_dir / f"{node_id}.spec.ts"
+            source = path.read_text(encoding="utf-8") if path.is_file() else ""
+            updated = source
+            emitted_titles = [m.group(1).replace("\\'", "'") for test in tests
+                              for m in re.finditer(r"^test\('((?:\\.|[^'\\])*)',", test, re.M)]
+            for target in chosen:
+                if target["node_id"] != node_id or not any(
+                        title.startswith(target["title"] + " [") for title in emitted_titles):
+                    continue
+                for row in collect_cases(self.derived_tests_dir, [target], {node_id}):
+                    if row["scenario_id"] == target["id"]:
+                        updated = updated.replace(test_block(updated, row["title"]) or "\0", "", 1)
+            updated = append_tests(updated, tests, node_id)
+            if updated != source:
+                (review_dir / f"before-correction-{spent + 1}-{node_id}.ts").write_text(source, encoding="utf-8")
+                path.write_text(updated, encoding="utf-8")
+                touched.add(node_id)
+        self.metric("derived_case_correction", request=spent + 1, nodes=sorted(touched), rejected=dropped[:8])
+        return touched
 
     def derived_preflight_tokens_spent(self) -> bool:
         cap = getattr(self, "derived_preflight_token_cap", None)
@@ -6812,7 +6914,15 @@ class Flow:
         # trees; it must see the accepted suite as the new protected baseline.
         self.snapshot_protected()
         try:
-            self.review_derived_cases(set(ids))
+            correction_enabled = (os.environ.get("OCTOS_ARC_DRYRUN") != "1"
+                                  and os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") != "0"
+                                  and int(os.environ.get("OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS", "2")) >
+                                  getattr(self, "derived_case_correction_requests", 0))
+            self.review_derived_cases(set(ids), reserve_requests=1 if correction_enabled else 0)
+            corrected = self.correct_derived_cases(set(ids)) if correction_enabled else set()
+            if corrected:
+                self.snapshot_protected()
+                self.review_derived_cases(corrected)
         except Exception as exc:  # review failures remain unreviewed, never a gate
             self.metric("derived_case_review", outcome="unavailable", reason=str(exc)[:300])
         node_ids = [str(node.get("id")) for node in getattr(self, "derived_nodes", ordered)]

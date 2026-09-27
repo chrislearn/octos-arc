@@ -569,4 +569,11 @@ export async function expectSignInRejected(page: Page, account: string, password
     message: `rejected credentials for ${account} did not leave an anonymous sign-in entry`,
     timeout: 8000,
   }).toBe(true);
+  // A stale login form must not hide a session established by bad credentials.
+  await openHome(page);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect.poll(() => signInEntryVisible(page), {
+    message: `rejected credentials for ${account} established a session after reload`,
+    timeout: 8000,
+  }).toBe(true);
 }
