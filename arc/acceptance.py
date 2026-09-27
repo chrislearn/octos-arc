@@ -170,13 +170,23 @@ class RunSummary:
     store_changes: list[str] = field(default_factory=list)  # bounded structural JSON changes
     server_errors: str = ""  # bounded backend exception observed during a failed run
     scaffold_warnings: list[str] = field(default_factory=list)  # non-blocking defects found by the build
+    runtime_observations: list[dict] = field(default_factory=list)
+    artifact_dirs: list[str] = field(default_factory=list)
 
     def slow(self, threshold_ms: int) -> list[str]:
         return [r.title for r in self.results if r.duration_ms >= threshold_ms]
 
     @property
+    def runtime_uncertain(self) -> bool:
+        return any(row.get("kind") in {"pageerror", "blank_page", "server_crash"}
+                   and not row.get("confirmed") for row in self.runtime_observations)
+
+    @property
     def all_passed(self) -> bool:
+        from runtime_diagnostics import application_failures
         return (not self.error and not self.killed and not self.load_errors
+                and not application_failures(self)
+                and not self.runtime_uncertain
                 and self.total > 0 and self.passed == self.total)
 
 
@@ -193,6 +203,19 @@ def summarize_report(report: dict) -> RunSummary:
                 last = results[-1] if results else {}
                 ok = bool(tests) and all(t.get("status") == "expected" or t.get("ok") for t in tests)
                 errors = [e for e in [last.get("error"), *(last.get("errors") or [])] if isinstance(e, dict)]
+                for attachment in last.get("attachments") or []:
+                    if attachment.get("name") == "arc-runtime-observations" and attachment.get("body"):
+                        try:
+                            import base64
+                            events = json.loads(base64.b64decode(attachment["body"]))
+                            for event in events if isinstance(events, list) else []:
+                                if isinstance(event, dict):
+                                    # Spec observations are not independent reproductions.
+                                    summary.runtime_observations.append({**event, "confirmed": False,
+                                        "test_id": spec.get("id"), "test_title": spec.get("title"), "spec_file": file})
+                        except (ValueError, TypeError):
+                            summary.runtime_observations.append({"kind": "collector_error",
+                                "message": "Unreadable runtime attachment", "confirmed": False})
                 # A test-level timeout may precede the actionable locator error.
                 # Prefer its call log and source location over the generic deadline.
                 err = max(errors, key=lambda e: (
@@ -1276,7 +1299,8 @@ class AcceptanceRunner:
             # snapshot and the action trace now carry that whichever timeout
             # fires.
             f"expect: {{ timeout: {self.timeout_ms} }}, "
-            f"use: {{ headless: true, baseURL: process.env.E2E_BASE_URL }} }});\n")
+            f"use: {{ headless: true, trace: 'on', screenshot: 'only-on-failure', "
+            f"baseURL: process.env.E2E_BASE_URL }} }});\n")
         return self.work_dir / "playwright.config.ts"
 
     def _attach_rendered_pages(self, summary: RunSummary) -> None:
@@ -1318,6 +1342,32 @@ class AcceptanceRunner:
 
     def run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900,
             workers: int | None = None) -> RunSummary:
+        """Keep original evidence before the next measurement clears scratch files."""
+        summary = self._run(spec_rel_paths, base_url, wall_timeout, workers)
+        destination = getattr(self, "artifact_dir", None)
+        if isinstance(destination, Path) and self.work_dir.is_dir():
+            import uuid
+            target = destination / uuid.uuid4().hex
+            try:
+                target.mkdir(parents=True)
+                for name in ("report.json", "action-errors.json", "test-results"):
+                    source = self.work_dir / name
+                    if source.is_dir():
+                        shutil.copytree(source, target / name)
+                    elif source.is_file():
+                        shutil.copy2(source, target / name)
+                (target / "measurement.json").write_text(json.dumps({
+                    "specs": spec_rel_paths, "base_url": base_url, "total": summary.total,
+                    "passed": summary.passed, "error": summary.error,
+                    "runtime_observations": summary.runtime_observations}, ensure_ascii=False, indent=2))
+                summary.artifact_dirs.append(str(target))
+            except OSError as exc:
+                summary.runtime_observations.append({"kind": "collector_error", "confirmed": False,
+                    "message": f"Could not retain acceptance evidence: {exc}"})
+        return summary
+
+    def _run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900,
+             workers: int | None = None) -> RunSummary:
         config = self._prepare(workers)
         report_path = self.work_dir / "report.json"
         cmd = [str(self.root / "node_modules" / ".bin" / "playwright"), "test", "-c", str(config)]

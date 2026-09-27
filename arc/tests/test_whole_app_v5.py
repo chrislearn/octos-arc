@@ -1230,8 +1230,8 @@ class WholeAppTests(unittest.TestCase):
         flow = self.flow
         flow.tests_dir = None
         self.assertTrue(flow.prepare_derived_tests(self._derived_nodes()))
-        directory = self.root / ".arc" / "derived-tests"
-        self.assertEqual(sorted(p.name for p in directory.iterdir()),
+        directory = self.root / "derived-tests"
+        self.assertEqual(sorted(p.name for p in directory.glob("*.ts")),
                          ["A.spec.ts", "B.spec.ts", "C.spec.ts", "helpers.ts"])
         self.assertEqual(flow.derived_spec_map["B"], ["B.spec.ts"])
         with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_TESTS": "0"}):
@@ -1271,7 +1271,7 @@ class WholeAppTests(unittest.TestCase):
         flow = self.flow
         seeds = {"B": ["SEED_DATA B: required initial literal \"Acme\" is absent"]}
         passed, _ = flow.no_spec_node_verdict("A", True, True, seeds)
-        self.assertTrue(passed)
+        self.assertIsNone(passed)  # static gaps absent is not measured behavior
         passed, detail = flow.no_spec_node_verdict("B", True, True, seeds)
         self.assertFalse(passed)
         self.assertIn("Acme", detail)
@@ -1396,7 +1396,7 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         nodes = self._derived()
         self.assertTrue(flow.prepare_derived_tests(nodes))
         flow.adopt_derived_specs(["A", "B", "C"])
-        self.assertEqual(flow.tests_dir, self.root / ".arc" / "derived-tests")
+        self.assertEqual(flow.tests_dir, self.root / "derived-tests")
         self.assertTrue(flow.derived_as_specs)
         self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
         prompt = flow.tests_prompt_for("B")

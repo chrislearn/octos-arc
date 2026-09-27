@@ -1,9 +1,13 @@
 import json
 import re
 import unittest
+from pathlib import Path
+
+import yaml
 
 from scenario_review import (allowed_literals, ancestor_context, behavior_test_titles, build_prompt, compile_reply,
-                             grounded_behavior_test,
+                             grounded_behavior_test, CSV_FORMAT_ROWS, csv_format_contract, csv_export_contract,
+                             proposal_problems,
                              parse_failure_review, parse_reply,
                              prioritize_review_targets, review_targets, validate_proposal)
 from scenario_tests import suite_fixtures
@@ -694,6 +698,9 @@ class HomeAndSeedRowTests(unittest.TestCase):
             {"op": "open", "target": "workbook home page"},
             {"op": "click", "target": "Q3 Sales"},
             {"op": "expect_visible", "target": "Delete row"}]}
+        self.assertIsNone(validate_proposal(proposal, target, fixtures))
+        proposal["steps"][2:] = [{"op": "click", "target": "Delete row"},
+                                  {"op": "expect_absent", "target": "East/1200"}]
         source = validate_proposal(proposal, target, fixtures)
         self.assertIn("await h.openHome(page);", source)
         self.assertNotIn("openNamed(page, 'workbook home page')", source)
@@ -827,6 +834,111 @@ class VacuousAssertionTests(unittest.TestCase):
         problems = proposal_problems({"title": target["title"], "confidence": 0.9, "signed_in": True,
                                       "steps": steps}, target, fixtures)
         self.assertTrue(any("clicked" in p for p in problems), problems)
+
+
+class GeneralTransitionContractTests(unittest.TestCase):
+    def test_creation_requires_a_new_record_and_persistent_result(self):
+        node = leaf("REQ-G-1", [("Create team", [
+            ("GIVEN", "The account has an existing team `old-team`."),
+            ("WHEN", "The user clicks `New team`, fills `Team name` with `mobile-team`, and clicks `Create team`."),
+            ("THEN", "The new team `mobile-team` appears and remains after page refresh; "
+             "a `Created` notice appears."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures, include_all=True)[0]
+        steps = [{"op": "click", "target": "New team"},
+                 {"op": "fill", "target": "Team name", "value": "mobile-team"},
+                 {"op": "click", "target": "Create team"},
+                 {"op": "expect_visible", "target": "New team"}]
+        self.assertTrue(any("post-commit" in problem for problem in proposal_problems(
+            {"confidence": .9, "steps": steps}, target, fixtures)))
+        steps[-1]["target"] = "Created"
+        self.assertTrue(any("post-commit" in problem for problem in proposal_problems(
+            {"confidence": .9, "steps": steps}, target, fixtures)))
+        steps[-1] = {"op": "expect_visible", "target": "mobile-team"}
+        self.assertTrue(any("refresh" in problem for problem in proposal_problems(
+            {"confidence": .9, "steps": steps}, target, fixtures)))
+        steps.extend([{"op": "reload"}, {"op": "expect_visible", "target": "mobile-team"}])
+        proposal = {"confidence": .9, "steps": steps}
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        source = validate_proposal(proposal, target, fixtures)
+        title = target["title"] + " [model]"
+        self.assertTrue(grounded_behavior_test(source, title, target))
+        self.assertFalse(grounded_behavior_test(source.replace(
+            "  await h.expectTextsVisible(page, ['mobile-team']);\n});", "});"), title, target))
+
+    def test_deletion_requires_absence_of_the_deleted_object(self):
+        node = leaf("REQ-G-2", [("Delete note", [
+            ("GIVEN", "The account contains note `Delete me`."),
+            ("WHEN", "The user clicks `Delete Note`."),
+            ("THEN", "The note `Delete me` is removed and a `Deleted` notice appears."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures, include_all=True)[0]
+        steps = [{"op": "click", "target": "Delete Note"}, {"op": "expect_visible", "target": "Deleted"}]
+        self.assertTrue(any("post-commit" in problem for problem in proposal_problems(
+            {"confidence": .9, "steps": steps}, target, fixtures)))
+        steps.append({"op": "expect_absent", "target": "Delete me"})
+        proposal = {"confidence": .9, "steps": steps}
+        self.assertEqual(proposal_problems(proposal, target, fixtures), [])
+        source = validate_proposal(proposal, target, fixtures)
+        title = target["title"] + " [model]"
+        self.assertTrue(grounded_behavior_test(source, title, target))
+        self.assertFalse(grounded_behavior_test(source.replace(
+            "  await h.expectAbsent(page, 'Delete me');\n", ""), title, target))
+
+    def test_rename_requires_changed_name_not_seed(self):
+        node = leaf("REQ-G-3", [("Rename team", [
+            ("GIVEN", "The team `old-team` exists."),
+            ("WHEN", "The user fills `Team name` with `new-team` and clicks `Save`."),
+            ("THEN", "The renamed team `new-team` appears."),
+        ])])
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures, include_all=True)[0]
+        steps = [{"op": "fill", "target": "Team name", "value": "new-team"},
+                 {"op": "click", "target": "Save"}, {"op": "expect_visible", "target": "old-team"}]
+        self.assertTrue(proposal_problems({"confidence": .9, "steps": steps}, target, fixtures))
+        steps[-1]["target"] = "new-team"
+        self.assertEqual(proposal_problems({"confidence": .9, "steps": steps}, target, fixtures), [])
+
+
+class BusinessFlowBranchTests(unittest.TestCase):
+    def test_rename_flow_requires_success_and_blank_rejection_with_old_state(self):
+        node = leaf("REQ-FLOW", [("Rename", [
+            ("GIVEN", "Seed data includes workbook `Q3 Sales`."),
+            ("WHEN", "The user opens `Q3 Sales` and follows the requested workflow."),
+            ("THEN", "The application exposes the observable result for the requested workflow."),
+        ])], description=('Users rename a workbook using the "Rename workbook" button, "Workbook name" '
+                         'field and "Save" button. After a successful save, the new name appears and remains '
+                         'after refresh. An empty name must be rejected with "Workbook name cannot be empty"; '
+                         'the original name remains displayed.'))
+        fixtures = suite_fixtures([node])
+        target = review_targets([node], fixtures, include_all=True)[0]
+        self.assertEqual(target["negative_contracts"][0]["preserved"], "Q3 Sales")
+        positive = {"confidence": .9, "steps": [
+            {"op": "open", "target": "Q3 Sales"}, {"op": "click", "target": "Rename workbook"},
+            {"op": "fill", "target": "Workbook name", "value": "$NEW_NAME"},
+            {"op": "click", "target": "Save"}, {"op": "expect_visible", "target": "$NEW_NAME"},
+            {"op": "reload"}, {"op": "expect_visible", "target": "$NEW_NAME"}]}
+        negative = {"confidence": .9, "steps": [
+            {"op": "open", "target": "Q3 Sales"}, {"op": "click", "target": "Rename workbook"},
+            {"op": "fill", "target": "Workbook name", "value": "$BLANK"},
+            {"op": "click", "target": "Save"},
+            {"op": "expect_visible", "target": "Workbook name cannot be empty"},
+            {"op": "expect_visible", "target": "Q3 Sales"}]}
+        self.assertTrue(any("blank_validation" in item for item in compile_reply(
+            json.dumps({"scenarios": [{"id": target["id"], **positive}]}), [target], fixtures)[1]))
+        self.assertEqual(proposal_problems(negative, target, fixtures), [])
+        weak_negative = {**negative, "steps": negative["steps"][:-1]}
+        self.assertTrue(any("post-commit" in item for item in proposal_problems(
+            weak_negative, target, fixtures)))
+        reply = json.dumps({"scenarios": [{"id": target["id"], "title": target["title"],
+                                          "cases": [positive, negative]}]})
+        scripts, dropped = compile_reply(reply, [target], fixtures)
+        self.assertEqual(dropped, [])
+        self.assertEqual(len(scripts[target["node_id"]]), 2)
+        self.assertTrue(grounded_behavior_test(scripts[target["node_id"]][1],
+                                               target["title"] + " [case 2] [model]", target))
 
 
 class AppendDedupeTests(unittest.TestCase):
@@ -999,3 +1111,84 @@ class NonGridTaskTests(unittest.TestCase):
         steps = [{"op": "open", "target": "Issues"}, {"op": "expect_cell", "target": "A1", "value": "Legacy welcome text"}]
         problems = proposal_problems({"title": target["title"], "confidence": 0.9, "steps": steps}, target, fixtures)
         self.assertTrue(any("spreadsheet grid" in p for p in problems), problems)
+
+
+class CsvFormatContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tree = yaml.safe_load((Path(__file__).resolve().parents[1] / "tasks/hackathon--sheet/requirements.yaml")
+                              .read_text(encoding="utf-8"))
+        leaves = []
+
+        def walk(node):
+            if node.get("type") == "ATOMIC":
+                leaves.append(node)
+            for child in node.get("children") or []:
+                walk(child)
+
+        walk(tree)
+        cls.fixtures = suite_fixtures(leaves)
+        targets = review_targets(leaves, cls.fixtures, include_all=True)
+        cls.import_target = next(t for t in targets if t["node_id"] == "REQ-1-3-1")
+        cls.export_target = next(t for t in targets if t["node_id"] == "REQ-1-3-2")
+
+    def test_official_import_format_requires_every_field_and_reload(self):
+        target = self.import_target
+        self.assertTrue(csv_format_contract(target))
+        steps = [{"op": "click", "target": "Import CSV"},
+                 {"op": "upload", "target": "CSV file", "value": "$CSV_FORMAT"},
+                 {"op": "click", "target": "Confirm import"},
+                 {"op": "expect_visible", "target": "$CSV_FORMAT_NAME"}]
+        for row_number, row in enumerate(CSV_FORMAT_ROWS, 1):
+            steps.extend({"op": "expect_cell", "target": f"{chr(65 + column)}{row_number}", "value": value}
+                         for column, value in enumerate(row))
+        steps.append({"op": "reload"})
+        steps.extend({"op": "expect_cell", "target": ref, "value": value} for ref, value in
+                     [("A1", "Region"), ("D1", "第一行\n第二行"), ("E2", "中文")])
+        proposal = {"confidence": .9, "steps": steps}
+        self.assertEqual(proposal_problems(proposal, target, self.fixtures), [])
+        source = validate_proposal(proposal, target, self.fixtures)
+        self.assertIn('"East,West","Say ""Hi"""', source)
+        self.assertTrue(grounded_behavior_test(source, target["title"] + " [model]", target))
+        weak_source = source.replace("await h.expectCell(page, 'E2', '中文');", "")
+        self.assertFalse(grounded_behavior_test(weak_source, target["title"] + " [model]", target))
+        for removed in (6, 15, 16, 19):
+            bad = {"confidence": .9, "steps": [step for index, step in enumerate(steps) if index != removed]}
+            self.assertTrue(proposal_problems(bad, target, self.fixtures), removed)
+        basic = {"confidence": .9, "steps": [steps[0], {**steps[1], "value": "$CSV"}, *steps[2:]]}
+        self.assertTrue(any("use $CSV_FORMAT" in p for p in proposal_problems(basic, target, self.fixtures)))
+        accepted, dropped = compile_reply(json.dumps({"scenarios": [{"id": target["id"], **proposal}]}),
+                                          [target], self.fixtures)
+        self.assertFalse(dropped)
+        self.assertEqual(len(accepted[target["node_id"]]), 1)
+        _, dropped = compile_reply(json.dumps({"scenarios": [{"id": target["id"], "confidence": .9,
+            "steps": [{"op": "upload", "target": "CSV file", "value": "$INVALID_CSV"},
+                      {"op": "click", "target": "Confirm import"},
+                      {"op": "expect_visible", "target": "Invalid CSV file format. Import failed."}]}]}),
+            [target], self.fixtures)
+        self.assertTrue(any("positive $CSV_FORMAT" in item for item in dropped))
+        negative_source = (f"test('{target['title']} [model]', async ({{ page }}) => {{\n"
+                           "  await h.uploadFile(page, 'CSV file', 'Region,\"unclosed', 'derived-invalid.csv');\n"
+                           "  await h.clickNamed(page, 'Confirm import');\n"
+                           "  await h.expectTextsVisible(page, ['Invalid CSV file format. Import failed.']);\n});\n")
+        self.assertTrue(grounded_behavior_test(negative_source, target["title"] + " [model]", target),
+                        "a valid negative branch is separate from the positive format contract")
+
+    def test_official_export_format_requires_exact_csv_rows(self):
+        target = self.export_target
+        self.assertTrue(csv_export_contract(target))
+        prefix = [{"op": "click", "target": "Import CSV"},
+                  {"op": "upload", "target": "CSV file", "value": "$CSV_FORMAT"},
+                  {"op": "click", "target": "Confirm import"},
+                  {"op": "expect_cell", "target": "A1", "value": "Region"}]
+        weak = {"confidence": .9, "steps": prefix + [
+            {"op": "expect_download", "target": "Export CSV", "value": ".csv", "contains": ["Region"]}]}
+        self.assertTrue(any("csv_rows" in p for p in proposal_problems(weak, target, self.fixtures)))
+        strong = {"confidence": .9, "steps": prefix + [
+            {**weak["steps"][-1], "csv_rows": "$UPLOADED_CSV"}]}
+        self.assertEqual(proposal_problems(strong, target, self.fixtures), [])
+        source = validate_proposal(strong, target, self.fixtures)
+        self.assertIn('[["Region", "East,West"', source)
+        self.assertTrue(grounded_behavior_test(source, target["title"] + " [model]", target))
+        weak_source = source.replace(', [["Region", "East,West"', ', /* missing rows */ [["Region", "East,West"')
+        self.assertFalse(grounded_behavior_test(weak_source, target["title"] + " [model]", target))

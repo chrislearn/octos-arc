@@ -14,6 +14,34 @@ type Match = string | RegExp | Array<string | RegExp>;
 const DESTRUCTIVE = /delete|remove|close|merge|archive|trash|leave|reset|cancel|discard|revoke|transfer/i;
 const SIGN_IN_ENTRY = [/^\s*sign\s*in\s*$/i, /^\s*log\s*in\s*$/i];
 let signedInAs: string | null = null;
+const responses = new WeakMap<Page, Map<string, any>>();
+
+export async function watchResponse(page: Page, route: string, method: string): Promise<void> {
+  let watched = responses.get(page);
+  if (!watched) { watched = new Map(); responses.set(page, watched); }
+  const previous = watched.get(route);
+  if (previous?.listener) page.off('response', previous.listener);
+  const slot: any = { response: null, error: null };
+  watched.set(route, slot);
+  const pattern = new RegExp('^' + route.split('/').map(part => part.startsWith(':')
+    ? '[^/]+' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('/') + '$');
+  const listener = async response => {
+    const url = new URL(response.url());
+    if (response.request().method() !== method || !pattern.test(url.pathname) || url.origin !== new URL(page.url()).origin) return;
+    page.off('response', listener);
+    try { slot.response = {status: response.status(), body: await response.json().catch(() => null)}; }
+    catch (error) { slot.error = String(error); }
+  };
+  slot.listener = listener;
+  page.on('response', listener);
+}
+
+export async function expectResponse(page: Page, route: string, status: number, json: object = {}): Promise<void> {
+  const slot = responses.get(page)?.get(route);
+  expect(slot, 'response watcher must be installed before the action').toBeTruthy();
+  await expect.poll(() => slot.response?.status, {message: `HTTP response for ${route}`}).toBe(status);
+  if (Object.keys(json).length) expect(slot.response.body).toMatchObject(json);
+}
 
 async function signInEntryVisible(page: Page): Promise<boolean> {
   for (const pattern of SIGN_IN_ENTRY) {
@@ -426,7 +454,7 @@ export async function expectCell(page: Page, ref: string, value: string): Promis
 
 /** Choose a file in the file input the requirement names (label, aria-label or nearby button). */
 export async function uploadFile(page: Page, value: Match, csv: string,
-                                 fileName: 'derived-import.csv' | 'derived-invalid.csv' = 'derived-import.csv'): Promise<void> {
+                                 fileName: 'derived-import.csv' | 'derived-format.csv' | 'derived-invalid.csv' = 'derived-import.csv'): Promise<void> {
   const file = { name: fileName, mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') };
   const named = page.getByLabel(toPatterns(value)[0]).first();
   if (await named.isVisible({ timeout: 1000 }).catch(() => false) && await named.getAttribute('type') === 'file') {
@@ -446,8 +474,44 @@ export async function uploadFile(page: Page, value: Match, csv: string,
   await chooser.setFiles(file);
 }
 
-/** Click a control and verify the downloaded file name and selected contents. */
-export async function expectDownload(page: Page, value: Match, suffix: string, contains: string[] = []): Promise<void> {
+/** Parse CSV into fields so row order, empty fields and quoting are observable. */
+export function parseCsvRows(content: string): string[][] {
+  const text = content.replace(/^\uFEFF/, '');
+  if (!text) return [];
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+  let closed = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') { field += '"'; index += 1; }
+      else if (char === '"') { quoted = false; closed = true; }
+      else { field += char; }
+      continue;
+    }
+    if (char === '"') {
+      if (field || closed) throw new Error(`Malformed CSV quote at byte ${index}`);
+      quoted = true;
+    } else if (char === ',') {
+      row.push(field); field = ''; closed = false;
+    } else if (char === '\n' || char === '\r') {
+      if (char === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(field); rows.push(row); row = []; field = ''; closed = false;
+    } else {
+      if (closed) throw new Error(`Unexpected CSV content after closing quote at byte ${index}`);
+      field += char;
+    }
+  }
+  if (quoted) throw new Error('Unclosed quoted CSV field');
+  if (row.length || field || closed || !/[\r\n]$/.test(text)) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+/** Click a control and verify the downloaded file name, contents and optional exact CSV matrix. */
+export async function expectDownload(page: Page, value: Match, suffix: string, contains: string[] = [],
+                                     csvRows?: string[][]): Promise<void> {
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 15_000 }),
     clickNamed(page, value),
@@ -455,13 +519,14 @@ export async function expectDownload(page: Page, value: Match, suffix: string, c
   const name = download.suggestedFilename();
   expect(name, `clicking "${describe(value)}" downloads a file ending with ${suffix}`).toMatch(
     new RegExp(escapeRegExp(suffix) + '$', 'i'));
-  if (contains.length) {
+  if (contains.length || csvRows) {
     const failure = await download.failure();
     expect(failure, `download of ${name} completed`).toBeNull();
     const content = await readFile(await download.path(), 'utf8');
     for (const value of contains) {
       expect(content, `downloaded ${name} contains ${JSON.stringify(value)}`).toContain(value);
     }
+    if (csvRows) expect(parseCsvRows(content), `downloaded ${name} preserves exact CSV rows and fields`).toEqual(csvRows);
   }
 }
 

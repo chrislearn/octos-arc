@@ -86,7 +86,73 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.prepare_derived_spec_batch = lambda nodes: batches.append([n['id'] for n in nodes])
             flow.preflight_derived_specs([{'id': 'a1'}, {'id': 'b1'}, {'id': 'a2'}])
             self.assertEqual(batches, [['a1', 'a2'], ['b1']])
-            self.assertTrue(flow.derived_specs_frozen)
+            self.assertFalse(flow.derived_specs_frozen)
+
+    def test_first_category_receives_only_its_time_slice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.phase_plan = {'phases': [{'id': 'A'}, {'id': 'B'}, {'id': 'C'}],
+                               'leaf_phase': {'a': 'A', 'b': 'B', 'c': 'C'}}
+            flow.budget = 6000
+            flow.t_start = time.time()
+            flow.final_phase_reserve = lambda: 600
+            flow.wound_down = lambda: False
+            flow.metric = lambda *args, **kwargs: None
+            deadlines = []
+            flow.prepare_derived_spec_batch = lambda nodes: deadlines.append(flow.derived_preflight_deadline)
+            flow.preflight_derived_specs([{'id': key} for key in 'abc'])
+            self.assertEqual(len(deadlines), 3)
+            self.assertLess(deadlines[0], deadlines[1])
+            self.assertLess(deadlines[1], deadlines[2])
+
+    def test_unused_preflight_time_revisits_only_partially_covered_category(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.derived_tests_dir = root
+            flow.phase_plan = {'phases': [{'id': 'A'}, {'id': 'B'}],
+                               'leaf_phase': {'a': 'A', 'b': 'B'}}
+            flow.budget = 6000
+            flow.t_start = time.time()
+            flow.final_phase_reserve = lambda: 600
+            flow.wound_down = lambda: False
+            flow.metric = lambda *args, **kwargs: None
+            flow.derived_augmentation_attempts = {}
+            coverage = {'a': [0, 2], 'b': [0, 1]}
+            flow.derived_scenario_coverage = lambda node_id: dict(zip(('covered', 'total'), coverage[node_id]))
+            calls = []
+            def prepare(nodes):
+                node_id = nodes[0]['id']
+                calls.append(node_id)
+                flow.derived_augmentation_attempts[node_id] = flow.derived_augmentation_attempts.get(node_id, 0) + 1
+                coverage[node_id][0] += 1
+            flow.prepare_derived_spec_batch = prepare
+            flow.preflight_derived_specs([{'id': 'a'}, {'id': 'b'}])
+            self.assertEqual(calls, ['a', 'b', 'a'])
+
+    def test_partial_leaf_is_planned_again_even_after_one_accepted_script(self):
+        from unittest.mock import Mock, patch
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.derived_tests_dir = root
+            flow.derived_nodes = [{'id': 'a'}]
+            flow.derived_augmented_nodes = {'a'}
+            flow.derived_augmentation_attempts = {'a': 1}
+            flow.derived_scenario_coverage = Mock(return_value={'covered': 1, 'total': 2})
+            flow.augment_derived_tests = Mock()
+            flow.review_derived_cases = Mock()
+            flow.adopt_derived_specs = Mock()
+            flow.snapshot_protected = Mock()
+            flow.metric = Mock()
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_LLM': '1',
+                                            'OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS': '0'}):
+                flow.prepare_derived_spec_batch(flow.derived_nodes)
+            flow.augment_derived_tests.assert_called_once_with(flow.derived_nodes)
 
     def test_no_preflight_time_never_blocks_code(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -99,9 +165,9 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.metric = lambda *args, **kwargs: None
             flow.prepare_derived_spec_batch = lambda nodes: self.fail('should not spend test time')
             flow.preflight_derived_specs([{'id': 'a1'}])
-            self.assertTrue(flow.derived_specs_frozen)
+            self.assertFalse(flow.derived_specs_frozen)
 
-    def test_token_limit_leaves_later_category_for_code(self):
+    def test_explicit_token_limit_leaves_later_category_for_code(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
@@ -120,9 +186,11 @@ class DerivedPreflightTests(unittest.TestCase):
                 batches.append(nodes[0]['id'])
                 flow.llm_proxy.total_tokens += 100
             flow.prepare_derived_spec_batch = prepare
-            flow.preflight_derived_specs([{'id': 'a'}, {'id': 'b'}])
+            from unittest.mock import patch
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_PREFLIGHT_TOKENS': '100'}):
+                flow.preflight_derived_specs([{'id': 'a'}, {'id': 'b'}])
             self.assertEqual(batches, ['a'])
-            self.assertTrue(flow.derived_specs_frozen)
+            self.assertFalse(flow.derived_specs_frozen)
 
 
 class InvalidCsvFixtureTests(unittest.TestCase):

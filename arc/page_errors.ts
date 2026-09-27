@@ -2,6 +2,17 @@
 import { test } from '@playwright/test';
 export function register() {
   test.use({ context: async ({ context }, use, testInfo) => {
+    const observations: any[] = [];
+    const counts = new Map<string, number>();
+    const observe = (kind, page, message, extra = {}) => {
+      const count = counts.get(kind) || 0;
+      counts.set(kind, count + 1);
+      if (count >= 20) return;
+      let url = '';
+      try { const value = new URL(page.url()); url = value.origin + value.pathname; } catch (_) {}
+      observations.push({ kind, url, message: String(message).slice(0, 4000),
+        timestamp: Date.now(), ...extra });
+    };
     let remaining = 8;
     const responseShapes = new Map();
     const listeners = new Map();
@@ -10,14 +21,17 @@ export function register() {
       const report = message => {
         if (remaining-- > 0) console.error('__OCTOS_PAGE_ERROR__' + JSON.stringify(String(message).slice(0, 1600)));
       };
-      const onError = error => report(error.stack || error);
+      const onError = error => { observe('pageerror', page, error.stack || error); report(error.stack || error); };
+      const onRequestFailed = request => observe('request_failed', page,
+        request.failure()?.errorText || 'request failed', { resourceType: request.resourceType() });
       // A generated app does most of its work over fetch/XHR, so a failing API
       // call is what empties a list; reporting navigations alone said nothing
       // about it. One line per distinct method+status+path: a view that reloads
       // would otherwise spend the whole budget on the same failure.
       const reported = new Set();
       const onResponse = response => {
-        if (response.frame() !== page.mainFrame()) return;
+        try { if (response.frame() !== page.mainFrame()) return; }
+        catch (_) { return; } // Service worker responses have no frame.
         const request = response.request();
         // Keep routing evidence without credentials, query values or fragments.
         const url = new URL(response.url());
@@ -43,6 +57,7 @@ export function register() {
         const line = request.isNavigationRequest()
           ? `Navigation HTTP ${response.status()} ${where}`
           : `Request HTTP ${response.status()} ${request.method()} ${where}`;
+        observe('http_response', page, line, {status: response.status(), method: request.method(), path: url.pathname});
         if (reported.has(line)) return;
         reported.add(line);
         report(line);
@@ -57,19 +72,24 @@ export function register() {
         // The browser's own note for a failed request; `onResponse` already
         // reports those with their method, status and path.
         if (message.type() !== 'error' || text.startsWith('Failed to load resource')) return;
+        observe('console_error', page, text);
         if (reported.has(text) || logged-- <= 0) return;
         reported.add(text);
         report('Console error: ' + text);
       };
-      listeners.set(page, { onError, onResponse, onConsole });
+      listeners.set(page, { onError, onResponse, onConsole, onRequestFailed });
       page.on('pageerror', onError);
       page.on('response', onResponse);
       page.on('console', onConsole);
+      page.on('requestfailed', onRequestFailed);
     };
     context.pages().forEach(attach);
     context.on('page', attach);
     try { await use(context); }
     finally {
+      await testInfo.attach('arc-runtime-observations', {
+        body: Buffer.from(JSON.stringify(observations)), contentType: 'application/json'
+      });
       if (testInfo.status !== testInfo.expectedStatus) {
         // The URL is needed to distinguish a missing control from a transition
         // that had not mounted yet. Keep path only; queries can carry secrets.
@@ -89,6 +109,7 @@ export function register() {
         page.off('pageerror', listener.onError);
         page.off('response', listener.onResponse);
         page.off('console', listener.onConsole);
+        page.off('requestfailed', listener.onRequestFailed);
       }
     }
   } });

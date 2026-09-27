@@ -171,6 +171,7 @@ class ImplementationEvidenceTests(unittest.TestCase):
                 ("A", "entry"): {"node_id": "A", "status": "approved_smoke_only"},
                 ("B", "edit"): {"node_id": "B", "status": "approved_behavior"},
             }
+            flow.trusted_derived_case = Mock(side_effect=lambda node, title: node == "B")
             flow.quality_observations = {}
             flow.phase_plan = None
             flow.generation_state = {}

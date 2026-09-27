@@ -11,7 +11,8 @@ from unittest.mock import Mock, patch
 from acceptance import RunSummary, TestOutcome
 from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle
 from main import Flow
-from scenario_tests import Fixtures
+from scenario_review import CSV_FORMAT_ROWS, review_targets
+from scenario_tests import Fixtures, suite_fixtures
 
 
 SHEET = {
@@ -214,12 +215,40 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.write_derived_coverage()
         report = json.loads((self.root / ".arc" / "derived-coverage.json").read_text())
         self.assertEqual(report["totals"], {"scenarios": 2, "covered": 1, "missing": 1,
-                                             "disputed": 0, "semantic_contracts": 0,
-                                             "missing_semantic_contracts": 0})
+                                         "disputed": 0, "semantic_contracts": 0,
+                                         "missing_semantic_contracts": 0,
+                                         "format_contracts": 0, "missing_format_contracts": 0,
+                                         "negative_contracts": 0, "missing_negative_contracts": 0})
         path.write_text(path.read_text() + "\ntest('REQ-2: Save [model]', async ({ page }) => {\n"
                         "  await h.clickNamed(page, 'Save');\n"
                         "  await h.expectTextsVisible(page, ['Saved']);\n});\n")
         self.assertFalse(self.flow.derived_review_needed("REQ-2"))
+
+    def test_exact_format_candidate_stays_unverified_until_independent_approval(self):
+        node = {"id": "REQ-CSV", "name": "Import CSV", "description":
+                "Import CSV parses commas enclosed in double quotes, escaped double quotes and line breaks within fields; UTF-8 is supported.",
+                "scenarios": [{"name": "Import CSV", "steps": [
+                    {"keyword": "WHEN", "content": "Click “Import CSV” and “Confirm import”."},
+                    {"keyword": "THEN", "content": "The workbook preserves the parsed data after refresh."}]}]}
+        target = review_targets([node], suite_fixtures([node]), include_all=True)[0]
+        self.flow.derived_nodes = [node]
+        self.flow._derived_scenario_targets = [target]
+        self.flow.derived_case_reviews = {}
+        path = self.directory / "REQ-CSV.spec.ts"
+        lines = [f"test('{target['title']} [model]', async ({{ page }}) => {{",
+                 "  await h.uploadFile(page, 'CSV file', 'data', 'derived-format.csv');",
+                 "  await h.clickNamed(page, 'Confirm import');"]
+        for row_number, row in enumerate(CSV_FORMAT_ROWS, 1):
+            for column, value in enumerate(row):
+                lines.append(f"  await h.expectCell(page, '{chr(65 + column)}{row_number}', {value!r});")
+        lines.append("  await page.reload({ waitUntil: 'domcontentloaded' });")
+        for ref, value in (("A1", "Region"), ("D1", "第一行\n第二行"), ("E2", "中文")):
+            lines.append(f"  await h.expectCell(page, '{ref}', {value!r});")
+        path.write_text("\n".join(lines + ["});", ""]))
+        coverage = self.flow.derived_scenario_coverage("REQ-CSV")
+        self.assertEqual(coverage["format_contracts"][0]["status"], "candidate")
+        self.assertEqual(coverage["missing_format_contracts"], 1)
+        self.assertTrue(self.flow.derived_review_needed("REQ-CSV"))
 
     def test_action_and_assertion_with_wrong_result_do_not_cover_scenario(self):
         node = {"id": "REQ-2", "name": "Open", "description": "Open shows Done.",

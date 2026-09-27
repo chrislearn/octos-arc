@@ -3,6 +3,20 @@
 这个目录是 Octos 参加 ARC-Bench 的全部外围：平台适配包、公开验收测试、本地做题和打分脚本。
 学员只需要这一个仓库。内核源码在上一级（`crates/`），适配包在这里。
 
+## v11.5 验证与诊断
+
+生成项目的 `.arc/design/` 保存共享模型、命令契约和独立审核结果；`.arc/browser-health/` 保存独立浏览器诊断；`.arc/acceptance-evidence/` 保存每次测试原始证据。`.arc/quality-summary.json` 分开显示执行、交付就绪与业务验证状态。
+
+`.arc/request-ledger.jsonl` 关联请求、重试和用量，`.arc/context-reads/` 保留压缩前原始读取，`.arc/terminal-state.json` 记录正常或中断终态。unknown 不表示零费用，也不表示通过。
+
+离线浏览器回归（已有 Playwright/Chromium；不调用模型）：
+
+```sh
+python3 arc/integration/v115_runtime.py --playwright-root arc/local-grader --evidence /tmp/v115-evidence
+```
+
+此回归包含一个故意错误的 HTTP 状态断言；脚本检查它必须失败。依赖已有正式模型任务另行评估实际产出质量。
+
 ## 五步
 
 ```sh
@@ -34,9 +48,22 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 # Base URL 填 https://api.arc-bench.com/v1，然后选题、Run
 ```
 
+## 测试数据与可下载 spec
+
+生成的测试源现在保存到项目根目录 `derived-tests/`，与 `frontend/`、`backend/` 同级。包含 spec、helpers、来源标记及后续审核记录；开发结束时保留。若同名目录已有用户内容，使用 `derived-tests-2/` 等空闲目录，避免覆盖。运行器从这个目录读取，再复制到 Playwright 安装目录下执行，以保证依赖解析和诊断注入；复制执行不改变可下载的源文件。
+
+测试数据并非一直累积到开发结束：
+
+- 标准脚手架的派生测试每个 `test` 前调用重置接口，恢复 code seed 和已注册的内存重置回调；同一个 test 内的操作、刷新、状态断言不重置。
+- `acceptance`、`tools`、`rehearsal` 使用各自的 `.arc/runtime-data/<用途>/`；用途目录本身不是每阶段自动全清。官方测试的用例初始化由其自己的 fixtures 决定。
+- 多 spec 默认串行；检测到应用目录文件变更时恢复并重启。一次测试运行后恢复应用工作区文件变更。
+- postflight 删除 `.arc/runtime-data/`，且仅对识别出的通用脚手架清理 `backend/data/`；不删除 spec/审核文件，不清理自定义外部数据库。
+
+当前重置 helper 会忽略请求失败。对于未接入重置接口、未注册内存 reset hook、外部存储或忽略文件中的数据，不能保证完整用例隔离；不能将上述机制描述成任意应用都得到严格清库。
+
 ## 没有官方测试 spec 时的测试自检
 
-测试套件在应用代码生成前建立：先机械编译需求场景，再由 AI 补充行为测试，随后用独立 AI 回合审查前置条件、动作顺序、结果断言和用例隔离。审查不会读取应用代码或测试运行结果。标为 `needs_correction` 的场景会在预算内重新生成一次，并再次独立审查；原文件保存在 `.arc/derived-tests/review/before-correction-*.ts`。无效修正不会覆盖原测试，修正后的测试不会沿用旧审批。Playwright 加载检查和运行失败后的测试审查仍保留。
+测试套件在应用代码生成前建立：先机械编译需求场景，再由 AI 补充行为测试，随后用独立 AI 回合审查前置条件、动作顺序、结果断言和用例隔离。审查不会读取应用代码或测试运行结果。标为 `needs_correction` 的场景会在预算内重新生成一次，并再次独立审查；原文件保存在 `derived-tests/review/before-correction-*.ts`。无效修正不会覆盖原测试，修正后的测试不会沿用旧审批。Playwright 加载检查和运行失败后的测试审查仍保留。
 
 需求明确提供密码登录时，套件额外建立“未注册账号不能登录”和“已注册账号使用错误密码不能登录”两个基础不变量；后者需要有真实的种子凭据。邮箱登录使用合法邮箱，检查包括提交凭据后和回到首页刷新后的匿名状态，不要求某句特定错误文案。它们即使在 AI 规划关闭或预算不足时也会生成，但必须经过独立审查才能指导应用修复。无登录、免密或游客登录需求不会自动套用这些规则。
 

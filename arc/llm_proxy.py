@@ -742,46 +742,8 @@ def force_write_decision(body: bytes, used: int, budget: int, elapsed: float,
 
 
 def compact_repeated_reads(body: bytes) -> bytes:
-    """Retain the latest observation of each exact read, not duplicate payloads.
-
-    Preserve call ids, arguments, ordering, distinct ranges and all edit results.
-    A superseded result is explicitly marked, never presented as current source.
-    No compaction of the most recent result or of non-text/malformed messages.
-    """
-    try:
-        data = json.loads(body)
-        calls = {}
-        reads = []
-        for message in data.get('messages', []):
-            for call in message.get('tool_calls', []) or []:
-                fn = call.get('function') or {}
-                # Some providers reuse ids across completions. Never classify
-                # an edit result using an earlier read with the same id.
-                calls.pop(call.get('id'), None)
-                if fn.get('name') == 'read_file':
-                    args = json.loads(fn.get('arguments', '{}'))
-                    scope = {k: v for k, v in args.items() if k not in {'start_line', 'end_line', 'offset', 'limit'}}
-                    calls[call['id']] = (json.dumps(args, sort_keys=True), json.dumps(scope, sort_keys=True))
-            if message.get('role') == 'tool' and isinstance(message.get('content'), str):
-                key = calls.get(message.get('tool_call_id'))
-                if key is not None:
-                    reads.append((key, message))
-        seen = set()
-        covered = {}
-        changed = False
-        for (key, scope), message in reversed(reads):
-            lines = {int(n): text for n, text in re.findall(r'(?m)^\s*(\d+)│ (.*)$', message['content'])}
-            later = covered.setdefault(scope, {})
-            redundant_range = bool(lines) and all(later.get(n) == text for n, text in lines.items())
-            if (key in seen or redundant_range) and len(message['content']) > 160:
-                message['content'] = '[Earlier read omitted: a later result covers this read below. Use the later observation; edits may have changed the file.]'
-                changed = True
-            seen.add(key)
-            for n, text in lines.items():
-                later.setdefault(n, text)
-        return json.dumps(data, ensure_ascii=False).encode() if changed else body
-    except (ValueError, TypeError, AttributeError, KeyError):
-        return body
+    from context_ledger import compact_context
+    return compact_context(body)
 
 
 def ensure_max_tokens(body: bytes, minimum: int) -> bytes:
@@ -1053,7 +1015,10 @@ class LlmProxy:
         self.dump_limit = dump_limit
         self._dumped = 0
         self._lock = threading.Lock()
+        self._ledger_lock = threading.Lock()
         self._inflight: dict[tuple, Future] = {}
+        self._inflight_ids: dict[tuple, str] = {}
+        self._stopped = False
         self._terminal_accounts: dict[tuple, tuple] = {}
         self.terminal_blocked_requests = 0
         proxy = self
@@ -1065,8 +1030,12 @@ class LlmProxy:
                 pass
 
             def _forward(self, method: str) -> None:
+                import uuid
+                request_id = uuid.uuid4().hex
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
+                import hashlib
+                incoming_hash = hashlib.sha256(body).hexdigest()
                 was_streaming = False
                 unrouted = None
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
@@ -1096,7 +1065,13 @@ class LlmProxy:
                     if proxy.system_override:
                         body = replace_system_prompt(body, proxy.system_override)
                     if proxy.compact_reads:
-                        body = compact_repeated_reads(body)
+                        compacted = compact_repeated_reads(body)
+                        if compacted != body and proxy.retain_read_evidence(body):
+                            proxy.ledger({"event": "context_compacted", "request_id": request_id,
+                                          "before_bytes": len(body), "after_bytes": len(compacted),
+                                          "before_sha256": hashlib.sha256(body).hexdigest(),
+                                          "after_sha256": hashlib.sha256(compacted).hexdigest()})
+                            body = compacted
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
                     limit = proxy.codegen_max_tokens if proxy.no_tools else getattr(proxy, "tool_max_tokens", 0)
@@ -1115,10 +1090,14 @@ class LlmProxy:
                         body = lower_stalled_tool_reasoning(body)
                     body = cap_output_tokens(body, limit)
                     proxy._dump(body)
+                    proxy.ledger({"event": "request_received", "request_id": request_id,
+                                  "incoming_sha256": incoming_hash,
+                                  "forwarded_sha256": hashlib.sha256(body).hexdigest(),
+                                  "turn_serial": proxy.turn_serial, "label": getattr(proxy, "label", "")})
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
                 path = proxy.forward_path(self.path)
-                status, payload, resp_headers = proxy._request_upstream(method, path, body, headers)
+                status, payload, resp_headers = proxy._request_upstream(method, path, body, headers, request_id=request_id)
                 if unrouted is not None and body != unrouted:
                     selected = json.loads(body).get("model")
                     original = json.loads(unrouted).get("model")
@@ -1129,7 +1108,7 @@ class LlmProxy:
                             proxy.routes = [r for r in proxy.routes if r["model"] != selected]
                         headers["Content-Length"] = str(len(unrouted))
                         proxy._dump(unrouted)
-                        status, payload, resp_headers = proxy._request_upstream(method, path, unrouted, headers)
+                        status, payload, resp_headers = proxy._request_upstream(method, path, unrouted, headers, request_id=request_id + "-fallback")
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 if was_streaming and status == 200:
                     payload, ctype = to_sse(payload), "text/event-stream; charset=utf-8"
@@ -1137,6 +1116,7 @@ class LlmProxy:
                     self.send_response(status)
                     self.send_header("Content-Type", ctype)
                     self.send_header("Content-Length", str(len(payload)))
+                    self.send_header("X-Arc-Request-Id", request_id)
                     self.end_headers()
                     self.wfile.write(payload)
                 except (BrokenPipeError, ConnectionResetError):
@@ -1169,7 +1149,11 @@ class LlmProxy:
                 return path[3:]
         return path
 
-    def _request_upstream(self, method: str, path: str, body: bytes, headers: dict) -> tuple:
+    def _request_upstream(self, method: str, path: str, body: bytes, headers: dict, request_id=None) -> tuple:
+        import uuid
+        request_id = request_id or uuid.uuid4().hex
+        if getattr(self, "_stopped", False):
+            return 503, b'{"error":{"code":"interrupted","message":"run stopped; no request sent"}}', {}
         # Only pending identical completions are shared. Include credentials and
         # all forwarded headers; never share across distinct requests or phases.
         if method == "POST" and body:
@@ -1228,7 +1212,10 @@ class LlmProxy:
                 if key is not None:
                     self.turn_upstream_requests += 1
                     self._inflight[key] = future
+                    self._inflight_ids[key] = request_id
         if not owner:
+            self.ledger({"event": "request_joined", "request_id": request_id,
+                         "owner_request_id": self._inflight_ids.get(key)})
             return future.result()
         try:
             guarded_stream = (self.no_tools and self.phase in {"implement", "repair"}
@@ -1245,7 +1232,18 @@ class LlmProxy:
                                          headers=headers, method=method)
             t0 = time.time()
             meta = self.request_meta(body)   # attribution fixed at issue time, not at response time
+            from context_ledger import context_metrics
+            meta["request_id"] = request_id
+            self.ledger({"event": "context", **meta, **context_metrics(body)})
             for upstream_attempt in range(2):
+                if getattr(self, "_stopped", False):
+                    result = 503, b'{"error":{"code":"interrupted"}}', {}
+                    self.ledger({"event": "request_interrupted", "request_id": request_id, "usage_status": "unknown"})
+                    future.set_result(result)
+                    return result
+                attempt_started = time.time()
+                meta["attempt_id"] = f"{request_id}:{upstream_attempt + 1}"
+                self.ledger({"event": "attempt_started", **meta, "usage_status": "unknown"})
                 may_have_generated = False
                 try:
                     deadline = getattr(self, "turn_deadline", None)
@@ -1278,6 +1276,8 @@ class LlmProxy:
                                                                    'openai-organization', 'openai-project'}}
                 if not failure or upstream_attempt or (deadline and deadline - time.monotonic() < 5):
                     break
+                self._log(result[1], int((time.time() - attempt_started) * 1000), body, len(body), len(result[1]),
+                          status=result[0], meta=dict(meta))
                 time.sleep(1)
             status, payload, _ = result
             if status == 200 and key is not None:
@@ -1305,8 +1305,10 @@ class LlmProxy:
                     and meta.get("turn_serial") == self.turn_serial):
                 self.retain_edit_arguments(payload)
             if status == 200 and meta.get("codegen"):
+                if meta.get("stream_integrity") in {"upstream_incomplete", "locally_interrupted"} and meta.get("turn_serial") == self.turn_serial:
+                    self.interrupted_reply = True
                 self.capture_truncated_reply(payload, meta)
-            self._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload), status=status, meta=meta)
+            self._log(payload, int((time.time() - attempt_started) * 1000), body, len(body), len(payload), status=status, meta=meta)
             future.set_result(result)
             return result
         except BaseException as exc:
@@ -1316,6 +1318,32 @@ class LlmProxy:
             if key is not None:
                 with self._lock:
                     self._inflight.pop(key, None)
+                    self._inflight_ids.pop(key, None)
+
+    def ledger(self, record: dict) -> None:
+        if self.log_path:
+            try:
+                with self._ledger_lock, (self.log_path.parent / "request-ledger.jsonl").open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps({"timestamp": time.time(), **record}, ensure_ascii=False) + "\n")
+            except OSError:
+                pass
+
+    def retain_read_evidence(self, body: bytes) -> bool:
+        """Deduplicated original read results remain recoverable after compression."""
+        if not self.log_path:
+            return False
+        try:
+            from context_ledger import read_records
+            messages = json.loads(body).get("messages", [])
+            directory = self.log_path.parent / "context-reads"
+            directory.mkdir(parents=True, exist_ok=True)
+            for row in read_records(messages):
+                path = directory / (row["observation_sha256"] + ".txt")
+                if not path.exists():
+                    path.write_text(messages[row["position"]]["content"], encoding="utf-8")
+            return True
+        except (OSError, ValueError, TypeError, AttributeError):
+            return False  # retain full context if original evidence cannot be saved
 
     @property
     def upstream_pending(self) -> bool:
@@ -1374,6 +1402,7 @@ class LlmProxy:
         with self._lock:
             self.turn_serial += 1
             self.truncated_reply = None
+            self.interrupted_reply = False
             self.turn_budget = int(budget)
             self.turn_budget_extended = False
             self.turn_requests = 0
@@ -1429,7 +1458,7 @@ class LlmProxy:
         try:
             data = json.loads(payload)
             choices = data.get("choices", [])
-            if data.get("arc_stream_integrity") == "upstream_incomplete":
+            if data.get("arc_stream_integrity") in {"upstream_incomplete", "locally_interrupted"}:
                 return
             choice = choices[0] if len(choices) == 1 else {}
             content = choice.get("message", {}).get("content")
@@ -1504,6 +1533,9 @@ class LlmProxy:
             rec["status"] = status
         rec["request_bytes"], rec["response_bytes"] = req_bytes, resp_bytes
         rec.update(meta if meta is not None else self.request_meta(request_body))
+        self.ledger({"event": "attempt_finished", "request_id": rec.get("request_id"),
+                     "attempt_id": rec.get("attempt_id"), "status": status,
+                     "usage_status": "unknown" if rec.get("no_usage") else "reported"})
         exact = int(rec.get("prompt_tokens") or 0) + int(rec.get("completion_tokens") or 0)
         estimated = 0
         if rec.get("no_usage"):
@@ -1533,6 +1565,9 @@ class LlmProxy:
         return self
 
     def stop(self) -> None:
+        self._stopped = True
+        self.ledger({"event": "proxy_stopped", "pending_requests": list(self._inflight_ids.values()),
+                     "pending_usage_status": "unknown"})
         try:
             self.server.shutdown()
             self.server.server_close()

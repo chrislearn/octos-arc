@@ -141,11 +141,15 @@ def assertion_after_action(case: str, quote: str) -> bool:
     """Do not certify a setup assertion as the feature's outcome witness."""
     if not case or not quote:
         return False
+    # Generated phase wrappers are one line. Remove setup lines before looking
+    # for action evidence: entering the seed is not the requested workflow.
+    case = "\n".join(line for line in case.splitlines()
+                     if not re.search(r"test\.step\(['\"]setup:", line))
     # expectDownload clicks the named control and verifies the resulting file
     # in one helper call, so it is both the action and the assertion.
     if re.search(r"\b(?:expectDownload|expectSignInRejected)\s*\(", quote):
         return True
-    actions = list(re.finditer(r"await\s+h\.(?!expect\w*\s*\(|openHome\s*\(|signIn\s*\(|resetState\s*\()\w+\s*\(", case))
+    actions = list(re.finditer(r"await\s+h\.(?!expect\w*\s*\(|openHome\s*\(|signIn\s*\(|resetState\s*\(|watchResponse\s*\()\w+\s*\(", case))
     if not actions:
         return False
     first_action = actions[0].start()

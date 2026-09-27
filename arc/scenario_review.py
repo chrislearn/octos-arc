@@ -12,6 +12,8 @@ order and which literal is the assertion; it cannot invent controls or data.
 from __future__ import annotations
 
 import hashlib
+import csv
+import io
 import json
 import re
 from typing import Iterable, Mapping
@@ -22,7 +24,7 @@ from scenario_tests import (Fixtures, spec_header, _ANY_LITERAL, _compile_scenar
 
 OPS = {"open", "click", "hover", "fill", "check", "press", "reload", "sign_in", "expect_sign_in_rejected", "set_clipboard", "expect_visible", "expect_absent",
        "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download",
-       "expect_clipboard", "cell_context", "header_context", "expect_selected"}
+       "expect_clipboard", "cell_context", "header_context", "expect_selected", "watch_response", "expect_response"}
 HEADER = re.compile(r"^(?:[1-9][0-9]{0,4}|[A-Z]{1,3})$")
 # "open the home page" needs no literal: it is the application root.
 HOME_TARGET = re.compile(r"^(?:the\s+)?(?:application\s+|app\s+|workbook\s+)?home(?:\s*page)?$", re.I)
@@ -53,8 +55,12 @@ PLACEHOLDERS = {
     "$BLANK": "whitespace only (an invalid empty input for a required field)",
     "$CSV": "a CSV file of the seeded `label/value` rows in seed order, no header row -- after import A1 holds "
             "the first seeded label, B1 its value, A2 the second label ... (only as the value of an upload step)",
+    "$CSV_FORMAT": "a UTF-8 CSV fixture with ordinary first-row data, empty fields, numeric and Chinese text, "
+                   "a quoted comma, an escaped quote, and a line break inside a quoted field; use only when the "
+                   "import requirement explicitly promises these formats",
     "$CSV_NAME": "the name derived from the uploaded derived-import.csv file: derived-import "
                  "(assertion after upload only, not a new-record fill value)",
+    "$CSV_FORMAT_NAME": "the name derived from derived-format.csv: derived-format (assertion after $CSV_FORMAT upload)",
     "$INVALID_CSV": "a fixed malformed CSV with a field whose opening quote is never closed; "
                     "only for upload when the requirement explicitly requires invalid CSV rejection",
     "$INVALID_CSV_NAME": "the absent workbook name derived from derived-invalid.csv: derived-invalid "
@@ -84,6 +90,37 @@ def seed_csv(seeds: list[str]) -> str:
     return "East,1200\nNorth,800"
 
 
+CSV_FORMAT_ROWS = [["Region", "East,West", 'Say "Hi"', "第一行\n第二行", "", "1200"],
+                   ["North", "800", "", "", "中文", "0"],
+                   ["0012", "1.00", " spaced ", "", "", ""], ["", "", "", "", "", ""]]
+
+
+def csv_format_fixture() -> str:
+    """Exercise the concrete CSV formats an import contract explicitly names."""
+    buffer = io.StringIO(newline="")
+    csv.writer(buffer, lineterminator="\n").writerows(CSV_FORMAT_ROWS)
+    return buffer.getvalue()
+
+
+def csv_format_contract(target: Mapping) -> bool:
+    name = str(target.get("name") or "")
+    if re.search(r"\bexport\b", name, re.I) and not re.search(r"\bimport\b", name, re.I):
+        return False
+    text = str(target.get("description") or "")
+    return bool(re.search(r"\bimport\b.*\bCSV\b", name + " " + text, re.I)
+                and re.search(r"(?:commas?\s+(?:enclosed\s+in\s+)?double\s+quotes?|escaped\s+(?:pairs?\s+of\s+)?double\s+quotes?)", text, re.I)
+                and re.search(r"line\s+breaks?\s+within\s+fields?|UTF-8", text, re.I))
+
+
+def csv_export_contract(target: Mapping) -> bool:
+    name = str(target.get("name") or "")
+    if re.search(r"\bimport\b", name, re.I) and not re.search(r"\bexport\b", name, re.I):
+        return False
+    text = str(target.get("description") or "")
+    return bool(re.search(r"\bexport\b.*\bCSV\b", name + " " + text, re.I)
+                and re.search(r"\bescapes?\b|\bempty\s+cells?\b|\brow\s+and\s+column\s+order\b", text, re.I))
+
+
 def expand_placeholder(value: str, scope: str) -> str:
     """Deterministic per scenario: the same placeholder expands identically
     within one script, differently across scenarios (parallel tests)."""
@@ -96,6 +133,7 @@ def expand_placeholder(value: str, scope: str) -> str:
         "$WRONG_PASSWORD": f"Wrong-pass-{slug}!",
         "$NEW_NAME": f"derived-{slug}",
         "$CSV_NAME": "derived-import",
+        "$CSV_FORMAT_NAME": "derived-format",
         "$INVALID_CSV_NAME": "derived-invalid",
         "$TEXT": f"Derived text {slug}",
         "$BLANK": "   ",
@@ -112,7 +150,8 @@ SYSTEM = ("You convert product requirement scenarios into short browser check sc
           "Reply with one JSON object only; no prose, no markdown.")
 
 DSL = """Independent branches may use {"id":..., "title":..., "cases":[{"signed_in":false,"confidence":0.9,"steps":[...]}, ...]}.
-At most 8 cases per scenario and 20 steps per case. Every case starts with a fresh reset/browser;
+At most 8 cases per scenario and 20 steps per case (24 for an explicit CSV import format contract).
+Every case starts with a fresh reset/browser;
 never rely on state from another case. Keep all required positive/negative outcomes across the cases.
 If using cases, do not also supply steps or skip. Case titles are assigned by the harness.
 Each script is {"id": <the [S..] id shown before the scenario>, "title": <scenario title verbatim>,
@@ -148,12 +187,16 @@ Operations (use only these):
                                          has aria-selected="true" and the cells just outside it "false"
   {"op": "expect_role", "role": R, "target": L}  assert an element with ARIA role R and accessible name L
                                          (roles: grid, gridcell, tab, dialog, menu, menuitem, button, link, ...)
-  {"op": "upload", "target": L, "value": "$CSV"|"$INVALID_CSV"} choose a file in the named file input.
+  {"op": "upload", "target": L, "value": "$CSV"|"$CSV_FORMAT"|"$INVALID_CSV"} choose a file in the named file input.
                                          $CSV has seeded rows, no header; $INVALID_CSV is a fixed unclosed quote
                                          and is allowed only when the leaf requires invalid CSV rejection.
+                                         $CSV_FORMAT covers quoted commas, escaped quotes, multiline fields,
+                                         empty fields, numeric and UTF-8 text when the import requirement names them.
   {"op": "expect_download", "target": L, "value": ".csv", "contains": ["Region"]}
                                          click L; assert the download suffix and file contents. For CSV
                                          export, include a seeded cell value (or an imported row value).
+                                         Add "csv_rows":"$UPLOADED_CSV" after importing a known CSV fixture
+                                         to compare every downloaded row and field exactly, including empty fields.
   {"op": "expect_clipboard", "target": L, "protocol": "HTTPS"}  read the browser clipboard and
                                          assert it contains L and has the selected clone protocol.
 A scenario that says "the requested workflow" (or "follows the visible controls") means: perform the
@@ -176,7 +219,12 @@ Copy, cut, paste, undo and redo are done with press Control+C / Control+X / Cont
 Control+Y on the selected cell. A paste script must first copy in this script or use set_clipboard; an empty
 fresh browser clipboard is not a valid fixture. Import is scripted with the upload step and
 $CSV; after import, assert the file-derived workbook name with $CSV_NAME, not $NEW_NAME.
+If the import requirement promises quoted commas, escaped quotes, multiline fields and UTF-8,
+use $CSV_FORMAT and verify every cell of its two rows (A1:F2) after import, then reload and
+recheck A1, D1 and E2. Its file-derived name is $CSV_FORMAT_NAME.
 Export uses expect_download on the control that triggers it.
+If export explicitly promises CSV escaping, row order or empty fields, first import a known CSV
+fixture when the product provides import, then use csv_rows:$UPLOADED_CSV in expect_download.
 After each "Copy clone value" click, use expect_clipboard for that protocol and the seeded repository name;
 the "Copied" toast alone does not prove the clipboard contains the clone value.
 For a pivot table, formula, or other numeric result, assert the result in a destination cell with expect_cell;
@@ -187,7 +235,8 @@ Values the user must make up are written as placeholders, allowed as fill values
 expect_visible/expect_absent targets (and cell_type values): $NEW_USERNAME, $NEW_EMAIL, $NEW_PASSWORD
 (also for the confirmation field), $NEW_NAME (the name of a repository, team, workbook, worksheet,
 branch or label the script creates -- assert it afterwards), $TEXT (comment body, title, description).
-$CSV_NAME is only an expect_visible target after $CSV upload. $INVALID_CSV_NAME is only
+$CSV_NAME is only an expect_visible target after $CSV upload. $CSV_FORMAT_NAME is only
+an expect_visible target after $CSV_FORMAT upload. $INVALID_CSV_NAME is only
 an expect_absent target after $INVALID_CSV upload and an attempted import. An invalid
 CSV check must assert the documented error, then return home/reload and assert the
 invalid workbook absent; do not replace that negative oracle with entry/reach.
@@ -476,6 +525,12 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "has_grid": bool(re.search(r"\bgrid\b|gridcell|\bcells?\b|worksheet|workbook|spreadsheet|"
                                                        r"\b[A-Z]{1,3}[0-9]{1,4}\s*=",
                                                        node_text + " " + shared + " " + " ".join(steps), re.I))})
+            transition = transition_contract(targets[-1])
+            if include_all and transition["kind"] and len(set(transition["literals"])) == 1:
+                # A newly created name can occur in WHEN; a toast may be the
+                # only novel THEN quote. Require the state value instead.
+                targets[-1]["required_then_literal"] = transition["literals"][0]
+            targets[-1]["negative_contracts"] = negative_contracts(targets[-1])
     if include_all:
         title_counts: dict[tuple[str, str], int] = {}
         for target in targets:
@@ -554,12 +609,251 @@ def behavior_test_titles(source: str) -> set[str]:
             continue
         end = starts[index + 1].start() if index + 1 < len(starts) else len(source)
         body = source[start.end():end]
-        action = re.search(r"await h\.(?!expect|openHome\(|signIn\()\w+\(", body)
+        body = "\n".join(line for line in body.splitlines() if not re.search(r"test\.step\(['\"]setup:", line))
+        action = re.search(r"await h\.(?!expect|openHome\(|signIn\(|watchResponse\()\w+\(", body)
         assertion = re.search(r"await h\.expect\w+\(", body)
         download = re.search(r"await h\.(?:expectDownload|expectSignInRejected)\(", body)
         if (action and assertion and action.start() < assertion.start()) or download:
             valid.add(title)
     return valid
+
+
+def transition_contract(target: Mapping) -> dict:
+    """Infer only explicit state transitions from the scenario's WHEN/THEN.
+
+    This is deliberately format agnostic. A broad leaf description supplies
+    the action only when the scenario has a templated WHEN; the THEN must still
+    describe the corresponding result.
+    """
+    steps = [str(step) for step in target.get("steps") or []]
+    when = " ".join(step for step in steps if step.startswith("WHEN:"))
+    then = " ".join(step for step in steps if step.startswith("THEN:"))
+    description = str(target.get("description") or "")
+    templated_action = bool(re.search(r"requested workflow|visible controls", when, re.I))
+    templated_outcome = bool(re.search(r"observable result for.*requested workflow", then, re.I))
+    action = description if templated_action else when
+    outcome = description if templated_outcome else then
+    candidates = []
+    for name, action_words, result_words in (
+            ("delete", r"delet\w*|remov\w*|discard\w*", r"delet\w*|remov\w*|absent|disappear\w*|no longer"),
+            ("create", r"creat\w*|add\w*|insert\w*|import\w*", r"new|creat\w*|add\w*|insert\w*|appear\w*|listed|shows?"),
+            ("update", r"renam\w*|updat\w*|edit(?:s|ed|ing)?|sav(?:e|es|ed|ing)",
+             r"renam\w*|updat\w*|chang\w*|sav(?:e|es|ed|ing)|shows?|appear\w*")):
+        if re.search(r"\b(?:" + action_words + r")\b", action, re.I) and re.search(
+                r"\b(?:" + result_words + r")\b", outcome, re.I):
+            candidates.append(name)
+    kind = candidates[0] if len(candidates) == 1 else ""
+    if kind == "update" and re.search(r"\b(?:successfully|toast|notice|notification|message)\b", outcome, re.I) \
+            and not re.search(r"\b(?:renamed|updated|changed|new\s+value|appears)\b", outcome, re.I):
+        kind = ""  # An explicitly promised notification is not a state contract.
+    literals = []
+    for match in _ANY_LITERAL.finditer(outcome):
+        value = literal_prefix((match.group(1) or match.group(2) or match.group(3)).strip())
+        nearby = outcome[max(0, match.start() - 28):match.start()] + " " + outcome[match.end():match.end() + 28]
+        control_prefix = outcome[max(0, match.start() - 28):match.start()]
+        control_suffix = outcome[match.end():match.end() + 18]
+        if value and not _descriptive(value) and not re.search(
+                r"\b(?:button|control|menuitem|menu|field|textbox|link|tab)\b[^.;]{0,28}$", control_prefix, re.I) and not re.search(
+                r"^\s*(?:button|link|tab|control|menuitem|field|textbox)\b", control_suffix, re.I) and not re.search(
+                r"\b(?:cannot be empty|required|invalid|failed|denied|forbidden)\b", value, re.I) and not re.search(
+                r"\b(?:toast|notice|notification|message|error|success(?:fully)?)\b", nearby, re.I):
+            literals.append(value)
+    if templated_outcome:
+        for match in re.finditer(r"\bnamed\s+([A-Za-z][\w-]*)\b", outcome, re.I):
+            before = outcome[max(0, match.start() - 35):match.start()]
+            if not re.search(r"\b(?:button|link|control|tab|menu|field|textbox)\b", before, re.I):
+                literals.append(match.group(1))
+    persistence = bool(re.search(
+        r"(?:after|across|through|upon|on)\s+(?:a\s+)?(?:page\s+)?(?:refresh|reload|reopen)\b|"
+        r"(?:persist|remain|surviv\w*).{0,80}\b(?:refresh|reload|reopen)\b",
+        then + " " + description, re.I))
+    return {"kind": kind, "literals": literals,
+            "persistence": persistence}
+
+
+def negative_contracts(target: Mapping) -> list[dict]:
+    """Reproducible error paths explicitly named by the business requirement.
+
+    Unsupported failure injection remains a gap rather than a fabricated test.
+    The initial bounded trigger is a required text field submitted blank.
+    """
+    description = str(target.get("description") or "")
+    preserved = next((value for kind, value in target.get("seed_kinds") or []
+                      if re.search(r"\b(?:workbook|repository|team|record|document|project)\b", str(kind), re.I)), "")
+    found = []
+    for sentence in _sentences(description):
+        if not re.search(r"\b(?:empty|blank|required)\b", sentence, re.I) or not re.search(
+                r"\b(?:reject\w*|error|cannot be empty|must not be empty)\b", sentence, re.I):
+            continue
+        quoted = [m.group(1) or m.group(2) or m.group(3) for m in _ANY_LITERAL.finditer(sentence)]
+        error = next((value for value in quoted if re.search(r"\b(?:cannot be empty|required|must not be empty)\b",
+                                                              value, re.I)), "")
+        if error:
+            found.append({"kind": "blank_validation", "error": error, "preserved": preserved,
+                          "testable": bool(preserved), "requirement_quote": sentence})
+    return found
+
+
+def rejection_case_evidence(steps: list, contract: Mapping) -> bool:
+    """A rejected command needs an error and the old business object intact."""
+    if contract.get("kind") != "blank_validation" or not contract.get("testable"):
+        return False
+    blank_at = next((i for i, step in enumerate(steps) if isinstance(step, dict)
+                     and step.get("op") == "fill" and step.get("value") == "$BLANK"), -1)
+    commit_at = next((i for i, step in enumerate(steps) if i > blank_at and isinstance(step, dict)
+                      and step.get("op") == "click" and _COMMIT_ACTION.search(str(step.get("target") or ""))), -1)
+    if blank_at < 0 or commit_at < 0:
+        return False
+    return all(any(i > commit_at and isinstance(step, dict) and step.get("op") == "expect_visible"
+                   and step.get("target") == value for i, step in enumerate(steps))
+               for value in (contract["error"], contract["preserved"]))
+
+
+def source_rejection_evidence(source: str, title: str, target: Mapping) -> bool:
+    from test_policy import test_block
+    block = test_block(source, title) or ""
+    for contract in target.get("negative_contracts") or negative_contracts(target):
+        if not contract.get("testable"):
+            continue
+        blank = re.search(r"await h\.fillField\(page,\s*'[^']+',\s*'   '\);", block)
+        commit = re.search(r"await h\.clickNamed\(page,\s*'[^']*(?:Save|Create|Submit|Update|Rename)[^']*'\);",
+                           block[blank.end():] if blank else "", re.I)
+        if not blank or not commit:
+            continue
+        after = block[blank.end() + commit.end():]
+        if all(f"await h.expectTextsVisible(page, [{_ts(value)}]);" in after
+               for value in (contract["error"], contract["preserved"])):
+            return True
+    return False
+
+
+_COMMIT_ACTION = re.compile(r"\b(?:create|add|delete|remove|discard|save|update|rename|confirm|apply|submit|import)\b", re.I)
+
+
+def proposal_transition_problems(steps: list, target: Mapping) -> list[str]:
+    """Require a changed-state witness after the decisive action, not UI chrome."""
+    contract = transition_contract(target)
+    kind = contract["kind"]
+    if not kind or csv_format_contract(target) or csv_export_contract(target):
+        return []
+    selection = bool(re.search(r"\bselect\w*\b", str(target.get("description") or ""), re.I)
+                     and re.search(r"aria-selected|complete selection|selected range",
+                                   str(target.get("description") or ""), re.I))
+    commits = [i for i, step in enumerate(steps) if isinstance(step, dict) and
+               ((step.get("op") == "click" and _COMMIT_ACTION.search(str(step.get("target") or ""))) or
+                (selection and step.get("op") == "cell_click") or
+                (step.get("op") == "press" and step.get("key") in {"Enter", "Control+Enter"}))]
+    if not commits:
+        return [f"{kind} scenario has no commit action before its outcome assertion"]
+    commit = commits[-1]
+    assertions = [(i, step) for i, step in enumerate(steps) if i > commit and isinstance(step, dict)
+                  and str(step.get("op") or "").startswith("expect_")]
+    typed = {str(step.get("value") or "") for step in steps[:commit]
+             if isinstance(step, dict) and step.get("op") in {"fill", "cell_type"}}
+    seeded = {str(value) for value in target.get("seeds") or []}
+    controls = {str(step.get("target") or "") for step in steps[:commit + 1]
+                if isinstance(step, dict) and step.get("op") in {"open", "click", "check"}}
+    outcome_values = set(contract["literals"]) | typed
+    selected_target = str(steps[commit].get("target") or "") if steps[commit].get("op") == "cell_click" else ""
+    if kind == "delete" and not contract["literals"]:
+        outcome_values |= set(target.get("seeds") or [])
+    if kind == "create" and any(isinstance(step, dict) and step.get("op") == "upload" for step in steps):
+        outcome_values |= {"$CSV_NAME", "$CSV_FORMAT_NAME"}
+
+    def witnesses(item: dict) -> bool:
+        op, value = item.get("op"), str(item.get("target") or "")
+        if kind == "delete":
+            return op == "expect_absent" and value in outcome_values
+        if selection and op == "expect_selected":
+            return bool(selected_target and value == selected_target)
+        if op == "expect_cell":
+            return str(item.get("value")) in outcome_values
+        if op in {"expect_visible", "expect_role"}:
+            return value in outcome_values and value not in seeded and value not in controls
+        return False
+
+    positive = [(i, item) for i, item in assertions if witnesses(item)]
+    # A valid rejected-create branch still needs to prove no record was made.
+    negative = any(rejection_case_evidence(steps, contract)
+                   for contract in target.get("negative_contracts") or negative_contracts(target)) or (kind == "create" and any(item.get("op") == "expect_absent"
+                 and str(item.get("target") or "") in typed - seeded for _, item in assertions)
+                and any(item.get("op") in {"expect_visible", "expect_role"}
+                        and str(item.get("target") or "") not in controls for _, item in assertions))
+    if not positive and not negative:
+        return [f"{kind} scenario needs a post-commit assertion of the created, changed, or removed state; "
+                "an entry control, pre-existing seed, or toast alone is insufficient"]
+    if contract["persistence"] and positive:
+        reloads = [i for i, step in enumerate(steps) if i > commit and isinstance(step, dict)
+                   and step.get("op") == "reload"]
+        before = {(item.get("op"), item.get("target"), item.get("value"))
+                  for i, item in positive if reloads and i < reloads[0]}
+        after = {(item.get("op"), item.get("target"), item.get("value"))
+                 for i, item in positive if reloads and i > reloads[0]}
+        if not reloads or not after or (before and not before.intersection(after)):
+            return ["the requirement says the changed state survives refresh/reopen; reload and assert it again"]
+    return []
+
+
+def source_transition_evidence(source: str, title: str, target: Mapping) -> bool:
+    """Recheck the emitted (or mechanical) case before it can be reviewed."""
+    contract = transition_contract(target)
+    kind = contract["kind"]
+    if not kind or csv_format_contract(target) or csv_export_contract(target):
+        return True
+    if source_rejection_evidence(source, title, target):
+        return True
+    from test_policy import test_block
+    block = test_block(source, title) or ""
+    selection = bool(re.search(r"\bselect\w*\b", str(target.get("description") or ""), re.I)
+                     and re.search(r"aria-selected|complete selection|selected range",
+                                   str(target.get("description") or ""), re.I))
+    calls = [(m.start(), m.group(1), m.group(2)) for m in re.finditer(
+        r"await h\.(\w+)\(([^;]*)\);", block)]
+    commits = [i for i, name, args in calls if
+               (name == "clickNamed" and _COMMIT_ACTION.search(args)) or
+               (selection and name == "clickCell") or
+               (name == "pressKey" and re.search(r"['\"](?:Enter|Control\+Enter)['\"]", args))]
+    if not commits:
+        return False
+    commit = commits[-1]
+    selected = next((args for i, name, args in calls if i == commit and name == "clickCell"), "")
+    typed = {m.group(1) for m in re.finditer(
+        r"await h\.(?:fillField|typeInCell)\(page,\s*'(?:\\.|[^'])*',\s*('(?:\\.|[^'])*')\);",
+        block[:commit])}
+    outcome = {_ts(value) for value in contract["literals"]} | typed
+    if kind == "delete" and not contract["literals"]:
+        outcome |= {_ts(part) for seed in target.get("seeds") or [] for part in seed_parts(seed)}
+    if kind == "create" and "await h.uploadFile(" in block:
+        outcome |= {_ts("derived-import"), _ts("derived-format")}
+    seeded = {_ts(str(value)) for value in target.get("seeds") or []}
+    clicked = {m.group(1) for m in re.finditer(
+        r"await h\.(?:clickNamed|openNamed)\(page,\s*('(?:\\.|[^'])*')\);", block[:commit + 1])}
+    positive = []
+    negative = False
+    for position, name, args in calls:
+        if position <= commit:
+            continue
+        if kind == "delete" and name == "expectAbsent" and any(value in args for value in outcome):
+            positive.append(position)
+        elif selection and name == "expectSelected" and selected and args == selected:
+            positive.append(position)
+        elif kind != "delete" and name in {"expectTextsVisible", "expectRole"} and any(
+                value in args and value not in seeded and value not in clicked for value in outcome):
+            positive.append(position)
+        elif kind != "delete" and name == "expectCell" and any(value in args for value in outcome):
+            positive.append(position)
+        elif kind == "create" and name == "expectAbsent" and any(value in args for value in typed - seeded):
+            negative = True
+    if not positive and not (negative and any(name in {"expectTextsVisible", "expectRole"}
+                                           for i, name, _ in calls if i > commit)):
+        return False
+    if contract["persistence"] and positive:
+        reload_at = block.find("await page.reload", commit)
+        before = {(name, args) for i, name, args in calls if i in positive and i < reload_at}
+        after = {(name, args) for i, name, args in calls if i in positive and i > reload_at}
+        if reload_at < 0 or not after or (before and not before.intersection(after)):
+            return False
+    return True
 
 
 def grounded_behavior_test(source: str, title: str, target: Mapping) -> bool:
@@ -570,8 +864,18 @@ def grounded_behavior_test(source: str, title: str, target: Mapping) -> bool:
     """
     if title not in behavior_test_titles(source):
         return False
+    if not source_transition_evidence(source, title, target):
+        return False
+    from test_policy import test_block
+    format_block = test_block(source, title) or ""
+    if (csv_format_contract(target) and "h.uploadFile(" in format_block
+            and "'derived-invalid.csv'" not in format_block
+            and not format_contract_evidence(source, title, target)):
+        return False
+    if (csv_export_contract(target) and "h.expectDownload(" in format_block
+            and not format_contract_evidence(source, title, target)):
+        return False
     if target.get("invariant_credentials"):
-        from test_policy import test_block
         account, password = target["invariant_credentials"]
         scope = re.sub(r" \[(?:model|script)\]$", "", title)
         account = expand_placeholder(account, scope)
@@ -597,9 +901,27 @@ def grounded_behavior_test(source: str, title: str, target: Mapping) -> bool:
             cursor = action.start()
         if actions:
             cursor = max(cursor, actions[0].start())
-        literal = target.get("required_then_literal")
+        literal = "" if source_rejection_evidence(source, title, target) else target.get("required_then_literal")
         return not literal or any(item.start() >= cursor and _ts(literal) in item.group(1)
                                   for item in assertions)
+    return False
+
+
+def format_contract_evidence(source: str, title: str, target: Mapping) -> bool:
+    """Exact data-format evidence, separate from a negative or entry case."""
+    from test_policy import test_block
+    block = test_block(source, title) or ""
+    if csv_format_contract(target):
+        if "'derived-format.csv'" not in block or "page.reload" not in block:
+            return False
+        if any(f"h.expectCell(page, {_ts(f'{chr(ord('A') + col)}{row}')}, {_ts(value)})" not in block
+               for row, cells in enumerate(CSV_FORMAT_ROWS, 1) for col, value in enumerate(cells)):
+            return False
+        after_reload = block.split("page.reload", 1)[1]
+        return all(f"h.expectCell(page, {_ts(ref)}, {_ts(value)})" in after_reload for ref, value in
+                   (("A1", "Region"), ("D1", "第一行\n第二行"), ("E2", "中文")))
+    if csv_export_contract(target):
+        return bool(re.search(r"h\.expectDownload\([^;]+,\s*\[\[", block, re.S))
     return False
 
 
@@ -634,6 +956,17 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                  "Cover both valid and invalid branches. Establish all prerequisites in each case and assert the resulting "
                  "state, not just a toast. Do not invent error wording, validation limits, roles, routes or product policies. "
                  "If a prerequisite or oracle cannot be established with this DSL and these fixtures, report a concrete gap.")
+    parts.append("\nFor every state-changing workflow, identify the commit action and prove the promised state afterwards: "
+                 "a created record or value exists, a deleted one is absent, or an edited value actually changed. "
+                 "Observing a dialog, clicked button, existing seed, field echo, or success toast is insufficient. "
+                 "If the requirement promises persistence across refresh or reopen, reload and repeat the state assertion. "
+                 "For a rejected operation, verify both the rejection and that no unintended state change occurred.")
+    parts.append("\nTreat explicitly specified data formats as exact contracts: use the stated field order, empty fields, "
+                 "quoting/escaping, Unicode, filename, error text, accessible role/name and calculated values. "
+                 "Check the resulting parsed data or named cell/field after the action and after reload where persistence "
+                 "is required. A file suffix, source label, toast, or one substring does not prove a complete format. "
+                 "For ordinary workflows also check one relevant boundary or opposite branch when the requirement "
+                 "supports it; keep each case isolated and do not invent product rules.")
     parts.append(f"\nFixture account: `{fixtures.account}` / `{fixtures.password}` (email `{fixtures.email}`).")
     controls = [c for c in (targets[0].get("controls") or []) if len(c) <= 60][:160] if targets else []
     if controls:
@@ -642,7 +975,16 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
     if phase_context:
         parts.append("\nTOP-LEVEL CATEGORY CONTRACT (shared context for these scenarios; "
                      "each assertion must still be grounded in its own scenario): " + phase_context)
+    parts.append('\nMark steps with phase setup/action/assertion. Setup cannot earn behavior credit. '
+                 'Use a real command and a changed-state assertion; preserve exact raw values, empty fields and boundaries. '
+                 'Each category needs a successful chain and an applicable rejection chain before extra entry checks. '
+                 'Read writes back through the normal UI, reload and another actor where required. '
+                 'Optional watch_response {target:path,method:METHOD} before the UI action and '
+                 'expect_response {target:path,status:integer,json:optional-object-subset} afterward supplement UI assertions. '
+                 'Only declared API paths are allowed; expected status/body must follow the branch requirement.')
     for target in targets:
+        if target.get("api_contracts"):
+            parts.append("\nDECLARED API CONTRACTS: " + json.dumps(target["api_contracts"], ensure_ascii=False))
         if target.get("origin") == "baseline_invariant":
             parts.append("\nBASELINE INVARIANT (inferred from the required password login, not a quoted scenario). "
                          "Use exactly one expect_sign_in_rejected step with target/value "
@@ -657,6 +999,9 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                      + json.dumps(target.get("contract_outcomes") or [], ensure_ascii=False)
                      + "\nSEMANTIC OUTCOMES (each needs action and proof in one independent case): "
                      + json.dumps(target.get("semantic_contracts") or [], ensure_ascii=False)
+                     + "\nNEGATIVE BUSINESS BRANCHES (cover each reproducible branch in an isolated case; "
+                       "if testable=false, report the missing trigger or fixture rather than inventing it): "
+                     + json.dumps(target.get("negative_contracts") or [], ensure_ascii=False)
                      + ("\nUNVERIFIED GIVEN ACTOR: " + target["actor_precondition"]
                         + "; use skip or a grounded validator dispute, not a different account."
                         if target.get("actor_precondition") else ""))
@@ -700,6 +1045,10 @@ def parse_failure_review(text: str) -> dict | None:
 
 
 def _emit(step: dict) -> str | None:
+    if step["op"] == "watch_response":
+        return f"await h.watchResponse(page, {_ts(step['target'])}, {_ts(step['method'])});"
+    if step["op"] == "expect_response":
+        return f"await h.expectResponse(page, {_ts(step['target'])}, {step['status']}, {json.dumps(step.get('json', {}), ensure_ascii=False)});"
     op, target = step.get("op"), step.get("target")
     if op == "open":
         if HOME_TARGET.match(str(target).strip()):
@@ -748,11 +1097,15 @@ def _emit(step: dict) -> str | None:
         csv = str(step.get("csv") or "").replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
         if step.get("value") == "$INVALID_CSV":
             return f"await h.uploadFile(page, {_ts(target)}, '{csv}', 'derived-invalid.csv');"
+        if step.get("value") == "$CSV_FORMAT":
+            return f"await h.uploadFile(page, {_ts(target)}, '{csv}', 'derived-format.csv');"
         return f"await h.uploadFile(page, {_ts(target)}, '{csv}');"
     if op == "expect_download":
         content = step.get("contains") or []
+        rows = step.get("csv_rows")
+        exact = ", " + json.dumps(rows, ensure_ascii=False) if isinstance(rows, list) else ""
         return (f"await h.expectDownload(page, {_ts(target)}, {_ts(str(step.get('value')))}, "
-                f"[{', '.join(_ts(item) for item in content)}]);")
+                f"[{', '.join(_ts(item) for item in content)}]{exact});")
     if op == "expect_clipboard":
         return f"await h.expectClipboard(page, {_ts(target)}, {_ts(str(step.get('protocol')))});"
     return None
@@ -832,8 +1185,19 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return problems + ["unverified GIVEN actor: " + str(target["actor_precondition"])]
     if not isinstance(steps, list) or not steps:
         return problems + ["no steps"]
-    if len(steps) > MAX_STEPS:
-        problems.append(f"{len(steps)} steps; at most {MAX_STEPS}")
+    explicit_phases = any(isinstance(step, dict) and "phase" in step for step in steps)
+    if explicit_phases:
+        if any(step.get("phase") not in {"setup", "action", "assertion"} for step in steps if isinstance(step, dict)):
+            problems.append("every step needs setup/action/assertion phase when phases are used")
+        action_indices = [i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("phase") == "action"
+                          and step.get("op") not in {"open", "reload", "hover", "watch_response"}
+                          and not str(step.get("op", "")).startswith("expect_")]
+        if not action_indices or not any(i > min(action_indices) and step.get("phase") == "assertion"
+                and str(step.get("op", "")).startswith("expect_") for i, step in enumerate(steps) if isinstance(step, dict)):
+            problems.append("setup-only scripts have no behavior credit; require action then outcome assertion")
+    max_steps = max(24, sum(len(row) for row in CSV_FORMAT_ROWS) + 12) if csv_format_contract(target) else MAX_STEPS
+    if len(steps) > max_steps:
+        problems.append(f"{len(steps)} steps; at most {max_steps}")
     if target.get("invariant_credentials"):
         account, password = target["invariant_credentials"]
         if proposal.get("signed_in") or steps != [{"op": "expect_sign_in_rejected", "target": account, "value": password}]:
@@ -888,6 +1252,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     pasted_cells: dict[str, str] = {}
     uploaded_csv: list[list[str]] | None = None
     uploaded = False
+    uploaded_format = False
     uploaded_invalid = False
     any_invalid_upload = False
     edited_cells: set[str] = set()
@@ -906,6 +1271,23 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                             f"use one of {sorted(OPS)}")
             continue
         op = step["op"]
+        if op in {"watch_response", "expect_response"}:
+            route = step.get("target")
+            declared = [r for r in target.get("api_contracts", []) if r.get("path") == route]
+            if not declared:
+                problems.append(f"step {index}: response path must have a declared API contract")
+            if op == "watch_response" and not any(r.get("method") == step.get("method") for r in declared):
+                problems.append(f"step {index}: response method must match the declared route")
+            if op == "expect_response":
+                earlier = steps[:index - 1]
+                if not any(s.get("op") == "watch_response" and s.get("target") == route for s in earlier if isinstance(s, dict)):
+                    problems.append(f"step {index}: watch the response before triggering its action")
+                if type(step.get("status")) is not int or not 100 <= step["status"] <= 599:
+                    problems.append(f"step {index}: invalid response status")
+                if not isinstance(step.get("json", {}), dict):
+                    problems.append(f"step {index}: json must be an object subset")
+                asserted = True
+            continue
         if op == "expect_clipboard":
             value = step.get("target")
             if not isinstance(value, str) or value.strip() not in allowed:
@@ -991,7 +1373,9 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 typed = step.get("value")
                 if isinstance(typed, (int, float)) and not isinstance(typed, bool):
                     typed = step["value"] = str(typed)
-                if not isinstance(typed, str) or not (typed.strip() in allowed or typed.strip() in PLACEHOLDERS
+                imported_values = {item for row in uploaded_csv or [] for item in row} if op == "expect_cell" else set()
+                if not isinstance(typed, str) or not (typed.strip() in allowed or typed in imported_values
+                                                      or typed.strip() in PLACEHOLDERS
                                                       or NUMBER.match(typed.strip())
                                                       or FORMULA.match(typed.strip())
                                                       or (op == "expect_cell" and (typed.strip() == ""
@@ -1026,8 +1410,17 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 problems.append(f"step {index}: upload target {json.dumps(value, ensure_ascii=False)} is not an allowed literal")
             upload_value = str(step.get("value") or "").strip()
             if upload_value == "$CSV":
-                uploaded_csv = [row.split(",") for row in seed_csv(target.get("seeds") or []).splitlines()]
+                uploaded_csv = list(csv.reader(io.StringIO(seed_csv(target.get("seeds") or []), newline="")))
                 uploaded = True
+                uploaded_format = False
+                uploaded_invalid = False
+                edited_cells.clear()
+            elif upload_value == "$CSV_FORMAT":
+                if not (csv_format_contract(target) or csv_export_contract(target)):
+                    problems.append(f"step {index}: $CSV_FORMAT needs an explicit CSV import or export format contract")
+                uploaded_csv = CSV_FORMAT_ROWS
+                uploaded = True
+                uploaded_format = True
                 uploaded_invalid = False
                 edited_cells.clear()
             elif upload_value == "$INVALID_CSV":
@@ -1040,10 +1433,11 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                     problems.append(f"step {index}: the fixed invalid CSV error oracle is not in this requirement")
                 uploaded_csv = None
                 uploaded = False
+                uploaded_format = False
                 uploaded_invalid = True
                 any_invalid_upload = True
             else:
-                problems.append(f"step {index}: upload value must be $CSV or an authorized $INVALID_CSV")
+                problems.append(f"step {index}: upload value must be $CSV, $CSV_FORMAT or an authorized $INVALID_CSV")
             continue
         if op == "expect_download":
             if not is_control(value):
@@ -1061,9 +1455,15 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             elif suffix == ".csv" and re.search(r"\bexport\b", target.get("name", "") + " "
                                                   + target.get("description", ""), re.I):
                 needed = [item for row in uploaded_csv for item in row] if uploaded_csv else cell_seeds
-                if needed and not any(item in content for item in needed):
+                if needed and not any(item in content for item in needed) and step.get("csv_rows") != "$UPLOADED_CSV":
                     problems.append(f"step {index}: CSV export must check downloaded contents for a seeded "
                                     "cell or imported row value")
+            if "csv_rows" in step:
+                if suffix != ".csv" or step.get("csv_rows") != "$UPLOADED_CSV" or not uploaded_csv or edited_cells:
+                    problems.append(f"step {index}: csv_rows must be $UPLOADED_CSV after an unchanged valid CSV upload")
+            elif csv_export_contract(target):
+                problems.append(f"step {index}: explicit CSV row/column/escaping contract needs csv_rows:$UPLOADED_CSV; "
+                                "a substring check cannot verify the format")
             asserted = True
             continue
         if op in {"cell_context", "header_context", "expect_selected"}:
@@ -1104,6 +1504,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                                 "file name, so assert $CSV_NAME instead")
         if value == "$CSV_NAME" and (op != "expect_visible" or not uploaded):
             problems.append(f"step {index}: $CSV_NAME is an assertion only after uploading $CSV")
+        if value == "$CSV_FORMAT_NAME" and (op != "expect_visible" or not uploaded_format):
+            problems.append(f"step {index}: $CSV_FORMAT_NAME is an assertion only after uploading $CSV_FORMAT")
         if value == "$INVALID_CSV_NAME" and (op != "expect_absent" or not uploaded_invalid):
             problems.append(f"step {index}: $INVALID_CSV_NAME is an absence assertion only after $INVALID_CSV upload")
         if (reset_prerequisite and isinstance(value, str)
@@ -1119,6 +1521,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         if op in {"open", "click"} and uploaded_csv and value in (target.get("seeds") or []):
             uploaded_csv = None  # Explicitly reopened the original seeded record.
             uploaded = False
+            uploaded_format = False
         if not placeholder_ok and is_control(value):
             pass
         elif not isinstance(value, str) or not (value.strip() in allowed or (placeholder_ok and value.strip() in PLACEHOLDERS)):
@@ -1128,6 +1531,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             typed = step.get("value")
             if typed == "$CSV_NAME":
                 problems.append(f"step {index}: $CSV_NAME is derived from the upload and cannot be filled")
+            if typed == "$CSV_FORMAT_NAME":
+                problems.append(f"step {index}: $CSV_FORMAT_NAME is derived from the upload and cannot be filled")
             if typed == "$INVALID_CSV_NAME":
                 problems.append(f"step {index}: $INVALID_CSV_NAME is derived from the upload and cannot be filled")
             if not isinstance(typed, str) or not (typed.strip() in allowed or typed.strip() in PLACEHOLDERS):
@@ -1141,6 +1546,47 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                 problems.append(f"step {index}: fill value {json.dumps(typed)} is the fixture account, typed into "
                                 f"{json.dumps(value)}; a record the script creates is named $NEW_NAME")
         asserted = asserted or op.startswith("expect_")
+    if csv_format_contract(target):
+        ordinary = any(isinstance(step, dict) and step.get("op") == "upload"
+                       and step.get("value") == "$CSV" for step in steps)
+        if ordinary:
+            problems.append("this import contract explicitly names CSV quoting, UTF-8 and multiline fields; "
+                            "use $CSV_FORMAT rather than the two-row basic $CSV fixture")
+    format_at = next((i for i, step in enumerate(steps) if isinstance(step, dict)
+                      and step.get("op") == "upload" and step.get("value") == "$CSV_FORMAT"), -1)
+    if format_at >= 0 and csv_format_contract(target):
+        submit_at = next((i for i, step in enumerate(steps) if i > format_at and isinstance(step, dict)
+                          and step.get("op") == "click" and re.search(r"confirm\s+import|^import$",
+                                                                       str(step.get("target") or ""), re.I)), -1)
+        reload_at = next((i for i, step in enumerate(steps) if i > submit_at and isinstance(step, dict)
+                          and step.get("op") == "reload"), -1) if submit_at >= 0 else -1
+        if submit_at < 0 or reload_at < 0:
+            problems.append("$CSV_FORMAT must be confirmed and the imported workbook reloaded")
+        elif not any(i > submit_at and isinstance(step, dict) and step.get("op") == "expect_visible"
+                     and step.get("target") == "$CSV_FORMAT_NAME" for i, step in enumerate(steps)):
+            problems.append("$CSV_FORMAT import must show the file-derived workbook name $CSV_FORMAT_NAME")
+        if submit_at >= 0 and reload_at >= 0:
+            for row_index, row in enumerate(CSV_FORMAT_ROWS, 1):
+                for col_index, expected in enumerate(row):
+                    ref = f"{chr(ord('A') + col_index)}{row_index}"
+                    if not any(submit_at < i < reload_at and isinstance(step, dict)
+                               and step.get("op") == "expect_cell" and step.get("target") == ref
+                               and step.get("value") == expected for i, step in enumerate(steps)):
+                        problems.append(f"$CSV_FORMAT requires {ref}={expected!r} before reload")
+            for ref, expected in (("A1", "Region"), ("D1", "第一行\n第二行"), ("E2", "中文")):
+                if not any(i > reload_at and isinstance(step, dict) and step.get("op") == "expect_cell"
+                           and step.get("target") == ref and step.get("value") == expected
+                           for i, step in enumerate(steps)):
+                    problems.append(f"$CSV_FORMAT requires persisted {ref}={expected!r} after reload")
+    if format_at >= 0 and csv_export_contract(target):
+        submit_at = next((i for i, step in enumerate(steps) if i > format_at and isinstance(step, dict)
+                          and step.get("op") == "click" and re.search(r"confirm\s+import|^import$",
+                                                                       str(step.get("target") or ""), re.I)), -1)
+        observed_at = next((i for i, step in enumerate(steps) if i > submit_at and isinstance(step, dict)
+                            and step.get("op") == "expect_cell" and step.get("target") == "A1"
+                            and step.get("value") == "Region"), -1) if submit_at >= 0 else -1
+        if submit_at < 0 or observed_at < 0:
+            problems.append("CSV export setup must confirm the known format fixture and observe A1=Region before export")
     if any_invalid_upload:
         invalid_at = next((i for i, step in enumerate(steps) if isinstance(step, dict)
                            and step.get("op") == "upload" and step.get("value") == "$INVALID_CSV"), -1)
@@ -1191,6 +1637,9 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         if cancel_branch and required_outcome and re.fullmatch(r"sign\s*in|log\s*in", required_outcome, re.I):
             # The mother's THEN names the confirmed branch's sign-in entry;
             # requiring it after Cancel would demand the opposite behavior.
+            required_outcome = ""
+        if any(rejection_case_evidence(steps, contract)
+               for contract in target.get("negative_contracts") or negative_contracts(target)):
             required_outcome = ""
         if required_outcome and not any(
                 index > max(cursor, first_effect if first_effect is not None else -1)
@@ -1303,6 +1752,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
                             f"before the scenario; it stays on a correct app unless a step deletes or filters it out -- {hint}")
     if proposal.get("signed_in") and not (fixtures.account and fixtures.password):
         problems.append("signed_in requested but the suite has no fixture account")
+    problems.extend(proposal_transition_problems(steps, target))
     return problems
 
 
@@ -1312,11 +1762,20 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return None
     lines: list[str] = []
     scope = str(target["title"])
+    active_csv_rows: list[list[str]] | None = None
     for step_index, original_step in enumerate(proposal["steps"]):
         step = dict(original_step)
         if step["op"] == "upload":
             step["csv"] = ('Region,"unterminated\n' if step.get("value") == "$INVALID_CSV"
+                           else csv_format_fixture() if step.get("value") == "$CSV_FORMAT"
                            else seed_csv(target.get("seeds") or []))
+            active_csv_rows = (None if step.get("value") == "$INVALID_CSV" else
+                               CSV_FORMAT_ROWS if step.get("value") == "$CSV_FORMAT" else
+                               list(csv.reader(io.StringIO(step["csv"], newline=""))))
+        if step["op"] in {"open", "click"} and step.get("target") in (target.get("seeds") or []):
+            active_csv_rows = None
+        if step["op"] == "expect_download" and step.get("csv_rows") == "$UPLOADED_CSV":
+            step["csv_rows"] = active_csv_rows
         if step["op"] == "set_clipboard":
             step["table"] = seed_csv(target.get("seeds") or []).replace(",", "\t")
         # Only a seeded `label/value` row splits into cells; "src/search.ts" is a path.
@@ -1325,7 +1784,7 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         if step["op"] not in {"press", "reload", "set_clipboard"}:
             step["target"] = expand_placeholder(str(step["target"]).strip(), scope)
             if step["op"] in {"fill", "sign_in", "expect_sign_in_rejected", "cell_type", "expect_cell"}:
-                step["value"] = expand_placeholder(str(step["value"]).strip(), scope)
+                step["value"] = expand_placeholder(str(step["value"]), scope)
                 if original_step.get("value") == "$WRONG_PASSWORD" and step["value"] == fixtures.password:
                     return None  # never certify a correct password as an invalid credential
             if target.get("invariant_kind") == "unregistered_account" and step["target"] in {fixtures.account, fixtures.email}:
@@ -1338,7 +1797,10 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             code = _emit(step)
         if code is None:
             return None
-        lines.append("  " + code)
+        if explicit_phase := original_step.get("phase"):
+            lines.append(f"  await test.step({_ts(explicit_phase + ': ' + step['op'])}, async () => {{ {code} }});")
+        else:
+            lines.append("  " + code)
     start = ["  await h.openHome(page);"]
     if proposal.get("signed_in"):
         start.append(f"  await h.signIn(page, {_ts(fixtures.account)}, {_ts(fixtures.password)});")
@@ -1393,6 +1855,24 @@ def compile_reply(text: str, targets: list[dict], fixtures: Fixtures, with_retry
                 problems.append(f"case {index}: could not be emitted")
             else:
                 emitted.append(source)
+        if (csv_format_contract(target)
+                and not re.search(r"\binvalid\s+CSV\b|\bunclosed\s+quote\b",
+                                  " ".join(str(step) for step in target.get("steps") or []), re.I)
+                and not any(isinstance(step, dict) and step.get("op") == "upload"
+                            and step.get("value") == "$CSV_FORMAT"
+                            for case in cases for step in case.get("steps", []) if isinstance(case, dict))):
+            problems.append("this scenario needs a positive $CSV_FORMAT import case in addition to any invalid CSV branch")
+        for contract in target.get("negative_contracts") or negative_contracts(target):
+            if contract.get("testable") and not any(rejection_case_evidence(case.get("steps") or [], contract)
+                                                    for case in cases):
+                problems.append(f"missing independent {contract['kind']} branch: submit $BLANK, assert "
+                                f"{contract['error']!r}, and retain {contract['preserved']!r}")
+        if (any(contract.get("testable") for contract in target.get("negative_contracts") or negative_contracts(target))
+                and transition_contract(target)["kind"]
+                and not any(not any(rejection_case_evidence(case.get("steps") or [], contract)
+                                    for contract in target.get("negative_contracts") or negative_contracts(target))
+                            for case in cases)):
+            problems.append("missing positive business branch alongside the rejection case")
         if problems:
             dropped.append(f"{target['title']}: " + "; ".join(problems))
             if not proposal.get("skip") and not proposal.get("validator_dispute"):

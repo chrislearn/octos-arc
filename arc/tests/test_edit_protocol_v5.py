@@ -263,9 +263,9 @@ class StreamingTests(TestCase):
         body = json.dumps({'messages': messages}).encode()
         compact = compact_repeated_reads(body)
         out = json.loads(compact)['messages']
-        self.assertIn('Earlier read omitted', out[1]['content'])
+        self.assertEqual(out[1]['content'], messages[1]['content'])
         self.assertEqual(out[3:], messages[3:])
-        self.assertLess(len(compact), len(body) * .6)
+        self.assertEqual(compact, body)  # distinct versions cannot be deduplicated
         self.assertEqual(compact_repeated_reads(compact), compact)
         self.assertEqual(compact_repeated_reads(b'bad json'), b'bad json')
 
@@ -328,7 +328,13 @@ class StreamingTests(TestCase):
                         json.dumps({'model': 'example', 'messages': [], 'stream': False}).encode(), {})
                 self.assertEqual(status, 200)
                 self.assertTrue(json.loads(upstream.call_args.args[0].data)['stream'])
-                self.assertIn('<<<FILE', proxy.take_truncated_reply('wave 1'))
+                self.assertIsNone(proxy.take_truncated_reply('wave 1'))  # interrupted text is not a complete patch
+                self.assertTrue(proxy.interrupted_reply)
+                ledger=[json.loads(line) for line in (Path(tmp)/'request-ledger.jsonl').read_text().splitlines()]
+                attempts=[row for row in ledger if row['event']=='attempt_finished']
+                self.assertEqual(len(attempts),1)
+                self.assertEqual(attempts[0]['usage_status'],'unknown')
+                self.assertEqual(attempts[0]['attempt_id'],attempts[0]['request_id']+':1')
                 record = json.loads(log.read_text())
                 self.assertEqual(record['stream_guard'], 'repeated_operation_cycle')
                 self.assertEqual(record['stream_integrity'], 'locally_interrupted')

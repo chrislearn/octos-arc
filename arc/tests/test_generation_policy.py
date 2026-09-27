@@ -70,7 +70,7 @@ class GenerationPolicyTests(unittest.TestCase):
 
     def test_generated_reach_timeout_is_low_signal_even_if_case_was_approved(self):
         self.assertEqual(classify_observation("not reachable within 3 navigation clicks",
-                                              source="derived", reliable=True)[0], "T")
+                                              source="derived", reliable=True)[0], "U")
         self.assertEqual(classify_observation("SyntaxError: missing export",
                                               source="runtime", reliable=True)[0], "F0")
         self.assertEqual(classify_observation("backend: data is not iterable",

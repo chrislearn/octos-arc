@@ -183,6 +183,7 @@ class MeasuredRepairTests(TestCase):
         f = self.flow
         f.remaining = lambda: -1
         f.last_startable_sha = 'good1234'
+        f.rehearsal_browser_error = Mock(return_value=None)
         f.head = Mock(return_value='broken99')
         f.restore_app = Mock()
         f.commit = Mock()
@@ -200,6 +201,7 @@ class MeasuredRepairTests(TestCase):
         f = self.flow
         f.remaining = lambda: -1
         f.last_startable_sha = 'good1234'
+        f.rehearsal_browser_error = Mock(return_value=None)
         f.head = Mock(return_value='current9')
         f.restore_app = Mock()
         builds = iter(['port busy', None])

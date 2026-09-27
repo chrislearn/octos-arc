@@ -164,6 +164,18 @@ class FlowRegression(unittest.TestCase):
         self.assertEqual(app_design_errors(invalid)[0]['path'], '/modules/0/owns')
         self.assertIsNone(parse_app_design_reply(json.dumps({'pages': [{'path': '/'}], 'modules': [4]})))
 
+    def test_route_error_contract_rejects_wrong_http_category(self):
+        design = {'routes': [{'method': 'POST', 'path': '/api/records', 'requirements': ['REQ-1'],
+                              'errors': [{'kind': 'conflict', 'condition': 'duplicate name', 'status': 400}]}]}
+        self.assertEqual(app_design_errors(design)[0]['path'], '/routes/0/errors/0/status')
+        design['routes'][0]['errors'][0]['status'] = 409
+        self.assertEqual(app_design_errors(design), [])
+        design['routes'][0]['errors'][0]['kind'] = 'validation'
+        self.assertEqual(app_design_errors(design)[0]['path'], '/routes/0/errors/0/kind')
+        design['routes'][0]['errors'][0]['kind'] = 'conflict'
+        design['routes'][0]['errors'].append({'kind': 'validation', 'condition': 'blank name', 'status': 422})
+        self.assertEqual(app_design_errors(design), [])
+
     def test_schema_retry_uses_original_fields_and_full_module_schema(self):
         f = self.flow; f.codegen_mode = Mock(return_value=True); f.evolution = False
         invalid = {'pages': [{'path': '/signup'}], 'modules': [{'path': 'frontend/src/App.jsx', 'owns': 'routing'}]}
