@@ -230,6 +230,37 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual(flow.whole_app_deferred_ids, {"L1", "L2", "L3", "L4", "L5"})
         self.assertEqual(flow.codegen_implement_prompt.call_count, 2, "stops after two deferred leaves")
 
+    def test_single_leaf_closure_grows_only_with_declared_context_capacity(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(side_effect=[None, "x" * 100000])
+        flow.llm_proxy = SimpleNamespace(model_contexts={"qwen3.7-plus": 200000},
+                                         routes=[], min_max_tokens=32768)
+        def generated(*args, **kwargs):
+            flow.last_codegen_written = ["frontend/src/feature.js"]
+            return True, "files"
+        flow.codegen_turn = Mock(side_effect=generated)
+        with patch.dict(os.environ, {"MODEL": "qwen3.7-plus",
+                                     "OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
+            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes[:1]))
+        self.assertEqual(flow.codegen_implement_prompt.call_args_list[1].kwargs["context_limit"], 112000)
+        self.assertEqual(flow._whole_app_prompt_cap, 112000)
+        flow.codegen_turn.assert_called_once()
+
+    def test_unknown_context_keeps_tool_fallback(self):
+        flow = self.flow
+        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
+        flow.codegen_implement_prompt = Mock(return_value=None)
+        flow.split_oversized_hub = Mock(return_value=False)
+        flow.codegen_turn = Mock()
+        flow.llm_proxy = SimpleNamespace(model_contexts={}, routes=[], min_max_tokens=32768)
+        with patch.dict(os.environ, {"MODEL": "qwen3.7-plus",
+                                     "OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1",
+                                     "OCTOS_ARC_WAVE_MAX_DEFERRALS": "1"}):
+            self.assertFalse(flow.whole_app_waves(self.tree, self.nodes))
+        flow.codegen_turn.assert_not_called()
+        self.assertEqual(flow.codegen_implement_prompt.call_count, 1)
+
     def test_a_landed_wave_resets_the_deferral_run(self):
         flow = self.flow
         tree, nodes = self.five_leaves()

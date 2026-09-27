@@ -26,6 +26,10 @@ class ReviewBoundaryTests(unittest.TestCase):
         self.assertEqual(parse_review_decisions(json.dumps([decision, decision]), {'a'})[1], 'schema_invalid')
         row = {'status': 'unreviewed', 'outcome': 'The application rejects the invalid input.',
                'case': "await h.expectAbsent(page, 'invalid');\nawait h.clickNamed(page, 'submit');"}
+        self.assertFalse(validate_review(row, decision), 'a setup assertion is not an outcome')
+        row['case'] = "await h.resetState(page);\nawait h.expectAbsent(page, 'invalid');"
+        self.assertFalse(validate_review(row, decision), 'fixture reset is not a feature action')
+        row['case'] = "await h.clickNamed(page, 'submit');\nawait h.expectAbsent(page, 'invalid');"
         self.assertTrue(validate_review(row, decision))
         decision['requirement_quote'] = 'The user clicked submit.'
         self.assertFalse(validate_review(row, decision))
@@ -44,6 +48,15 @@ class ReviewBoundaryTests(unittest.TestCase):
             if phase != phases[-1]:
                 self.assertFalse(review_request_admissible(phase, phases, counts, spent, 6))
         self.assertFalse(review_request_admissible(phases[-1], phases, counts, spent, 6))
+
+    def test_download_helper_is_an_action_and_oracle_in_one_call(self):
+        row = {'status': 'unreviewed', 'outcome': 'The user downloads a CSV with the saved Region value.',
+               'case': "await h.expectDownload(page, 'Export CSV', '.csv', ['Region']);"}
+        verdict = {'status': 'approved_behavior',
+                   'requirement_quote': row['outcome'],
+                   'test_quote': row['case'],
+                   'reason': 'The helper clicks the export control and inspects the downloaded file.'}
+        self.assertTrue(validate_review(row, verdict))
 
 
 class DerivedPreflightTests(unittest.TestCase):

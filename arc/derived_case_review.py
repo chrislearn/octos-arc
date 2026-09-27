@@ -136,6 +136,21 @@ def collect_cases(directory: Path, targets: list[dict], node_ids: set[str],
     return rows
 
 
+def assertion_after_action(case: str, quote: str) -> bool:
+    """Do not certify a setup assertion as the feature's outcome witness."""
+    if not case or not quote:
+        return False
+    # expectDownload clicks the named control and verifies the resulting file
+    # in one helper call, so it is both the action and the assertion.
+    if re.search(r"\bexpectDownload\s*\(", quote):
+        return True
+    actions = list(re.finditer(r"await\s+h\.(?!expect\w*\s*\(|openHome\s*\(|signIn\s*\(|resetState\s*\()\w+\s*\(", case))
+    if not actions:
+        return False
+    first_action = actions[0].start()
+    return any(match.start() > first_action for match in re.finditer(re.escape(quote), case))
+
+
 def validate_review(row: dict, verdict: dict) -> bool:
     """Ground an approval in exact, independently checked quotations."""
     if verdict.get("status") != "approved_behavior" or row.get("status") != "unreviewed":
@@ -145,6 +160,7 @@ def validate_review(row: dict, verdict: dict) -> bool:
     return (isinstance(req, str) and len(req.strip()) >= 12 and req in row.get("outcome", "")
             and isinstance(test, str) and len(test.strip()) >= 12 and test in row["case"]
             and bool(re.search(r"\b(?:h\.)?expect\w*\s*\(|\bassert\s*\(", test))
+            and assertion_after_action(row["case"], test)
             and isinstance(verdict.get("reason"), str) and len(verdict["reason"].strip()) >= 12)
 
 

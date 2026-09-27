@@ -432,10 +432,21 @@ def completed_without_action(payload: bytes) -> bool:
 
 
 def lower_stalled_tool_reasoning(body: bytes) -> bytes:
-    """Give a default-medium GLM tool retry room to produce an action."""
+    """Make one bounded effort adjustment after an empty tool response.
+
+    GLM's default-medium empty response gets a cheaper low retry. Qwen's
+    default-low tool turn instead gets one medium retry; the existing
+    consecutive-no-action limit prevents a third provider request. Explicit
+    task or route reasoning settings are checked by the caller before here.
+    """
     try:
         data = json.loads(body)
-        if not re.search(r'(?:^|/)glm-5\.3-flash(?:-|$)', str(data.get('model') or '').lower()):
+        model = str(data.get('model') or '').lower()
+        if re.search(r'(?:^|/)qwen3\.7-plus(?:-|$)', model):
+            if data.get('reasoning_effort') != 'low' or data.get('enable_thinking') is False:
+                return body
+            return inject_reasoning(body, 'medium', force=True)
+        if not re.search(r'(?:^|/)glm-5\.3-flash(?:-|$)', model):
             return body
         data.pop('reasoning_effort', None)
         data.pop('thinking', None)
@@ -1099,7 +1110,8 @@ class LlmProxy:
                                           for rule in proxy.routes)
                     if (proxy.no_action_count and not proxy.no_tools and proxy.phase in {'implement', 'repair'}
                             and 'OCTOS_ARC_REASONING' not in os.environ
-                            and 'OCTOS_ARC_IMPLEMENT_REASONING' not in os.environ and not explicit_effort):
+                            and 'OCTOS_ARC_IMPLEMENT_REASONING' not in os.environ
+                            and 'OCTOS_ARC_RECOVERY_REASONING' not in os.environ and not explicit_effort):
                         body = lower_stalled_tool_reasoning(body)
                     body = cap_output_tokens(body, limit)
                     proxy._dump(body)

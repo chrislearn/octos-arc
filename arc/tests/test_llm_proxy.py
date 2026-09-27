@@ -47,6 +47,19 @@ class InjectTests(unittest.TestCase):
         self.assertEqual(json.loads(lower_stalled_tool_reasoning(request))['reasoning_effort'], 'low')
         self.assertEqual(lower_stalled_tool_reasoning(request.replace(b'glm-5.3-flash', b'other')), request.replace(b'glm-5.3-flash', b'other'))
 
+    def test_qwen_default_low_empty_tool_reply_gets_one_medium_retry(self):
+        request = json.dumps({'model': 'provider/qwen3.7-plus', 'messages': [],
+                              'reasoning_effort': 'low', 'enable_thinking': True}).encode()
+        changed = json.loads(lower_stalled_tool_reasoning(request))
+        self.assertEqual(changed['reasoning_effort'], 'medium')
+        self.assertTrue(changed['enable_thinking'])
+        request = json.dumps({'model': 'qwen3.7-plus', 'messages': [],
+                              'reasoning_effort': 'medium', 'enable_thinking': True}).encode()
+        self.assertEqual(lower_stalled_tool_reasoning(request), request)
+        request = json.dumps({'model': 'qwen3.7-plus', 'messages': [],
+                              'enable_thinking': False}).encode()
+        self.assertEqual(lower_stalled_tool_reasoning(request), request)
+
     def test_qwen37_route_default_and_wire_both_use_medium(self):
         body = json.dumps({'model': 'base', 'messages': []}).encode()
         rules = [{'model': 'qwen3.7-plus', 'phases': ['implement']}]

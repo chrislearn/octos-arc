@@ -79,6 +79,8 @@ Environment (all optional):
     OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS  cap for each request after the first provider error (default 180)
     OCTOS_ARC_WHOLE_APP_PROMPT_CHARS  input cap for each generation wave (default 96000)
     OCTOS_ARC_WHOLE_APP_SOURCE_CHARS  full-source budget inside a wave (default 60000)
+    OCTOS_ARC_ADAPTIVE_WAVE_CONTEXT  "0" disables larger single-leaf waves; default requires declared model capacities
+    OCTOS_ARC_MODEL_CONTEXT_TOKENS  JSON map of explicit model context capacities for the proxy and adaptive waves
     OCTOS_ARC_LLM_TIMEOUT_SECONDS  kernel HTTP timeout per LLM request; must exceed the proxy wait (default 900)
     OCTOS_ARC_BLOCK_ROUTE_WARNINGS  "1" makes a wave's own ROUTE_LINK warnings block completion (default advisory)
     OCTOS_ARC_PRIME_GENERATION_BUILD  "0" skips the one-time dependency/build preflight (default on)
@@ -7111,28 +7113,48 @@ class Flow:
                 prompt = self.codegen_implement_prompt(
                     combined, spec, evidence=relationships, must_include=required_targets,
                     context_limit=prompt_cap, source_limit=source_cap, focused_sources=True)
-                if (prompt is None and size == 1 and os.environ.get("OCTOS_ARC_ADAPTIVE_WAVE_CONTEXT") == "1"):
+                if (prompt is None and size == 1 and os.environ.get("OCTOS_ARC_ADAPTIVE_WAVE_CONTEXT", "1") == "1"):
                     proxy = getattr(self, "llm_proxy", None)
                     capacities = getattr(proxy, "model_contexts", {})
-                    # A route can change after tools/history are serialized. Require
-                    # declared capacities for every eligible route, plus fallback.
+                    # Never guess a provider's context capacity. A route can
+                    # change after planning, so require declarations for every
+                    # eligible implement route and the fallback model.
                     declared = [r.get("model") for r in getattr(proxy, "routes", [])
                                 if "implement" in r.get("phases", ["implement", "repair", "verify", "design"])]
-                    fallback = os.environ.get("OPENAI_MODEL")
+                    fallback = (os.environ.get("OCTOS_MODEL") or os.environ.get("MODEL")
+                                or os.environ.get("OPENAI_MODEL"))
                     declared.append(fallback)
-                    if declared and all(model in capacities for model in declared):
+                    if all(model and model in capacities for model in declared):
                         capacity = min(capacities[model] for model in declared)
-                        for enlarged_prompt, enlarged_source in ((128000, 80000), (192000, 128000)):
-                            if enlarged_prompt <= prompt_cap or enlarged_prompt + 32768 > capacity * .85:
+                        for enlarged_prompt, enlarged_source in ((112000, 72000),
+                                                                (128000, 80000),
+                                                                (192000, 128000)):
+                            if enlarged_prompt <= prompt_cap:
                                 continue
-                            prompt = self.codegen_implement_prompt(
+                            candidate = self.codegen_implement_prompt(
                                 combined, spec, evidence=relationships, must_include=required_targets,
                                 context_limit=enlarged_prompt, source_limit=enlarged_source, focused_sources=True)
-                            if prompt is not None:
+                            if candidate is None:
+                                continue
+                            # Compare bytes with tokens conservatively, as the
+                            # final proxy context guard does. Leave 4 KiB for
+                            # request framing and the system message, plus the
+                            # largest configured output allowance and 15%
+                            # headroom. The proxy remains the final authority.
+                            route_outputs = [r.get("parameters", {}).get("max_completion_tokens",
+                                             r.get("parameters", {}).get("max_tokens", 0))
+                                             for r in getattr(proxy, "routes", [])]
+                            output_allowance = max([32768, int(getattr(proxy, "min_max_tokens", 32768)),
+                                                    int(os.environ.get("OCTOS_ARC_MAX_TOKENS", "32768"))]
+                                                   + [v for v in route_outputs if isinstance(v, int) and v > 0])
+                            request_bound = len(candidate.encode("utf-8")) + 4096 + output_allowance
+                            if request_bound <= int(capacity * .85):
+                                prompt = candidate
                                 prompt_cap, source_cap = enlarged_prompt, enlarged_source
                                 self._whole_app_prompt_cap = prompt_cap
                                 self.metric("wave_context_growth", node_ids=ids, prompt_cap=prompt_cap,
-                                            source_cap=source_cap, declared_capacity=capacity)
+                                            source_cap=source_cap, declared_capacity=capacity,
+                                            request_bound=request_bound)
                                 break
                 if prompt is None:
                     if size > 1:
