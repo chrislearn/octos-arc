@@ -354,6 +354,7 @@ class PrefixAndCorrectionBudgetTests(unittest.TestCase):
         self.assertIn(corrections, prompt)
 
     def test_all_critical_corrections_are_preserved_if_checkpoint_is_trimmed(self):
+        self.flow.codegen_context_chars = lambda: 92000  # room for both FILE and EDIT protocol instructions
         self.app(server="e" * 25000)
         critical = "Never overwrite the restored backend/routes/old.js. " * 200
         corrections = self.checkpoint_corrections(critical)

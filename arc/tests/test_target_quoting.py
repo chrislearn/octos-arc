@@ -118,6 +118,7 @@ class RefusalRetryTests(unittest.TestCase):
             root = Path(folder)
             _app(root, {"frontend/src/ticket-orders.html": "x" * 120_000})   # over the whole budget
             flow = self._flow(root)
+            flow.turn.return_value = (True, "focused tool edit")
             calls = []
             def codegen_turn(prompt, *a, **kw):
                 calls.append(prompt)
@@ -125,7 +126,8 @@ class RefusalRetryTests(unittest.TestCase):
                 return False, "codegen reply only rewrote files it was not shown: frontend/src/ticket-orders.html"
             flow.codegen_turn.side_effect = codegen_turn
             m.Flow.node_cycle(flow, {"id": "REQ-9", "description": "orders"}, [], 1, 1)
-            self.assertEqual(len(calls), 1)
+            self.assertEqual(len(calls), 0)
+            flow.turn.assert_called_once()
 
     def test_should_reset_refused_paths_per_node_and_record_them_from_the_guard(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -136,7 +138,7 @@ class RefusalRetryTests(unittest.TestCase):
             flow.driver = object.__new__(m.OctosDriver); flow.driver.tools_disabled = False; flow.driver._session = None
             flow.codegen_reasoning = lambda _: None; flow.pending_corrections = []; flow.refused_paths = set()
             flow.turn = lambda *a, **k: (True, "<<<FILE frontend/src/index.html>>>\nblind\n<<<END FILE>>>\n")
-            ok, _ = flow.codegen_turn("Requirement REQ-9\nOther files: frontend/src/index.html (15 chars)\n", 60, "REQ-9 implement")
+            ok, _ = flow.codegen_turn("Requirement REQ-9\nOther files: frontend/src/index.html (15 chars)\n", 60, "REQ-9 implement", request_budget=1)
             self.assertFalse(ok)
             self.assertEqual(flow.refused_paths, {"frontend/src/index.html"})
 

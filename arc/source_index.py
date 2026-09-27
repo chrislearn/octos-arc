@@ -22,6 +22,31 @@ class SourceIndex:
         return paths | {q for p in paths for q in self.dependencies[p]} | {
             p for p, deps in self.dependencies.items() if deps & paths}
 
+    def contract_context(self, paths, owners=()):
+        """Required owners and dependencies, without pulling every routed page.
+
+        Composition roots are always visible. Their shared/layout dependencies
+        travel too, but unrelated page imports do not expand the whole app.
+        Dependencies of actual edit targets and explicit contract owners are
+        followed transitively; missing/external imports remain absent.
+        """
+        hubs = {p for p in self.sources if posixpath.basename(p) in
+                {'App.jsx', 'App.tsx', 'app.js', 'router.js', 'main.jsx', 'main.tsx'}}
+        counts = {}
+        for deps in self.dependencies.values():
+            for dep in deps:
+                counts[dep] = counts.get(dep, 0) + 1
+        common = {dep for hub in hubs for dep in self.dependencies[hub]
+                  if counts.get(dep, 0) > 1 or 'layout' in posixpath.basename(dep).lower()}
+        found = ((set(paths) - hubs) | set(owners) | common) & self.sources.keys()
+        pending = list(found)
+        while pending:
+            path = pending.pop()
+            for dep in self.dependencies[path] - found - hubs:
+                found.add(dep)
+                pending.append(dep)
+        return found | hubs
+
     def affected(self, paths):
         """Transitive callers, unlike the bounded display's one-hop context."""
         found = set(paths)

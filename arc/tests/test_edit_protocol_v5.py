@@ -32,9 +32,11 @@ class EditProtocolTests(TestCase):
         p.write_text(text)
         return p
 
-    def test_file_only_instruction_is_unambiguous(self):
-        self.assertNotIn('<<<EDIT', FORMAT_INSTRUCTIONS)
-        self.assertNotIn('<<<EDIT', m.CODEGEN_SYSTEM)
+    def test_creation_and_local_edits_have_unambiguous_protocols(self):
+        self.assertIn('<<<FILE', FORMAT_INSTRUCTIONS)
+        self.assertIn('<<<EDIT', FORMAT_INSTRUCTIONS)
+        self.assertIn('never the same path', FORMAT_INSTRUCTIONS)
+        self.assertNotIn('No EDIT blocks', m.CODEGEN_SYSTEM)
 
     def test_large_quoted_source_and_repairs_route_to_tools(self):
         p = self.source('a' * 13000)

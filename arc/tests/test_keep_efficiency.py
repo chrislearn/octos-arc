@@ -87,6 +87,7 @@ class KeepEfficiencyTests(unittest.TestCase):
             manifest.write_text(json.dumps({"scripts": {"start": command}}))
             self.assertIsNone(m.missing_backend_entry(self.root))
 
+    @patch.dict("os.environ", {"OCTOS_ARC_CORRECTION_ROUNDS": "0"})
     def test_repair_requotes_refused_file_even_when_it_was_refused_before(self):
         target = "frontend/src/settings.html"
         (self.root / target).write_text("<main>old settings</main>" + "s" * 50000)
@@ -126,6 +127,7 @@ class KeepEfficiencyTests(unittest.TestCase):
         self.assertNotIn("// backend entry", calls[1])
         self.assertNotIn("blind", (self.root / "frontend/src/index.html").read_text())
 
+    @patch.dict("os.environ", {"OCTOS_ARC_CORRECTION_ROUNDS": "0"})
     def test_refused_repair_gets_tool_fallback_before_retesting_unchanged_code(self):
         flow = self.flow
         flow.runner = object()
@@ -152,6 +154,7 @@ class KeepEfficiencyTests(unittest.TestCase):
         self.assertEqual(flow.text_turn.call_count, 1)
         self.assertEqual(flow.turn.call_count, 1)
 
+    @patch.dict("os.environ", {"OCTOS_ARC_CORRECTION_ROUNDS": "0"})
     def test_refusal_retry_and_fallback_share_one_deadline(self):
         flow = self.flow
         now = [0.0]

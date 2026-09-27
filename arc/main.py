@@ -36,7 +36,8 @@ Environment (all optional):
     OCTOS_DESIGN_MODE         inline (default) | separate (own read-only design turn)
     OCTOS_DESIGN_MIN_NODES    design only for trees with at least this many nodes (3)
     OCTOS_ARC_APP_DESIGN      "0" skips the one application-level design request that every codegen node's prompt carries
-    OCTOS_ARC_APP_DESIGN_CHARS  budget of that design inside each node prompt (6000; routes/pages filtered by spec overlap)
+    OCTOS_ARC_CORRECTION_ROUNDS  corrective retries for unapplied protocol/contract rejections (default 2, max 3)
+    OCTOS_ARC_APP_DESIGN_CHARS  preferred design budget (24000 chars); mandatory contracts may grow it, within the complete prompt limit
     OCTOS_ARC_GRADER_WORKERS   expected grading concurrency (default 1, based on observed platform logs)
     OCTOS_ARC_FINAL_WORKERS    internal full-suite override (default GRADER_WORKERS; larger values are stress tests)
     OCTOS_ARC_SHARED_REPAIR    "0" disables the single shared runtime-error repair before leaf cycles
@@ -121,7 +122,7 @@ from acceptance import (  # noqa: E402
     startup_error_digest, backend_error_digest, SharedFailureTracker)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, parse_file_blocks,  # noqa: E402
                      incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, prepare_edit_files, safe_relative_path,
-                     source_protocol_errors, write_files, parse_context_request)
+                     source_protocol_errors, write_files, parse_context_request, has_context_request)
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
@@ -658,7 +659,8 @@ def _design_catalog(design: dict) -> list[str]:
     return lines
 
 
-def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[str, str]:
+def app_design_blocks(design: dict | None, spec_text: str, cap: int, *,
+                      requirement_ids: list[str] | None = None) -> tuple[str, str]:
     """(stable, node_slice): the design text a codegen prompt carries, split by
     where it may sit. Keys are sorted so equal designs render identically.
 
@@ -667,10 +669,13 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
     one is compiled into two layers: a stable CORE (everything but routes and
     pages: data model, conventions, notes) plus a CATALOG (compact route/page
     names, whole entries only) -- the same for every node, before the sources -- and a
-    node SLICE with relevant complete entries AFTER the sources. The combined
-    layers fit cap; serialized JSON is never cut in the middle of a field."""
-    if not design or cap < 120:
+    node SLICE with relevant complete entries AFTER the sources. `cap` is a
+    preference for optional material. Mandatory contracts and active route/page
+    entries can exceed it; callers must enforce the complete prompt budget.
+    Serialized JSON is never cut in the middle of a field."""
+    if not design:
         return "", ""
+    cap = max(120, cap)
     header = "Application design (shared contract):\n"
 
     def render(doc: dict) -> str:
@@ -679,10 +684,21 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
     whole = render(design)
     if len(whole) <= cap:
         return whole, ""
-    core = {"omitted": "design truncated; see .arc/design/app.json"}
+    core = {"omitted": "design truncated; optional detail omitted; see .arc/design/app.json"}
+    # These fields define cross-module behavior, not optional retrieval hints.
+    # Never let a route catalog evict identity, formats, permissions or states.
+    for key in ("data_model", "domain_contracts", "contracts", "commands"):
+        if design.get(key):
+            core[key] = design[key]
+    # The design-specific cap is a preference. The callers still enforce the
+    # complete input budget, returning to smaller tasks/tool reads if it fails.
+    # This expansion is deterministic across nodes, preserving the shared prefix.
+    mandatory_size = len(render(core))
+    if mandatory_size > cap:
+        cap = mandatory_size + 4096
     slice_header = "Design entries for this requirement:\n"
     detail: dict = {}
-    stable_cap = max(len(render(core)), int(cap * 0.65))
+    stable_cap = max(mandatory_size, int(cap * 0.65))
 
     def size() -> int:
         return len(render(core)) + (len(slice_header) + len(json.dumps(
@@ -701,10 +717,6 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
     # Stable structure takes precedence. Append only complete JSON values.
     for entry in _design_catalog(design):
         append_entry(core, "catalog", entry)
-    for name, shape in sorted((design.get("data_model") or {}).items()):
-        core.setdefault("data_model", {})[name] = shape
-        if size() > stable_cap:
-            del core["data_model"][name]
     for module in design.get("modules") or []:
         if not append_entry(core, "modules", module):
             break
@@ -713,14 +725,12 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
         core["notes"] = design["notes"]
         if size() > stable_cap:
             del core["notes"]
-    for contract in design.get("contracts") or []:
-        if not contract.get("requirements"):
-            append_entry(core, "contracts", contract)
     terms = spec_terms(spec_text)
     # Public exercises use dotted IDs while the hackathon catalogue uses
     # hyphenated descendants (REQ-2-3, REQ-2-3-1).  Both must select the
     # routes/pages explicitly owned by the active requirement.
     req_ids = set(re.findall(r"\bREQ-\d+(?:(?:\.|-)\d+)*\b", spec_text))
+    req_ids.update(requirement_ids or [])
 
     def related(item) -> bool:
         owners = set(item.get("requirements") or [])
@@ -729,25 +739,29 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int) -> tuple[st
         low = json.dumps(item, ensure_ascii=False).lower()
         return any(term in low for term in terms)
 
-    for key in ("domain_contracts", "commands", "contracts", "routes", "pages"):
+    for key in ("routes", "pages"):
         items = design.get(key) or []
         for item in items:
             if related(item):
-                append_entry(detail, key, item)
+                # Active response/error formats and page behavior cannot be
+                # silently omitted merely because the optional catalog filled
+                # the preferred design budget.
+                detail.setdefault(key, []).append(item)
     node_slice = ""
     if detail:
         node_slice = slice_header \
             + json.dumps(detail, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
     stable = render(core)
-    return (stable, node_slice) if len(stable) + len(node_slice) <= cap else ("", "")
+    return stable, node_slice
 
 
-def app_design_context(design: dict | None, spec_text: str, cap: int) -> str:
-    """Stable design plus relevant complete entries, jointly bounded by cap.
+def app_design_context(design: dict | None, spec_text: str, cap: int, *,
+                       requirement_ids: list[str] | None = None) -> str:
+    """Stable contracts plus active entries; cap limits optional design detail.
 
     Any omissions are explicit; full design remains on disk. Empty without a design.
     """
-    stable, node_slice = app_design_blocks(design, spec_text, cap)
+    stable, node_slice = app_design_blocks(design, spec_text, cap, requirement_ids=requirement_ids)
     return stable + node_slice
 
 
@@ -1871,12 +1885,12 @@ For each state-changing route, trace the business flow from preconditions throug
 For each lifecycle view, specify which records the API returns and which filters the client applies; a client cannot recover records already excluded by the server. Specify absent versus false query values, compatible filter combinations, and inverse transitions (remove/restore, assign/unassign). For composite editors, state whether selection commits immediately or on Save, how Done/Cancel/Escape behave, and which owner retains the draft after a failed save. Do not invent lifecycle states not required by the task.
 In contracts, identify required built-in records and stable accessible destinations separately from user-editable records. For nested menus/dialogs, assign ownership of Escape, outside click and focus changes; closing a child must not commit or dismiss its parent unless explicitly required. Include a short interaction sequence that a full-suite run should preserve after another feature mutates shared state.
 Give every expanded editor a visible completion action: Save for explicit commits or Close/Done for autosave; Escape/outside click supplements that action, never replaces it. Moving focus within the editor is not completion. Distinguish raw response JSON from Response objects; no helper-invented result envelope unless explicitly implemented on the backend.
-In notes, preserve required entry gestures and action placement (record click, direct action, menu action). Distinguish available catalogue choices from initially selected values; optional actions must follow user intent, not unconditional fixture-derived defaults.
+In requirement-linked contracts, preserve all hard constraints, official formats, required entry gestures and action placement (record click, direct action, menu action). Notes are only optional implementation hints. Distinguish available catalogue choices from initially selected values; optional actions must follow user intent, not unconditional fixture-derived defaults.
 Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Put those owners in modules. Every atomic requirement ID must appear in at least one route, page or contract requirements list. Give every API resource prefix exactly one backend route module (for example all /api/<resource>/... handlers in backend/routes/<resource>.js, listed in modules) and never register the same method and path in two modules; a feature extends its owner module instead of appending handlers to an unrelated one. App.jsx owns routing/composition; normally keep each application module below 12000 characters by extracting cohesive pages, reusable record views/editors and API/state modules before they become a monolith. Split layouts only when requirements differ; do not create pass-through modules merely to meet a number. Keep this concrete and minimal, not a configurable application framework.
 """
 
-CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply only with <<<FILE relative/path>>> ... <<<END FILE>>> blocks using exact delimiters, or exactly <<<NO CHANGE>>> when already satisfied.
-Return each changed file once, with complete contents. No EDIT blocks, diffs, unchanged files or iterative self-review. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Preserve existing behavior. Stop immediately when complete."""
+CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply with FILE creation/replacement blocks, exact anchored EDIT blocks, one NEEDS_CONTEXT request, or exactly <<<NO CHANGE>>> when already satisfied. Follow the supplied protocol delimiters; do not mix context requests with changes.
+Create new files with complete FILE blocks; prefer exact anchored EDIT blocks for localized changes to existing quoted source. Never use FILE and EDIT for the same path or emit unchanged files. No diffs or iterative self-review. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Preserve existing behavior. Stop immediately when complete."""
 
 CODEGEN_RULES = """\
 Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. For each HTTP method, register literal paths before overlapping :parameter paths (DELETE /api/items/trash before DELETE /api/items/:id). For pushState links set frontend/package.json arc.spa=true. Preserve the installed frontend stack, exact dependency versions and lockfile; add task-required packages to the correct package.json. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. JSX/TSX must be bundled, not copied to dist.
@@ -1885,7 +1899,7 @@ Data: seed only a new store or migration; preserve edits/deletions across restar
 HTTP: 400 malformed, 401 unauthenticated (challenge), 403 forbidden, 404 missing, 409 conflict, consistent 400/422 validation. Honor explicit codes; no 2xx or partial writes on rejection.
 Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Put each named control where the requirement places it (page/settings/menu/dialog), exact text; a control said to show a value (username) shows it. No two visible controls with the same role and name. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
 Async: clicks do not await handlers. Mount usable editor/dialog controls before the first await; isolate background only for modal overlays. Await save and list refresh (or update optimistically); retain edits on failure.
-Output: complete FILE blocks for changed files only. Never rewrite an existing file without its full current source quoted here; request that path. Keep package and lock versions aligned. No changes: <<<NO CHANGE>>>.
+Output: FILE blocks for new files or necessary replacements; prefer exact anchored EDIT blocks for localized changes. Never rewrite an existing file without its full current source quoted here; request that path. Keep package and lock versions aligned. No changes: <<<NO CHANGE>>>.
 """
 
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
@@ -3073,6 +3087,16 @@ class Flow:
         return [row for row in scored if str(row[3]) in required
                 or str(row[3]) not in defaults or row[4] != defaults[str(row[3])]]
 
+    def required_source_context(self, evidence: str, priority=(), sources=None) -> set[str]:
+        from source_index import SourceIndex
+        index = SourceIndex(sources) if sources is not None else self.repair_source_index()
+        paths = [Path(p) for p in index.sources]
+        targets = set(priority) | spec_targets(evidence, paths) | navigation_targets(evidence, paths)
+        contracts = (getattr(self, "app_design_doc", None) or {}).get("domain_contracts", [])
+        owners = set(re.findall(r"(?:frontend|backend)/[\w./-]+\.(?:jsx?|tsx?|mjs)",
+                                json.dumps(contracts, ensure_ascii=False)))
+        return index.contract_context(targets, owners)
+
     def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "",
                                  must_include: set[str] | None = None,
                                  context_limit: int | None = None,
@@ -3126,6 +3150,7 @@ class Flow:
         active_ids = ([node_id] if node_id in (getattr(self, "phase_plan", None) or {}).get("leaf_phase", {})
                       else re.findall(r"\b[A-Za-z][A-Za-z0-9_-]*-\d+(?:-\d+)*\b",
                                       str(node.get("description") or "").split("ACTIVE DETAILS:", 1)[0]))
+        active_ids = list(node.get("active_requirement_ids") or active_ids)
         task = phase_context(getattr(self, "phase_plan", None), active_ids, limit=2400) + task
         existing = self.has_app()
         if existing:
@@ -3142,13 +3167,21 @@ class Flow:
                 and limit >= 12000 and len(spec) < limit * 0.45):
             must_include.add("frontend/package.json")
         scored = scored_sources(self.output_dir, spec + "\n" + evidence, entry, must_include=must_include) if existing else []
+        if existing:
+            must_include |= Flow.required_source_context(
+                self, spec + "\n" + evidence, must_include, {str(row[3]): row[4] for row in scored})
+            # Reuse exactly the snapshots already read for selection. Mandatory
+            # dependencies outrank optional matches without reading disk twice.
+            scored = sorted([(1 if row[0] > 0 and str(row[3]) in must_include else row[0], *row[1:])
+                             for row in scored], key=lambda row: row[:3])
         scored = Flow.omit_unchanged_template_libraries(self, scored, must_include)
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
         # getattr: tests build bare Flows without __init__, like base_reasoning_mode above.
         design_stable, design_slice = app_design_blocks(getattr(self, "app_design_doc", None), spec,
-                                                        int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
+                                                        int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "24000")),
+                                                        requirement_ids=[node_id, *active_ids])
         fixed = (len(rules) + len(design_stable) + len(design_slice) + len(task) + len(evidence)
                  + len(FORMAT_INSTRUCTIONS) + 2)
         room = limit - fixed - len(corrections)
@@ -3183,13 +3216,17 @@ class Flow:
             return None
         self.codegen_budget.update(
             fixed=fixed, source_block=len(sources), quoted_sources=len(quoted_paths(sources)),
-            required_sources=len(must_include), source_limit=source_room)
+            required_sources=len(must_include), source_limit=source_room,
+            design_chars=len(design_stable) + len(design_slice),
+            required_source_paths=sorted(must_include))
         # Rules, a design that fits whole (identical for every node), the sources in
         # stability order -- unchanged low-churn files precede frequently edited
         # ones for prefix reuse -- then the per-node design slice, if any, with the
         # other node-specific text.
         prompt = rules + design_stable + sources + "\n" + design_slice + corrections + evidence + task
         self.bind_edit_scope(prompt, spec + '\n' + evidence, must_include)
+        self.metric("implementation_context", node_id=node_id, design_chars=len(design_stable) + len(design_slice),
+                    required_source_paths=sorted(must_include), prompt_chars=len(prompt), limit=limit)
         return prompt
 
     def render_outlines(self, paths: list[str], room: int) -> str | None:
@@ -3262,22 +3299,28 @@ class Flow:
         # Every turn is a fresh session, so the repair sees the run-wide design
         # only if this prompt carries it; counted against the requote room.
         design = app_design_context(getattr(self, "app_design_doc", None), spec,
-                                    int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
+                                    int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "24000")),
+                                    requirement_ids=[node_id])
+        if design and design in prompt:
+            design = ""
         suffix = stack_note(getattr(self, "output_dir", None)) + design + suffix
         limit = self.codegen_context_chars()
         current_sources = self.sources_text()
+        required = self.required_source_context(spec, getattr(self, "refused_paths", ()))
         if current_sources.strip() and current_sources in prompt:
             room = limit - (len(prompt) - len(current_sources)) - len(suffix) - len(FORMAT_INSTRUCTIONS) - 2000
             if room < 8000:
                 return None
-            ranked = scored_sources(self.output_dir, spec, must_include=getattr(self, "refused_paths", ()))
-            ranked = Flow.omit_unchanged_template_libraries(self, ranked, getattr(self, "refused_paths", ()))
+            ranked = scored_sources(self.output_dir, spec, must_include=required)
+            ranked = Flow.omit_unchanged_template_libraries(self, ranked, required)
             sources = select_source_snapshot(ranked, room, stable_order=True, max_output_chars=room,
                                              change_counts=self.source_change_counts())
             if sources is None:
                 return None
             prompt = prompt.replace(current_sources, sources + "\n", 1)
         full = prompt + suffix
+        if not required <= quoted_paths(full):
+            return None
         if len(full) + len(FORMAT_INSTRUCTIONS) + 1 > limit:
             return None
         return full
@@ -3901,7 +3944,7 @@ class Flow:
                         prompt = retry
                     elif reason.startswith(("codegen reply contained no ", "mixed FILE and EDIT blocks")):
                         correction = ("\nPrevious reply was not applied: " + reason[:240] +
-                                      "\nReturn only complete FILE blocks with exact terminators; one block per path.\n")
+                                      "\nReturn complete FILE or exact anchored EDIT blocks with exact terminators; never mix formats for one path.\n")
                         if len(prompt) + len(correction) + len(FORMAT_INSTRUCTIONS) + 1 > self.codegen_context_chars():
                             break
                         prompt += correction
@@ -3949,8 +3992,92 @@ class Flow:
                      system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
                      raw_target: str | None = None, defer_shared_refusals: bool = False,
                      force_files: bool = False, request_budget: int | None = None) -> tuple[bool, str]:
+        """Recover actionable, unapplied replies within one shared allowance.
+
+        This boundary is shared by waves, leaves and repairs. A rejection on a
+        caller's retry still receives concrete feedback. Never replay a prompt
+        after any source was written, nor loop on an identical rejection.
+        """
+        deadline = time.monotonic() + timeout
+        spent, seen = 0, set()
+        context_state = {"versions": {}, "rounds": 0}
+        retries = max(0, min(3, int(os.environ.get("OCTOS_ARC_CORRECTION_ROUNDS", "2"))))
+        actionable = {"invalid_context_request", "export_contract", "helper_contract_error",
+                      "route_conflict", "anchor_failed", "format_error", "guard_refused",
+                      "placeholder_overwrite"}
+        for attempt in range(retries + 1):
+            if deadline <= time.monotonic() or request_budget is not None and spent >= request_budget:
+                self.last_codegen_request_count = spent
+                self.last_codegen_outcome = "generation_budget_exhausted"
+                self.last_codegen_written = []
+                self.last_codegen_refused = set()
+                self.last_codegen_context_requested = set()
+                self.last_codegen_no_change = False
+                return False, "Code generation request or time budget exhausted"
+            ok, reason = self._codegen_attempt(
+                prompt, max(0, deadline - time.monotonic()),
+                label if not attempt else label + f" (protocol correction {attempt})",
+                spec_chars=spec_chars, system=system, format_instructions=format_instructions,
+                raw_target=raw_target, defer_shared_refusals=defer_shared_refusals,
+                force_files=force_files,
+                request_budget=None if request_budget is None else request_budget - spent,
+                context_state=context_state)
+            used = getattr(self, "last_codegen_request_count", None)
+            if type(used) is not int:
+                used = getattr(getattr(self, "llm_proxy", None), "turn_upstream_requests", 1)
+            spent += used if type(used) is int else 1
+            self.last_codegen_request_count = spent
+            prompt = getattr(self, "last_codegen_prompt", prompt)
+            outcome = getattr(self, "last_codegen_outcome", "")
+            fingerprint = (outcome, reason)
+            if (ok or raw_target or getattr(self, "last_codegen_written", [])
+                    or outcome not in actionable or attempt == retries or fingerprint in seen):
+                return ok, reason
+            if (request_budget is not None and spent >= request_budget
+                    or deadline - time.monotonic() < 30 or self.remaining() < 30 or self.wound_down()):
+                return ok, reason
+            seen.add(fingerprint)
+            available = {str(p.relative_to(self.output_dir)) for p in app_source_files(self.output_dir)
+                         if not str(p.relative_to(self.output_dir)).startswith("backend/data/")
+                         and p.resolve().is_relative_to(self.output_dir.resolve())}
+            correction = ("\nThe previous response was rejected; no source changes were applied.\n"
+                          + outcome + ": " + reason[:4000] + "\n")
+            if outcome == "invalid_context_request":
+                correction += ('Request existing files with exactly one <<<NEEDS_CONTEXT>>> block, '
+                               '{"paths":["existing/source/path"],"reason":"why needed"}, '
+                               'then <<<END NEEDS_CONTEXT>>>. Do not mix requests with changes. '
+                               'A nonexistent file cannot be read: create it with FILE when required. '
+                               'Repeated reads of unchanged files add no evidence.\n'
+                               'Available source paths (possibly abbreviated):\n'
+                               + "\n".join(sorted(available))[:8000] + "\n")
+            targets = set(getattr(self, "last_codegen_refused", ()))
+            targets.update(re.findall(r"(?:frontend|backend)/[\w./-]+\.(?:jsx?|tsx?|mjs)", reason))
+            targets = (targets & available) - quoted_paths(prompt)
+            for rel in sorted(targets):
+                try:
+                    snapshot, _ = context_evidence(self.output_dir, {"paths": [rel]}, available, {})
+                except (OSError, ValueError):
+                    continue  # A vanished or changed path must be requested again.
+                if len(prompt + correction + snapshot + format_instructions) <= self.codegen_context_chars():
+                    correction += snapshot
+            enriched = prompt + correction
+            if len(enriched + format_instructions) + 1 > self.codegen_context_chars():
+                self.metric("protocol_recovery", label=label, outcome="context_budget_blocked", reason=outcome)
+                return ok, reason
+            self.metric("protocol_recovery", label=label, outcome="retry", reason=outcome,
+                        attempt=attempt + 1, requests_spent=spent)
+            self.bind_edit_scope(enriched, correction, targets)
+            prompt = enriched
+        return ok, reason
+
+    def _codegen_attempt(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
+                         system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
+                         raw_target: str | None = None, defer_shared_refusals: bool = False,
+                         force_files: bool = False, request_budget: int | None = None,
+                         context_state: dict | None = None) -> tuple[bool, str]:
         """Run a tool-less turn; apply complete files or exact anchored edits.
         `raw_target`: when the reply is a bare HTML document (tiny tier), write it there."""
+        self.last_codegen_prompt = prompt
         self.last_codegen_refused = set()
         self.last_codegen_context_requested = set()
         self.last_codegen_deferred = set()
@@ -4003,14 +4130,17 @@ class Flow:
                                   timeout, label, system=system, spec_chars=spec_chars,
                                   request_budget=request_budget)
         # Dependency discovery is a bounded read loop, not a failed code edit.
-        seen_context = {}
+        if context_state is None:
+            context_state = {"versions": {}, "rounds": 0}
+        seen_context = context_state["versions"]
         context_proxy = getattr(self, "llm_proxy", None)
         observed_requests = getattr(context_proxy, "turn_upstream_requests", 1)
         context_spent = observed_requests if type(observed_requests) is int else 1
         self.last_codegen_request_count = context_spent
         context_rounds = max(0, int(os.environ.get("OCTOS_ARC_CONTEXT_ROUNDS", "4")))
         context_max = max(context_rounds, int(os.environ.get("OCTOS_ARC_CONTEXT_MAX_ROUNDS", "6")))
-        for context_round in range(context_max):
+        for context_round in range(context_state["rounds"], context_max):
+            raw_reply = text if ok else ""
             request = parse_context_request(text) if ok and not raw_target else None
             if not request:
                 break
@@ -4026,7 +4156,9 @@ class Flow:
                 self.metric("context_recovery", label=label, outcome="budget_blocked", round=context_round + 1)
                 break
             seen_context.update(versions)
+            context_state["rounds"] += 1
             prompt = enriched
+            self.last_codegen_prompt = prompt
             self.metric("context_recovery", label=label, outcome="provided", round=context_round + 1,
                         initial_limit=context_rounds, maximum=context_max, hashes=versions)
             ok, text = self.text_turn(prompt + "\n" + format_instructions, int(left),
@@ -4065,7 +4197,7 @@ class Flow:
                 text = "<<<NO CHANGE>>>"
         if ok and not truncated and not raw_target:
             context_request = parse_context_request(text)
-            if re.search(r"(?m)^\s*<<<NEEDS[ _]CONTEXT>>>", text) and not context_request:
+            if has_context_request(text) and not context_request:
                 return result(False, "Malformed or mixed context request; no changes applied", "invalid_context_request")
             if context_request:
                 available = {str(path.relative_to(self.output_dir)) for path in app_source_files(self.output_dir)
@@ -4325,6 +4457,8 @@ class Flow:
                 else:
                     prompt = prompt.replace(quoted, f"--- {rel} --- (read current file before editing)\n")
         prompt = prompt.replace("Return only requested file blocks.", "Use the supplied file tools.")
+        output_rule = next(line for line in CODEGEN_RULES.splitlines() if line.startswith("Output:"))
+        prompt = prompt.replace(output_rule, "Use supplied tools for focused changes; preserve unchanged behavior.")
         prompt = prompt.replace("Output: complete FILE blocks for changed files only; do not re-emit unchanged modules. If already satisfied, reply exactly <<<NO CHANGE>>>.",
                                 "Use tools for necessary changes only; finish when the requirements are satisfied.")
         prompt += ("\nThis is a tool-editing turn, not a text codegen response. Do not emit FILE/EDIT blocks or diffs. "
@@ -5066,7 +5200,7 @@ class Flow:
                     outcome = getattr(self, "last_codegen_outcome", "")
                     if not applied and outcome in {"no_blocks", "incomplete_blocks", "format_error"}:
                         correction = ("\nPrevious repair was not applied: " + reason[:240] +
-                                      "\nReturn complete FILE blocks with exact terminators, one block per path.\n")
+                                      "\nReturn complete FILE or exact anchored EDIT blocks with exact terminators; never mix formats for one path.\n")
                         if (deadline - time.monotonic() >= 30 and
                                 len(compact + correction) + len(FORMAT_INSTRUCTIONS) + 1 <= self.codegen_context_chars()):
                             compact += correction
@@ -6010,7 +6144,7 @@ class Flow:
         spec = self.batch_spec_bodies(ids)
         if spec == "(none)":
             return False
-        combined = {"id": ", ".join(ids),
+        combined = {"id": ", ".join(ids), "active_requirement_ids": ids,
                     "description": "Implement each independent requirement below, preserving their separate "
                                    "behaviours:\n" + "\n\n".join(describe_node(node) for node in nodes)}
         prompt = self.codegen_implement_prompt(combined, spec)
@@ -6111,7 +6245,8 @@ class Flow:
                        "shared data model, routes and interaction lifecycle consistent.\n\n"
                        + tree_outline(tree) + "\n\nAtomic requirement details:\n"
                        + "\n\n".join(describe_node(node) for node in ordered))
-        prompt = self.codegen_implement_prompt({"id": "whole application", "description": description}, spec)
+        prompt = self.codegen_implement_prompt({"id": "whole application", "description": description,
+                                                "active_requirement_ids": ids}, spec)
         if prompt is None:
             log("[flow] whole-app experiment: shared prompt did not fit; planning generation waves")
             return self.whole_app_waves(tree, ordered)
@@ -6162,8 +6297,8 @@ class Flow:
                                             + ". Rebuild the next prompt from current disk; " + text[:600])
             return ok, text
         correction = ("\nNo application files from the preceding response were written: " + text[:600] +
-                      "\nReturn ONLY complete <<<FILE ...>>> blocks, with exact "
-                      "<<<END FILE>>> terminators. One block per path. "
+                      "\nReturn complete FILE or exact anchored EDIT blocks with exact terminators. "
+                      "Never mix FILE and EDIT for the same path. "
                       "Do not explain the implementation.\n")
         retry_seconds = min(360, int(deadline - time.monotonic()))
         if (format_error and not getattr(self, "last_codegen_degenerated", False)
@@ -7872,7 +8007,7 @@ class Flow:
                         or estimated > self.generation_output_budget()) and size > 1:
                     size = max(1, size // 2)
                     continue
-                combined = {"id": f"application wave {wave + 1}",
+                combined = {"id": f"application wave {wave + 1}", "active_requirement_ids": ids,
                             "description": "ACTIVE REQUIREMENT IDs: " + ", ".join(ids) +
                                            ". Implement only these active contracts as one coherent group. "
                                            "Reuse required shared dependencies; do not implement other leaves in the background map. "
@@ -8694,7 +8829,11 @@ class Flow:
             design_text = GENERIC_TEMPLATE_NOTE + design_text
             if not (self.output_dir / "frontend" / "src" / "index.html").is_file():
                 design_text += "Only shared infrastructure exists so far; create the required frontend page(s).\n"
-        design_text = stack_note(self.output_dir) + seed_contract_text(self) + BUSINESS_QUALITY_GUIDANCE + design_text
+        design_text = (stack_note(self.output_dir) + seed_contract_text(self) + BUSINESS_QUALITY_GUIDANCE
+                       + app_design_context(getattr(self, "app_design_doc", None), self.spec_bodies(node_id),
+                                            int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "24000")),
+                                            requirement_ids=[node_id])
+                       + design_text)
         design_text += phase_context(getattr(self, "phase_plan", None), [node_id], limit=2400)
         if self.has_app():
             preamble = NODE_PREAMBLE_EXTEND.format(node_id=node_id)
@@ -8787,7 +8926,7 @@ class Flow:
                 focused = self.codegen_implement_prompt(
                     node, spec_text, self.corrections_text(),
                     evidence=("The previous response had no complete applicable file block. "
-                              "Return only the missing complete FILE/EDIT blocks, with exact terminators. "
+                              "Return only missing complete FILE blocks or exact anchored EDIT blocks, with exact terminators. "
                               "Keep the edit small enough to finish in this response.\n"))
                 if focused is not None:
                     log(f"[flow] {node_id}: no complete codegen block; one bounded completion retry")
@@ -8922,8 +9061,9 @@ class Flow:
             return (prompt + "\nYOUR PREVIOUS ATTEMPT FAILED EVERY ACCEPTANCE TEST — the failures (Feature / where / "
                     "observation / steps):\n" + failures + "\n" + self.sources_text()
                     + app_design_context(getattr(self, "app_design_doc", None), self.spec_bodies(node_id),
-                                         int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "6000")))
-                    + "Rewrite the files for this node completely (full write_file for each file, not edits), "
+                                         int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "24000")),
+                                         requirement_ids=[node_id])
+                    + "Use focused edits to current source; write complete files only when necessary, "
                     "fixing the root causes above.\n")
 
         self.last_node_own_pass = False

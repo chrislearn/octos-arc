@@ -197,7 +197,7 @@ class FlowRegression(unittest.TestCase):
         f.use_structured_edits = Mock(return_value=False)
         ok, reason = f.whole_app_generation_turn('implement without source', 600, 'wave implement', spec_chars=10)
         self.assertFalse(ok)
-        self.assertEqual(f.text_turn.call_count, 2)
+        self.assertEqual(f.text_turn.call_count, 3)  # one read, one corrective reply; no repeated snapshot
         self.assertEqual(f.last_codegen_outcome, 'invalid_context_request')
         self.assertEqual(f.last_codegen_written, [])
         self.assertIn('unchanged evidence', reason)
@@ -253,7 +253,7 @@ class FlowRegression(unittest.TestCase):
         f.use_structured_edits = Mock(return_value=False)
         f._atomic_codegen_response = True
         prompt = '--- frontend/src/auth.js ---\nold frontend\n'
-        ok, reason = f.codegen_turn(prompt, 60, 'wave implement')
+        ok, reason = f.codegen_turn(prompt, 60, 'wave implement', request_budget=1)
         self.assertFalse(ok); self.assertIn('Atomic response not applied', reason)
         self.assertEqual(backend.read_text(), 'old backend'); self.assertEqual(frontend.read_text(), 'old frontend')
         self.assertEqual(f.last_codegen_written, [])

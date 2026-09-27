@@ -2816,7 +2816,7 @@ class CodegenBeyondBudgetTests(unittest.TestCase):
             (root / "frontend/src/index.html").write_text("<main>v1</main>")
             flow = self._flow(root, self._block("frontend/src/index.html", "<main>blind</main>"))
             ok, text = flow.codegen_turn("Requirement REQ-9\nOther files, unchanged: frontend/src/index.html (15 chars)\n",
-                                         60, "REQ-9 implement")
+                                         60, "REQ-9 implement", request_budget=1)
             self.assertFalse(ok)
             self.assertIn("not shown", text)
             self.assertEqual((root / "frontend/src/index.html").read_text(), "<main>v1</main>")

@@ -44,7 +44,9 @@ class AuditPlanningTests(unittest.TestCase):
             a, b = m.app_design_blocks(design, "REQ-19", cap)
             other, _ = m.app_design_blocks(design, "REQ-1", cap)
             self.assertEqual(a, other)
-            self.assertLessEqual(len(a) + len(b), cap)
+            # Preferred design cap may grow, but mandatory contracts must survive.
+            self.assertIn("save before close", a)
+            self.assertIn("purpose 19", b if b else a)
             for block in (a, b):
                 if block:
                     json.loads(block.split("\n", 1)[1])

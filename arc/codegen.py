@@ -62,12 +62,20 @@ If a required existing source file is not quoted whole, request it instead of gu
 {"paths": ["frontend/src/App.jsx"], "reason": "Need the current route composition before adding a route"}
 <<<END NEEDS_CONTEXT>>>
 Use only existing application source paths, at most 8. Do not mix this request with changes.
-Return complete contents for each changed or new file:
+For new files, or necessary whole-file replacements, return complete contents:
 <<<FILE relative/path>>>
 contents
 <<<END FILE>>>
-Source changes must use FILE blocks. No EDIT, SEARCH/REPLACE or diff syntax.
-One block per changed path. Preserve existing behavior. Omit unchanged files. Stop when done.
+For localized changes to existing quoted source, prefer exact unique anchored edits:
+<<<EDIT relative/path>>>
+<<<SEARCH>>>
+exact current source, including enough context to match once
+<<<REPLACE>>>
+replacement source
+<<<END EDIT>>>
+Copy SEARCH literally from the current snapshot. Never guess an anchor or use diff syntax.
+FILE and EDIT may target different paths in one response, never the same path.
+Preserve existing behavior. Omit unchanged files. Stop when done.
 Never put protocol headers inside source contents; encode literal examples as strings.
 """
 
@@ -81,8 +89,15 @@ def safe_relative_path(raw: str) -> str | None:
 
 
 def parse_context_request(text: str) -> dict | None:
-    """Only a complete, standalone request; no paths from prose or file bodies."""
-    match = re.fullmatch(r"\s*<<<NEEDS[ _]CONTEXT>>>\s*(.*?)\s*<<<END NEEDS[ _]CONTEXT>>>\s*", text, re.S)
+    """One unambiguous request, optionally surrounded by explanatory prose.
+
+    Any other protocol block (including another request) makes it ambiguous.
+    Never extract requests embedded in source changes.
+    """
+    match = re.search(r"<<<NEEDS[ _]CONTEXT>>>\s*(.*?)\s*<<<END NEEDS[ _]CONTEXT>>>", text, re.S)
+    if match and ("<<<" in text[:match.start()] or "<<<" in text[match.end():]
+                  or "<<<" in match[1]):
+        return None
     if not match or len(match[1]) > 8000:
         return None
     try:
@@ -104,6 +119,18 @@ def parse_context_request(text: str) -> dict | None:
             return None
         normalized.append(path)
     return {"paths": list(dict.fromkeys(normalized)), "reason": reason.strip()}
+
+
+def has_context_request(text: str) -> bool:
+    """Recognize misplaced requests without treating inline source strings as operations."""
+    if re.search(r"(?m)^\s*<<<NEEDS[ _]CONTEXT>>>", text):
+        return True
+    end, outside = 0, []
+    for block in iter_blocks(text):
+        outside.append(text[end:block.start()])
+        end = block.end()
+    outside.append(text[end:])
+    return bool(re.search(r"<<<NEEDS[ _]CONTEXT>>>", "\n".join(outside)))
 
 
 def parse_file_blocks(text: str) -> dict[str, str]:

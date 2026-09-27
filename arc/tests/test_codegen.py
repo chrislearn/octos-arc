@@ -184,6 +184,10 @@ class EditTurnTests(unittest.TestCase):
     def setUp(self):
         import main
         from unittest.mock import Mock, patch
+        # These tests isolate one atomic application; recovery has separate workflow tests.
+        recovery = patch.dict('os.environ', {'OCTOS_ARC_CORRECTION_ROUNDS': '0'})
+        recovery.start()
+        self.addCleanup(recovery.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -810,7 +814,7 @@ class OutlinedFileEditTests(unittest.TestCase):
 
     def test_whole_file_rewrite_of_an_outlined_file_is_still_refused(self):
         self.flow.text_turn.return_value = True, "<<<FILE frontend/src/App.jsx>>>\nexport default 1;\n<<<END FILE>>>"
-        ok, _ = self.flow.codegen_turn(self.outline, 60, 'outline rewrite')
+        ok, _ = self.flow.codegen_turn(self.outline, 60, 'outline rewrite', request_budget=1)
         self.assertFalse(ok)
         self.assertEqual(self.flow.refused_paths, {'frontend/src/App.jsx'})
         self.assertIn("import A", (self.root / 'frontend/src/App.jsx').read_text())
