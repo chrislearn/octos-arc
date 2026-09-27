@@ -137,9 +137,9 @@ class OracleSemantics(unittest.TestCase):
 
     def test_long_case_still_obeys_step_cap(self):
         t = target(allowed=['Save', 'Done'])
-        p = {'id': 'S1', 'cases': [proposal([{'op': 'click', 'target': 'Save'}] * 20 + [{'op': 'expect_visible', 'target': 'Done'}])]}
+        p = {'id': 'S1', 'cases': [proposal([{'op': 'click', 'target': 'Save'}] * 60 + [{'op': 'expect_visible', 'target': 'Done'}])]}
         sources, dropped = compile_reply(json.dumps({'scenarios': [p]}), [t], Fixtures())
-        self.assertFalse(sources); self.assertIn('at most 20', dropped[0])
+        self.assertFalse(sources); self.assertIn('at most 60', dropped[0])
 
     def test_validator_dispute_retains_unresolved_evidence_without_skip_or_pass(self):
         t = target('The page displays the fixed verification code “123456”.')
@@ -186,6 +186,63 @@ class FlowRegression(unittest.TestCase):
         retry = f.text_turn.call_args.args[0]
         self.assertIn('/modules/0/owns', retry); self.assertIn('PREVIOUS OBJECT', retry)
         self.assertIn('Each module is', retry); self.assertIn('/signup', retry)
+
+    def test_missing_context_does_not_trigger_a_format_retry_or_a_write(self):
+        f = self.flow
+        path = self.root / 'frontend/src/App.jsx'
+        path.parent.mkdir(parents=True)
+        path.write_text('export default function App() {}')
+        reply = '<<<NEEDS_CONTEXT>>>\n{"paths":["frontend/src/App.jsx"],"reason":"Need the route composition"}\n<<<END NEEDS_CONTEXT>>>'
+        f.text_turn = Mock(return_value=(True, reply))
+        f.use_structured_edits = Mock(return_value=False)
+        ok, reason = f.whole_app_generation_turn('implement without source', 600, 'wave implement', spec_chars=10)
+        self.assertFalse(ok)
+        self.assertEqual(f.text_turn.call_count, 2)
+        self.assertEqual(f.last_codegen_outcome, 'invalid_context_request')
+        self.assertEqual(f.last_codegen_written, [])
+        self.assertIn('unchanged evidence', reason)
+        self.assertEqual(path.read_text(), 'export default function App() {}')
+
+    def test_node_context_retry_requotes_then_applies_under_the_existing_guard(self):
+        f = self.flow
+        path = self.root / 'backend/routes/items.js'
+        path.parent.mkdir(parents=True)
+        original = 'module.exports = app => {};\n'
+        path.write_text(original)
+        requested = '<<<NEEDS_CONTEXT>>> {"paths":["backend/routes/items.js"],"reason":"Preserve existing handlers"} <<<END NEEDS_CONTEXT>>>'
+        changed = "module.exports = app => { app.get('/api/items', (req, res) => res.json([])); };\n"
+        f.text_turn = Mock(side_effect=[(True, requested), (True, '<<<FILE backend/routes/items.js>>>\n' + changed + '<<<END FILE>>>')])
+        f.use_structured_edits = Mock(return_value=False)
+        f.codegen_mode = Mock(return_value=True)
+        f.codegen_repair_prompt = Mock(side_effect=lambda *a, **k: (
+            '--- backend/routes/items.js ---\n' + path.read_text()
+            if f.refused_paths else 'Need a source file'))
+        f.repair_tool_turn = Mock()
+        self.assertTrue(f.node_repair_turn('A', 'failure', 100, 'repair', lambda: 'fresh prompt'))
+        self.assertEqual(f.text_turn.call_count, 2)
+        self.assertIn(original, f.text_turn.call_args.args[0])
+        self.assertEqual(path.read_text(), changed)
+        self.assertEqual(f.last_codegen_context_requested, set())
+        self.assertEqual(f.last_codegen_application['refused'], [])
+        f.repair_tool_turn.assert_not_called()
+
+    def test_context_request_cannot_read_non_source_or_apply_mixed_changes(self):
+        f = self.flow
+        f.use_structured_edits = Mock(return_value=False)
+        path = self.root / 'backend/.env'
+        path.parent.mkdir(parents=True)
+        path.write_text('private value')
+        for reply in (
+            '<<<NEEDS_CONTEXT>>> {"paths":["backend/.env"],"reason":"need it"} <<<END NEEDS_CONTEXT>>>',
+            '<<<NEEDS_CONTEXT>>> {"paths":["backend/missing.js"],"reason":"need it"} <<<END NEEDS_CONTEXT>>>',
+            '<<<NEEDS_CONTEXT>>> {"paths":["backend/.env"],"reason":"need it"} <<<END NEEDS_CONTEXT>>>\n<<<FILE backend/new.js>>>\nx\n<<<END FILE>>>',
+            'Prose\n<<<NEEDS_CONTEXT>>> {} <<<END NEEDS_CONTEXT>>>\n<<<FILE backend/new.js>>>\nx\n<<<END FILE>>>',
+        ):
+            f.text_turn = Mock(return_value=(True, reply))
+            self.assertFalse(f.codegen_turn('prompt', 60, 'implement')[0])
+            self.assertEqual(f.last_codegen_outcome, 'invalid_context_request')
+            self.assertEqual(f.last_codegen_written, [])
+            self.assertFalse((self.root / 'backend/new.js').exists())
 
     def test_atomic_wave_refusal_keeps_both_ends_of_api_contract(self):
         f = self.flow
@@ -338,11 +395,11 @@ class FlowRegression(unittest.TestCase):
             return False,'bounded tool turn ended'
         f.turn=Mock(side_effect=turn)
         f.structured_edit_turn('active implementation',60,'A implement')
-        self.assertEqual(captured,[8])
+        self.assertEqual(captured,[24])
         self.assertFalse(f.llm_proxy.bounded_edits); self.assertFalse(f.llm_proxy.compact_reads)
         with patch.dict(os.environ,{'OCTOS_ARC_IMPLEMENT_REQUESTS':'5'}):
             f.structured_edit_turn('active implementation',60,'A implement')
-        self.assertEqual(captured,[8,5])
+        self.assertEqual(captured,[24,5])
         f.turn=Mock(side_effect=RuntimeError('model failure'))
         with self.assertRaises(RuntimeError): f.structured_edit_turn('active implementation',60,'A implement')
         self.assertFalse(f.llm_proxy.bounded_edits); self.assertEqual(f.llm_proxy.extra_drop_tools,set())

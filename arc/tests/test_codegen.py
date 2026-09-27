@@ -6,6 +6,20 @@ from codegen import incomplete_blocks, normalize_bare_file_reply, normalize_pair
 
 
 class ParseTests(unittest.TestCase):
+    def test_context_requests_require_a_complete_standalone_safe_envelope(self):
+        import json
+        from codegen import parse_context_request
+        def request(paths, reason="Need current source"):
+            return '<<<NEEDS_CONTEXT>>>\n' + json.dumps({'paths': paths, 'reason': reason}) + '\n<<<END NEEDS_CONTEXT>>>'
+        self.assertEqual(parse_context_request(request(['frontend/src/App.jsx']))['paths'], ['frontend/src/App.jsx'])
+        for raw in (request(['../secret']), request(['/backend/server.js']), request(['.env']),
+                    request(['frontend/../.env']), request(['frontend/src/A.js'], ''), request([None]),
+                    request(['frontend/src/A.js'] * 9), request([]),
+                    request(['frontend/src/A.js']) + '\n<<<FILE backend/a.js>>>\nx\n<<<END FILE>>>',
+                    '<<<NEEDS_CONTEXT>>> {bad} <<<END NEEDS_CONTEXT>>>'):
+            with self.subTest(raw=raw):
+                self.assertIsNone(parse_context_request(raw))
+
     def test_strictly_paired_alternate_file_envelopes(self):
         for raw in ('We will update two files.\n\n<FILE backend/a.js>\nmodule.exports = 1;\n<END FILE>\n'
                     '<FILE frontend/src/a.jsx>\nexport default 1;\n<END FILE>',

@@ -236,7 +236,7 @@ def model_routes(raw: str) -> list[dict]:
     if not isinstance(rules, list):
         raise ValueError("model routes must be a JSON array")
     phases = {"implement", "repair", "verify", "design"}
-    parameters = {"temperature", "top_p", "max_tokens", "max_completion_tokens", "thinking", "reasoning_effort", "enable_thinking"}
+    parameters = {"temperature", "top_p", "max_tokens", "max_completion_tokens", "thinking", "reasoning_effort", "enable_thinking", "thinking_budget"}
     for rule in rules:
         if not isinstance(rule, dict) or set(rule) - {"model", "phases", "max_input_chars", "tools", "images", "parameters"}:
             raise ValueError("invalid model route fields")
@@ -254,6 +254,11 @@ def model_routes(raw: str) -> list[dict]:
         opts = rule.get("parameters", {})
         if not isinstance(opts, dict) or set(opts) - parameters:
             raise ValueError("model route parameters cannot replace messages, tools or routing")
+        if "thinking_budget" in opts:
+            if type(opts["thinking_budget"]) is not int or opts["thinking_budget"] <= 0:
+                raise ValueError("thinking_budget must be positive")
+            if "reasoning_effort" in opts:
+                raise ValueError("choose thinking_budget or reasoning_effort for a verified provider route")
         if "max_tokens" in opts and "max_completion_tokens" in opts:
             raise ValueError("choose one output token limit")
     return rules
@@ -280,21 +285,40 @@ def default_reasoning_for_model(model: str, env=None) -> str:
 
 
 def turn_reasoning_for_model(model: str, label: str, env=None) -> str:
-    """Keep test generation/review at the model default; spend less on code.
+    """Medium for business reasoning; low for bounded formatting/tiny turns.
 
-    A model's medium task default remains visible in config. The turn override
-    is limited to implementation and repair; explicit settings always win.
+    v11.7 user policy caps effort at medium, including explicit high settings.
     """
     env = os.environ if env is None else env
     mode = default_reasoning_for_model(model, env)
     if any(name in env for name in ("OCTOS_ARC_REASONING", "OCTOS_ARC_IMPLEMENT_REASONING",
                                     "OCTOS_ARC_RECOVERY_REASONING")):
-        return mode
+        return 'medium' if mode in {'high', 'xhigh', 'max'} else mode
     label = label.lower()
-    test_review = any(word in label for word in ("derived", "generated-test"))
-    if mode == "medium" and not test_review and not any(word in label for word in ("design", "final check")):
-        return "low"
+    if mode == "medium":
+        if any(word in label for word in ('format retry', 'protocol retry', '(tiny)', 'noise cleanup', 'small patch')):
+            return 'low'
+        return 'medium' if any(word in label for word in ('design', 'derived', 'review', 'repair', 'implement', 'wave')) else 'low'
     return mode
+
+
+def cap_reasoning_effort(body: bytes) -> bytes:
+    """Apply the release's medium ceiling after routing, including fallback payloads."""
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(data, dict):
+        return body
+    changed = False
+    if data.get('reasoning_effort') in ('high', 'xhigh', 'max', 'ultra'):
+        data['reasoning_effort'] = 'medium'
+        changed = True
+    if isinstance(data.get('reasoning'), dict) and data['reasoning'].get('effort') in ('high', 'xhigh', 'max', 'ultra'):
+        data['reasoning']['effort'] = 'medium'
+        changed = True
+    return json.dumps(data, ensure_ascii=False).encode() if changed else body
+
 
 
 def route_request(body: bytes, rules: list[dict], phase: str, reasoning_mode: str | None = None,
@@ -331,12 +355,16 @@ def route_request(body: bytes, rules: list[dict], phase: str, reasoning_mode: st
         data.pop("thinking", None)
         data.pop("reasoning_effort", None)
         data.pop("enable_thinking", None)
+        data.pop("thinking_budget", None)
         opts = rule.get("parameters", {})
         if "max_completion_tokens" in opts:
             data.pop("max_tokens", None)
         if "max_tokens" in opts:
             data.pop("max_completion_tokens", None)
         data.update(opts)
+        if "thinking_budget" in opts:
+            data.pop("reasoning_effort", None)
+            return json.dumps(data, ensure_ascii=False).encode()
         selected_model = str(data["model"]).lower()
         explicit_turn = any(name in os.environ for name in
                             ("OCTOS_ARC_REASONING", "OCTOS_ARC_IMPLEMENT_REASONING",
@@ -642,10 +670,9 @@ def trim_request(body: bytes, drop_tools: set[str] = DROP_TOOLS) -> bytes:
 
 BUDGET_NOTICE = ("Tool budget for this turn is exhausted. Do not call any more tools: reply now with a one-line "
                  "summary of what you changed. The harness will build and test the app.")
-WRITE_DECISION_NOTICE = ("Read-only exploration is now closed for this turn: use the source and evidence already "
-                         "collected to make a focused application edit with an available write tool. If the cause "
-                         "is still genuinely unknown, stop and report the precise missing fact instead of reading "
-                         "more files or claiming a fix.")
+WRITE_DECISION_NOTICE = ("Focus the remaining budget on an evidence-backed edit. Targeted read_file/grep remain "
+                         "available for a missing dependency or anchor. Avoid broad exploration; if the cause "
+                         "remains unknown, report the precise blocker. Never guess an edit or claim an unmeasured fix.")
 WRITE_TOOLS = {"write_file", "edit_file", "create_file", "append_file", "apply_patch", "diff_edit"}
 
 
@@ -701,7 +728,7 @@ def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
 
 def force_write_decision(body: bytes, used: int, budget: int, elapsed: float,
                          elapsed_limit: float = 180.0) -> bytes:
-    """After a long read-only structured-edit turn, close further read tools.
+    """After a long read-only structured-edit turn, retain targeted reads and writes.
 
     The current completion still has every offered write tool, so this is not a
     guessed edit or a hard cancellation. It spends the remaining request on an
@@ -733,7 +760,10 @@ def force_write_decision(body: bytes, used: int, budget: int, elapsed: float,
             if ((tool.get("function") or {}).get("name") or tool.get("name")) in WRITE_TOOLS]
     if not kept:
         return body
-    data["tools"] = kept
+    # Focus navigation, but keep targeted reads needed to resolve missing
+    # contracts/anchors. Hard request admission still bounds the turn.
+    data["tools"] = [tool for tool in data["tools"] if tool in kept or
+                     ((tool.get("function") or {}).get("name") or tool.get("name")) in {"read_file", "grep"}]
     messages = [m for m in data["messages"] if not (
         m.get("role") == "user" and m.get("content") == WRITE_DECISION_NOTICE)]
     messages.append({"role": "user", "content": WRITE_DECISION_NOTICE})
@@ -1076,6 +1106,7 @@ class LlmProxy:
                         body, was_streaming = destream_request(body)
                     limit = proxy.codegen_max_tokens if proxy.no_tools else getattr(proxy, "tool_max_tokens", 0)
                     body = cap_output_tokens(body, limit)
+                    body = cap_reasoning_effort(body)
                     unrouted = body
                     with proxy._lock:
                         body = route_request(body, proxy.routes, proxy.phase, proxy.mode,
@@ -1088,7 +1119,7 @@ class LlmProxy:
                             and 'OCTOS_ARC_IMPLEMENT_REASONING' not in os.environ
                             and 'OCTOS_ARC_RECOVERY_REASONING' not in os.environ and not explicit_effort):
                         body = lower_stalled_tool_reasoning(body)
-                    body = cap_output_tokens(body, limit)
+                    body = cap_reasoning_effort(cap_output_tokens(body, limit))
                     proxy._dump(body)
                     proxy.ledger({"event": "request_received", "request_id": request_id,
                                   "incoming_sha256": incoming_hash,

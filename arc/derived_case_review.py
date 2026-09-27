@@ -12,7 +12,7 @@ from test_policy import test_block
 TITLES = re.compile(r"^test\('((?:\\.|[^'\\])*)',", re.M)
 REVIEW_STATUSES = {"approved_behavior", "approved_smoke_only", "needs_correction",
                    "disputed", "skipped_with_reason"}
-REVIEW_FIELDS = {"id", "status", "requirement_quote", "test_quote", "reason"}
+REVIEW_FIELDS = {"id", "status", "requirement_quote", "test_quote", "reason", "branch", "obligation_ids"}
 REVIEW_FENCE = re.compile(r"\A```(?:json)?\r?\n([\s\S]*?)\r?\n```\Z", re.I)
 
 
@@ -52,6 +52,11 @@ def parse_review_decisions(reply: str, expected_ids: set[str], *, max_chars: int
                 or any(not isinstance(item[key], str) or len(item[key]) > 4500
                        for key in ("requirement_quote", "test_quote", "reason") if key in item)):
             return [], "schema_invalid"
+        if item.get("branch", "unknown") not in ("success", "rejection", "mixed", "unknown"):
+            return [], "schema_invalid"
+        if 'obligation_ids' in item and (not isinstance(item['obligation_ids'], list) or
+                not all(isinstance(key, str) for key in item['obligation_ids'])):
+            return [], 'schema_invalid'
         seen.add(item["id"])
     return decisions, None
 
@@ -66,7 +71,9 @@ def requirement_text(target: dict | None, ancestors: str = "") -> str:
     if not target:
         return ""
     return (str(target.get("description") or "") + "\n"
-            + "\n".join(map(str, target.get("steps") or [])) + "\n" + ancestors)
+            + "\n".join(map(str, target.get("steps") or [])) + "\n" + ancestors
+            + ("\nSource obligations: " + json.dumps(target['obligations'], sort_keys=True, ensure_ascii=False)
+               if target.get('obligations') else ''))
 
 
 def outcome_text(target: dict | None) -> str:
@@ -133,6 +140,7 @@ def collect_cases(directory: Path, targets: list[dict], node_ids: set[str],
                          "requirements_hash": sha(requirement), "file_hash": sha(source),
                          "case_hash": sha(block), "status": status,
                          "origin": target.get("origin", "requirement_scenario") if target else "unmatched",
+                         "obligations": target.get('obligations', []) if target else [],
                          "requirement": requirement, "outcome": outcome_text(target), "case": block})
     return rows
 
@@ -162,6 +170,11 @@ def validate_review(row: dict, verdict: dict) -> bool:
         return False
     req = verdict.get("requirement_quote")
     test = verdict.get("test_quote")
+    if row.get('obligations'):
+        ids = verdict.get('obligation_ids', [])
+        allowed = {item['id'] for item in row['obligations']}
+        if not ids or not set(ids) <= allowed:
+            return False
     return (isinstance(req, str) and len(req.strip()) >= 12 and req in row.get("outcome", "")
             and isinstance(test, str) and len(test.strip()) >= 12 and test in row["case"]
             and bool(re.search(r"\b(?:h\.)?expect\w*\s*\(|\bassert\s*\(", test))

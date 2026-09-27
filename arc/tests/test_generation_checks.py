@@ -47,6 +47,12 @@ class GenerationChecksTests(TestCase):
         self.assertFalse(any('ROUTE_LINK' in warning for warning in
                              contract_warnings(sources, ['frontend/src/Nav.jsx'])))
 
+    def test_link_advisory_uses_the_same_index_for_routes_in_js_modules(self):
+        sources = {'frontend/src/navigation.js': '<Routes><Route path="/teams/:id" element={<Team />} /></Routes>',
+                   'frontend/src/Teams.jsx': '<Link to={`/teams/${id}`}>Team</Link>'}
+        self.assertFalse(any('ROUTE_LINK' in warning for warning in
+                             contract_warnings(sources, ['frontend/src/Teams.jsx'])))
+
     def test_inert_reach_shortcut_and_missing_collection_method_are_reported(self):
         sources = self.bundled_sources()
         sources['frontend/src/Org.jsx'] = (

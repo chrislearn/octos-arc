@@ -650,6 +650,7 @@ class RelevantSourcesTests(unittest.TestCase):
             root = Path(tmp)
             flow = m.Flow(argparse.Namespace(web_port=1), root, root)
             flow.codegen_reasoning = lambda _: None
+            flow.codegen_context_chars = lambda: 96000
             node = {"id": "REQ-1", "description": "Add search"}
             self.assertIsNotNone(flow.codegen_implement_prompt(node, "x" * 12000))
             m.write_codegen_manifests(root)
@@ -2228,7 +2229,7 @@ class InlineSourceBudgetTests(unittest.TestCase):
         self.assertEqual(flow.inline_source_chars(), flow.codegen_context_chars())
         with patch.dict("os.environ", {"OCTOS_ARC_INLINE_SOURCE_CHARS": "250000"}):
             self.assertEqual(flow.inline_source_chars(), 250000)
-            self.assertEqual(flow.codegen_context_chars(), 96000)   # output budget unmoved
+            self.assertEqual(flow.codegen_context_chars(), 196608)   # output budget unmoved
 
     def test_should_give_a_repair_the_budget_the_codegen_turn_gets(self):
         import argparse

@@ -55,7 +55,7 @@ seconds_per_node = 1500          # OCTOS_SECONDS_PER_NODE — per-node allowance
 node_time_budget_seconds = 1500  # OCTOS_NODE_TIME_BUDGET — cap per node incl. repairs
 node_time_floor_seconds = 240    # minimum node budget when little time is left
 node_timeout_seconds = 1200      # OCTOS_NODE_TIMEOUT — one model turn
-design_timeout_seconds = 420     # OCTOS_DESIGN_TIMEOUT
+design_timeout_seconds = 1800     # OCTOS_DESIGN_TIMEOUT
 implement_fraction = 0.6         # OCTOS_IMPLEMENT_FRACTION — implement turn ≤ this share of the node budget
 min_repair_seconds = 300         # OCTOS_MIN_REPAIR_SECONDS — no repair turn with less left
 max_iterations = 500             # OCTOS_MAX_ITERATIONS — tool-mode iterations per turn
@@ -69,7 +69,7 @@ max_total_tokens_abs = 0    # OCTOS_ARC_MAX_TOTAL_TOKENS_ABS — absolute ceilin
 
 [repair]
 rounds = 5              # OCTOS_REPAIR_ROUNDS — K, acceptance repair rounds per node
-rounds_large_tree = 3   # trees with more than large_tree_nodes ATOMIC nodes (keep barely repaired; an explicit OCTOS_REPAIR_ROUNDS applies everywhere)
+rounds_large_tree = 3   # v11.7 progresses to 5 on measured improvement; trees with more than large_tree_nodes ATOMIC nodes (keep barely repaired; an explicit OCTOS_REPAIR_ROUNDS applies everywhere)
 large_tree_nodes = 2
 codegen_repairs = 2     # OCTOS_ARC_CODEGEN_REPAIRS — codegen repairs before falling back to tool mode
 rewrite_on_zero = true  # OCTOS_ARC_REWRITE_ON_ZERO — one full rewrite on zero passes, only before any behavior is verified
@@ -84,7 +84,7 @@ repair = 10      # OCTOS_ARC_REPAIR_REQUESTS — hard request cap of repair turn
 codegen = 3      # OCTOS_ARC_CODEGEN_REQUESTS — attempts (incl. transient retries) of a codegen turn
 
 [reasoning]
-mode = "low"               # OCTOS_ARC_REASONING — low by default; auto | low | medium | high | none | passthrough
+mode = "medium"            # v11.7: medium ceiling; format/tiny turns use low where stage policy applies
 # Codegen effort by spec size (round 30): specs shorter than this many characters run with thinking off and
 # the compact size rule; larger specs keep the base mode and the multi-page mechanisms. Applies to auto and none.
 codegen_reasoning_chars = 5000  # OCTOS_ARC_CODEGEN_REASONING_CHARS
@@ -124,7 +124,7 @@ dir = "prompts"              # <name>.md templates, relative to this file
 inline_specs = true          # OCTOS_ARC_INLINE_SPECS — quote the node's specs into tool-mode prompts
 inline_spec_chars = 24000    # OCTOS_ARC_INLINE_SPEC_CHARS
 inline_source_chars = 40000  # OCTOS_ARC_INLINE_SOURCE_CHARS — sources quoted into repair/rewrite prompts (0 = off)
-codegen_context_chars = 90000  # OCTOS_ARC_CODEGEN_CONTEXT_CHARS — codegen prompt budget: spec must fit 60% of it; existing sources ranked by spec-term overlap fill the rest (≈26k tokens)
+codegen_context_chars = 196608  # OCTOS_ARC_CODEGEN_CONTEXT_CHARS — codegen prompt budget: spec must fit 60% of it; existing sources ranked by spec-term overlap fill the rest (≈26k tokens)
 perf_contract = true         # OCTOS_PERF_CONTRACT
 guard = true                 # OCTOS_GUARD — inject guard corrections into the next prompt
 # Requirement keywords (case-insensitive substrings of the tree text) that

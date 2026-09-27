@@ -424,6 +424,15 @@ class TemplatedScenarioTests(unittest.TestCase):
         self.assertNotIn("h.expectRole(page, 'menuitem', 'Paste')", source)
         self.assertIn("h.expectRole(page, 'grid', 'Worksheet grid')", source)
 
+    def test_column_menu_entry_opens_the_header_context_menu_first(self):
+        node = leaf("REQ-2-2-2", [("REQ-2-2-2 -the requested workflow", [
+            ("GIVEN", SHEET_SEED), ("WHEN", SHEET_WHEN), ("THEN", SHEET_THEN)])],
+            description='The column-header menu provides "Insert 1 column left".')
+        source = compile_leaf(node, suite_fixtures([node])).source
+        self.assertIn("h.contextClickHeader(page, 'A')", source)
+        self.assertIn("h.expectReachable(page, 'Insert 1 column left')", source)
+        self.assertLess(source.index("h.contextClickHeader"), source.index("h.expectReachable"))
+
 
 class SharedContractTests(unittest.TestCase):
     def test_folder_level_aria_contracts_apply_to_every_entry_script(self):

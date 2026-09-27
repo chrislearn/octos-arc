@@ -86,6 +86,22 @@ class GenerationPolicyTests(unittest.TestCase):
         self.assertEqual(classify_observation("Unauthorized access: expected 403, received 200",
                                               source="derived", reliable=False, core=True)[0], "T")
 
+    def test_low_signal_timeout_is_recorded_without_aborting_the_run(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow = Flow.__new__(Flow)
+            flow.output_dir = Path(folder)
+            flow.requirement_nodes = {"REQ-2-2-2": leaf("REQ-2-2-2")}
+            flow.tests_dir = None
+            flow.app_source_digest = Mock(return_value="source")
+            flow.metric = Mock()
+            severity = flow.record_quality_observation(
+                "REQ-2-2-2", "column menu [entry]",
+                "Required control is not reachable within 3 navigation clicks",
+                source="derived", reliable=True)
+            self.assertEqual(severity, "U")
+            self.assertEqual(flow.quality_observations[("REQ-2-2-2", "column menu [entry]")]["action"],
+                             "diagnose_low_signal")
+
     def test_independent_case_review_requires_exact_witness_and_stales_on_edit(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
@@ -134,7 +150,7 @@ class GenerationPolicyTests(unittest.TestCase):
             flow.record_tests("REQ-1-1", ["REQ-1-1.spec.ts"], RunSummary(results=[outcome], total=1, passed=1))
             flow.runtime.traceability.upsert_test.assert_not_called()
 
-    def test_final_generated_measurement_selects_reviewed_files_only(self):
+    def test_final_generated_measurement_includes_unreviewed_files_without_granting_trust(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "A.spec.ts").write_text("test('A: approved', async () => {});\n")
@@ -151,7 +167,7 @@ class GenerationPolicyTests(unittest.TestCase):
             flow.suite_is_measured = Mock(return_value=True)
             flow.record_full_suite = Mock()
             flow.final_acceptance_passes()
-            flow.run_specs.assert_called_once_with(["A.spec.ts"], workers=1, grader_like=True)
+            flow.run_specs.assert_called_once_with(["A.spec.ts", "B.spec.ts"], workers=1, grader_like=True)
             flow.record_full_suite.assert_called_once()
 
     def test_generated_load_check_only_rechecks_changed_spec(self):

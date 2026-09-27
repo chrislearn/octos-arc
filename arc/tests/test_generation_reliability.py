@@ -168,15 +168,16 @@ class GenerationBudgetTests(unittest.TestCase):
             flow.text_turn = Mock(side_effect=[(True, 'not JSON'), (True, json.dumps(DESIGN))])
             self.assertEqual(flow.app_design(TREE, nodes), DESIGN)
             self.assertEqual(flow.text_turn.call_count, 2)
-            self.assertLessEqual(flow.text_turn.call_args.args[1], 240)
+            self.assertLessEqual(flow.text_turn.call_args.args[1], 600)
 
-    def test_design_timeout_does_not_buy_another_turn(self):
+    def test_design_timeout_enters_bounded_category_recovery(self):
         from test_app_design import AppDesignTurnTests, TREE
         with tempfile.TemporaryDirectory() as folder:
             flow, nodes = AppDesignTurnTests()._flow(folder, 'unused')
             flow.text_turn = Mock(return_value=(False, 'timeout'))
             self.assertIsNone(flow.app_design(TREE, nodes))
-            flow.text_turn.assert_called_once()
+            self.assertLessEqual(flow.text_turn.call_count, 1 + len(TREE["children"]))
+            self.assertTrue(flow._design_blocked)
 
 
 class NoSpecPartialRetentionTests(unittest.TestCase):

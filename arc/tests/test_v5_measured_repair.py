@@ -123,7 +123,7 @@ class MeasuredRepairTests(TestCase):
         with patch.dict('os.environ', {}, clear=True):
             for label in ('application design', 'A implement', 'A repair'):
                 f.text_turn('', 30, label)
-        self.assertEqual(observed, [(8192, 'none'), (0, 'none'), (8192, 'none')])
+        self.assertEqual(observed, [(32768, 'none'), (0, 'none'), (32768, 'none')])
         self.assertEqual(proxy.codegen_max_tokens, 77)
         with patch.dict('os.environ', {'OCTOS_ARC_REPAIR_MAX_TOKENS': '4096'}):
             f.text_turn('', 30, 'A repair')
@@ -131,7 +131,7 @@ class MeasuredRepairTests(TestCase):
         f.n_nodes = 125
         with patch.dict('os.environ', {}, clear=True):
             f.text_turn('', 30, 'application design')
-        self.assertEqual(observed[-1][0], 16384)  # 256 tokens per leaf, capped
+        self.assertEqual(observed[-1][0], 32768)  # 256 tokens per leaf, capped
 
     def test_reasoning_off_for_all_implementation_is_opt_in(self):
         f = self.flow

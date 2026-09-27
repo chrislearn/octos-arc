@@ -4,11 +4,17 @@ const path = require('path');
 (async () => {
   const config = JSON.parse(fs.readFileSync(0, 'utf8'));
   const { chromium } = require(config.module);
-  const report = { status: 'passed', observations: [], pages: [] };
+  const report = { status: 'passed', observations: [], pages: [], unchecked: [] };
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
-    for (const [index, route] of config.paths.slice(0, 3).entries()) {
+    const started = Date.now();
+    for (const [index, route] of config.paths.entries()) {
+      if (Date.now() - started > (config.budgetMs || 40000) - 15000) {
+        report.unchecked.push(...config.paths.slice(index));
+        if (report.status === 'passed') report.status = 'unknown';
+        break;
+      }
       const url = new URL(route, config.baseURL);
       if (url.origin !== new URL(config.baseURL).origin) continue;
       const context = await browser.newContext();
@@ -17,7 +23,11 @@ const path = require('path');
       const errors = [];
       page.on('pageerror', e => errors.push(String(e.stack || e)));
       try {
-        await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        const response = await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        if (response && response.status() >= 400) report.observations.push({
+          kind: 'document_http_error', confirmed: false, path: url.pathname,
+          message: `Document returned ${response.status()} at ${url.pathname}; verify route/auth preconditions`
+        });
         await page.waitForFunction(() => document.body && (
           document.body.innerText.trim().length || document.querySelector('canvas,svg,input,button')),
           null, { timeout: 5000 }).catch(() => {});
@@ -49,6 +59,7 @@ const path = require('path');
       }
     }
     if (report.observations.some(e => e.confirmed)) report.status = 'failed';
+    else if (report.observations.length) report.status = 'unknown';
   } catch (e) {
     report.status = 'unknown';
     report.observations.push({kind: 'browser_unavailable', confirmed: false, message: String(e.message || e)});

@@ -10,6 +10,23 @@ const dist = path.resolve(__dirname, '../frontend/dist');
 const routes = path.join(__dirname, 'routes');
 const frontendManifest = path.resolve(__dirname, '../frontend/package.json');
 const spa = fs.existsSync(frontendManifest) && JSON.parse(fs.readFileSync(frontendManifest, 'utf8')).arc?.spa === true;
+// Declared business document routes can legitimately end in .js/.png/etc.
+// A missing static asset must still return 404 instead of the application shell.
+let documentRoutes = [];
+const designRoutes = path.resolve(__dirname, '../design/routes.json');
+if (fs.existsSync(designRoutes)) {
+  documentRoutes = (JSON.parse(fs.readFileSync(designRoutes, 'utf8')).pages || []).map(page => page.path);
+}
+function declaredDocument(url) {
+  const actual = url.split('/').filter(Boolean);
+  return documentRoutes.some(route => {
+    if (typeof route !== 'string') return false;
+    const parts = route.split('/').filter(Boolean);
+    return parts.every((part, i) => part === '*' || (actual[i] !== undefined &&
+      (part.startsWith(':') || part === actual[i]))) &&
+      (parts.length === actual.length || parts.at(-1) === '*');
+  });
+}
 
 app.disable('x-powered-by');
 app.use(express.json({limit: '1mb'}));
@@ -25,9 +42,14 @@ if (fs.existsSync(routes)) {
 }
 arc.finishRegistration();
 app.use('/api', (req, res) => res.status(404).json({error: 'not found'}));
+// Existing assets and multi-page documents take precedence over SPA routing.
+app.use(express.static(dist, {extensions: ['html']}));
 if (spa) app.use((req, res, next) => {
   if (!['GET', 'HEAD'].includes(req.method) || req.path.startsWith('/api/') || req.path === '/api' ||
-      path.extname(req.path) || !req.accepts('html')) return next();
+      !/text\/html/i.test(req.get('accept') || '') ||
+      /^\/(?:assets|static)\//.test(req.path) ||
+      (/\.(?:m?js|cjs|css|map|woff2?|ttf|ico|png|jpe?g|gif|webp|svg)$/i.test(req.path) &&
+       !declaredDocument(req.path))) return next();
   const html = path.resolve(dist, '.' + req.path + '.html');
   const nested = path.resolve(dist, '.' + req.path, 'index.html');
   if ((html.startsWith(dist + path.sep) && fs.existsSync(html)) ||
@@ -37,7 +59,6 @@ if (spa) app.use((req, res, next) => {
     res.type('html').send(body);
   });
 });
-app.use(express.static(dist, {extensions: ['html']}));
 app.use((req, res) => res.status(404).send('not found'));
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);

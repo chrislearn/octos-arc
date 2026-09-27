@@ -200,8 +200,8 @@ class TestExecutionBoundaries(unittest.TestCase):
         flow.repair_tool_turn = Mock(return_value=(True, 'done'))
         flow.pending_corrections = []
         flow.node_repair_turn('B', 'failure', 100, 'B repair', lambda: 'prompt')
-        self.assertEqual(flow.codegen_turn.call_args.kwargs['request_budget'], 12)
-        self.assertEqual(flow.repair_tool_turn.call_args.kwargs['request_budget'], 4)
+        self.assertEqual(flow.codegen_turn.call_args.kwargs['request_budget'], 36)
+        self.assertEqual(flow.repair_tool_turn.call_args.kwargs['request_budget'], 28)
 
     def test_protocol_retry_spends_only_remaining_round_allowance(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -229,8 +229,8 @@ class TestExecutionBoundaries(unittest.TestCase):
 
             flow.codegen_turn = codegen
             flow.node_repair_turn('B', 'failure', 100, 'B repair', lambda: 'prompt')
-            self.assertEqual(allowances, [12, 4])
-            flow.repair_tool_turn.assert_not_called()
+            self.assertEqual(allowances, [36, 28])
+            self.assertEqual(flow.repair_tool_turn.call_args.kwargs['request_budget'], 20)
 
 
 class TestBrowserHelperRegression(unittest.TestCase):

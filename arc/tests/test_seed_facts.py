@@ -212,6 +212,8 @@ class GridDslTests(unittest.TestCase):
         walk(resolution.tree)
         self.fixtures = suite_fixtures(list(leaves.values()))
         self.rows = review_targets([leaves["REQ-2-2-1"]], self.fixtures, include_all=True)[0]
+        self.columns = review_targets([leaves["REQ-2-2-2"]], self.fixtures, include_all=True,
+                                      canonical_cells=resolution.canonical)[0]
         self.select = review_targets([leaves["REQ-3-1-3"]], self.fixtures, include_all=True)[0]
 
     def proposal(self, target, steps):
@@ -227,6 +229,43 @@ class GridDslTests(unittest.TestCase):
         bad = proposal_problems(self.proposal(self.rows, [steps[0], {"op": "header_context", "target": "Row 2"},
                                                           steps[3]]), self.rows, self.fixtures)
         self.assertTrue(any("header_context target" in p for p in bad))
+
+    def test_column_insert_oracle_preserves_seed_rows(self):
+        from scenario_review import proposal_problems
+        steps = [{"op": "click", "target": "Q3 Sales"},
+                 {"op": "header_context", "target": "B"},
+                 {"op": "click", "target": "Insert 1 column left"},
+                 {"op": "expect_cell", "target": "C1", "value": "Sales"},
+                 {"op": "expect_cell", "target": "C2", "value": "1200"},
+                 {"op": "reload"},
+                 {"op": "expect_cell", "target": "C2", "value": "1200"}]
+        target = self.columns
+        self.assertEqual(target["seed_cells"]["B1"], "Sales")
+        self.assertEqual(target["seed_cells"]["B2"], "1200")
+        good = proposal_problems(self.proposal(target, steps), target, self.fixtures)
+        self.assertFalse(any("seeded C" in issue for issue in good), good)
+        wrong = steps.copy()
+        wrong[3] = {"op": "expect_cell", "target": "C1", "value": "1200"}
+        problems = proposal_problems(self.proposal(target, wrong), target, self.fixtures)
+        self.assertTrue(any("seeded C1 should be 'Sales', not '1200'" in issue for issue in problems), problems)
+        edited = steps[:3] + [{"op": "cell_type", "target": "C1", "value": "Updated"},
+                              {"op": "expect_cell", "target": "C1", "value": "Updated"}]
+        later = proposal_problems(self.proposal(target, edited), target, self.fixtures)
+        self.assertFalse(any("seeded C1" in issue for issue in later), later)
+
+    def test_column_oracle_does_not_apply_stale_seeds_after_row_edit_or_sheet_switch(self):
+        from scenario_review import _seeded_column_oracle_problems
+        target = self.columns
+        tail = [{"op": "header_context", "target": "B"},
+                {"op": "click", "target": "Insert 1 column left"},
+                {"op": "expect_cell", "target": "C1", "value": "1200"}]
+        for prefix in (
+            [{"op": "click", "target": "Q3 Sales"}, {"op": "click", "target": "Sheet 2"}],
+            [{"op": "click", "target": "Q3 Sales"}, {"op": "header_context", "target": "1"},
+             {"op": "click", "target": "Delete row"}],
+            [{"op": "click", "target": "Q3 Sales"}, {"op": "press", "key": "Control+v"}],
+        ):
+            self.assertEqual(_seeded_column_oracle_problems(prefix + tail, target), [])
 
     def test_expect_selected_is_an_assertion_for_range_selection(self):
         from scenario_review import _emit, proposal_problems

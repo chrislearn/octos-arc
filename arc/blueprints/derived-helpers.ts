@@ -21,7 +21,7 @@ export async function watchResponse(page: Page, route: string, method: string): 
   if (!watched) { watched = new Map(); responses.set(page, watched); }
   const previous = watched.get(route);
   if (previous?.listener) page.off('response', previous.listener);
-  const slot: any = { response: null, error: null };
+  const slot: any = { response: null, error: null, method };
   watched.set(route, slot);
   const pattern = new RegExp('^' + route.split('/').map(part => part.startsWith(':')
     ? '[^/]+' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('/') + '$');
@@ -36,11 +36,35 @@ export async function watchResponse(page: Page, route: string, method: string): 
   page.on('response', listener);
 }
 
-export async function expectResponse(page: Page, route: string, status: number, json: object = {}): Promise<void> {
+export async function expectResponse(page: Page, route: string, status: number, json: object = {},
+                                     contract: {schema?: any, exact_json?: any} = {}): Promise<void> {
   const slot = responses.get(page)?.get(route);
   expect(slot, 'response watcher must be installed before the action').toBeTruthy();
   await expect.poll(() => slot.response?.status, {message: `HTTP response for ${route}`}).toBe(status);
   if (Object.keys(json).length) expect(slot.response.body).toMatchObject(json);
+  if ('exact_json' in contract) expect(slot.response.body).toEqual(contract.exact_json);
+  if (contract.schema) assertJsonContract(slot.response.body, contract.schema);
+}
+
+/** Deliberately bounded JSON Schema subset; unsupported keywords are rejected by the compiler. */
+export function assertJsonContract(value: any, schema: any, location = '$'): void {
+  const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+  if (schema.type) expect(schema.type === 'integer' ? Number.isInteger(value) : type === schema.type,
+    `${location} type ${schema.type}`).toBe(true);
+  if ('enum' in schema) expect(schema.enum, `${location} enum`).toContainEqual(value);
+  if (schema.required || schema.properties || schema.additionalProperties === false) {
+    expect(type, `${location} object`).toBe('object');
+    for (const key of schema.required || []) expect(Object.hasOwn(value, key), `${location}.${key} required`).toBe(true);
+    for (const [key, child] of Object.entries(schema.properties || {})) {
+      if (Object.hasOwn(value, key)) assertJsonContract(value[key], child, `${location}.${key}`);
+    }
+    if (schema.additionalProperties === false)
+      expect(Object.keys(value).filter(key => !Object.hasOwn(schema.properties || {}, key)), `${location} extra keys`).toEqual([]);
+  }
+  if (schema.items) {
+    expect(type, `${location} array`).toBe('array');
+    value.forEach((item: any, index: number) => assertJsonContract(item, schema.items, `${location}[${index}]`));
+  }
 }
 
 async function signInEntryVisible(page: Page): Promise<boolean> {
@@ -454,8 +478,8 @@ export async function expectCell(page: Page, ref: string, value: string): Promis
 
 /** Choose a file in the file input the requirement names (label, aria-label or nearby button). */
 export async function uploadFile(page: Page, value: Match, csv: string,
-                                 fileName: 'derived-import.csv' | 'derived-format.csv' | 'derived-invalid.csv' = 'derived-import.csv'): Promise<void> {
-  const file = { name: fileName, mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') };
+                                 fileName: string = 'derived-import.csv', mimeType = 'text/csv'): Promise<void> {
+  const file = { name: fileName, mimeType, buffer: Buffer.from(csv, 'utf8') };
   const named = page.getByLabel(toPatterns(value)[0]).first();
   if (await named.isVisible({ timeout: 1000 }).catch(() => false) && await named.getAttribute('type') === 'file') {
     await named.setInputFiles(file);
@@ -511,7 +535,7 @@ export function parseCsvRows(content: string): string[][] {
 
 /** Click a control and verify the downloaded file name, contents and optional exact CSV matrix. */
 export async function expectDownload(page: Page, value: Match, suffix: string, contains: string[] = [],
-                                     csvRows?: string[][]): Promise<void> {
+                                     csvRows?: string[][], contract: {schema?: any, exact_json?: any, exact_text?: string} = {}): Promise<void> {
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 15_000 }),
     clickNamed(page, value),
@@ -519,7 +543,7 @@ export async function expectDownload(page: Page, value: Match, suffix: string, c
   const name = download.suggestedFilename();
   expect(name, `clicking "${describe(value)}" downloads a file ending with ${suffix}`).toMatch(
     new RegExp(escapeRegExp(suffix) + '$', 'i'));
-  if (contains.length || csvRows) {
+  if (contains.length || csvRows || Object.keys(contract).length) {
     const failure = await download.failure();
     expect(failure, `download of ${name} completed`).toBeNull();
     const content = await readFile(await download.path(), 'utf8');
@@ -527,6 +551,12 @@ export async function expectDownload(page: Page, value: Match, suffix: string, c
       expect(content, `downloaded ${name} contains ${JSON.stringify(value)}`).toContain(value);
     }
     if (csvRows) expect(parseCsvRows(content), `downloaded ${name} preserves exact CSV rows and fields`).toEqual(csvRows);
+    if ('exact_text' in contract) expect(content).toBe(contract.exact_text);
+    if ('exact_json' in contract || contract.schema) {
+      const parsed = JSON.parse(content);
+      if ('exact_json' in contract) expect(parsed).toEqual(contract.exact_json);
+      if (contract.schema) assertJsonContract(parsed, contract.schema);
+    }
   }
 }
 
@@ -641,4 +671,55 @@ export async function expectSignInRejected(page: Page, account: string, password
     message: `rejected credentials for ${account} established a session after reload`,
     timeout: 8000,
   }).toBe(true);
+}
+
+
+// A label/value oracle must inspect the actual control, not a matching paragraph.
+export async function expectInputValue(page: Page, label: string, value: string): Promise<void> {
+  const field = page.getByLabel(label, { exact: true });
+  await expect(field).toHaveCount(1);
+  await expect(field).toBeVisible();
+  await expect(field).toHaveValue(value);
+}
+export async function selectOption(page: Page, label: string, value: string): Promise<void> {
+  const field = page.getByLabel(label, { exact: true });
+  await expect(field).toHaveCount(1);
+  await field.selectOption({ label: value });
+}
+export async function dragNamed(page: Page, source: string, destination: string): Promise<void> {
+  const from = page.getByText(source, {exact: true});
+  const to = page.getByText(destination, {exact: true});
+  await expect(from).toHaveCount(1);
+  await expect(to).toHaveCount(1);
+  await from.dragTo(to);
+}
+export async function expectNamedCount(page: Page, role: any, name: string, count: number): Promise<void> {
+  await expect(page.getByRole(role, {name, exact: true})).toHaveCount(count);
+}
+export async function expectNamedAttribute(page: Page, role: any, name: string, attribute: string, value: string): Promise<void> {
+  const target = page.getByRole(role, {name, exact: true});
+  await expect(target).toHaveCount(1);
+  await expect(target).toHaveAttribute(attribute, value);
+}
+const responseSnapshots = new WeakMap<Page, Map<string, {route: string, slot: any, body: any}>>();
+export async function snapshotResponse(page: Page, route: string, key: string): Promise<void> {
+  const slot = responses.get(page)?.get(route);
+  expect(slot, 'install a response watcher before reading state').toBeTruthy();
+  expect(slot.method, 'state snapshots must use GET').toBe('GET');
+  await expect.poll(() => slot?.response?.status).toBe(200);
+  expect(slot.response.body, 'snapshot must be JSON').not.toBeNull();
+  let snapshots = responseSnapshots.get(page);
+  if (!snapshots) { snapshots = new Map(); responseSnapshots.set(page, snapshots); }
+  snapshots.set(key, {route, slot, body: structuredClone(slot.response.body)});
+}
+export async function expectResponseUnchanged(page: Page, route: string, key: string): Promise<void> {
+  const before = responseSnapshots.get(page)?.get(key);
+  expect(before, 'state snapshot required').toBeTruthy();
+  expect(before!.route).toBe(route);
+  const slot = responses.get(page)?.get(route);
+  expect(slot, 'install a NEW watcher and trigger a fresh read').toBeTruthy();
+  expect(slot.method, 'state snapshots must use GET').toBe('GET');
+  expect(slot).not.toBe(before!.slot);
+  await expect.poll(() => slot?.response?.status).toBe(200);
+  expect(slot.response.body).toEqual(before!.body);
 }

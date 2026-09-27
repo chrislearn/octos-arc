@@ -22,6 +22,7 @@ spending output tokens on a redundant rewrite.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -56,11 +57,16 @@ def iter_blocks(text: str):
 
 FORMAT_INSTRUCTIONS = """\
 Only changed blocks, no prose. If unchanged: <<<NO CHANGE>>>.
+If a required existing source file is not quoted whole, request it instead of guessing:
+<<<NEEDS_CONTEXT>>>
+{"paths": ["frontend/src/App.jsx"], "reason": "Need the current route composition before adding a route"}
+<<<END NEEDS_CONTEXT>>>
+Use only existing application source paths, at most 8. Do not mix this request with changes.
 Return complete contents for each changed or new file:
 <<<FILE relative/path>>>
 contents
 <<<END FILE>>>
-Only FILE blocks are supported in this request. No EDIT, SEARCH/REPLACE or diff syntax.
+Source changes must use FILE blocks. No EDIT, SEARCH/REPLACE or diff syntax.
 One block per changed path. Preserve existing behavior. Omit unchanged files. Stop when done.
 Never put protocol headers inside source contents; encode literal examples as strings.
 """
@@ -72,6 +78,32 @@ def safe_relative_path(raw: str) -> str | None:
     if not parts or ".." in parts or raw.startswith("/"):
         return None
     return "/".join(parts)
+
+
+def parse_context_request(text: str) -> dict | None:
+    """Only a complete, standalone request; no paths from prose or file bodies."""
+    match = re.fullmatch(r"\s*<<<NEEDS[ _]CONTEXT>>>\s*(.*?)\s*<<<END NEEDS[ _]CONTEXT>>>\s*", text, re.S)
+    if not match or len(match[1]) > 8000:
+        return None
+    try:
+        payload = json.loads(match[1])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    paths, reason = payload.get("paths"), payload.get("reason")
+    if (not isinstance(paths, list) or not 1 <= len(paths) <= 8
+            or not isinstance(reason, str) or not reason.strip() or len(reason) > 1000):
+        return None
+    normalized = []
+    for path in paths:
+        if (not isinstance(path, str) or len(path) > 500
+                or any(ord(char) < 32 for char in path) or safe_relative_path(path) != path):
+            return None
+        if not path.startswith(("frontend/", "backend/")):
+            return None
+        normalized.append(path)
+    return {"paths": list(dict.fromkeys(normalized)), "reason": reason.strip()}
 
 
 def parse_file_blocks(text: str) -> dict[str, str]:

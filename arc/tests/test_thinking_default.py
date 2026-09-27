@@ -30,8 +30,8 @@ class ThinkingDefaultTests(unittest.TestCase):
                 for label, expected in (("derived scenario review", "medium"),
                                         ("derived case independent review", "medium"),
                                         ("application design", "medium"),
-                                        ("whole application implement", "low"),
-                                        ("A repair", "low")):
+                                        ("whole application implement", "medium"),
+                                        ("A repair", "medium")):
                     flow.turn("prompt", 60, label, expect_verification=False)
                     self.assertEqual(proxy.mode, expected, label)
         with patch.dict(os.environ, {"MODEL": "qwen3.7-plus", "OCTOS_ARC_REASONING": "medium"}, clear=True):
@@ -98,9 +98,9 @@ class ThinkingDefaultTests(unittest.TestCase):
                         flow.start_llm_proxy()
                     self.assertEqual(factory.call_args.args[1], expected)
 
-    def test_gateway_and_bundled_policy_also_default_to_low(self):
+    def test_bundled_quality_policy_is_medium_and_gateway_fallback_stays_explicit(self):
         policy = tomllib.loads((m.BUNDLE_DIR / "arc-policy.toml").read_text())
-        self.assertEqual(policy["reasoning"]["mode"], "low")
+        self.assertEqual(policy["reasoning"]["mode"], "medium")
         for provider in ("openai", "deepseek"):
             with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
                     "OCTOS_PROVIDER": provider, "OPENAI_BASE_URL": "http://localhost/v1"}, clear=True):
@@ -109,7 +109,7 @@ class ThinkingDefaultTests(unittest.TestCase):
                 self.assertEqual(config["gateway"]["reasoning_effort"], "low")
 
     def test_glm53_flash_defaults_medium_and_explicit_low_wins(self):
-        for override, expected in ((None, "medium"), ("low", "low"), ("high", "high")):
+        for override, expected in ((None, "medium"), ("low", "low"), ("medium", "medium")):
             environment = {"MODEL": "glm-5.3-flash", "OPENAI_BASE_URL": "http://localhost/v1"}
             if override is not None:
                 environment["OCTOS_ARC_REASONING"] = override

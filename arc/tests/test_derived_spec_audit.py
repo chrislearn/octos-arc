@@ -196,6 +196,29 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.record_full_suite(green, {})
         self.assertIsNone(self.flow.test_verdict[SHEET["id"]])
 
+    def test_entry_crawl_timeout_is_disputed_before_app_repair(self):
+        title = "entry [entry]"
+        self.path.write_text("test('entry [entry]', async ({ page }) => {\n"
+                             "  await h.expectReachable(page, 'Insert 1 column left');\n});\n")
+        self.flow.driver = object()
+        self.flow.wound_down = Mock(return_value=False)
+        self.flow.remaining = Mock(return_value=1000)
+        self.flow.final_phase_reserve = Mock(return_value=0)
+        self.flow.review_budget_spent = Mock(return_value=False)
+        self.flow.text_turn = Mock()
+        self.flow.flag_derived_spec_dispute = Mock()
+        policy = Mock(context="context")
+        self.flow.generated_test_policy = Mock(return_value=policy)
+        failed = RunSummary(passed=0, total=1, results=[TestOutcome(
+            title, False, "failed", 1, file=self.path.name,
+            message="Required control is not reachable within 3 navigation clicks")])
+        self.assertIsNone(self.flow.review_failed_derived_spec_with_model(
+            SHEET["id"], [self.path.name], failed))
+        self.assertEqual(policy.decide.call_args.args[2:4],
+                         (self.path.read_text(), "unresolved"))
+        self.flow.flag_derived_spec_dispute.assert_called_once()
+        self.flow.text_turn.assert_not_called()
+
     def test_each_scenario_needs_its_own_behavior_check(self):
         node = {"id": "REQ-2", "name": "Two outcomes", "description": "The page has controls “Open” and “Save”.",
                 "scenarios": [{"name": title, "steps": [
@@ -214,7 +237,8 @@ class FlowAuditTests(unittest.TestCase):
         self.assertTrue(self.flow.derived_review_needed("REQ-2"))
         self.flow.write_derived_coverage()
         report = json.loads((self.root / ".arc" / "derived-coverage.json").read_text())
-        self.assertEqual(report["totals"], {"scenarios": 2, "covered": 1, "missing": 1,
+        self.assertEqual(report["totals"], {"obligations": 0, "missing_obligations": 0,
+                                         "scenarios": 2, "covered": 1, "missing": 1,
                                          "disputed": 0, "semantic_contracts": 0,
                                          "missing_semantic_contracts": 0,
                                          "format_contracts": 0, "missing_format_contracts": 0,

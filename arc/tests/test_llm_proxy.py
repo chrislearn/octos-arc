@@ -73,7 +73,7 @@ class InjectTests(unittest.TestCase):
             self.assertEqual(json.loads(route_request(body, rules, 'implement', 'medium',
                                                       'derived scenario review'))['reasoning_effort'], 'medium')
             self.assertEqual(json.loads(route_request(body, rules, 'implement', 'low',
-                                                      'whole application implement'))['reasoning_effort'], 'low')
+                                                      'whole application implement'))['reasoning_effort'], 'medium')
         with patch.dict('os.environ', {'OCTOS_ARC_REASONING': 'none'}):
             routed = json.loads(route_request(body, rules, 'implement'))
             self.assertFalse(routed['enable_thinking'])
@@ -234,7 +234,7 @@ class TurnBudgetTests(unittest.TestCase):
         again = json.loads(enforce_turn_budget(json.dumps(out).encode(), 7, 6))
         self.assertEqual(sum(1 for m in again["messages"] if m.get("content") == BUDGET_NOTICE), 1)
 
-    def test_should_close_read_tools_late_in_a_no_write_structured_turn(self):
+    def test_should_keep_targeted_reads_late_in_a_no_write_structured_turn(self):
         tools = [{"type": "function", "function": {"name": name}}
                  for name in ("read_file", "grep", "edit_file", "write_file")]
         body = json.dumps({"messages": [
@@ -243,7 +243,7 @@ class TurnBudgetTests(unittest.TestCase):
             {"role": "tool", "tool_call_id": "r1", "content": "source"},
         ], "tools": tools}).encode()
         out = json.loads(force_write_decision(body, used=6, budget=8, elapsed=20))
-        self.assertEqual([t["function"]["name"] for t in out["tools"]], ["edit_file", "write_file"])
+        self.assertEqual([t["function"]["name"] for t in out["tools"]], ["read_file", "grep", "edit_file", "write_file"])
         self.assertEqual(out["messages"][-1]["content"], WRITE_DECISION_NOTICE)
 
     def test_should_keep_reads_before_threshold_or_after_a_write_attempt(self):

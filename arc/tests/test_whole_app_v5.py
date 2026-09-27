@@ -746,6 +746,33 @@ class WholeAppTests(unittest.TestCase):
         path.write_text('module.exports = [{ title: "Project ideas", content: "Draft" }];')
         self.assertEqual(flow.whole_app_wave_gaps(["REQ-SEED"]), [])
 
+    def test_real_route_gate_controls_the_no_spec_repair_branch(self):
+        from requirement_contracts import compile_contracts
+        flow = self.flow
+        flow.tests_dir = None
+        node = {"id": "A", "name": "Teams", "type": "ATOMIC", "description": "Show teams", "scenarios": []}
+        flow.requirement_contracts = compile_contracts([node])
+        flow.app_design_doc = {"pages": [{"path": "/orgs/:org/teams", "requirements": ["A"]}]}
+        path = self.root / 'frontend/src/OrganizationNavigation.jsx'
+        path.parent.mkdir(parents=True)
+        flow.codegen_implement_prompt = Mock(return_value='focused current source')
+        flow.codegen_turn = Mock(return_value=(False, 'incomplete'))
+        flow.whole_app_wave_targets = Mock(return_value=set())
+        flow.metric = Mock()
+        # Use the actual gate and repair dispatcher, not a mocked gaps list.
+        path.write_text('<Routes><Route element={<Org />} path="/orgs/:org"><Route element={<Teams />} path="teams" /></Route></Routes>')
+        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
+        flow.codegen_turn.assert_not_called()
+        path.write_text('<Routes>{dynamicRoutes}</Routes>')
+        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
+        flow.codegen_turn.assert_not_called()
+        self.assertTrue(any(c.kwargs.get('status') == 'unknown' for c in flow.metric.call_args_list))
+        path.write_text('<Routes><Route path="/orgs/:org" element={<Org />} /></Routes>')
+        gaps = flow.no_spec_feature_review(node, 10**12)
+        self.assertTrue(any('design page route missing' in gap for gap in gaps))
+        flow.codegen_turn.assert_called_once()
+        self.assertIn('requirement contract repair', flow.codegen_turn.call_args.args[2])
+
     def test_clean_no_spec_feature_review_costs_no_second_model_turn(self):
         from requirement_contracts import compile_contracts
         flow = self.flow
@@ -1750,7 +1777,7 @@ class CompletenessPassTests(WholeAppTests):
         self.flow.test_verdict = {"A": True, "B": True, "C": True}
         return self.nodes
 
-    def test_weak_leaves_receive_read_only_self_audit(self):
+    def test_weak_leaves_enter_recovery_but_remain_unverified_without_strong_oracles(self):
         flow = self.flow
         nodes = self._prepare()
         self.assertEqual(flow.weak_derived_leaves(nodes), ["A", "B", "C"])
@@ -1764,7 +1791,10 @@ class CompletenessPassTests(WholeAppTests):
         flow.suite_is_measured = Mock(return_value=True)
         flow.derived_completeness_pass(nodes)
         flow.turn.assert_not_called()
-        flow.run_specs.assert_not_called()
+        self.assertGreater(flow.run_specs.call_count, 0)
+        queue = json.loads((self.root / "diagnostics/recovery-queue.json").read_text())
+        self.assertEqual({row["node_id"] for row in queue}, {"A", "B", "C"})
+        self.assertTrue(all(row["status"] == "unverified" for row in queue))
         self.assertTrue((self.root / ".arc" / "review" / "source-self-audit.jsonl").is_file())
         flow.restore_app.assert_not_called()
 

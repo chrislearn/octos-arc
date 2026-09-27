@@ -1,3 +1,5 @@
+import os
+from unittest.mock import patch
 """Cloud fcec6ac02a95 (12306, 135/135, ¥119.68): 93% of the 1,154 requests and
 3.8 of 6.2 hours went to 32 tool-mode turns. 28 nodes got there because the
 codegen reply rewrote the page the spec is about, that page had not been quoted
@@ -140,6 +142,11 @@ class RefusalRetryTests(unittest.TestCase):
 
 
 class RepairFallbackTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"OCTOS_ARC_CODEGEN_CONTEXT_CHARS": "96000"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_should_rebuild_a_repair_through_the_budgeted_builder_when_the_patched_prompt_cannot_fit(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

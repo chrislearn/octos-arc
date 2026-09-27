@@ -330,6 +330,8 @@ assert.deepEqual(await requestJson('/api/items', {method: 'POST', body: {name: '
         dist = self.root / 'frontend/dist'
         dist.mkdir(parents=True)
         (dist / 'index.html').write_text('<main>SPA entry</main>')
+        (self.root / 'design').mkdir(exist_ok=True)
+        (self.root / 'design/routes.json').write_text(json.dumps({'pages': [{'path': '/files/:name'}]}))
         (dist / 'about.html').write_text('<main>Real about page</main>')
         env = dict(os.environ, PORT=str(port), ARC_EXTRA_PORTS='0')
         local = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -352,9 +354,12 @@ assert.deepEqual(await requestJson('/api/items', {method: 'POST', body: {name: '
             with local.open(urllib.request.Request(f'http://127.0.0.1:{port}/about',
                                                    headers={'Accept': 'text/html'})) as response:
                 self.assertIn('Real about page', response.read().decode())
-            for path in ('/api/unknown', '/missing.js'):
+            for path in ('/files/README.md', '/files/app.js', '/files/image.png'):
+                with local.open(urllib.request.Request(f'http://127.0.0.1:{port}{path}', headers={'Accept': 'text/html'})) as response:
+                    self.assertIn('SPA entry', response.read().decode())
+            for path in ('/api/unknown', '/missing.js', '/assets/missing.js', '/static/missing.css'):
                 with self.assertRaises(urllib.error.HTTPError) as error:
-                    local.open(f'http://127.0.0.1:{port}{path}')
+                    local.open(urllib.request.Request(f'http://127.0.0.1:{port}{path}', headers={'Accept': 'text/html'}))
                 self.assertEqual(error.exception.code, 404)
                 error.exception.close()
         finally:

@@ -606,10 +606,19 @@ def _entry_script(parsed: "_Scenario", node_text: str, context: str,
     # A control name is a few words; a quoted sentence next to "dialog"/"button"
     # is a message ("A workbook must contain at least one worksheet") that only
     # a failed action shows, never something to reach on the happy path.
+    bindings = _ui_bindings(node_text)
     controls = list(dict.fromkeys(
-        name for name in (literal_prefix(item["name"]) for item in _ui_bindings(node_text))
-        if name and name != entry and name not in values and len(name.split()) <= 4
-        and not _descriptive(name)))[:4]
+        name for item in bindings if item["role"] not in {"menu", "menuitem", "option"}
+        if (name := literal_prefix(item["name"])) and name != entry and name not in values
+        and len(name.split()) <= 4 and not _descriptive(name)))[:4]
+    # A menu named in the requirement is not reachable by a crawl of ordinary
+    # clicks when its documented trigger is a row/column-header right click.
+    header = ("A" if re.search(r"\bcolumn[- ]header menu\b", node_text, re.I) else
+              "1" if re.search(r"\brow[- ]header menu\b", node_text, re.I) else None)
+    menu_controls = list(dict.fromkeys(
+        name for item in bindings if item["role"] in {"menu", "menuitem"}
+        if (name := literal_prefix(item["name"])) and len(name.split()) <= 5
+        and not _descriptive(name)))[:4] if header else []
     lines = [f"  await h.clickNamed(page, {_ts(entry)});"]
     if parsed.setup_cells:
         # Starting values the resolved GIVEN moves out of the seed: the user enters them.
@@ -622,8 +631,11 @@ def _entry_script(parsed: "_Scenario", node_text: str, context: str,
     lines += [f"  await h.expectCell(page, {_ts(cell)}, {_ts(value)});" for cell, value in cells]
     lines += [f"  await h.expectRole(page, {_ts(role)}, {_ts(name)});" for role, name in aria]
     lines += [f"  await h.expectReachable(page, {_ts(name)});" for name in controls]
+    if menu_controls:
+        lines.append(f"  await h.contextClickHeader(page, {_ts(header)});")
+        lines += [f"  await h.expectReachable(page, {_ts(name)});" for name in menu_controls]
     key = ("entry", parsed.signed_in, entry, tuple(parsed.setup_cells), tuple(values), tuple(cells), tuple(aria),
-           tuple(controls))
+           tuple(controls), header, tuple(menu_controls))
     return lines, key
 
 

@@ -531,63 +531,10 @@ def _strip_js_comments(source):
     return ''.join(out)
 
 
-def _route_tags(source):
-    """Yield (kind, top_level_text) for <Route ...>, <Route .../> and </Route>.
-
-    JSX attributes such as element={<Page />} contain '>' characters, so the
-    tag end is found at brace depth zero instead of the first '>'.
-    """
-    for match in re.finditer(r'<Route\b|</Route\s*>', source):
-        if match.group(0).startswith('</'):
-            yield 'close', ''
-            continue
-        depth, quote, i, top = 0, None, match.end(), []
-        while i < len(source):
-            char = source[i]
-            if quote:
-                if char == quote:
-                    quote = None
-                if depth == 0:
-                    top.append(char)
-            elif char in '"\'' and depth == 0:
-                quote = char
-                top.append(char)
-            elif char == '{':
-                depth += 1
-            elif char == '}':
-                depth = max(0, depth - 1)
-            elif char == '>' and depth == 0:
-                break
-            elif depth == 0:
-                top.append(char)
-            i += 1
-        text = ''.join(top)
-        yield ('self' if text.rstrip().endswith('/') else 'open'), text
-
-
 def nested_route_paths(source):
-    """Absolute paths of React Router routes, composing relative children."""
-    paths, stack = set(), ['']
-    for kind, text in _route_tags(source):
-        if kind == 'close':
-            if len(stack) > 1:
-                stack.pop()
-            continue
-        declared = re.search(r'''\bpath\s*=\s*['"]([^'"\n]+)['"]''', text)
-        parent = stack[-1]
-        if declared:
-            value = declared.group(1)
-            full = value if value.startswith('/') else parent.rstrip('/') + '/' + value
-            paths.add(full)
-        else:
-            full = parent
-            # A pathless layout preserves its parent's URL. Its index child
-            # is the concrete route at that URL (including the root URL).
-            if re.search(r'\bindex\b', text):
-                paths.add(full or '/')
-        if kind == 'open':
-            stack.append(full)
-    return paths
+    """Literal registrations from the same index used by the wave gate."""
+    from route_evidence import frontend_route_index
+    return {row['path'] for row in frontend_route_index({'frontend/routes.jsx': source})['declarations']}
 
 
 def route_conflict_warnings(sources, changed):
@@ -627,11 +574,8 @@ def route_link_warnings(sources, changed):
     catches the common case where a generated list links to a detail page that
     was written but never registered in the route table.
     """
-    route_paths = set()
-    for path, source in sources.items():
-        if path.startswith('frontend/') and path.endswith(('.jsx', '.tsx')):
-            route_paths.update(re.findall(r'''<Route\b[^>]*\bpath\s*=\s*['"]([^'"\n]+)['"]''', source))
-            route_paths.update(nested_route_paths(source))
+    from route_evidence import frontend_route_index
+    route_paths = {row['path'] for row in frontend_route_index(sources)['declarations']}
     if not route_paths:
         return []
     def segments(value):

@@ -37,7 +37,7 @@ def browser_health(root: Path, base_url: str, destination: Path, *, paths=None,
     """Independent fresh-browser reproduction; never executes business spec code."""
     destination.mkdir(parents=True, exist_ok=True)
     config = {"module": str(root / "node_modules" / "@playwright" / "test"),
-              "baseURL": base_url, "paths": paths or ["/"], "destination": str(destination)}
+              "baseURL": base_url, "paths": paths or ["/"], "destination": str(destination), "budgetMs": max(1, timeout - 2) * 1000}
     started = time.monotonic()
     try:
         process = subprocess.Popen(["node", str(Path(__file__).with_name("browser_health.cjs"))],

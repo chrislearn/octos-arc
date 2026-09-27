@@ -11,6 +11,8 @@ order and which literal is the assertion; it cannot invent controls or data.
 """
 from __future__ import annotations
 
+from quality_control import valid_json_schema
+
 import hashlib
 import csv
 import io
@@ -24,7 +26,8 @@ from scenario_tests import (Fixtures, spec_header, _ANY_LITERAL, _compile_scenar
 
 OPS = {"open", "click", "hover", "fill", "check", "press", "reload", "sign_in", "expect_sign_in_rejected", "set_clipboard", "expect_visible", "expect_absent",
        "cell_click", "cell_type", "expect_cell", "expect_role", "upload", "expect_download",
-       "expect_clipboard", "cell_context", "header_context", "expect_selected", "watch_response", "expect_response"}
+       "expect_input_value", "select_option", "drag", "upload_fixture", "expect_count", "expect_attribute",
+       "snapshot_response", "expect_response_unchanged", "expect_clipboard", "cell_context", "header_context", "expect_selected", "watch_response", "expect_response"}
 HEADER = re.compile(r"^(?:[1-9][0-9]{0,4}|[A-Z]{1,3})$")
 # "open the home page" needs no literal: it is the application root.
 HOME_TARGET = re.compile(r"^(?:the\s+)?(?:application\s+|app\s+|workbook\s+)?home(?:\s*page)?$", re.I)
@@ -144,13 +147,16 @@ KEYS = {"Enter", "Escape", "Tab", "Delete", "Backspace", "ArrowUp", "ArrowDown",
         "Home", "End", "PageUp", "PageDown", "Shift+Enter", "Shift+Tab", "Control+Enter", "Control+C", "Control+V",
         "Control+X", "Control+Z", "Control+Y", "Control+A"}
 MIN_CONFIDENCE = 0.5
-MAX_STEPS = 20
+MAX_STEPS = 60
 
 SYSTEM = ("You convert product requirement scenarios into short browser check scripts. "
           "Reply with one JSON object only; no prose, no markdown.")
 
 DSL = """Independent branches may use {"id":..., "title":..., "cases":[{"signed_in":false,"confidence":0.9,"steps":[...]}, ...]}.
-At most 8 cases per scenario and 20 steps per case (24 for an explicit CSV import format contract).
+At most 8 cases per scenario and 60 steps per case for all formats; separate setup/action/assertion phases.
+Optional test_data maps $DATA_NAME to {"type":"string"|"number"|"boolean","value":...}.
+Use these deterministic values for new records and boundary inputs; they are test-generated, not official product labels.
+Never use test_data to invent control labels, product error text, HTTP contracts or expected derived calculations.
 Every case starts with a fresh reset/browser;
 never rely on state from another case. Keep all required positive/negative outcomes across the cases.
 If using cases, do not also supply steps or skip. Case titles are assigned by the harness.
@@ -161,6 +167,11 @@ Operations (use only these):
   {"op": "click", "target": L}           click the control named L
   {"op": "hover", "target": L}           hover the seeded record or named control L before opening its actions
   {"op": "fill", "target": L, "value": V} type V into the field labelled L
+  {"op": "expect_input_value", "target": L, "value": V} assert the exact labelled input value, not nearby text
+  {"op": "select_option", "target": L, "value": V} select an actual named option in a labelled native select
+  {"op": "snapshot_response", "target": API_PATH, "key": "before"} save the watched successful JSON response
+  {"op": "expect_response_unchanged", "target": API_PATH, "key": "before"} compare a NEW successful watched response
+      to the snapshot after rejection/reload; watch_response and trigger a fresh read before this check
   {"op": "check", "target": L}           check the checkbox named L
   {"op": "press", "key": "Enter"}        press a key: Enter, Escape, Tab, Delete, Backspace, Arrow keys,
                                          Home, End, Shift+Enter, Shift+Tab, Control+C/V/X/Z/Y/A, Control+Enter
@@ -222,6 +233,19 @@ $CSV; after import, assert the file-derived workbook name with $CSV_NAME, not $N
 If the import requirement promises quoted commas, escaped quotes, multiline fields and UTF-8,
 use $CSV_FORMAT and verify every cell of its two rows (A1:F2) after import, then reload and
 recheck A1, D1 and E2. Its file-derived name is $CSV_FORMAT_NAME.
+expect_response and expect_download accept schema (type/enum/required/properties/items/additionalProperties)
+and exact_json for strict JSON equality including null/false/0/empty values. JSON object key order is irrelevant.
+expect_download also accepts exact_text for byte-decoded UTF-8 content comparison. These expected contracts must
+come from original requirements or an independently computed example, never the application's output.
+Unsupported schema keywords are rejected, not ignored.
+Additional supported operations:
+  {"op":"drag","target":L,"destination":L} uses a real pointer drag between unique exact text targets.
+  {"op":"expect_count","role":"row","target":L,"count":2} counts exact accessible-role/name matches.
+  {"op":"expect_attribute","role":"tab","target":L,"attribute":"aria-selected","value":"true"}
+      checks state on one unique named control; allowed attributes aria-selected/checked/expanded/disabled, disabled, data-status.
+  {"op":"upload_fixture","target":L,"filename":"sample.json","mime":"application/json","content":"..."}
+      supplies constructed UTF-8 data for a format grounded in the original requirement. Pair with parsed-state assertions.
+Every expected attribute/count/file format must be supported by the original requirement and independently audited.
 Export uses expect_download on the control that triggers it.
 If export explicitly promises CSV escaping, row order or empty fields, first import a known CSV
 fixture when the product provides import, then use csv_rows:$UPLOADED_CSV in expect_download.
@@ -427,7 +451,8 @@ def semantic_contract_evidence(source: str, title: str, kind: str) -> bool:
 
 
 def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mapping[str, str] | None = None,
-                   shared: str = "", *, include_all: bool = False, dependency_tree: Mapping | None = None) -> list[dict]:
+                   shared: str = "", *, include_all: bool = False, dependency_tree: Mapping | None = None,
+                   canonical_cells: Mapping[tuple[str, str], str] | None = None) -> list[dict]:
     """Scenario plans with requirement-grounded literals and controls.
 
     The legacy default selects unscripted scenarios. The no-official-spec
@@ -472,6 +497,10 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                 continue
             seen_steps.add(signature)
             parsed = _compile_scenario(scenario, fixtures, node_text)
+            workbook = next((value for kind, value in parsed.seed_kinds
+                             if re.search(r"\bworkbook\b", kind, re.I)), "")
+            seed_cells = {ref: value for (owner, ref), value in (canonical_cells or {}).items()
+                          if owner == workbook}
             actions = [a for a in parsed.actions if not a.startswith("await h.signIn(")]
             scripted = parsed.compiled and not parsed.generic and bool(actions) and (
                 bool(parsed.assertions) or not parsed.failure_path)
@@ -511,6 +540,7 @@ def review_targets(leaves: Iterable[Mapping], fixtures: Fixtures, context: Mappi
                             "required_then_literal": (novel_outcomes[0] if include_all
                                                       and len(novel_outcomes) == 1 else ""),
                             "seed_kinds": parsed.seed_kinds,
+                            "seed_cells": seed_cells, "seed_workbook": workbook,
                             "setup_cells": [cell for step in scenario.get("steps") or []
                                             if str(step.get("keyword") or "").upper() == "GIVEN"
                                             for cell in setup_cells(str(step.get("content") or ""))],
@@ -631,7 +661,12 @@ def transition_contract(target: Mapping) -> dict:
     description = str(target.get("description") or "")
     templated_action = bool(re.search(r"requested workflow|visible controls", when, re.I))
     templated_outcome = bool(re.search(r"observable result for.*requested workflow", then, re.I))
-    action = description if templated_action else when
+    # A generic WHEN cannot turn a read-only scenario into a mutation merely
+    # because its description mentions edits elsewhere. Leave ambiguous cases
+    # to semantic review rather than imposing an invented commit button.
+    action = when
+    if templated_action and not re.search(r"\b(view|open|display|inspect|read|browse)\w*\b", str(target.get("title", "")), re.I):
+        action = description
     outcome = description if templated_outcome else then
     candidates = []
     for name, action_words, result_words in (
@@ -766,8 +801,12 @@ def proposal_transition_problems(steps: list, target: Mapping) -> list[str]:
             return op == "expect_absent" and value in outcome_values
         if selection and op == "expect_selected":
             return bool(selected_target and value == selected_target)
-        if op == "expect_cell":
+        if op in {"expect_cell", "expect_input_value"}:
             return str(item.get("value")) in outcome_values
+        if op in {'expect_attribute', 'expect_count'}:
+            return True  # candidate only; independent review must ground the specific state/count
+        if op == 'expect_response' and type(item.get('status')) is int and 200 <= item['status'] < 300:
+            return 'exact_json' in item or bool(item.get('json'))
         if op in {"expect_visible", "expect_role"}:
             return value in outcome_values and value not in seeded and value not in controls
         return False
@@ -779,6 +818,10 @@ def proposal_transition_problems(steps: list, target: Mapping) -> list[str]:
                  and str(item.get("target") or "") in typed - seeded for _, item in assertions)
                 and any(item.get("op") in {"expect_visible", "expect_role"}
                         and str(item.get("target") or "") not in controls for _, item in assertions))
+    negative = negative or (any(item.get('op') == 'expect_response_unchanged' for _, item in assertions)
+        and any((item.get('op') == 'expect_response' and type(item.get('status')) is int and 400 <= item['status'] <= 499)
+                or (item.get('op') == 'expect_visible' and item.get('target') not in controls | seeded)
+                for _, item in assertions))
     if not positive and not negative:
         return [f"{kind} scenario needs a post-commit assertion of the created, changed, or removed state; "
                 "an entry control, pre-existing seed, or toast alone is insufficient"]
@@ -840,10 +883,19 @@ def source_transition_evidence(source: str, title: str, target: Mapping) -> bool
         elif kind != "delete" and name in {"expectTextsVisible", "expectRole"} and any(
                 value in args and value not in seeded and value not in clicked for value in outcome):
             positive.append(position)
-        elif kind != "delete" and name == "expectCell" and any(value in args for value in outcome):
+        elif kind != "delete" and name in {"expectCell", "expectInputValue"} and any(value in args for value in outcome):
+            positive.append(position)
+        elif kind != 'delete' and name in {'expectNamedAttribute', 'expectNamedCount'}:
+            positive.append(position)
+        elif kind != 'delete' and name == 'expectResponse' and re.search(r',\s*2[0-9]{2}\s*,', args) and (
+                '"exact_json"' in args or re.search(r',\s*2[0-9]{2}\s*,\s*\{\s*"', args)):
             positive.append(position)
         elif kind == "create" and name == "expectAbsent" and any(value in args for value in typed - seeded):
             negative = True
+    if any(name == 'expectResponseUnchanged' for i, name, _ in calls if i > commit) and any(
+            (name == 'expectResponse' and re.search(r",\s*4[0-9]{2}\s*,", args)) or name in {'expectTextsVisible', 'expectRole'}
+            for i, name, args in calls if i > commit):
+        return True  # semantic review still verifies the specific rejection and unchanged business fields
     if not positive and not (negative and any(name in {"expectTextsVisible", "expectRole"}
                                            for i, name, _ in calls if i > commit)):
         return False
@@ -934,12 +986,12 @@ def positive_contract_evidence(source: str, title: str, literal: str) -> bool:
     action = re.search(r"await h\.(?!expect|openHome\(|signIn\()\w+\(", block)
     if not action:
         return False
-    for match in re.finditer(r"await h\.(expectTextsVisible|expectRole|expectIdentity|expectCell)\((.*?)\);", block, re.S):
+    for match in re.finditer(r"await h\.(expectTextsVisible|expectRole|expectIdentity|expectCell|expectInputValue)\((.*?)\);", block, re.S):
         if match.start() <= action.start() or _ts(literal) not in match.group(2):
             continue
         if match.group(1) == "expectIdentity" and re.search(r",\s*false\s*$", match.group(2)):
             continue
-        if match.group(1) == "expectCell" and not match.group(2).rstrip().endswith(_ts(literal)):
+        if match.group(1) in {"expectCell", "expectInputValue"} and not match.group(2).rstrip().endswith(_ts(literal)):
             continue
         return True
     return False
@@ -983,6 +1035,9 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                  'expect_response {target:path,status:integer,json:optional-object-subset} afterward supplement UI assertions. '
                  'Only declared API paths are allowed; expected status/body must follow the branch requirement.')
     for target in targets:
+        if target.get('obligations'):
+            parts.append("\nSOURCE-GROUNDED OBLIGATIONS (cover independent branches in separate cases): "
+                         + json.dumps(target['obligations'], ensure_ascii=False))
         if target.get("api_contracts"):
             parts.append("\nDECLARED API CONTRACTS: " + json.dumps(target["api_contracts"], ensure_ascii=False))
         if target.get("origin") == "baseline_invariant":
@@ -992,6 +1047,9 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                          "; signed_in=false. Do not register an account or assert an invented error message.")
         parts.append(f"\n### [{target['id']}] {target['title']}\nRequirement {target['node_id']} ({target['name']}): "
                      f"{target['description']}\n" + "\n".join(target["steps"]) +
+                     ("\nCANONICAL SEED CELLS (before scenario setup; preserve row coordinates through edits): "
+                      + json.dumps(target["seed_cells"], ensure_ascii=False, sort_keys=True)
+                      if target.get("seed_cells") else "") +
                      "\nALLOWED LITERALS: " + json.dumps(target["allowed"], ensure_ascii=False)
                      + "\nDEPENDENCY LITERALS (value -> requirement IDs): "
                      + json.dumps(target.get("dependency_literals") or {}, ensure_ascii=False)
@@ -1048,8 +1106,17 @@ def _emit(step: dict) -> str | None:
     if step["op"] == "watch_response":
         return f"await h.watchResponse(page, {_ts(step['target'])}, {_ts(step['method'])});"
     if step["op"] == "expect_response":
-        return f"await h.expectResponse(page, {_ts(step['target'])}, {step['status']}, {json.dumps(step.get('json', {}), ensure_ascii=False)});"
+        contract = {k: step[k] for k in ('schema', 'exact_json') if k in step}
+        return f"await h.expectResponse(page, {_ts(step['target'])}, {step['status']}, {json.dumps(step.get('json', {}), ensure_ascii=False)}, {json.dumps(contract, ensure_ascii=False)});"
     op, target = step.get("op"), step.get("target")
+    if op == 'drag':
+        return f"await h.dragNamed(page, {_ts(target)}, {_ts(step['destination'])});"
+    if op == 'expect_count':
+        return f"await h.expectNamedCount(page, {_ts(step['role'])}, {_ts(target)}, {step['count']});"
+    if op == 'expect_attribute':
+        return f"await h.expectNamedAttribute(page, {_ts(step['role'])}, {_ts(target)}, {_ts(step['attribute'])}, {_ts(step['value'])});"
+    if op == 'upload_fixture':
+        return f"await h.uploadFile(page, {_ts(target)}, {_ts(step['content'])}, {_ts(step['filename'])}, {_ts(step['mime'])});"
     if op == "open":
         if HOME_TARGET.match(str(target).strip()):
             return "await h.openHome(page);"
@@ -1058,6 +1125,14 @@ def _emit(step: dict) -> str | None:
         return f"await h.clickNamed(page, {_ts(target)});"
     if op == "hover":
         return f"await h.hoverNamed(page, {_ts(target)});"
+    if op == "expect_input_value":
+        return f"await h.expectInputValue(page, {_ts(target)}, {_ts(str(step.get('value')))});"
+    if op == "select_option":
+        return f"await h.selectOption(page, {_ts(target)}, {_ts(str(step.get('value')))});"
+    if op == "snapshot_response":
+        return f"await h.snapshotResponse(page, {_ts(target)}, {_ts(step['key'])});"
+    if op == "expect_response_unchanged":
+        return f"await h.expectResponseUnchanged(page, {_ts(target)}, {_ts(step['key'])});"
     if op == "fill":
         return f"await h.fillField(page, {_ts(target)}, {_ts(str(step.get('value')))});"
     if op == "reload":
@@ -1103,7 +1178,10 @@ def _emit(step: dict) -> str | None:
     if op == "expect_download":
         content = step.get("contains") or []
         rows = step.get("csv_rows")
-        exact = ", " + json.dumps(rows, ensure_ascii=False) if isinstance(rows, list) else ""
+        contract = {k: step[k] for k in ('schema', 'exact_json', 'exact_text') if k in step}
+        exact = ", " + (json.dumps(rows, ensure_ascii=False) if isinstance(rows, list) else "undefined") if contract or isinstance(rows, list) else ""
+        if contract:
+            exact += ", " + json.dumps(contract, ensure_ascii=False)
         return (f"await h.expectDownload(page, {_ts(target)}, {_ts(str(step.get('value')))}, "
                 f"[{', '.join(_ts(item) for item in content)}]{exact});")
     if op == "expect_clipboard":
@@ -1161,9 +1239,103 @@ def signed_out_entry_transition(steps: list, index: int, step: Mapping, target: 
         for item in prior[:ended_at]))
 
 
+def _seeded_column_oracle_problems(steps: list, target: Mapping) -> list[str]:
+    """Reject assertions contradicted by a known seed after a column edit.
+
+    The generated case may choose a column, but inserting one cannot move a
+    seeded value to a different row. This check uses only placed seed cells;
+    unknown cells and formula results remain outside its oracle.
+    """
+    cells = {str(ref): str(value) for ref, value in (target.get("seed_cells") or {}).items()}
+    if not cells:
+        return []
+    header: str | None = None
+    shifted = False
+    problems: list[str] = []
+    column_actions = {"Insert 1 column left", "Insert 1 column right", "Delete column"}
+    for index, step in enumerate(steps):
+        if not isinstance(step, Mapping):
+            continue
+        op = step.get("op")
+        ref = str(step.get("target") or "").strip().upper()
+        # After an unrelated action, the seeded grid may have changed in ways
+        # this narrow column model cannot prove. Keep already found errors.
+        if (shifted and op not in {"expect_cell", "expect_visible", "expect_absent", "reload", "header_context"}
+                and not (op == "click" and header and step.get("target") in column_actions)):
+            break
+        known_entry = (op == "click" and not shifted and index == 0
+                       and step.get("target") == target.get("seed_workbook"))
+        column_click = op == "click" and header and step.get("target") in column_actions
+        if (op not in {"cell_type", "header_context", "expect_cell", "expect_visible", "expect_absent", "reload"}
+                and not known_entry and not column_click
+                and not (op == "press" and step.get("key") == "Enter")):
+            break
+        if op == "cell_type" and CELL.fullmatch(ref):
+            cells[ref] = str(step.get("value") or "")
+        elif op == "header_context":
+            header = ref if re.fullmatch(r"[A-Z]+", ref) else None
+        elif op == "click" and header and step.get("target") in column_actions:
+            action = step["target"]
+            at = 0
+            for char in header:
+                at = at * 26 + ord(char) - 64
+            moved: dict[str, str] = {}
+            for cell, value in cells.items():
+                match = re.fullmatch(r"([A-Z]+)([1-9]\d*)", cell)
+                if not match:
+                    continue
+                column = 0
+                for char in match.group(1):
+                    column = column * 26 + ord(char) - 64
+                if action == "Delete column" and column == at:
+                    continue
+                if ((action == "Insert 1 column left" and column >= at)
+                        or (action == "Insert 1 column right" and column > at)):
+                    column += 1
+                elif action == "Delete column" and column > at:
+                    column -= 1
+                letters = ""
+                while column:
+                    column, digit = divmod(column - 1, 26)
+                    letters = chr(65 + digit) + letters
+                moved[letters + match.group(2)] = value
+            cells = moved
+            shifted = True
+            header = None
+        elif op == "expect_cell" and shifted and ref in cells:
+            known = cells[ref]
+            claimed = str(step.get("value") or "")
+            if known and not known.startswith("=") and claimed != known:
+                problems.append(f"step {index}: after the column operation seeded {ref} should be "
+                                f"{known!r}, not {claimed!r}; preserve its original row")
+    return problems
+
+
+def generated_values(proposal: Mapping) -> dict[str, str]:
+    data = proposal.get("test_data", {})
+    if not isinstance(data, dict) or len(data) > 24:
+        raise ValueError("test_data must be an object with at most 24 named values")
+    result = {}
+    for key, item in data.items():
+        if not re.fullmatch(r"\$DATA_[A-Z0-9_]{1,40}", str(key)) or not isinstance(item, dict):
+            raise ValueError("test data keys must be $DATA_NAME objects")
+        value, kind = item.get("value"), item.get("type")
+        valid = ((kind == "string" and isinstance(value, str)) or
+                 (kind == "number" and type(value) in (int, float) and __import__('math').isfinite(value)) or
+                 (kind == "boolean" and type(value) is bool))
+        if not valid or len(str(value)) > 4096:
+            raise ValueError("test data requires a finite typed string/number/boolean value <=4096 characters")
+        result[key] = value if isinstance(value, str) else json.dumps(value)
+    return result
+
+
 def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) -> list[str]:
     """Every rule the proposal breaks, worded so the model can fix it."""
     problems: list[str] = []
+    try:
+        data_values = generated_values(proposal)
+    except ValueError as exc:
+        return [str(exc)]
     if proposal.get("validator_dispute"):
         dispute = proposal["validator_dispute"]
         if (isinstance(dispute, dict) and isinstance(dispute.get("requirement_quote"), str)
@@ -1185,17 +1357,19 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return problems + ["unverified GIVEN actor: " + str(target["actor_precondition"])]
     if not isinstance(steps, list) or not steps:
         return problems + ["no steps"]
+    problems.extend(_seeded_column_oracle_problems(steps, target))
     explicit_phases = any(isinstance(step, dict) and "phase" in step for step in steps)
     if explicit_phases:
         if any(step.get("phase") not in {"setup", "action", "assertion"} for step in steps if isinstance(step, dict)):
             problems.append("every step needs setup/action/assertion phase when phases are used")
         action_indices = [i for i, step in enumerate(steps) if isinstance(step, dict) and step.get("phase") == "action"
-                          and step.get("op") not in {"open", "reload", "hover", "watch_response"}
+                          and step.get("op") not in ({"open", "reload", "hover", "watch_response"}
+                              if transition_contract(target)['kind'] else {"hover", "watch_response", "snapshot_response"})
                           and not str(step.get("op", "")).startswith("expect_")]
         if not action_indices or not any(i > min(action_indices) and step.get("phase") == "assertion"
                 and str(step.get("op", "")).startswith("expect_") for i, step in enumerate(steps) if isinstance(step, dict)):
             problems.append("setup-only scripts have no behavior credit; require action then outcome assertion")
-    max_steps = max(24, sum(len(row) for row in CSV_FORMAT_ROWS) + 12) if csv_format_contract(target) else MAX_STEPS
+    max_steps = MAX_STEPS
     if len(steps) > max_steps:
         problems.append(f"{len(steps)} steps; at most {max_steps}")
     if target.get("invariant_credentials"):
@@ -1231,6 +1405,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         if "/" in seed and seed.count("/") <= 3:
             allowed |= {part.strip() for part in seed.split("/") if len(part.strip()) >= 3}
     controls = allowed | set(target.get("controls") or [])
+    allowed |= set(data_values)
 
     def is_control(value: object) -> bool:
         """A control the requirement names anywhere, or a composed name such
@@ -1266,18 +1441,61 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         r"\bAfter\b[^.]{0,600}?\bclicks?\s+[“\"]([^”\"]+)[”\"][^.]{0,600}?Verification code",
         str(target.get("description") or ""), re.I)
     for index, step in enumerate(steps, 1):
-        if not isinstance(step, dict) or step.get("op") not in OPS:
+        if not isinstance(step, dict) or not isinstance(step.get('op'), str) or step.get("op") not in OPS:
             problems.append(f"step {index}: unknown op {json.dumps(step.get('op') if isinstance(step, dict) else step)}; "
                             f"use one of {sorted(OPS)}")
             continue
         op = step["op"]
-        if op in {"watch_response", "expect_response"}:
+        if op in {'drag', 'expect_count', 'expect_attribute', 'upload_fixture'}:
+            if not is_control(step.get('target')):
+                problems.append(f"step {index}: target must be a requirement-grounded name")
+            if op == 'drag' and not is_control(step.get('destination')):
+                problems.append(f"step {index}: drag destination must be a requirement-grounded name")
+            if op in {'expect_count', 'expect_attribute'} and (not isinstance(step.get('role'), str) or step.get('role') not in ROLES):
+                problems.append(f"step {index}: invalid accessible role")
+            if op == 'expect_count' and (type(step.get('count')) is not int or not 0 <= step['count'] <= 10000):
+                problems.append(f"step {index}: count must be a bounded nonnegative integer")
+            if op == 'expect_attribute' and (step.get('attribute') not in (
+                    'aria-selected', 'aria-checked', 'aria-expanded', 'aria-disabled', 'disabled', 'data-status')
+                    or not isinstance(step.get('value'), str)):
+                problems.append(f"step {index}: attribute must be an explicit supported state attribute")
+            if op == 'upload_fixture':
+                if not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}', str(step.get('filename', ''))):
+                    problems.append(f"step {index}: invalid fixture filename")
+                if not re.fullmatch(r'[a-z0-9.+-]+/[a-z0-9.+-]+', str(step.get('mime', ''))):
+                    problems.append(f"step {index}: invalid fixture MIME type")
+                if not isinstance(step.get('content'), str) or len(step['content']) > 32000:
+                    problems.append(f"step {index}: fixture content must be a UTF-8 string up to 32000 characters")
+            asserted = asserted or op.startswith('expect_')
+            continue
+        if 'schema' in step and (op not in {'expect_response', 'expect_download'} or not valid_json_schema(step['schema'])):
+            problems.append(f"step {index}: unsupported JSON schema; use type/enum/required/properties/items/additionalProperties")
+        if 'exact_text' in step and (op != 'expect_download' or not isinstance(step['exact_text'], str)):
+            problems.append(f"step {index}: exact_text must be a string download oracle")
+        if any(len(json.dumps(step.get(key), ensure_ascii=False)) > 12000 for key in ('schema', 'exact_json', 'exact_text')):
+            problems.append(f"step {index}: format oracle exceeds 12000 characters")
+        if op in {"watch_response", "expect_response", "snapshot_response", "expect_response_unchanged"}:
             route = step.get("target")
             declared = [r for r in target.get("api_contracts", []) if r.get("path") == route]
             if not declared:
                 problems.append(f"step {index}: response path must have a declared API contract")
             if op == "watch_response" and not any(r.get("method") == step.get("method") for r in declared):
                 problems.append(f"step {index}: response method must match the declared route")
+            if op in {"snapshot_response", "expect_response_unchanged"}:
+                if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,39}", str(step.get("key", ""))):
+                    problems.append(f"step {index}: snapshot key must be a short identifier")
+                earlier = steps[:index - 1]
+                snapshots = [i for i, s in enumerate(earlier) if isinstance(s, dict)
+                             and s.get("op") == "snapshot_response" and s.get("key") == step.get("key")
+                             and s.get("target") == route]
+                if op == "expect_response_unchanged" and not snapshots:
+                    problems.append(f"step {index}: unchanged assertion requires a prior same-route snapshot")
+                after = snapshots[-1] + 1 if op == "expect_response_unchanged" and snapshots else 0
+                watchers = [s for s in earlier[after:] if isinstance(s, dict) and
+                            s.get('op') == 'watch_response' and s.get('target') == route]
+                if not watchers or watchers[-1].get('method') != 'GET':
+                    problems.append(f"step {index}: snapshot requires a fresh watched GET response")
+                asserted = asserted or op == "expect_response_unchanged"
             if op == "expect_response":
                 earlier = steps[:index - 1]
                 if not any(s.get("op") == "watch_response" and s.get("target") == route for s in earlier if isinstance(s, dict)):
@@ -1527,8 +1745,12 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         elif not isinstance(value, str) or not (value.strip() in allowed or (placeholder_ok and value.strip() in PLACEHOLDERS)):
             problems.append(f"step {index}: {op} target {json.dumps(value, ensure_ascii=False)} is not an allowed literal"
                             + ("" if placeholder_ok else " (placeholders are not control names)"))
-        if op == "fill":
+        if op in {"fill", "expect_input_value", "select_option"}:
             typed = step.get("value")
+            if isinstance(value, str) and value.startswith('$DATA_'):
+                problems.append(f"step {index}: test data cannot invent a control label")
+            if op == 'select_option' and isinstance(typed, str) and typed.startswith('$DATA_'):
+                problems.append(f"step {index}: selectable enum must be grounded in the product contract")
             if typed == "$CSV_NAME":
                 problems.append(f"step {index}: $CSV_NAME is derived from the upload and cannot be filled")
             if typed == "$CSV_FORMAT_NAME":
@@ -1623,7 +1845,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     else:
         first_effect = next((index for index, step in enumerate(steps)
                              if isinstance(step, dict) and step.get("op") in {
-                                 "click", "fill", "check", "press", "reload", "sign_in", "cell_type", "upload"}), None)
+                                 "click", "fill", "check", "press", "reload", "sign_in", "cell_type", "upload", "upload_fixture", "drag", "select_option"}), None)
         required_outcome = target.get("required_then_literal")
         cancel_branch = (any(isinstance(step, dict) and step.get("op") == "click"
                              and re.fullmatch(r"cancel", str(step.get("target") or ""), re.I)
@@ -1670,7 +1892,8 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             seeded_lower |= {part.lower() for part in seed_parts(seed)}
 
         def is_evidence(index: int, step: dict) -> bool:
-            if step.get("op") in {"expect_cell", "expect_role", "expect_download"}:
+            if step.get("op") in {"expect_cell", "expect_role", "expect_download", "expect_input_value",
+                                  "expect_count", "expect_attribute", "expect_response", "expect_response_unchanged"}:
                 return True
             shown = str(step.get("target") or "").strip().lower()
             if signed_out_entry_transition(steps, index, step, target, bool(proposal.get("signed_in"))):
@@ -1762,9 +1985,13 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
         return None
     lines: list[str] = []
     scope = str(target["title"])
+    data_values = generated_values(proposal)
     active_csv_rows: list[list[str]] | None = None
     for step_index, original_step in enumerate(proposal["steps"]):
         step = dict(original_step)
+        for field in ("target", "value"):
+            if isinstance(step.get(field), str) and step[field] in data_values:
+                step[field] = data_values[step[field]]
         if step["op"] == "upload":
             step["csv"] = ('Region,"unterminated\n' if step.get("value") == "$INVALID_CSV"
                            else csv_format_fixture() if step.get("value") == "$CSV_FORMAT"
@@ -1783,7 +2010,7 @@ def validate_proposal(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             or str(step.get("value") or "") in set(target.get("seeds") or [])
         if step["op"] not in {"press", "reload", "set_clipboard"}:
             step["target"] = expand_placeholder(str(step["target"]).strip(), scope)
-            if step["op"] in {"fill", "sign_in", "expect_sign_in_rejected", "cell_type", "expect_cell"}:
+            if step["op"] in {"fill", "expect_input_value", "select_option", "sign_in", "expect_sign_in_rejected", "cell_type", "expect_cell"}:
                 step["value"] = expand_placeholder(str(step["value"]), scope)
                 if original_step.get("value") == "$WRONG_PASSWORD" and step["value"] == fixtures.password:
                     return None  # never certify a correct password as an invalid credential
