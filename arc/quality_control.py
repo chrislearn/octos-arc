@@ -203,6 +203,20 @@ def concrete_health_paths(design: dict | None) -> list[str]:
     return paths
 
 
+def dynamic_health_patterns(design: dict | None) -> list[str]:
+    """Declared detail pages can be resolved from visible links, never guessed IDs."""
+    patterns = []
+    for page in (design or {}).get('pages', []):
+        if not isinstance(page, dict):
+            continue
+        route = page.get('path', '')
+        if (isinstance(route, str) and route.startswith('/') and not route.startswith('//')
+                and re.search(r'(?<=/):[A-Za-z_][A-Za-z0-9_]*', route)
+                and not re.search(r'[?*{}]', route) and route not in patterns):
+            patterns.append(route)
+    return patterns[:3]
+
+
 BUSINESS_QUALITY_GUIDANCE = '''
 Extract obligations [{id, requirement_id, quote, branch, outcome}] from exact original requirement quotes.
 Each independent hard outcome/format/error/state rule needs its own obligation; branch is success/rejection/mixed.

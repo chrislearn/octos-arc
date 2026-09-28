@@ -243,7 +243,7 @@ Additional supported operations:
       Cell coordinates on both ends use role=gridcell automatically, not visible cell text.
   {"op":"expect_count","role":"row","target":L,"count":2} counts exact accessible-role/name matches.
   {"op":"expect_attribute","role":"tab","target":L,"attribute":"aria-selected","value":"true"}
-      checks state on one unique named control; allowed attributes aria-selected/checked/expanded/disabled, disabled, data-status.
+      checks state on one unique named control; allowed attributes aria-selected/multiselectable/checked/expanded/disabled, disabled, data-status.
   {"op":"upload_fixture","target":L,"filename":"sample.json","mime":"application/json","content":"..."}
       supplies constructed UTF-8 data for a format grounded in the original requirement. Pair with parsed-state assertions.
 Every expected attribute/count/file format must be supported by the original requirement and independently audited.
@@ -670,8 +670,13 @@ def transition_contract(target: Mapping) -> dict:
     # because its description mentions edits elsewhere. Leave ambiguous cases
     # to semantic review rather than imposing an invented commit button.
     action = when
-    if templated_action and not re.search(r"\b(view|open|display|inspect|read|browse)\w*\b", str(target.get("title", "")), re.I):
+    intent = " ".join(str(target.get(key) or "") for key in ("name", "title"))
+    read_only_intent = (bool(re.match(r"\s*(?:view|open|display|inspect|read|browse|list)\b", intent, re.I))
+                        and not re.search(r"(?:\band\b|[,/&])\s*(?:create|add|delete|remove|import|rename|edit|update|save)\b", intent, re.I))
+    if templated_action and not read_only_intent:
         action = description
+    # A display label such as "Last updated" is not an update command.
+    action = re.sub(r"\blast[ -]updated\b", "", action, flags=re.I)
     outcome = description if templated_outcome else then
     candidates = []
     for name, action_words, result_words in (
@@ -1518,7 +1523,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             if op == 'expect_count' and (type(step.get('count')) is not int or not 0 <= step['count'] <= 10000):
                 problems.append(f"step {index}: count must be a bounded nonnegative integer")
             if op == 'expect_attribute' and (step.get('attribute') not in (
-                    'aria-selected', 'aria-checked', 'aria-expanded', 'aria-disabled', 'disabled', 'data-status')
+                    'aria-selected', 'aria-multiselectable', 'aria-checked', 'aria-expanded', 'aria-disabled', 'disabled', 'data-status')
                     or not isinstance(step.get('value'), str)):
                 problems.append(f"step {index}: attribute must be an explicit supported state attribute")
             if op == 'upload_fixture':

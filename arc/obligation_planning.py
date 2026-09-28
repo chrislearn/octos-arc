@@ -12,6 +12,49 @@ import re
 import time
 
 
+_SCOPE_ONLY = re.compile(r'\b(?:outside (?:the )?(?:core )?scope|out of scope|beyond (?:the )?scope)\b', re.I)
+_CAPABILITY_ACTIONS = re.compile(r'\b(?:view\w*|open\w*|creat\w*|renam\w*|import\w*|export\w*|delet\w*|sort\w*|filter\w*)\b', re.I)
+
+
+def obligation_kind(owner, leaf, quote):
+    """Keep scope statements and broad category lists out of leaf test oracles."""
+    hard_rule = re.search(r'\b(?:must|shall|required|after|when|if)\b', quote, re.I)
+    if _SCOPE_ONLY.search(quote) and not hard_rule and not re.search(r'\bsupports\b', quote, re.I):
+        return 'context'
+    if (owner != leaf and len(quote) <= 240 and quote.count('.') <= 1 and not hard_rule
+            and re.search(r'^\s*supports\b', quote, re.I)):
+        actions = {match.group(0).lower()[:4] for match in _CAPABILITY_ACTIONS.finditer(quote)}
+        if len(actions) >= 3:
+            return 'summary'
+    return 'test'
+
+
+def repeated_source_text(source):
+    lines = [line.strip() for line in source.splitlines() if len(line.strip()) >= 60]
+    return len(lines) != len(set(lines))
+
+
+def duplicate_only_gap(reason, affected, sources, ancestry):
+    """An identical repeated outcome is not a competing business rule."""
+    if not re.search(r'\b(?:exact|identical)\s+duplicat\w*|\b(?:identical|verbatim)\s+repeat\w*|\bappears?\s+twice\s+verbatim\b', reason, re.I):
+        return False
+    if re.search(r'\b(?:contradict\w*|conflict\w*|incompatib\w*|differ\w*|inconsisten\w*)\b', reason, re.I):
+        return False
+    return bool(affected) and all(any(repeated_source_text(sources.get(owner, ''))
+                                      for owner in ancestry[leaf]) for leaf in affected)
+
+
+def dedupe_source_text(source):
+    seen, result = set(), []
+    for line in source.splitlines():
+        key = line.strip()
+        if len(key) >= 60 and key in seen:
+            continue
+        seen.add(key)
+        result.append(line)
+    return '\n'.join(result)
+
+
 def source_scope(tree, leaves):
     wanted = set(leaves)
     sources, ancestry = {}, {}
@@ -84,6 +127,9 @@ def parse_obligation_details(reply, sources, ancestry):
                 continue
             canonical = dict(requirement_id=owner, quote=quote, outcome=outcome,
                              branch=item['branch'], applies_to=[leaf])
+            kind = obligation_kind(owner, leaf, quote)
+            if kind != 'test':
+                canonical['kind'] = kind
             canonical['id'] = 'OB-' + hashlib.sha256(json.dumps(canonical, sort_keys=True).encode()).hexdigest()[:20]
             if canonical not in result:
                 result.append(canonical)
@@ -114,6 +160,8 @@ def parse_obligation_details(reply, sources, ancestry):
                 mentioned = {source_id for source_id in sources if re.search(
                     r'(?<![A-Za-z0-9_-])' + re.escape(source_id) + r'(?![A-Za-z0-9_-])', reason)}
                 affected = [leaf for leaf, chain in ancestry.items() if mentioned.intersection(chain)]
+            if duplicate_only_gap(reason, affected, sources, ancestry):
+                continue
             message = 'semantic gap: ' + reason
             if affected:
                 for leaf in affected:
@@ -133,7 +181,36 @@ def applicable_obligations(flow, node_id):
     rows = getattr(flow, 'derived_obligations', None)
     if rows is None:
         rows = (getattr(flow, 'app_design_doc', None) or {}).get('obligations', [])
-    return [row for row in rows if node_id in row.get('applies_to', [row.get('requirement_id')])]
+    def summary_covered(row):
+        owner = str(row.get('requirement_id') or '')
+        tree = getattr(flow, 'requirement_tree', None)
+        def find(node):
+            if not isinstance(node, dict):
+                return None
+            if str(node.get('id')) == owner:
+                return node
+            for child in node.get('children') or []:
+                found = find(child)
+                if found is not None:
+                    return found
+            return None
+        parent = find(tree)
+        if parent is None:
+            return False
+        def leaves(node):
+            children = node.get('children') or []
+            if not children:
+                return [node]
+            return [leaf for child in children if isinstance(child, dict) for leaf in leaves(child)]
+        descendant_text = '\n'.join(str(part) for leaf in leaves(parent)
+                                    for part in (leaf.get('name') or '', leaf.get('description') or ''))
+        stems = {match.group(0).lower()[:4] for match in _CAPABILITY_ACTIONS.finditer(str(row.get('quote') or ''))}
+        return bool(stems) and all(re.search(r'\b' + re.escape(stem) + r'\w*\b', descendant_text, re.I)
+                                    for stem in stems)
+    return [row for row in rows
+            if node_id in row.get('applies_to', [row.get('requirement_id')])
+            and (row.get('kind', 'test') == 'test'
+                 or (row.get('kind') == 'summary' and not summary_covered(row)))]
 
 
 def reviewed_obligations_intact(flow, node_id):
@@ -174,7 +251,10 @@ def prepare_obligations(flow, nodes):
     for node in pending:
         flow.derived_obligation_status.setdefault(str(node['id']), {'status': 'incomplete', 'errors': ['not yet reviewed'], 'attempts': 0})
     phase_left = getattr(flow, 'derived_preflight_deadline', float('inf')) - time.monotonic()
-    cap = max(0, int(os.environ.get('OCTOS_ARC_OBLIGATION_SECONDS', str(max(2400, len(getattr(flow, 'derived_nodes', nodes)) * 90)))))
+    # Two independent turns took about 200 seconds for one leaf in 8ea2.
+    # Keep a per-leaf allowance; the global and final-phase deadlines still win.
+    cap = max(0, int(os.environ.get('OCTOS_ARC_OBLIGATION_SECONDS',
+                                str(max(2400, len(getattr(flow, 'derived_nodes', nodes)) * 210)))))
     spent = getattr(flow, 'derived_obligation_seconds', 0.0)
     deadline = time.monotonic() + max(0, min(cap - spent, phase_left * .30,
                                            flow.remaining() - flow.final_phase_reserve() - 600))
@@ -202,7 +282,8 @@ def prepare_obligations(flow, nodes):
                       '"outcome":"concrete action and observable result"}],'
                       '"gaps":[{"applies_to":["leaf ID"],"reason":"unresolved issue"}]}. '
                       'Record unresolved contradictions or unsupported obligations in leaf-scoped gaps; do not silently omit them. '
-                      'No application code or generated tests are evidence.\nSOURCES:\n' + json.dumps(sources, ensure_ascii=False)
+                      'No application code or generated tests are evidence.\nSOURCES:\n' + json.dumps(
+                          {key: dedupe_source_text(value) for key, value in sources.items()}, ensure_ascii=False)
                       + '\nLEAF ANCESTRY (every listed source needs coverage):\n' + json.dumps(ancestry))
             if len(prompt) > flow.codegen_context_chars():
                 for leaf in ids:
@@ -248,6 +329,9 @@ def prepare_obligations(flow, nodes):
                 flow.derived_obligations = [row for row in flow.derived_obligations if not set(row['applies_to']) & set(ids)] + rows
             for leaf in ids:
                 errors = global_errors + by_leaf.get(leaf, [])
+                warnings = [f'{source_id}: identical scenario outcome repeated in source'
+                            for source_id in ancestry.get(leaf, [])
+                            if repeated_source_text(sources.get(source_id, ''))]
                 if leaf not in ancestry:
                     errors = [f'{leaf}: missing from requirement tree'] + errors
                 if not first_parseable:
@@ -258,7 +342,8 @@ def prepare_obligations(flow, nodes):
                 previous = flow.derived_obligation_status.get(leaf, {})
                 flow.derived_obligation_status[leaf] = {
                     'status': 'reviewed' if reviewed else 'incomplete',
-                    'errors': errors, 'attempts': previous.get('attempts', 0) + 1,
+                    'errors': errors, 'warnings': warnings,
+                    'attempts': previous.get('attempts', 0) + 1,
                     'candidate_obligations': sum(leaf in row['applies_to'] for row in rows)}
             # Sourced candidates remain visible as debt; only a fully audited
             # leaf can execute them or use them as repair authority.

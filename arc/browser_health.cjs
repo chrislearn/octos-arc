@@ -5,13 +5,21 @@ const path = require('path');
   const config = JSON.parse(fs.readFileSync(0, 'utf8'));
   const { chromium } = require(config.module);
   const report = { status: 'passed', observations: [], pages: [], unchecked: [] };
+  const declared = (config.dynamicPatterns || []).filter(pattern => typeof pattern === 'string');
+  const routes = [...config.paths];
+  const sameOrigin = new URL(config.baseURL).origin;
+  const matchesDeclared = pathname => declared.some(pattern => {
+    const parts = pattern.split('/').map(part => part.startsWith(':') ? '[^/]+' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return new RegExp(`^${parts.join('/')}/?$`).test(pathname);
+  });
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
     const started = Date.now();
-    for (const [index, route] of config.paths.entries()) {
+    for (let index = 0; index < routes.length; index++) {
+      const route = routes[index];
       if (Date.now() - started > (config.budgetMs || 40000) - 15000) {
-        report.unchecked.push(...config.paths.slice(index));
+        report.unchecked.push(...routes.slice(index));
         if (report.status === 'passed') report.status = 'unknown';
         break;
       }
@@ -31,12 +39,26 @@ const path = require('path');
         await page.waitForFunction(() => document.body && (
           document.body.innerText.trim().length || document.querySelector('canvas,svg,input,button')),
           null, { timeout: 5000 }).catch(() => {});
+        await page.waitForFunction(() => !/^(loading[.\s…]*|please wait[.\s…]*)$/i.test(
+          document.body?.innerText.trim() || ''), null, { timeout: 5000 }).catch(() => {});
         await page.waitForTimeout(400);
         const state = await page.evaluate(() => ({
           text: document.body?.innerText.trim() || '',
           controls: document.querySelectorAll('input,button,canvas,svg,img').length
         }));
         report.pages.push({ path: url.pathname, textLength: state.text.length, controls: state.controls });
+        if (index < config.paths.length && declared.length && routes.length < config.paths.length + 2) {
+          const links = await page.locator('a[href]').evaluateAll(items => items
+            .filter(item => item.getClientRects().length > 0)
+            .map(item => item.href));
+          for (const href of links) {
+            const candidate = new URL(href, url.href);
+            if (candidate.origin !== sameOrigin || /\b(?:logout|delete|remove|reset)\b/i.test(candidate.pathname)
+                || !matchesDeclared(candidate.pathname) || routes.includes(candidate.pathname)) continue;
+            routes.push(candidate.pathname);
+            if (routes.length >= config.paths.length + 2) break;
+          }
+        }
         for (const message of [...new Set(errors)].slice(0, 8)) report.observations.push({
           kind: 'pageerror', confirmed: true, path: url.pathname, message,
           reproduction: 'independent fresh browser, no spec or helper executed'
@@ -47,6 +69,26 @@ const path = require('path');
         });
         if (/^(loading[.\s…]*|please wait[.\s…]*)$/i.test(state.text) && !errors.length)
           report.status = 'unknown';
+        if (matchesDeclared(url.pathname) && !errors.length) {
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 10000 });
+          await page.waitForFunction(() => !/^(loading[.\s…]*|please wait[.\s…]*)$/i.test(
+            document.body?.innerText.trim() || ''), null, { timeout: 5000 }).catch(() => {});
+          await page.waitForTimeout(400);
+          const refreshed = await page.evaluate(() => ({
+            text: document.body?.innerText.trim() || '',
+            controls: document.querySelectorAll('input,button,canvas,svg,img').length
+          }));
+          report.pages.push({ path: url.pathname, phase: 'refresh',
+                              textLength: refreshed.text.length, controls: refreshed.controls });
+          if (!errors.length && !refreshed.text && !refreshed.controls) report.observations.push({
+            kind: 'blank_page', confirmed: true, path: url.pathname,
+            message: `No rendered content or controls at ${url.pathname} after refresh`
+          });
+          for (const message of [...new Set(errors)].slice(0, 8)) report.observations.push({
+            kind: 'pageerror', confirmed: true, path: url.pathname, message,
+            reproduction: 'independent fresh browser after direct refresh'
+          });
+        }
         await page.screenshot({ path: path.join(config.destination, `page-${index}.png`) });
         fs.writeFileSync(path.join(config.destination, `page-${index}.html`), await page.content());
       } catch (e) {

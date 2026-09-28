@@ -74,12 +74,12 @@ Environment (all optional):
     OCTOS_ARC_DERIVED_SPEC_AUDIT  "0" disables requirement-grounded corrections of failing self-generated specs
     OCTOS_ARC_DERIVED_PREFLIGHT_SECONDS / OCTOS_ARC_DERIVED_PREFLIGHT_TOKENS  first post-code review caps
     OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES / OCTOS_ARC_DERIVED_PREFLIGHT_LEAVES  first review scope (1 / 1)
-    OCTOS_ARC_DERIVED_FIRST_CODE_SECONDS  first post-code review window (1500)
-    OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS / OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS  later per-leaf/cumulative review windows (300 / 1800)
+    OCTOS_ARC_DERIVED_FIRST_CODE_SECONDS  first post-code review window (720)
+    OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS / OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS  later per-leaf/cumulative review windows (720 / max(1800, 720 x leaves))
     OCTOS_ARC_DERIVED_COMPLETENESS_SECONDS  late weak-spec recovery window (7200)
     OCTOS_ARC_DESIGN_RECOVERY_SECONDS / OCTOS_ARC_DESIGN_CATEGORY_SECONDS  shared design recovery caps (1200 / 240)
     OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on AI spec-plan batches (default 60..90, task-sized)
-    OCTOS_ARC_DERIVED_LLM_WALL_SECONDS  total AI spec-planning wall cap (default 7200)
+    OCTOS_ARC_DERIVED_LLM_WALL_SECONDS  total AI spec-planning wall cap (default max(7200, 180 x scenarios))
     OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS / OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS  independent case-review caps
     OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS  cap on audit correction batches (default 60; 0 disables)
     OCTOS_ARC_OBLIGATION_BATCH_LEAVES  leaves per source-grounded obligation review batch (default 3)
@@ -133,8 +133,8 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
-from runtime_diagnostics import application_failures, browser_health, diagnose
-from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
+from runtime_diagnostics import application_failures, browser_health, frontend_binding_health, diagnose
+from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, dynamic_health_patterns, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
 from obligation_planning import applicable_obligations, prepare_obligations, reviewed_obligations_intact
 from domain_contracts import DOMAIN_GUIDANCE, contract_manifest, official_status, requirement_index, source_contract_advisories
 from implementation_evidence import STATUSES as IMPLEMENTATION_STATUSES, initial_status  # noqa: E402
@@ -5326,16 +5326,27 @@ class Flow:
             runner = self._health_runner = self.playwright_runner(directory)
         if not isinstance(runner, AcceptanceRunner):
             return {"status": "unknown", "observations": [], "reason": "browser runner unavailable"}
+        dynamic_patterns = dynamic_health_patterns(getattr(self, "app_design_doc", None)) if paths is None else []
         paths = paths or concrete_health_paths(getattr(self, "app_design_doc", None))
         version = self.app_source_digest()
-        key = (version, tuple(paths))
+        key = (version, tuple(paths), tuple(dynamic_patterns))
         cache = getattr(self, "_browser_health_cache", {})
         if not force and cache.get(key, {}).get("status") == "passed":
             return cache[key]
         destination = self.output_dir / ".arc" / "browser-health" / str(time.time_ns())
         report = browser_health(runner.root, f"http://127.0.0.1:{self.smoke_port}", destination,
-                                paths=paths, env=dict(os.environ, **runner.env_extra),
+                                paths=paths, dynamic_patterns=dynamic_patterns,
+                                env=dict(os.environ, **runner.env_extra),
                                 timeout=min(50, max(1, int(self.remaining()))))
+        bindings = frontend_binding_health(self.output_dir / 'frontend')
+        report['frontend_bindings'] = bindings
+        if bindings['status'] == 'failed':
+            for row in bindings.get('diagnostics', [])[:8]:
+                report['observations'].append({
+                    'kind': 'undefined_binding', 'confirmed': True,
+                    'message': f"{row['file']}:{row['line']}: {row['name']} is not declared",
+                    'evidence': row})
+            report['status'] = 'failed'
         report["source_hash"] = version
         (destination / "health.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
         self._last_browser_health = report
@@ -7534,7 +7545,8 @@ class Flow:
         reserved_phases = phase_order[:max_requests]
         phase_counts = getattr(self, "derived_model_phase_requests", {})
         self.derived_model_phase_requests = phase_counts
-        wall_cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_WALL_SECONDS", "7200")))
+        wall_cap = max(0, int(os.environ.get(
+            "OCTOS_ARC_DERIVED_LLM_WALL_SECONDS", str(max(7200, len(all_targets) * 180)))))
         # A six-scenario batch took 389s locally (33k reasoning tokens): 300s cut
         # whole batches off online.
         timeout = max(30, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_SECONDS", "900")))
@@ -8060,7 +8072,7 @@ class Flow:
             ordered_phases = list(dict.fromkeys(owners.get(str(node.get('id')), str(node.get('id')))
                                                 for node in ordered))
         if category_limit:
-            requested = min(requested, max(0, int(os.environ.get('OCTOS_ARC_DERIVED_FIRST_CODE_SECONDS', '1500'))))
+            requested = min(requested, max(0, int(os.environ.get('OCTOS_ARC_DERIVED_FIRST_CODE_SECONDS', '720'))))
         code_reserve = 0 if getattr(self, '_derived_post_code_review_active', False) else max(600, int(self.budget * .4))
         protected_reserve = (self.derived_review_reserve()
                              if getattr(self, '_derived_post_code_review_active', False)
@@ -8157,7 +8169,7 @@ class Flow:
                    and str(node.get('id')) not in attempted]
         if not pending:
             return
-        cap = self.derived_build_spec_window()
+        cap = self.derived_build_spec_window(len(pending))
         if cap < 30:
             return
         prior_deadline = getattr(self, 'derived_preflight_deadline', float('inf'))
@@ -8185,6 +8197,7 @@ class Flow:
         failed = set(getattr(self, 'impl_failed', []))
         review_order = [node for node in ordered if str(node.get('id')) not in failed]
         deferred_order = [node for node in ordered if str(node.get('id')) in failed]
+        phase_of = (getattr(self, 'phase_plan', None) or {}).get('leaf_phase', {})
         self._derived_post_code_review_active = True
         try:
             try:
@@ -8195,7 +8208,13 @@ class Flow:
                 node_id = str(node.get('id'))
                 try:
                     if node_id not in getattr(self, '_derived_preflight_node_ids', set()):
-                        self.prepare_derived_build_batch([node])
+                        phase = phase_of.get(node_id, node_id)
+                        batch = [candidate for candidate in review_order
+                                 if phase_of.get(str(candidate.get('id')), str(candidate.get('id'))) == phase
+                                 and str(candidate.get('id')) not in getattr(self, '_derived_preflight_node_ids', set())
+                                 and str(candidate.get('id')) not in getattr(self, '_derived_build_spec_attempted_ids', set())][:3]
+                        if batch:
+                            self.prepare_derived_build_batch(batch)
                     if self.derived_review_needed(node_id):
                         self.test_verdict[node_id] = None
                         self.metric('derived_test_wait', node_id=node_id, decision='await_full_leaf_review')
@@ -8251,11 +8270,13 @@ class Flow:
             return self.rehearsal(repair_on_failure=False)
         return rehearsed
 
-    def derived_build_spec_window(self) -> int:
-        """Remaining seconds for one near-code spec review without borrowing repair time."""
-        cap = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS', '300')))
-        total = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS', '1800')))
-        return min(cap, max(0, int(total - getattr(self, 'derived_build_spec_seconds', 0.0))),
+    def derived_build_spec_window(self, leaves: int = 1) -> int:
+        """Remaining seconds for a small category batch without borrowing repair time."""
+        count = max(1, len(getattr(self, 'derived_nodes', [])))
+        cap = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS', '720')))
+        total = max(0, int(os.environ.get(
+            'OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS', str(max(1800, count * cap)))))
+        return min(cap * max(1, leaves), max(0, int(total - getattr(self, 'derived_build_spec_seconds', 0.0))),
                    max(0, int(self.remaining() - self.final_phase_reserve() - 60)))
 
     def start_derived_designs(self, node_ids: list[str], message: str) -> None:

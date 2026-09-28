@@ -15,7 +15,7 @@ def diagnose(summary) -> list[dict]:
     for observation in getattr(summary, "runtime_observations", []):
         kind = observation.get("kind", "unknown")
         confirmed = observation.get("confirmed") is True
-        owner = "app" if confirmed and kind in {"pageerror", "blank_page", "server_crash"} else "unknown"
+        owner = "app" if confirmed and kind in {"pageerror", "blank_page", "server_crash", "undefined_binding"} else "unknown"
         if kind in {"collector_error", "browser_unavailable"}:
             owner = "harness" if kind == "collector_error" else "environment"
         message = str(observation.get("message") or kind)
@@ -33,11 +33,13 @@ def application_failures(summary) -> list[str]:
 
 
 def browser_health(root: Path, base_url: str, destination: Path, *, paths=None,
-                   env=None, timeout: int = 35) -> dict:
+                   dynamic_patterns=None, env=None, timeout: int = 35) -> dict:
     """Independent fresh-browser reproduction; never executes business spec code."""
     destination.mkdir(parents=True, exist_ok=True)
     config = {"module": str(root / "node_modules" / "@playwright" / "test"),
-              "baseURL": base_url, "paths": paths or ["/"], "destination": str(destination), "budgetMs": max(1, timeout - 2) * 1000}
+              "baseURL": base_url, "paths": paths or ["/"],
+              "dynamicPatterns": dynamic_patterns or [], "destination": str(destination),
+              "budgetMs": max(1, timeout - 2) * 1000}
     started = time.monotonic()
     try:
         process = subprocess.Popen(["node", str(Path(__file__).with_name("browser_health.cjs"))],
@@ -64,3 +66,17 @@ def browser_health(root: Path, base_url: str, destination: Path, *, paths=None,
     report["artifact_dir"] = str(destination)
     (destination / "health.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
     return report
+
+
+def frontend_binding_health(frontend: Path, *, timeout: int = 20) -> dict:
+    """Flag unresolved lexical references; missing optional tooling is unknown."""
+    try:
+        completed = subprocess.run(
+            ['node', str(Path(__file__).with_name('undefined_bindings.cjs')), str(frontend)],
+            text=True, capture_output=True, timeout=timeout, check=False)
+        report = json.loads(completed.stdout)
+        if completed.returncode or report.get('status') not in {'passed', 'failed', 'unknown'}:
+            raise ValueError('invalid binding-check response')
+        return report
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return {'status': 'unknown', 'reason': str(exc)[:300]}
