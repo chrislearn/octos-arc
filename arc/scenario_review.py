@@ -5,7 +5,7 @@ whitelisted operations (including open/click/fill/check/press/reload/sign_in
 and grounded assertions). Every target and value must be a literal the requirement
 itself quotes (“…”, "…" or `…`), a seeded value, or a suite fixture. A
 proposal naming anything else, using an unknown operation, asserting nothing,
-or reporting low confidence is dropped whole -- a partial sequence would fail
+or reporting low confidence is dropped as one case -- a partial sequence would fail
 for our reasons, not the application's. The model therefore adds navigation
 order and which literal is the assertion; it cannot invent controls or data.
 """
@@ -239,7 +239,8 @@ expect_download also accepts exact_text for byte-decoded UTF-8 content compariso
 come from original requirements or an independently computed example, never the application's output.
 Unsupported schema keywords are rejected, not ignored.
 Additional supported operations:
-  {"op":"drag","target":L,"destination":L} uses a real pointer drag between unique exact text targets.
+  {"op":"drag","target":L,"destination":L} uses a real pointer drag; optional role selects unique accessible role/name targets.
+      Cell coordinates on both ends use role=gridcell automatically, not visible cell text.
   {"op":"expect_count","role":"row","target":L,"count":2} counts exact accessible-role/name matches.
   {"op":"expect_attribute","role":"tab","target":L,"attribute":"aria-selected","value":"true"}
       checks state on one unique named control; allowed attributes aria-selected/checked/expanded/disabled, disabled, data-status.
@@ -253,8 +254,12 @@ After each "Copy clone value" click, use expect_clipboard for that protocol and 
 the "Copied" toast alone does not prove the clipboard contains the clone value.
 For a pivot table, formula, or other numeric result, assert the result in a destination cell with expect_cell;
 seeing the original source labels and values somewhere on the page does not prove the calculation.
-L and V MUST be copied verbatim from the ALLOWED LITERALS list of that scenario (control names the
-requirement quotes, seeded record names, or the fixture account/email/password). Never invent names.
+Literal rules: reuse ALLOWED LITERALS and source-grounded DEPENDENCY LITERALS for assertions and inputs.
+CONTROLS from the whole requirement may name navigation/setup controls. The coordinate/numeric/formula
+exceptions above take precedence. For freely chosen inputs use typed test_data ($DATA_MIN, $DATA_MAX, etc.);
+these are not permission to invent validation thresholds, control names, enum options or expected calculations.
+Do not skip simply because a free input number is absent from ALLOWED LITERALS. Ground required enum options
+and prerequisite values in the source contract; report a missing dependency contract explicitly.
 Values the user must make up are written as placeholders, allowed as fill values and as
 expect_visible/expect_absent targets (and cell_type values): $NEW_USERNAME, $NEW_EMAIL, $NEW_PASSWORD
 (also for the confirmation field), $NEW_NAME (the name of a repository, team, workbook, worksheet,
@@ -1019,6 +1024,11 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                  "is required. A file suffix, source label, toast, or one substring does not prove a complete format. "
                  "For ordinary workflows also check one relevant boundary or opposite branch when the requirement "
                  "supports it; keep each case isolated and do not invent product rules.")
+    parts.append('\nFor a prerequisite enum/limit from another requirement, add source_values '
+                 '[{value,requirement_id,quote}] with an exact quote containing the value from SOURCE CONTRACTS. '
+                 'Do not invent controls, enum options or error messages. For arbitrary inputs use test_data instead.')
+    if targets and targets[0].get('source_contracts'):
+        parts.append('\nSOURCE CONTRACTS (authoritative dependency descriptions): ' + json.dumps(targets[0]['source_contracts'], ensure_ascii=False))
     parts.append(f"\nFixture account: `{fixtures.account}` / `{fixtures.password}` (email `{fixtures.email}`).")
     controls = [c for c in (targets[0].get("controls") or []) if len(c) <= 60][:160] if targets else []
     if controls:
@@ -1110,7 +1120,9 @@ def _emit(step: dict) -> str | None:
         return f"await h.expectResponse(page, {_ts(step['target'])}, {step['status']}, {json.dumps(step.get('json', {}), ensure_ascii=False)}, {json.dumps(contract, ensure_ascii=False)});"
     op, target = step.get("op"), step.get("target")
     if op == 'drag':
-        return f"await h.dragNamed(page, {_ts(target)}, {_ts(step['destination'])});"
+        role = step.get('role') or ('gridcell' if CELL.fullmatch(str(target)) and CELL.fullmatch(str(step.get('destination'))) else None)
+        suffix = f", {_ts(role)}" if role else ""
+        return f"await h.dragNamed(page, {_ts(target)}, {_ts(step['destination'])}{suffix});"
     if op == 'expect_count':
         return f"await h.expectNamedCount(page, {_ts(step['role'])}, {_ts(target)}, {step['count']});"
     if op == 'expect_attribute':
@@ -1329,11 +1341,31 @@ def generated_values(proposal: Mapping) -> dict[str, str]:
     return result
 
 
+def sourced_values(proposal: Mapping, target: Mapping) -> set[str]:
+    """Explicit dependency enum/limit values must cite original descriptions."""
+    items = proposal.get('source_values', [])
+    if not isinstance(items, list) or len(items) > 32:
+        raise ValueError('source_values must be an array of at most 32 source citations')
+    values = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError('source_values requires value, requirement_id and quote')
+        value, quote, owner = (item.get(k) for k in ('value', 'quote', 'requirement_id'))
+        if (not isinstance(value, str) or not value or len(value) > 4096
+                or not isinstance(quote, str) or len(quote.strip()) < 12
+                or not isinstance(owner, str) or value not in quote
+                or quote not in (target.get('source_contracts') or {}).get(owner, '')):
+            raise ValueError('source_values must quote an original requirement containing the exact value')
+        values.add(value)
+    return values
+
+
 def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) -> list[str]:
     """Every rule the proposal breaks, worded so the model can fix it."""
     problems: list[str] = []
     try:
         data_values = generated_values(proposal)
+        dependency_values = sourced_values(proposal, target)
     except ValueError as exc:
         return [str(exc)]
     if proposal.get("validator_dispute"):
@@ -1404,6 +1436,7 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
     for seed in target.get("seeds") or []:
         if "/" in seed and seed.count("/") <= 3:
             allowed |= {part.strip() for part in seed.split("/") if len(part.strip()) >= 3}
+    allowed |= dependency_values
     controls = allowed | set(target.get("controls") or [])
     allowed |= set(data_values)
 
@@ -1447,9 +1480,12 @@ def proposal_problems(proposal: Mapping, target: Mapping, fixtures: Fixtures) ->
             continue
         op = step["op"]
         if op in {'drag', 'expect_count', 'expect_attribute', 'upload_fixture'}:
-            if not is_control(step.get('target')):
+            cell_drag = op == 'drag' and bool(CELL.fullmatch(str(step.get('target'))) and CELL.fullmatch(str(step.get('destination'))))
+            if op == 'drag' and step.get('role') is not None and step['role'] not in ROLES:
+                problems.append(f"step {index}: invalid drag accessible role")
+            if not is_control(step.get('target')) and not cell_drag:
                 problems.append(f"step {index}: target must be a requirement-grounded name")
-            if op == 'drag' and not is_control(step.get('destination')):
+            if op == 'drag' and not is_control(step.get('destination')) and not cell_drag:
                 problems.append(f"step {index}: drag destination must be a requirement-grounded name")
             if op in {'expect_count', 'expect_attribute'} and (not isinstance(step.get('role'), str) or step.get('role') not in ROLES):
                 problems.append(f"step {index}: invalid accessible role")
@@ -2058,17 +2094,20 @@ def compile_reply(text: str, targets: list[dict], fixtures: Fixtures, with_retry
         if key in seen:
             dropped.append(f"{target['title']}: duplicate proposal")
             continue
+        seen.add(key)
         cases = proposal.get("cases")
         if cases is not None:
             if (not isinstance(cases, list) or not 1 <= len(cases) <= MAX_CASES or proposal.get("skip")
                     or "steps" in proposal or not all(isinstance(case, dict) for case in cases)):
                 dropped.append(f"{target['title']}: cases must be 1..{MAX_CASES} independent objects without parent steps/skip")
-                retryable.append({"id": target.get("id"), "title": target["title"], "reasons": [dropped[-1]]})
+                retryable.append({"id": target.get("id"), "title": target["title"], "reasons": [dropped[-1]], "previous_proposal": proposal})
                 continue
         else:
             cases = [proposal]
         emitted = []
         problems = []
+        if len(cases) < target.get('minimum_case_count', 1):
+            problems.append(f"missing previously proposed cases: expected at least {target['minimum_case_count']}")
         for index, case in enumerate(cases, 1):
             case_target = dict(target, title=target['title'] + (f" [case {index}]" if proposal.get("cases") is not None else ""))
             case_proposal = {**proposal, **case}
@@ -2100,17 +2139,22 @@ def compile_reply(text: str, targets: list[dict], fixtures: Fixtures, with_retry
                                     for contract in target.get("negative_contracts") or negative_contracts(target))
                             for case in cases)):
             problems.append("missing positive business branch alongside the rejection case")
+        if emitted:
+            scripts.setdefault(target["node_id"], []).extend(emitted)
         if problems:
             dropped.append(f"{target['title']}: " + "; ".join(problems))
             if not proposal.get("skip") and not proposal.get("validator_dispute"):
-                retryable.append({"id": target.get("id"), "title": target["title"], "reasons": problems})
-            continue  # Atomic proposal; a bad branch never silently disappears.
-        seen.add(key)
-        scripts.setdefault(target["node_id"], []).extend(emitted)
+                retryable.append({"id": target.get("id"), "title": target["title"], "reasons": problems, "previous_proposal": proposal})
+            # Keep independently valid cases; dropped reasons keep scenario coverage incomplete.
+    for target in targets:
+        if (target.get('id') or target['title']) not in seen:
+            reason = 'requested scenario omitted from reply'
+            dropped.append(f"{target['title']}: {reason}")
+            retryable.append({'id': target.get('id'), 'title': target['title'], 'reasons': [reason]})
     return (scripts, dropped, retryable) if with_retryable else (scripts, dropped)
 
 
-def retry_prompt(rejected: list[dict], targets: list[dict], fixtures: Fixtures) -> str:
+def retry_prompt(rejected: list[dict], targets: list[dict], fixtures: Fixtures, phase_context: str = "") -> str:
     """One correction round: the same scenarios, each with why it was rejected."""
     by_key = {target.get("id") or target["title"]: target for target in targets}
     by_key.update({target["title"]: target for target in targets})
@@ -2119,12 +2163,16 @@ def retry_prompt(rejected: list[dict], targets: list[dict], fixtures: Fixtures) 
         target = by_key.get(item.get("id")) or by_key.get(item["title"])
         if target is not None and target not in chosen:
             chosen.append(target)
-    prompt = build_prompt(chosen, fixtures)
+    prompt = build_prompt(chosen, fixtures, phase_context)
     feedback = "\n".join(f"- [{target.get('id')}] {target['title']}: " + "; ".join(item["reasons"])
                          for item in rejected
                          for target in [by_key.get(item.get("id")) or by_key.get(item["title"])] if target is not None)
+    previous = [item['previous_proposal'] for item in rejected if 'previous_proposal' in item]
+    prompt += ("\nPREVIOUS PROPOSALS (retain case order and unchanged valid cases; fix failed cases in place):\n"
+               + json.dumps(previous, ensure_ascii=False))
     return (prompt + "\n\nYour previous scripts for these scenarios were REJECTED for the reasons below. "
-            "Fix exactly these problems (copy every target and value verbatim from ALLOWED LITERALS, use only the "
+            "Fix exactly these problems (use ALLOWED LITERALS, source-quoted dependency values or typed test_data "
+            "according to the literal rules above; use only the "
             "listed operations, end with an expect step). Preserve required outcomes; never replace an error message "
             "with an entry control to satisfy validation. Split independent branches into cases instead of deleting assertions. "
             "If the validator contradicts the requirement, return validator_dispute with the original quote and rule reason; "

@@ -122,14 +122,14 @@ class AppDesignTurnTests(unittest.TestCase):
         ordered = [{"id": f"REQ-{i}", "type": "ATOMIC"} for i in range(1, nodes + 1)]
         return flow, ordered
 
-    def test_should_produce_persist_and_keep_the_design_from_one_request(self):
+    def test_should_persist_design_after_independent_shared_contract_review(self):
         with tempfile.TemporaryDirectory() as folder:
             reply = "Here is the design:\n```json\n" + json.dumps(DESIGN) + "\n```\n"
             flow, ordered = self._flow(folder, reply)
             design = flow.app_design(TREE, ordered)
             self.assertEqual(design["routes"][0]["path"], "/api/register")
             self.assertEqual(flow.app_design_doc, design)
-            self.assertEqual(len(flow.calls), 1)
+            self.assertEqual([label for _, label in flow.calls], ["application design", "shared domain contract review"])
             prompt, label = flow.calls[0]
             self.assertIn("REQ-1.1", prompt)
             self.assertIn("long scenario text", prompt)
@@ -149,15 +149,15 @@ class AppDesignTurnTests(unittest.TestCase):
             flow, ordered = self._flow(folder, reply)
             design = flow.app_design(TREE, ordered)
             self.assertEqual(design, DESIGN)
-            self.assertEqual(len(flow.calls), 1)
+            self.assertEqual([label for _, label in flow.calls], ["application design", "shared domain contract review"])
 
     def test_truncated_design_gets_one_bounded_retry(self):
         with tempfile.TemporaryDirectory() as folder:
             flow, ordered = self._flow(folder, '')
             flow.text_turn = Mock(side_effect=[(False, 'output_truncated'),
-                                               (True, json.dumps(DESIGN))])
+                                               (True, json.dumps(DESIGN)), (True, json.dumps(DESIGN))])
             self.assertEqual(flow.app_design(TREE, ordered), DESIGN)
-            self.assertEqual(flow.text_turn.call_count, 2)
+            self.assertEqual(flow.text_turn.call_count, 3)
             self.assertLessEqual(flow.text_turn.call_args.args[1], 600)
             first = flow.text_turn.call_args_list[0].args[0]
             retry = flow.text_turn.call_args_list[1].args[0]

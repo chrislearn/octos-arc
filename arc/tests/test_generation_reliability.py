@@ -165,9 +165,9 @@ class GenerationBudgetTests(unittest.TestCase):
         from test_app_design import AppDesignTurnTests, DESIGN, TREE
         with tempfile.TemporaryDirectory() as folder:
             flow, nodes = AppDesignTurnTests()._flow(folder, 'unused')
-            flow.text_turn = Mock(side_effect=[(True, 'not JSON'), (True, json.dumps(DESIGN))])
+            flow.text_turn = Mock(side_effect=[(True, 'not JSON'), (True, json.dumps(DESIGN)), (True, json.dumps(DESIGN))])
             self.assertEqual(flow.app_design(TREE, nodes), DESIGN)
-            self.assertEqual(flow.text_turn.call_count, 2)
+            self.assertEqual(flow.text_turn.call_count, 3)
             self.assertLessEqual(flow.text_turn.call_args.args[1], 600)
 
     def test_design_timeout_enters_bounded_category_recovery(self):

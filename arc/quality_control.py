@@ -44,7 +44,7 @@ def recovery_budget(flow):
     Preserve cumulative usage after recovery. Explicit zero caps remain zero.
     Restoring stage state in finally prevents the final measurement inheriting a stale deadline.
     """
-    counters = ('derived_review_requests', 'derived_llm_seconds', 'derived_case_review_requests',
+    counters = ('derived_obligation_seconds', 'derived_review_requests', 'derived_llm_seconds', 'derived_case_review_requests',
                 'derived_case_review_seconds', 'derived_case_correction_requests', 'review_turn_count')
     saved = {key: getattr(flow, key, 0) for key in counters}
     temporary = ('derived_preflight_deadline', 'derived_preflight_start_tokens', '_in_final_repair',
@@ -206,6 +206,9 @@ def concrete_health_paths(design: dict | None) -> list[str]:
 BUSINESS_QUALITY_GUIDANCE = '''
 Extract obligations [{id, requirement_id, quote, branch, outcome}] from exact original requirement quotes.
 Each independent hard outcome/format/error/state rule needs its own obligation; branch is success/rejection/mixed.
+'''
+
+TEST_QUALITY_GUIDANCE = '''
 Include every applicable successful branch and preserve the original requirements when duplicate flows are merged.
 For each applicable business category, generate a complete SUCCESS workflow as well as rejection cases.
 Use real signed-in browser credentials across protected modules; a visible username alone proves no access.
@@ -219,3 +222,5 @@ Check every enabled condition independently. Never hardcode eligibility/conflict
 Tests must exercise these properties through applicable UI/API contracts, without inventing product features.
 Official schemas, enums, field names and error wording are binding; inferred choices must be identified as such.
 '''
+
+BUSINESS_QUALITY_GUIDANCE += TEST_QUALITY_GUIDANCE

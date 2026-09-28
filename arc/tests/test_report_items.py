@@ -142,7 +142,7 @@ class DesignReuseTests(unittest.TestCase):
             changed = json.loads(json.dumps(self.TREE)); changed["children"][0]["description"] = "different"
             again, _ = self._flow(folder)
             again.app_design(changed, ordered)
-            self.assertEqual(again.calls, ["application design"])
+            self.assertEqual(again.calls, ["application design", "shared domain contract review"])
 
     def test_omitted_scenario_changes_still_invalidate_cached_design(self):
         from unittest.mock import patch
@@ -155,7 +155,7 @@ class DesignReuseTests(unittest.TestCase):
             self.assertEqual(m.tree_outline(self.TREE, 100), m.tree_outline(changed, 100))
             again, _ = self._flow(folder)
             again.app_design(changed, ordered)
-            self.assertEqual(again.calls, ["application design"])
+            self.assertEqual(again.calls, ["application design", "shared domain contract review"])
 
     def test_should_load_a_compatible_design_in_evolution_mode_but_not_generate_one(self):
         with tempfile.TemporaryDirectory() as folder:

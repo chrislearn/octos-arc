@@ -12,7 +12,7 @@ from test_policy import test_block
 TITLES = re.compile(r"^test\('((?:\\.|[^'\\])*)',", re.M)
 REVIEW_STATUSES = {"approved_behavior", "approved_smoke_only", "needs_correction",
                    "disputed", "skipped_with_reason"}
-REVIEW_FIELDS = {"id", "status", "requirement_quote", "test_quote", "reason", "branch", "obligation_ids"}
+REVIEW_FIELDS = {"id", "status", "requirement_quote", "test_quote", "reason", "branch", "obligation_ids", "obligation_evidence"}
 REVIEW_FENCE = re.compile(r"\A```(?:json)?\r?\n([\s\S]*?)\r?\n```\Z", re.I)
 
 
@@ -57,6 +57,12 @@ def parse_review_decisions(reply: str, expected_ids: set[str], *, max_chars: int
         if 'obligation_ids' in item and (not isinstance(item['obligation_ids'], list) or
                 not all(isinstance(key, str) for key in item['obligation_ids'])):
             return [], 'schema_invalid'
+        evidence = item.get('obligation_evidence', [])
+        if (not isinstance(evidence, list) or len(evidence) > 100 or any(
+                not isinstance(witness, dict) or set(witness) != {'obligation_id', 'requirement_quote', 'test_quote'}
+                or any(not isinstance(value, str) or len(value) > 4500 for value in witness.values())
+                for witness in evidence)):
+            return [], 'schema_invalid'
         seen.add(item["id"])
     return decisions, None
 
@@ -87,7 +93,8 @@ def outcome_text(target: dict | None) -> str:
                 steps.append(str(step.get("content") or ""))
         elif re.match(r"\s*THEN\s*:", str(step), re.I):
             steps.append(str(step))
-    return str(target.get("description") or "") + "\n" + "\n".join(steps)
+    return (str(target.get("description") or "") + "\n" + "\n".join(steps)
+            + "\n" + "\n".join(row.get("quote", "") for row in target.get("obligations", [])))
 
 
 def skip_category(reason: str) -> str:
@@ -164,22 +171,49 @@ def assertion_after_action(case: str, quote: str) -> bool:
     return any(match.start() > first_action for match in re.finditer(re.escape(quote), case))
 
 
-def validate_review(row: dict, verdict: dict) -> bool:
-    """Ground an approval in exact, independently checked quotations."""
-    if verdict.get("status") != "approved_behavior" or row.get("status") != "unreviewed":
-        return False
-    req = verdict.get("requirement_quote")
-    test = verdict.get("test_quote")
+def review_validation_errors(row: dict, verdict: dict) -> list[str]:
+    """Explain witness rejection without mistaking the reviewer's prose for approval."""
+    errors = []
+    if verdict.get('status') != 'approved_behavior' or row.get('status') != 'unreviewed':
+        return ['case_not_behavior_candidate_or_not_approved']
+    def witness_errors(req, test, outcome):
+        result = []
+        if not isinstance(req, str) or len(req.strip()) < 12 or req not in outcome:
+            result.append('requirement_quote_not_in_authoritative_outcome')
+        if not isinstance(test, str) or len(test.strip()) < 12 or test not in row['case']:
+            result.append('test_quote_not_in_case')
+        elif not re.search(r"\b(?:h\.)?expect\w*\s*\(|\bassert\s*\(", test):
+            result.append('test_quote_has_no_assertion')
+        elif not assertion_after_action(row['case'], test):
+            result.append('assertion_does_not_follow_action')
+        return result
+    errors += witness_errors(verdict.get('requirement_quote'), verdict.get('test_quote'), row.get('outcome', ''))
+    if not isinstance(verdict.get('reason'), str) or len(verdict['reason'].strip()) < 12:
+        errors.append('missing_review_reason')
     if row.get('obligations'):
         ids = verdict.get('obligation_ids', [])
-        allowed = {item['id'] for item in row['obligations']}
-        if not ids or not set(ids) <= allowed:
-            return False
-    return (isinstance(req, str) and len(req.strip()) >= 12 and req in row.get("outcome", "")
-            and isinstance(test, str) and len(test.strip()) >= 12 and test in row["case"]
-            and bool(re.search(r"\b(?:h\.)?expect\w*\s*\(|\bassert\s*\(", test))
-            and assertion_after_action(row["case"], test)
-            and isinstance(verdict.get("reason"), str) and len(verdict["reason"].strip()) >= 12)
+        allowed = {item['id']: item for item in row['obligations']}
+        if not isinstance(ids, list) or not ids or any(not isinstance(key, str) or key not in allowed for key in ids):
+            return errors + ['invalid_or_missing_obligation_ids']
+        evidence = verdict.get('obligation_evidence', [])
+        if not isinstance(evidence, list):
+            return errors + ['invalid_obligation_evidence']
+        for key in ids:
+            # Legacy source-less rows remain readable; new ledgers require individual witnesses.
+            quote = allowed[key].get('quote')
+            if not quote:
+                continue
+            witnesses = [item for item in evidence if isinstance(item, dict) and item.get('obligation_id') == key]
+            if len(witnesses) != 1:
+                errors.append(f'{key}: missing_or_duplicate_obligation_witness')
+            else:
+                errors += [f'{key}: {reason}' for reason in witness_errors(
+                    witnesses[0].get('requirement_quote'), witnesses[0].get('test_quote'), quote)]
+    return errors
+
+
+def validate_review(row: dict, verdict: dict) -> bool:
+    return not review_validation_errors(row, verdict)
 
 
 def safe_records(rows: list[dict]) -> list[dict]:

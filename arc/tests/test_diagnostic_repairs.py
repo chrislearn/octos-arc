@@ -133,7 +133,8 @@ class OracleSemantics(unittest.TestCase):
         self.assertIn('[case 1] [model]', sources['A'][0]); self.assertIn('[case 2] [model]', sources['A'][1])
         p['cases'][1]['steps'] = [{'op': 'click', 'target': 'Unknown'}]
         sources, dropped = compile_reply(json.dumps({'scenarios': [p]}), [t], Fixtures())
-        self.assertEqual(sources, {}); self.assertTrue(dropped)
+        self.assertEqual(len(sources["A"]), 1); self.assertTrue(dropped)
+        self.assertIn("case 2", dropped[0])
 
     def test_long_case_still_obeys_step_cap(self):
         t = target(allowed=['Save', 'Done'])

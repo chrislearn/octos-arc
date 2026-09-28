@@ -1497,19 +1497,15 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         flow.prepare_derived_spec_batch(nodes[:1])
         self.assertLessEqual(flow.derived_augmentation_attempts["A"], 2)
 
-    def test_derived_generation_marks_nodes_designing_until_preflight_ends(self):
+    def test_mechanical_generation_does_not_announce_all_nodes_designing(self):
         flow = self.flow
         nodes = self._derived()
-        flow.events = Mock()
         self.assertTrue(flow.prepare_derived_tests(nodes))
-        self.assertEqual([c.args[0] for c in flow.events.mark_design_started.call_args_list],
-                         ["A", "B", "C"])
-        flow.events.mark_design_done.assert_not_called()
+        flow.events.mark_design_started.assert_not_called()
+        flow.adopt_derived_specs(["A", "B", "C"])
         flow.mark_designed(nodes, "requirement/test design preflight ended")
-        self.assertEqual([c.args[0] for c in flow.events.mark_design_done.call_args_list],
-                         ["A", "B", "C"])
-        flow.mark("design_started", "A")
-        self.assertEqual(flow.events.mark_design_started.call_count, 3)
+        flow.events.mark_design_started.assert_not_called()
+        flow.events.mark_design_done.assert_not_called()
 
     def test_model_review_adds_validated_scripts_before_the_suite_is_adopted(self):
         flow = self.flow
@@ -1538,7 +1534,7 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         self.assertIn("[model]", after)
         self.assertIn("h.clickNamed(page, 'Open B')", after)
         self.assertNotIn("Invented", after)
-        prompt = flow.text_turn.call_args.args[0]
+        prompt = flow.text_turn.call_args_list[0].args[0]
         self.assertIn("B: Scenario 1", prompt)
         self.assertIn("A: Scenario 1", prompt)  # This direct call explicitly selects all nodes.
         self.assertTrue((flow.derived_tests_dir / "review" / "plan.json").is_file())

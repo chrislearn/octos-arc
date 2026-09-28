@@ -127,12 +127,13 @@ from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
 from runtime_diagnostics import application_failures, browser_health, diagnose
-from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, repair_allowance, BUSINESS_QUALITY_GUIDANCE)
+from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
+from obligation_planning import applicable_obligations, prepare_obligations
 from domain_contracts import DOMAIN_GUIDANCE, contract_manifest, official_status, requirement_index, source_contract_advisories
 from implementation_evidence import STATUSES as IMPLEMENTATION_STATUSES, initial_status  # noqa: E402
 from derived_case_review import (collect_cases, parse_review_decisions, review_request_admissible,
                                  requirement_text, skip_category,
-                                 validate_review, safe_records, sha as case_sha)  # noqa: E402
+                                 validate_review, review_validation_errors, safe_records, sha as case_sha)  # noqa: E402
 from reply_quality import prune_degenerate_edits  # noqa: E402
 from repair_context import diagnosed_failure_evidence as balanced_failure_evidence  # noqa: E402
 from generic_template import generic_entry_intact, generic_template_active, install_generic_template  # noqa: E402
@@ -1847,7 +1848,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "22-v117-quality-recovery"
+APP_DESIGN_PROMPT_VERSION = "23-obligation-ledger"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate, onReset, reset; "
@@ -1873,12 +1874,14 @@ Design the application that satisfies this whole requirement tree (do NOT implem
 {outline}
 
 Preserve the installed stack. Fresh complex applications use React/Vite/Radix/React Router with local bundled assets and Express routes. Existing applications keep their architecture. frontend/src/index.html is the shell; backend/server.js is a small Express entry serving frontend/dist and registering backend/routes/<area>.js modules; shared persistence lives in backend modules. Reuse the provided request/interaction helpers and cohesive React components; do not invent another DOM/widget framework. Use one owner per draft/dialog state, stable record IDs, and ignore stale async responses. Render shared navigation consistently; preserve focus and drafts during unrelated updates.
-Reply with ONE JSON object (at most 150 lines, no prose) that every requirement will be implemented against:
+Reply with ONE complete, compact JSON object (no prose) that every requirement will be implemented against. Preserve all shared contracts; do not omit fields to meet an arbitrary line count:
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|PATCH|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."], "errors": [{{"kind": "validation", "condition": "explicitly required invalid input", "status": 422}}]}}],
  "pages": [{{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
  "modules": [{{"path": "frontend/src/...|backend/routes/...", "owns": ["cohesive page/layout/editor/API concern"]}}],
  "contracts": [{{"requirements": ["REQ-..."], "invariants": ["ownership/key scope", "command: preconditions -> atomic effects and undo", "draft/save/cancel semantics", "date-only/clock/deadline rules", "control and validation semantics"]}}],
+ "domain_contracts": [{{"entity":"collection", "identity":"stable ID and scope", "storage":"authoritative module/store", "producers":["writer module"], "consumers":["reader module"], "requirements":["REQ-..."]}}],
+ "commands": [{{"name":"business action", "requirements":["REQ-..."], "preconditions":[], "effects":[], "rejected_effects":[], "state_transitions":[], "permissions":[], "persistence":"commit and reload contract"}}],
  "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}}
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
 For each state-changing route, trace the business flow from preconditions through the atomic state change to the resulting UI read and persistence check. Include separately reproducible invalid-input, missing-resource, authentication, authorization and conflict branches that the requirement supports. Each error entry names its condition, category and HTTP status; omit categories that the requirement and route do not support. Use 400 for malformed requests, 401 for absent/invalid authentication (with a WWW-Authenticate challenge), 403 for forbidden actions (or 404 when deliberately concealing a resource), 404 for missing resources, 409 for conflicts such as duplicates/stale versions, and a consistent 400 or 422 for well-formed requests rejected by field validation. Unexpected server faults are 500 and must not expose internals. Never return 200 for a rejected mutation or change persisted state on an error. Explicit requirement status codes take precedence; do not infer an HTTP route from a browser-only scenario.
@@ -1912,7 +1915,8 @@ Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (
 """
 
 # Text-only turns outside the build-turn cap (see Flow.note_turn).
-NON_BUILD_TURN_LABELS = ("derived scenario review", "derived failed-spec review", "application design")
+NON_BUILD_TURN_LABELS = ("derived scenario review", "derived failed-spec review", "application design",
+                         "derived obligation", "derived case independent review", "shared domain contract review")
 
 TASK_NEUTRAL_HELPERS = {
     "backend/lib/arc.js": "arc-runtime.js",
@@ -2692,17 +2696,24 @@ class Flow:
             self.turn_count += 1
 
     def review_budget_spent(self) -> bool:
-        return self.max_turns > 0 and getattr(self, "review_turn_count", 0) >= self.max_turns
+        default = self.max_turns
+        if getattr(self, "derived_as_specs", False) and default > 0:
+            # Reviews have their own ceiling; an eight-case scenario can need
+            # eight initial audits and eight audits after correction.
+            default = max(default, self.case_review_cap() + 4 * len(self.planned_derived_scenarios()))
+        cap = int(os.environ.get("OCTOS_ARC_REVIEW_TURNS", str(default)))
+        return cap > 0 and getattr(self, "review_turn_count", 0) >= cap
 
     def case_review_cap(self) -> int:
-        # Reserve an initial audit and one correction audit per four scenarios,
-        # rather than limiting every task to 24 requests regardless of size.
+        # The DSL permits eight cases per scenario. Count limits must allow
+        # initial and correction audits even with the default one-case batch.
+        # Category deadlines, token limits and code reserves still apply.
         count = len(self.planned_derived_scenarios())
-        return max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS", str(max(60, (count + 2) // 3 * 2)))))
+        return max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS", str(max(90, count * 16)))))
 
     def case_review_seconds(self) -> int:
         return max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS",
-                                         str(max(2400, self.case_review_cap() * 60)))))
+                                         str(min(10800, max(3600, len(self.planned_derived_scenarios()) * 120))))))
 
     def wound_down(self) -> bool:
         """True once the run has spent its token or turn allowance: no more repair
@@ -2726,11 +2737,20 @@ class Flow:
         return self.remaining() <= 0
 
     def mark(self, kind: str, node_id: str, message: str | None = None) -> None:
+        # Late spec recovery must not rewind an implementation/test lifecycle.
+        if kind in {"design_started", "design_done"} and node_id in getattr(self, "_implementation_started_ids", set()):
+            return
         if kind == "design_started":
+            if (getattr(self, "derived_as_specs", False)
+                    and node_id not in getattr(self, "_derived_design_admitted", set())):
+                return  # Shared application design does not admit a leaf spec.
             if node_id in getattr(self, "_design_started_ids", set()) or node_id in getattr(self, "_designed_ids", set()):
                 return
             self._design_started_ids = getattr(self, "_design_started_ids", set()) | {node_id}
         elif kind == "design_done":
+            if (getattr(self, "derived_as_specs", False)
+                    and node_id not in getattr(self, "_derived_design_ready", set())):
+                return  # Global design/preflight completion is not this spec's completion.
             if node_id in getattr(self, "_designed_ids", set()):
                 return
             self._designed_ids = getattr(self, "_designed_ids", set()) | {node_id}
@@ -2762,10 +2782,48 @@ class Flow:
             self.test_state[node_id] = "failed"
         fn = getattr(self.events, f"mark_{kind}")
         fn(node_id, message)
+        if kind in {"implementation_started", "implementation_done", "implementation_failed",
+                    "test_passed", "test_failed", "test_unverified"}:
+            self._implementation_started_ids = getattr(self, "_implementation_started_ids", set()) | {node_id}
+        lifecycle = getattr(self, "_node_lifecycle", {})
+        lifecycle[node_id] = kind
+        self._node_lifecycle = lifecycle
         if self.alias_states:
             for alias, target in self.aliases.items():
                 if target == node_id:
                     fn(alias, message)
+        Flow.sync_folder_progress(self, node_id)
+
+    def sync_folder_progress(self, node_id: str | None = None) -> None:
+        """Project real descendant progress; never fabricate a phase history."""
+        folders = getattr(self, "folder_children", {})
+        if not isinstance(folders, dict) or getattr(self, "events", None) is None:
+            return
+        lifecycle = getattr(self, "_node_lifecycle", {})
+        states = getattr(self, "_folder_states", {})
+        terminal = {"implementation_done", "implementation_failed", "test_passed", "test_failed", "test_unverified"}
+        for folder, leaves in folders.items():
+            if not leaves or node_id is not None and node_id not in leaves:
+                continue
+            kinds = [lifecycle.get(leaf) for leaf in leaves]
+            if all(kind == "test_passed" for kind in kinds):
+                kind = "test_passed"
+            elif all(kind in terminal for kind in kinds):
+                kind = "test_failed" if any(k in {"test_failed", "implementation_failed"} for k in kinds) else "implementation_done"
+            elif any(k in terminal or k == "implementation_started" for k in kinds):
+                kind = "implementation_started"
+            elif any(k in {"design_started", "design_done"} for k in kinds):
+                kind = "design_done" if all(k == "design_done" for k in kinds) else "design_started"
+            else:
+                continue
+            if states.get(folder) == kind:
+                continue
+            # A sibling starting its design cannot rewind an active parent.
+            if kind.startswith("design_") and states.get(folder, "").startswith(("implementation_", "test_")):
+                continue
+            getattr(self.events, "mark_" + kind)(folder, f"descendant progress: {sum(k is not None for k in kinds)}/{len(leaves)} started")
+            states[folder] = kind
+        self._folder_states = states
 
     def record_implementation_evidence(self, node_id: str, status: str, *,
                                        outcome: str, changed: bool, refused: bool = False,
@@ -3152,6 +3210,16 @@ class Flow:
                                       str(node.get("description") or "").split("ACTIVE DETAILS:", 1)[0]))
         active_ids = list(node.get("active_requirement_ids") or active_ids)
         task = phase_context(getattr(self, "phase_plan", None), active_ids, limit=2400) + task
+        if set(active_ids or [node_id]) & getattr(self, '_design_blocked', set()):
+            gaps = contract_manifest(getattr(self, 'requirement_tree', None), getattr(self, 'app_design_doc', None))['gaps']
+            task += ("\nUNRESOLVED SHARED DESIGN: resolve identity/storage/producers/consumers for active features "
+                     "from original requirements and existing code before implementing their commands. Preserve shared "
+                     "names and report contradictions; the incomplete model plan cannot override requirements. "
+                     "You MUST implement every active node's development task even if a contract, model or spec is "
+                     "missing. Fill the missing design as part of implementation. Where requirements are silent, "
+                     "choose the smallest consistent behavior and document the assumption; never omit the feature "
+                     "because its generated design or test is incomplete.\n"
+                     + json.dumps(gaps, ensure_ascii=False))
         existing = self.has_app()
         if existing:
             rules = rules.replace("Files:", "Existing app below; preserve working behavior. Files:", 1)
@@ -3668,12 +3736,13 @@ class Flow:
         # Old cached/compact schemas are kept explicitly unverified. Avoid a
         # global generation gate when the model cannot complete this review.
         available = min(600, max(0, self.remaining() - self.final_phase_reserve() - self.repair_minimum()))
-        if (design.get("domain_contracts") or design.get("commands")) and available >= 30 and not self.wound_down():
+        if (design.get("data_model") or design.get("domain_contracts") or design.get("commands")) and available >= 30 and not self.wound_down():
             prompt = ("Independently review this proposed shared data/command contract before implementation. "
                       "Only the supplied original requirements are authoritative. Check identity types, one authoritative "
                       "store and its producers/consumers, seed references, success and rejected transitions, persistence, "
                       "all input surfaces, authorization and exact required wire/file formats. Remove invented rules; "
                       "keep unresolved contradictions explicit in notes. Return the complete corrected JSON design only. "
+                      "Complete missing domain_contracts for every shared entity: identity, storage, producers, consumers, requirements. "
                       "Do not access or modify source/tests. Preserve every requirement owner.\n"
                       + DOMAIN_GUIDANCE + "\nREQUIREMENTS:\n" + json.dumps(manifest["requirements"], ensure_ascii=False)
                       + "\nPROPOSED DESIGN:\n" + json.dumps(design, ensure_ascii=False))
@@ -6206,7 +6275,7 @@ class Flow:
         public specs are quoted once, not once per leaf. An oversized or
         truncated whole-app reply falls through to bounded multi-node waves.
         """
-        ordered = [node for node in ordered if str(node.get('id')) not in getattr(self, '_design_blocked', set())]
+        # Incomplete model design is quality debt, not authority to discard the implementation queue.
         ids = [str(node.get("id")) for node in ordered]
         setting = os.environ.get("OCTOS_ARC_WHOLE_APP", "auto").strip().lower()
         has_executable_specs = bool(self.tests_dir)
@@ -6322,6 +6391,9 @@ class Flow:
         17d24626341c: 10 of 24 leaves visible, in wave order)."""
         if getattr(self, "events", None) is None:
             return  # no platform event client (unit tests, dry runs)
+        if getattr(self, "derived_as_specs", False):
+            Flow.finish_derived_designs(self, [str(node.get("id")) for node in ordered])
+            return
         for node in ordered:
             node_id = str(node.get("id"))
             if node_id in getattr(self, "_designed_ids", set()):
@@ -6642,10 +6714,8 @@ class Flow:
         """
         if self.tests_dir or os.environ.get("OCTOS_ARC_DERIVED_TESTS", "1") == "0":
             return False
-        if self.events is not None:
-            for node in ordered:
-                self.mark("design_started", str(node.get("id")),
-                          "generating requirement-derived tests before implementation")
+        # Mechanical scaffolding is run-level preparation, not admission of
+        # every leaf to AI business-spec design. Actual batches announce below.
         tree = getattr(self, "requirement_tree", None)
         log(f"[derived] compiling requirement specs for {len(ordered)} node(s)")
         def progress(node_id: str, index: int, total: int, scripts: int,
@@ -6826,10 +6896,26 @@ class Flow:
             from scenario_review import authentication_invariants
             cached += authentication_invariants(nodes, suite_fixtures(nodes), folder_text(tree))
             self._derived_scenario_targets = cached
+        if not hasattr(self, 'derived_scenario_gaps'):
+            self.derived_scenario_gaps = {}
+            directory = getattr(self, 'derived_tests_dir', None)
+            try:
+                plan = json.loads((directory / 'review/plan.json').read_text()) if directory else {}
+                self.derived_scenario_gaps = {row['id']: row.get('unresolved', []) for row in plan.get('targets', [])}
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
         routes = (getattr(self, "app_design_doc", None) or {}).get("routes", [])
+        source_contracts = {}
+        def index_sources(node):
+            if isinstance(node, dict):
+                if node.get('id'):
+                    source_contracts[str(node['id'])] = str(node.get('description') or '')
+                for child in node.get('children') or []:
+                    index_sources(child)
+        index_sources(getattr(self, 'requirement_tree', None))
         for target in cached:
-            target['obligations'] = [row for row in (getattr(self, 'app_design_doc', None) or {}).get('obligations', [])
-                                     if row['requirement_id'] == target['node_id']]
+            target['source_contracts'] = source_contracts
+            target['obligations'] = applicable_obligations(self, target['node_id'])
             target["api_contracts"] = [route for route in routes if target["node_id"] in route.get("requirements", [])]
         return cached
 
@@ -6849,9 +6935,10 @@ class Flow:
             matched = [title for title in candidates if title in valid and (node_id, title) not in disputes
                        and grounded_behavior_test(source, title, target)]
             disputed = [title for title in candidates if (node_id, title) in disputes]
-            rows.append({"id": target["id"], "title": target["title"],
+            unresolved = getattr(self, 'derived_scenario_gaps', {}).get(target['id'], [])
+            rows.append({"id": target["id"], "title": target["title"], "unresolved": unresolved,
                          "origin": target.get("origin", "requirement_scenario"),
-                         "status": "covered" if matched else "disputed" if disputed else "missing",
+                         "status": "partial" if matched and unresolved else "covered" if matched else "disputed" if disputed else "missing",
                          "tests": matched,
                          "disputes": {title: disputes[(node_id, title)] for title in disputed}})
         from scenario_review import contract_outcomes, positive_contract_evidence
@@ -6913,15 +7000,14 @@ class Flow:
                                            "approved_success_tests": sorted(approved_successful),
                                            "status": status})
         obligations = []
-        for obligation in (getattr(self, 'app_design_doc', None) or {}).get('obligations', []):
-            if obligation['requirement_id'] != node_id:
-                continue
+        for obligation in applicable_obligations(self, node_id):
             witnesses = [row['title'] for row in getattr(self, 'derived_case_reviews', {}).values()
                          if row.get('node_id') == node_id and obligation['id'] in row.get('obligation_ids', [])
                          and self.trusted_derived_case(node_id, row.get('title', ''))]
             obligations.append({**obligation, 'tests': witnesses, 'status': 'approved' if witnesses else 'missing'})
         return {"node_id": node_id, "total": len(rows),
                 'obligations': obligations, 'missing_obligations': sum(not row['tests'] for row in obligations),
+                'obligation_plan_incomplete': hasattr(self, 'derived_obligation_status') and getattr(self, 'derived_obligation_status', {}).get(node_id, {}).get('status') != 'reviewed',
                 "covered": sum(row["status"] == "covered" for row in rows), "scenarios": rows,
                 "contract_outcomes": outcomes, "missing_contract_outcomes": sum(not row["tests"] for row in outcomes),
                 "semantic_contracts": semantic, "missing_semantic_contracts": sum(not row["tests"] for row in semantic),
@@ -6981,6 +7067,7 @@ class Flow:
                 contract["runtime"] = ("passed" if "passed" in checks else
                                        "failed" if checks else "unmeasured")
         report = {"kind": "derived_scenario_coverage", "features": features,
+                  "obligation_planning": getattr(self, "derived_obligation_status", {}),
                   "totals": {"obligations": sum(len(item.get('obligations', [])) for item in features),
                              "missing_obligations": sum(item.get('missing_obligations', 0) for item in features),
                              "scenarios": sum(item["total"] for item in features),
@@ -7044,12 +7131,17 @@ class Flow:
             unreviewed = unreviewed or not positive
         return (unreviewed or coverage["total"] == 0 or coverage["covered"] < coverage["total"]
                 or bool(coverage.get("missing_obligations"))
+                or bool(coverage.get("obligation_plan_incomplete"))
                 or bool(coverage.get("missing_contract_outcomes"))
                 or bool(coverage.get("missing_semantic_contracts"))
                 or bool(coverage.get("missing_format_contracts"))
                 or bool(coverage.get("missing_negative_contracts")))
 
     def success_branch_required(self, node_id: str) -> bool:
+        state = getattr(self, 'derived_obligation_status', {}).get(node_id, {})
+        if state.get('status') == 'reviewed':
+            obligations = applicable_obligations(self, node_id)
+            return not (obligations and all(row.get('branch') == 'rejection' for row in obligations))
         obligations = [row for row in (getattr(self, 'app_design_doc', None) or {}).get('obligations', [])
                        if row.get('requirement_id') == node_id]
         # Only an independently reviewed, source-quoted contract may mark a
@@ -7077,9 +7169,6 @@ class Flow:
                 continue
             row = {"node_id": node_id, "status": "pending", "reason": "weak_behavior_coverage"}
             queue.append(row)
-            if node_id in getattr(self, '_design_blocked', set()):
-                row.update(status='design_blocked', reason='required_contract_unavailable')
-                continue
             if (time.monotonic() + 120 >= deadline or self.wound_down()
                     or os.environ.get("OCTOS_ARC_DRYRUN") == "1"):
                 row["status"] = "budget_blocked"
@@ -7168,7 +7257,7 @@ class Flow:
         reserved_phases = phase_order[:max_requests]
         phase_counts = getattr(self, "derived_model_phase_requests", {})
         self.derived_model_phase_requests = phase_counts
-        wall_cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_WALL_SECONDS", "3600")))
+        wall_cap = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_WALL_SECONDS", "7200")))
         # A six-scenario batch took 389s locally (33k reasoning tokens): 300s cut
         # whole batches off online.
         timeout = max(30, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_SECONDS", "900")))
@@ -7215,7 +7304,13 @@ class Flow:
             preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
             if (self.derived_review_requests >= max_requests or self.derived_llm_seconds >= wall_cap - 30
                     or preflight_left < 30 or self.derived_preflight_tokens_spent()):
-                log("[derived] model review stopped: preflight request, token, or time limit reached")
+                limits = {'requests': self.derived_review_requests >= max_requests,
+                          'generation_seconds': self.derived_llm_seconds >= wall_cap - 30,
+                          'phase_seconds': preflight_left < 30, 'tokens': self.derived_preflight_tokens_spent()}
+                self.metric('derived_generation_budget', limits=limits, used_seconds=self.derived_llm_seconds,
+                            cap_seconds=wall_cap, phase_seconds_left=max(0, preflight_left), requests=self.derived_review_requests,
+                            request_cap=max_requests)
+                log("[derived] model review stopped: " + ', '.join(key for key, hit in limits.items() if hit))
                 break
             if self.wound_down() or self.remaining() < self.final_phase_reserve() + 600:
                 log("[derived] model review stopped: time reserved for the final phases")
@@ -7231,7 +7326,7 @@ class Flow:
                 plan_rows[target["id"]]["status"] = "attempted"
             plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             report_nodes(chunk, batch_number, "generating")
-            prompt = build_review_prompt(chunk, fixtures, phase_contexts.get(phase_id, "")) + BUSINESS_QUALITY_GUIDANCE
+            prompt = build_review_prompt(chunk, fixtures, phase_contexts.get(phase_id, "")) + TEST_QUALITY_GUIDANCE
             if len(prompt) > self.codegen_context_chars():
                 report_nodes(chunk, batch_number, "insufficient_context")
                 for target in chunk:
@@ -7246,6 +7341,7 @@ class Flow:
             for target in chunk:
                 target_attempts[target['id']] = target_attempts.get(target['id'], 0) + 1
             self.snapshot_protected()  # commit harness plan/spec writes before calling the model
+            Flow.start_derived_designs(self, [str(t["node_id"]) for t in chunk], "generating business test specs")
             started = time.monotonic()
             ok, text = self.text_turn(prompt, max(1, int(min(
                 timeout, max(1, wall_cap - self.derived_llm_seconds), preflight_left))),
@@ -7267,27 +7363,42 @@ class Flow:
                         phase_id, reserved_phases, phase_counts, self.derived_review_requests, max_requests))):
                 # One correction round: the model sees exactly which rule each
                 # rejected script broke; anything still invalid is dropped.
-                prompt = build_review_retry(retryable, chunk, fixtures)
+                prompt = build_review_retry(retryable, chunk, fixtures, phase_contexts.get(phase_id, "")) + TEST_QUALITY_GUIDANCE
+                if len(prompt) > self.codegen_context_chars():
+                    self.metric("derived_spec_retry", outcome="insufficient_context", phase=phase_id)
+                    prompt = ""
                 self.snapshot_protected()  # includes accepted earlier batches and this review artifact
-                self.derived_review_requests += 1
-                if phase_id:
+                self.derived_review_requests += bool(prompt)
+                if phase_id and prompt:
                     phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
                 started = time.monotonic()
-                ok, text = self.text_turn(prompt, max(1, int(min(
+                ok, text = (self.text_turn(prompt, max(1, int(min(
                     timeout, max(1, wall_cap - self.derived_llm_seconds), retry_left))),
                                           "derived scenario review (retry)", system=REVIEW_SYSTEM,
-                                          spec_chars=len(prompt))
+                                          spec_chars=len(prompt)) if prompt else (False, "insufficient_context"))
                 self.derived_llm_seconds += time.monotonic() - started
                 (review_dir / f"batch-{batch_number}-retry.txt").write_text(
                     f"# ok={ok}\n# rejected={[r['title'] for r in retryable]}\n{text}", encoding="utf-8")
                 if ok:
-                    fixed, dropped_again = compile_review_reply(text, chunk, fixtures)
+                    retry_ids = {item.get('id') for item in retryable}
+                    prior_counts = {item.get('id'): len(item.get('previous_proposal', {}).get('cases') or [None])
+                                    for item in retryable}
+                    retry_targets = [dict(target, minimum_case_count=prior_counts.get(target.get('id'), 1))
+                                     for target in chunk if target.get('id') in retry_ids]
+                    fixed, dropped_again = compile_review_reply(text, retry_targets, fixtures)
                     for node_id, tests in fixed.items():
                         scripts.setdefault(node_id, []).extend(tests)
                     fixed_titles = {t.split("test('", 1)[1].split(" [model]")[0] for ts in fixed.values() for t in ts}
                     fixed_titles = {re.sub(r" \[case [1-8]\]$", "", title) for title in fixed_titles}
-                    dropped = [d for d in dropped if not any(d.startswith(title + ": ") for title in fixed_titles)] + dropped_again
+                    dropped = [d for d in dropped if not any(d.startswith(title + ": ") and not any(e.startswith(title + ": ") for e in dropped_again) for title in fixed_titles)] + dropped_again
             dropped_total += dropped
+            self.derived_scenario_gaps = getattr(self, 'derived_scenario_gaps', {})
+            for target in chunk:
+                problems = [reason for reason in dropped if reason.startswith(target['title'] + ': ')]
+                self.derived_scenario_gaps[target['id']] = problems
+                plan_rows[target['id']]['unresolved'] = problems
+            (review_dir / f"batch-{batch_number}-validation.json").write_text(json.dumps(
+                {'rejected': dropped, 'retryable': retryable}, ensure_ascii=False, indent=2))
             accepted_titles: set[str] = set()
             for node_id, tests in scripts.items():
                 rel = f"{node_id}.spec.ts"
@@ -7304,10 +7415,12 @@ class Flow:
                 accepted_titles.update(new_titles)
                 added += sum(title.endswith(" [model]") for title in new_titles)
             for target in chunk:
+                if plan_rows[target['id']].get('unresolved'):
+                    plan_rows[target['id']]['status'] = 'partial' if scripts.get(target['node_id']) else 'rejected'
                 if (f"{target['title']} [model]" in accepted_titles
                         or any(re.fullmatch(re.escape(target['title']) + r" \[case [1-8]\] \[model\]", title)
                                for title in accepted_titles)):
-                    plan_rows[target["id"]]["status"] = "accepted"
+                    plan_rows[target["id"]]["status"] = "partial" if plan_rows[target["id"]].get("unresolved") else "accepted"
                 else:
                     skip = next((item for item in dropped
                                  if item.startswith(target["title"] + ": skipped by the model:")), None)
@@ -7386,7 +7499,7 @@ class Flow:
                     previous.get(key) == row.get(key) for key in
                     ("case_hash", "requirements_hash", "helper_hash", "fixture_hash")):
                 row.update({key: previous[key] for key in
-                            ("status", "outcome_quote", "assertion_quote", "reason", "review_request", "branch", "obligation_ids") if key in previous})
+                            ("status", "outcome_quote", "assertion_quote", "reason", "review_request", "branch", "obligation_ids", "obligation_evidence", "review_validation") if key in previous})
         candidates = [row for row in rows if row["status"] in {"unreviewed", "skipped_unreviewed"}]
         phase_plan = getattr(self, "phase_plan", None) or {}
         leaf_phase = phase_plan.get("leaf_phase", {})
@@ -7431,7 +7544,10 @@ class Flow:
                      for row in chunk]
             prompt = ("Independently audit each generated Playwright case against its authoritative requirement. "
                       "You have no application code or test results. Check GIVEN setup, identity, WHEN action order, "
-                      "THEN oracle, opposite branches and case isolation. Identify branch as success, rejection, mixed or unknown. For a stated data format, verify exact "
+                      "THEN oracle and case isolation. Audit the branch this case actually exercises; do not demand "
+                      "every opposite branch in a single case. Suite-level obligation coverage checks the other branches. "
+                      "Do require the full outcome of this case, including unchanged state on rejection. "
+                      " Identify branch as success, rejection, mixed or unknown. For a stated data format, verify exact "
                       "field order, empty fields, escaping, Unicode, filenames and values where applicable; a file "
                       "suffix, toast or substring alone is not a format oracle. Do not approve a reach/entry-only check "
                       "as behavioral. For every state-changing case, identify the commit action and verify the "
@@ -7439,10 +7555,10 @@ class Flow:
                       "does not prove the transition. If persistence is promised, require a reload and a repeated "
                       "state assertion. For rejected actions, require both rejection and unchanged state. "
                       "A skip must be justified by an impossible fixture, not a difficult assertion. "
-                      "Return ONLY a JSON array, one item per id: {id,status,branch,obligation_ids,requirement_quote,test_quote,reason}. Include only supplied obligation IDs actually proved by the assertions. "
+                      "Return ONLY a JSON array, one item per id: {id,status,branch,obligation_ids,obligation_evidence,requirement_quote,test_quote,reason}. Include only supplied obligation IDs actually proved by the assertions. For EACH mapped obligation, supply obligation_evidence [{obligation_id,requirement_quote,test_quote}]; its quote must come from that obligation and its assertion must prove the entire stated outcome. If the case proves only part, do not map the whole obligation. "
                       "status is approved_behavior, approved_smoke_only, needs_correction, disputed, or "
                       "skipped_with_reason. Quotes must be verbatim. requirement_quote must come from the "
-                      "leaf description or a THEN step, not GIVEN/WHEN; test_quote must be an assertion that "
+                      "leaf description, a THEN step, or an inherited obligation's source quote, not GIVEN/WHEN; test_quote must be an assertion that "
                       "proves that outcome. Do not approve entry-only checks.\n"
                       "Cases marked baseline_invariant are inferred password-login safety properties, not "
                       "verbatim product scenarios. Check that the original requirement supports password login "
@@ -7473,10 +7589,12 @@ class Flow:
                 review_prompt = prompt if attempt == 0 else prompt + (
                     "\nThe previous reply had an invalid JSON envelope. Return exactly one JSON array "
                     "with no prose and unique IDs; do not change requirements or tests.")
+                Flow.start_derived_designs(self, [str(row["node_id"]) for row in chunk], "auditing business test specs")
                 ok, reply = self.text_turn(review_prompt, allowance,
                                            "derived case independent review" + (" (format retry)" if attempt else ""),
                                            system="You are an independent read-only test auditor. Return valid JSON only.",
                                            spec_chars=len(review_prompt))
+                (review_dir / f"audit-{spent}.txt").write_text(str(reply), encoding="utf-8")
                 decisions, parse_error = (parse_review_decisions(reply, {row["id"] for row in chunk})
                                           if ok else ([], "unavailable"))
                 self.metric("derived_case_review_parse", outcome=parse_error or "parsed", request=spent,
@@ -7486,12 +7604,14 @@ class Flow:
             by_id = {item.get("id"): item for item in decisions if isinstance(item, dict)} if isinstance(decisions, list) else {}
             for row in chunk:
                 decision = by_id.get(row["id"], {})
-                if validate_review(row, decision):
+                validation_errors = review_validation_errors(row, decision)
+                if not validation_errors:
                     row["status"] = "approved_behavior"
                     row["outcome_quote"] = decision["requirement_quote"]
                     row["assertion_quote"] = decision["test_quote"]
                     row["branch"] = decision.get("branch", "unknown")
                     row['obligation_ids'] = decision.get('obligation_ids', [])
+                    row['obligation_evidence'] = decision.get('obligation_evidence', [])
                 elif row["status"] == "skipped_unreviewed":
                     quote = decision.get("requirement_quote")
                     if row.get("skip_category") in {"harness_unsupported", "fixture_unavailable"}:
@@ -7502,6 +7622,7 @@ class Flow:
                         row["status"] = "skipped_with_reason"
                 elif decision.get("status") in {"needs_correction", "disputed", "approved_smoke_only"}:
                     row["status"] = decision["status"]
+                row['review_validation'] = validation_errors if decision.get('status') == 'approved_behavior' else [parse_error or 'not_approved']
                 row["reason"] = str(decision.get("reason") or "review unavailable")[:500]
                 row["review_request"] = spent
                 self.metric("derived_case_review_decision", case_id=row["id"], status=row["status"],
@@ -7545,19 +7666,28 @@ class Flow:
                    if row["node_id"] in node_ids and row.get("scenario_id") == target["id"]
                    and row.get("status") == "needs_correction"]
             if bad:
-                chosen.append(target)
+                previous_cases = collect_cases(self.derived_tests_dir, [target], {target['node_id']})
+                previous_text = ' '.join(row['title'] for row in previous_cases) + ' ' + ' '.join(
+                    getattr(self, 'derived_scenario_gaps', {}).get(target['id'], []))
+                count = max([int(n) for n in re.findall(r'case (\d+)', previous_text)] or [1])
+                chosen.append(dict(target, minimum_case_count=count))
                 feedback.append({"id": target["id"], "title": target["title"],
                                  "reasons": [row.get("reason") or "missing action/outcome evidence" for row in bad],
-                                 "previous_cases": [row.get("case", "") for row in bad[:2]]})
+                                 "previous_cases": [{'title': row['title'], 'status': row.get('status'), 'case': row.get('case', '')}
+                                                    for row in previous_cases]})
             if len(chosen) >= 4:
                 break
         if not chosen:
             return set()
         fixtures = suite_fixtures(getattr(self, "derived_nodes", []))
-        prompt = build_review_retry(feedback, chosen, fixtures) + "\nIndependent audit feedback and previous cases:\n" + json.dumps(feedback, ensure_ascii=False)
+        prompt = build_review_retry(feedback, chosen, fixtures, json.dumps({"design": getattr(self, "app_design_doc", None), "phases": getattr(self, "phase_plan", None)}, ensure_ascii=False)) + TEST_QUALITY_GUIDANCE + "\nReturn the complete scenario cases in their original numbered order, preserving valid siblings and correcting only the failed cases. Independent audit feedback and previous cases:\n" + json.dumps(feedback, ensure_ascii=False)
+        if len(prompt) > self.codegen_context_chars():
+            self.metric("derived_case_correction", outcome="insufficient_context")
+            return set()
         self.snapshot_protected()
         self.derived_case_correction_attempted = attempted | {(target["node_id"], target["id"], case_sha((self.derived_tests_dir / (target["node_id"] + ".spec.ts")).read_text())) for target in chosen}
         self.derived_case_correction_requests = spent + 1
+        Flow.start_derived_designs(self, [str(target["node_id"]) for target in chosen], "correcting business test specs")
         ok, reply = self.text_turn(prompt, max(1, int(min(600, left, self.remaining() - self.final_phase_reserve() - 180))),
                                    "derived scenario review (audit correction)", system=REVIEW_SYSTEM, spec_chars=len(prompt))
         review_dir = self.derived_tests_dir / "review"
@@ -7577,13 +7707,37 @@ class Flow:
                         title.startswith(target["title"] + " [") for title in emitted_titles):
                     continue
                 for row in collect_cases(self.derived_tests_dir, [target], {node_id}):
-                    if row["scenario_id"] == target["id"]:
+                    if (row["scenario_id"] == target["id"] and row["title"] in emitted_titles
+                            and not self.trusted_derived_case(node_id, row["title"])):
                         updated = updated.replace(test_block(updated, row["title"]) or "\0", "", 1)
             updated = append_tests(updated, tests, node_id)
             if updated != source:
                 (review_dir / f"before-correction-{spent + 1}-{node_id}.ts").write_text(source, encoding="utf-8")
                 path.write_text(updated, encoding="utf-8")
                 touched.add(node_id)
+        # Compilation gaps survive partial corrections, and a complete reply
+        # clears the previous gap. Independent audit is still required after a
+        # write; successful compilation alone never approves application behavior.
+        self.derived_scenario_gaps = getattr(self, 'derived_scenario_gaps', {})
+        for target in chosen:
+            problems = ([reason for reason in dropped if reason.startswith(target['title'] + ': ')]
+                        if ok else ['correction request unavailable'])
+            self.derived_scenario_gaps[target['id']] = problems
+        plan_path = review_dir / 'plan.json'
+        try:
+            plan = json.loads(plan_path.read_text()) if plan_path.is_file() else {'targets': []}
+        except (OSError, ValueError):
+            plan = {'targets': []}
+        for target in chosen:
+            entry = next((row for row in plan['targets'] if row.get('id') == target['id']), None)
+            if entry is None:
+                entry = {'id': target['id'], 'node_id': target['node_id'], 'title': target['title']}
+                plan['targets'].append(entry)
+            entry['unresolved'] = self.derived_scenario_gaps[target['id']]
+            entry['status'] = 'partial' if entry['unresolved'] else 'accepted'
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        (review_dir / f'correction-{spent + 1}-validation.json').write_text(
+            json.dumps({'rejected': dropped, 'nodes': sorted(touched)}, ensure_ascii=False, indent=2), encoding='utf-8')
         self.metric("derived_case_correction", request=spent + 1, nodes=sorted(touched), rejected=dropped[:8])
         return touched
 
@@ -7613,7 +7767,7 @@ class Flow:
         ordered_phases = [phase["id"] for phase in phase_plan.get("phases", [])]
         ordered_phases += [phase for phase in groups if phase not in ordered_phases]
         requested = max(0, int(os.environ.get(
-            "OCTOS_ARC_DERIVED_PREFLIGHT_SECONDS", str(min(max(5400, len(ordered) * 120), 7200, int(self.budget * .40))))))
+            "OCTOS_ARC_DERIVED_PREFLIGHT_SECONDS", str(min(max(10800, len(ordered) * 240), 14400, int(self.budget * .35))))))
         code_reserve = max(600, int(self.budget * .4))
         allowance = min(requested, max(0, int(self.remaining() - self.final_phase_reserve() - code_reserve)))
         proxy = getattr(self, "llm_proxy", None)
@@ -7689,6 +7843,26 @@ class Flow:
                 f"({len(failed)} unavailable); "
                 "remaining cases stay unreviewed, proceeding with source generation")
 
+    def start_derived_designs(self, node_ids: list[str], message: str) -> None:
+        if getattr(self, "events", None) is None:
+            return
+        for node_id in dict.fromkeys(node_ids):
+            self._derived_design_admitted = getattr(self, "_derived_design_admitted", set()) | {node_id}
+            self.mark("design_started", node_id, message)
+
+    def finish_derived_designs(self, node_ids: list[str]) -> None:
+        """Close only started, fully covered and independently approved specs."""
+        if getattr(self, "events", None) is None or not getattr(self, "derived_as_specs", False):
+            return
+        for node_id in dict.fromkeys(node_ids):
+            if (node_id not in getattr(self, "_design_started_ids", set())
+                    or node_id in getattr(self, "_designed_ids", set())
+                    or node_id in getattr(self, "_implementation_started_ids", set())):
+                continue
+            if not self.derived_review_needed(node_id):
+                self._derived_design_ready = getattr(self, "_derived_design_ready", set()) | {node_id}
+                self.mark("design_done", node_id, "business test specs generated, validated and independently reviewed")
+
     def prepare_derived_spec_batch(self, ordered: list[dict]) -> None:
         """Finish a category's generated specs before the code stage begins."""
         if (getattr(self, "derived_specs_frozen", False)
@@ -7704,7 +7878,7 @@ class Flow:
                 pending.append(node)
                 continue
             coverage = self.derived_scenario_coverage(node_id)
-            if coverage["covered"] < coverage["total"] or coverage.get("missing_negative_contracts"):
+            if self.derived_review_needed(node_id):
                 pending.append(node)
         if not pending:
             return
@@ -7714,6 +7888,16 @@ class Flow:
             self.metric("derived_spec_node", node_id=node_id, phase="batch", status="preparing")
         if (os.environ.get("OCTOS_ARC_DRYRUN") != "1"
                 and os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") != "0"):
+            try:
+                prepare_obligations(self, pending)
+            except Exception as exc:
+                # Planning is fallible. Preserve explicit coverage debt and
+                # still generate candidate tests and implement the feature.
+                states = getattr(self, 'derived_obligation_status', {})
+                for node_id in ids:
+                    states[node_id] = {'status': 'incomplete', 'errors': ['obligation planning unavailable']}
+                self.derived_obligation_status = states
+                self.metric('derived_obligations', outcome='unavailable', reason=str(exc)[:300])
             phase_deadline = getattr(self, "derived_preflight_deadline", float("inf"))
             if phase_deadline != float("inf"):
                 # Leave an independent audit window in this category. A
@@ -7737,8 +7921,19 @@ class Flow:
                                   and os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") != "0"
                                   and int(os.environ.get("OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS", "60")) >
                                   getattr(self, "derived_case_correction_requests", 0))
-            self.review_derived_cases(set(ids), reserve_requests=1 if correction_enabled else 0)
-            corrected = self.correct_derived_cases(set(ids)) if correction_enabled else set()
+            audit_deadline = getattr(self, 'derived_preflight_deadline', float('inf'))
+            try:
+                if correction_enabled and audit_deadline != float('inf'):
+                    self.derived_preflight_deadline = time.monotonic() + max(0, audit_deadline - time.monotonic()) * .5
+                self.review_derived_cases(set(ids), reserve_requests=1 if correction_enabled else 0)
+            finally:
+                self.derived_preflight_deadline = audit_deadline
+            try:
+                if correction_enabled and audit_deadline != float('inf'):
+                    self.derived_preflight_deadline = time.monotonic() + max(0, audit_deadline - time.monotonic()) * .6
+                corrected = self.correct_derived_cases(set(ids)) if correction_enabled else set()
+            finally:
+                self.derived_preflight_deadline = audit_deadline
             if corrected:
                 self.snapshot_protected()
                 self.review_derived_cases(corrected)
@@ -7752,10 +7947,12 @@ class Flow:
         # The generated suite is protected during code turns. Refresh the
         # snapshot only after the harness has accepted this batch's files.
         self.snapshot_protected()
+        Flow.finish_derived_designs(self, ids)
         for node_id in ids:
             coverage = self.derived_scenario_coverage(node_id)
-            log(f"[derived] spec batch {node_id}: ready, covered={coverage['covered']}/{coverage['total']}")
-            self.metric("derived_spec_node", node_id=node_id, phase="batch", status="ready",
+            status = "pending_review" if self.derived_review_needed(node_id) else "ready"
+            log(f"[derived] spec batch {node_id}: {status}, covered={coverage['covered']}/{coverage['total']}")
+            self.metric("derived_spec_node", node_id=node_id, phase="batch", status=status,
                         covered=coverage["covered"], total=coverage["total"])
 
     @staticmethod
@@ -8326,13 +8523,13 @@ class Flow:
         return pending
 
     def admit_node(self, node: dict, *, within: set[str] | None = None, wave: bool = False) -> bool:
-        """Require a design contract; test verdicts on other leaves are advisory."""
+        """Admit development while recording unresolved design and dependency evidence."""
         node_id = str(node.get("id"))
         if node_id in getattr(self, "_design_blocked", set()):
             self.metric("implementation_dependency_unverified", node_id=node_id,
-                        dependencies=["shared_design"], decision="blocked")
-            self.self_audit_node(node_id, "required design contract unavailable; recovery did not complete")
-            return False
+                        dependencies=["shared_design"], decision="admitted_unverified")
+            self.self_audit_node(node_id, "shared design incomplete; implementation must resolve the original contracts")
+            log(f"[flow] {node_id}: shared design incomplete; implementing from original requirements with unresolved design debt")
         blocked = self.pending_dependencies(node, within=within, wave=wave)
         if blocked:
             self.metric("implementation_dependency_unverified", node_id=node_id,
@@ -10659,7 +10856,7 @@ class Flow:
                     self.derived_specs_frozen = False
                     self.metric("derived_preflight", outcome="unavailable", reason=str(exc)[:300])
                 if getattr(self, "derived_as_specs", False):
-                    self.mark_designed(ordered, "requirement/test design preflight ended; unreviewed gaps remain advisory")
+                    Flow.finish_derived_designs(self, node_ids)
                 self._generation_active = True
                 if (self.evolution and self.runner is not None and self.tests_dir
                         and unchanged == set(node_ids) and len(node_ids) > 1):
@@ -10803,27 +11000,20 @@ class Flow:
             return 1  # failed generation is never a successful execution state
 
     def mark_folders(self) -> None:
-        """The platform counts FOLDER nodes as requirements too ("45 requirements
-        and 32 scenarios" for a 32-leaf tree); derive their state from their
-        atomic descendants so the functional-rate denominator is covered."""
+        """Finalize aggregate verdicts without replaying fictitious phases."""
+        states = getattr(self, "_folder_states", {})
         for folder_id, leaves in self.folder_children.items():
             if not leaves:
                 continue
-            verdicts = [self.test_verdict.get(leaf) for leaf in leaves]
-            self.events.mark_design_started(folder_id)
-            self.events.mark_design_done(folder_id, f"{len(leaves)} atomic children designed")
-            self.events.mark_implementation_started(folder_id)
-            if all(v is not None for v in verdicts) or any(leaf in self.impl_failed for leaf in leaves):
-                done = [leaf for leaf in leaves if leaf not in self.impl_failed]
-                if done:
-                    self.events.mark_implementation_done(folder_id, f"{len(done)}/{len(leaves)} atomic children implemented")
-                else:
-                    self.events.mark_implementation_failed(folder_id, "no atomic child implemented")
-            if all(v is True for v in verdicts):
-                self.events.mark_test_passed(folder_id, f"all {len(leaves)} atomic children pass")
-            else:
-                failing = [leaf for leaf, v in zip(leaves, verdicts) if v is not True]
-                self.events.mark_test_failed(folder_id, f"children not verified: {', '.join(failing)}")
+            failing = [leaf for leaf in leaves if self.test_verdict.get(leaf) is not True]
+            kind = "test_failed" if failing else "test_passed"
+            if states.get(folder_id) == kind:
+                continue
+            message = (f"children not verified: {', '.join(failing)}" if failing
+                       else f"all {len(leaves)} atomic children pass")
+            getattr(self.events, "mark_" + kind)(folder_id, message)
+            states[folder_id] = kind
+        self._folder_states = states
 
     def write_terminal_state(self, state: str) -> None:
         proxy = getattr(self, "llm_proxy", None)

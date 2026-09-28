@@ -686,9 +686,9 @@ export async function selectOption(page: Page, label: string, value: string): Pr
   await expect(field).toHaveCount(1);
   await field.selectOption({ label: value });
 }
-export async function dragNamed(page: Page, source: string, destination: string): Promise<void> {
-  const from = page.getByText(source, {exact: true});
-  const to = page.getByText(destination, {exact: true});
+export async function dragNamed(page: Page, source: string, destination: string, role?: any): Promise<void> {
+  const from = role ? page.getByRole(role, {name: source, exact: true}) : page.getByText(source, {exact: true});
+  const to = role ? page.getByRole(role, {name: destination, exact: true}) : page.getByText(destination, {exact: true});
   await expect(from).toHaveCount(1);
   await expect(to).toHaveCount(1);
   await from.dragTo(to);
