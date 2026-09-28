@@ -7,6 +7,7 @@ const path = require('path');
   const report = { status: 'passed', observations: [], pages: [], unchecked: [] };
   const declared = (config.dynamicPatterns || []).filter(pattern => typeof pattern === 'string');
   const routes = [...config.paths];
+  const discovered = new Set();
   const sameOrigin = new URL(config.baseURL).origin;
   const matchesDeclared = pathname => declared.some(pattern => {
     const parts = pattern.split('/').map(part => part.startsWith(':') ? '[^/]+' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -47,15 +48,24 @@ const path = require('path');
           controls: document.querySelectorAll('input,button,canvas,svg,img').length
         }));
         report.pages.push({ path: url.pathname, textLength: state.text.length, controls: state.controls });
-        if (index < config.paths.length && declared.length && routes.length < config.paths.length + 2) {
+        if (index < config.paths.length && routes.length < config.paths.length + 2) {
           const links = await page.locator('a[href]').evaluateAll(items => items
-            .filter(item => item.getClientRects().length > 0)
+            .filter(item => item.getClientRects().length > 0 && !item.hasAttribute('download'))
             .map(item => item.href));
+          const candidates = [];
           for (const href of links) {
-            const candidate = new URL(href, url.href);
-            if (candidate.origin !== sameOrigin || /\b(?:logout|delete|remove|reset)\b/i.test(candidate.pathname)
-                || !matchesDeclared(candidate.pathname) || routes.includes(candidate.pathname)) continue;
+            let candidate;
+            try { candidate = new URL(href, url.href); } catch { continue; }
+            if (candidate.origin !== sameOrigin
+                || /\b(?:logout|delete|remove|reset)\b/i.test(candidate.pathname)
+                || routes.includes(candidate.pathname)) continue;
+            candidates.push(candidate);
+          }
+          candidates.sort((left, right) => Number(matchesDeclared(right.pathname)) - Number(matchesDeclared(left.pathname)));
+          for (const candidate of candidates) {
+            if (routes.includes(candidate.pathname)) continue;
             routes.push(candidate.pathname);
+            discovered.add(candidate.pathname);
             if (routes.length >= config.paths.length + 2) break;
           }
         }
@@ -69,7 +79,7 @@ const path = require('path');
         });
         if (/^(loading[.\s…]*|please wait[.\s…]*)$/i.test(state.text) && !errors.length)
           report.status = 'unknown';
-        if (matchesDeclared(url.pathname) && !errors.length) {
+        if ((matchesDeclared(url.pathname) || discovered.has(url.pathname)) && !errors.length) {
           await page.reload({ waitUntil: 'domcontentloaded', timeout: 10000 });
           await page.waitForFunction(() => !/^(loading[.\s…]*|please wait[.\s…]*)$/i.test(
             document.body?.innerText.trim() || ''), null, { timeout: 5000 }).catch(() => {});
@@ -95,6 +105,10 @@ const path = require('path');
         report.status = 'unknown';
         report.observations.push({ kind: 'navigation_error', confirmed: false,
           path: url.pathname, message: String(e.message || e) });
+        for (const message of [...new Set(errors)].slice(0, 8)) report.observations.push({
+          kind: 'pageerror', confirmed: true, path: url.pathname, message,
+          reproduction: 'independent fresh browser during navigation'
+        });
       } finally {
         await context.tracing.stop({ path: path.join(config.destination, `trace-${index}.zip`) });
         await context.close();

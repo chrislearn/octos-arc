@@ -72,7 +72,7 @@ def frontend_binding_health(frontend: Path, *, timeout: int = 20) -> dict:
     """Flag unresolved lexical references; missing optional tooling is unknown."""
     try:
         completed = subprocess.run(
-            ['node', str(Path(__file__).with_name('undefined_bindings.cjs')), str(frontend)],
+            ['node', str(Path(__file__).with_name('undefined_bindings.cjs')), str(frontend.resolve())],
             text=True, capture_output=True, timeout=timeout, check=False)
         report = json.loads(completed.stdout)
         if completed.returncode or report.get('status') not in {'passed', 'failed', 'unknown'}:
@@ -80,3 +80,35 @@ def frontend_binding_health(frontend: Path, *, timeout: int = 20) -> dict:
         return report
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
         return {'status': 'unknown', 'reason': str(exc)[:300]}
+
+
+def binding_failure_observation(report: dict) -> dict | None:
+    """Keep unresolved names visible in a bounded startup repair message."""
+    if report.get('status') != 'failed':
+        return None
+    names = report.get('names')
+    if not isinstance(names, list):
+        groups: dict[str, list[str]] = {}
+        for row in report.get('diagnostics', []):
+            if not isinstance(row, dict) or not isinstance(row.get('name'), str):
+                continue
+            site = f"{row.get('file', '?')}:{row.get('line', '?')}"
+            groups.setdefault(row['name'], []).append(site)
+        names = [{'name': name, 'count': len(sites), 'file': sites[0].rsplit(':', 1)[0],
+                  'line': sites[0].rsplit(':', 1)[-1]} for name, sites in groups.items()]
+    if not names:
+        return None
+    entries = [f"{row['name']} x{row['count']} ({row['file']}:{row['line']})"
+               for row in sorted(names, key=lambda item: (-item['count'], item['name']))]
+    details = ', '.join(entries)
+    if len(details) > 800:
+        kept = []
+        for entry in entries:
+            if len(', '.join(kept + [entry])) > 760:
+                break
+            kept.append(entry)
+        details = ', '.join(kept) + f"; {len(entries) - len(kept)} more names in health.json"
+    total = report.get('total', sum(row['count'] for row in names))
+    return {'kind': 'undefined_binding', 'confirmed': True,
+            'message': f"Undefined frontend bindings ({total} references): {details}",
+            'evidence': report}

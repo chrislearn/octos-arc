@@ -56,8 +56,16 @@ function scan(directory) {
 }
 try {
   if (fs.existsSync(sourceRoot)) scan(sourceRoot);
+  const names = new Map();
+  for (const row of diagnostics) {
+    const current = names.get(row.name);
+    if (current) current.count++;
+    else names.set(row.name, { name: row.name, count: 1, file: row.file, line: row.line });
+  }
   process.stdout.write(JSON.stringify({ status: diagnostics.length ? 'failed' : skippedTypeScript ? 'unknown' : 'passed',
                                      diagnostics: diagnostics.slice(0, 40),
+                                     total: diagnostics.length,
+                                     names: [...names.values()],
                                      reason: skippedTypeScript ? `${skippedTypeScript} TypeScript files require compiler-based scope checking` : undefined }));
 } catch (error) {
   process.stdout.write(JSON.stringify({ status: 'unknown', reason: String(error.message || error) }));

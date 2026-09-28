@@ -133,7 +133,8 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
-from runtime_diagnostics import application_failures, browser_health, frontend_binding_health, diagnose
+from runtime_diagnostics import (application_failures, binding_failure_observation,
+                                 browser_health, frontend_binding_health, diagnose)
 from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, dynamic_health_patterns, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
 from obligation_planning import applicable_obligations, prepare_obligations, reviewed_obligations_intact
 from domain_contracts import DOMAIN_GUIDANCE, contract_manifest, official_status, requirement_index, source_contract_advisories
@@ -5340,12 +5341,9 @@ class Flow:
                                 timeout=min(50, max(1, int(self.remaining()))))
         bindings = frontend_binding_health(self.output_dir / 'frontend')
         report['frontend_bindings'] = bindings
-        if bindings['status'] == 'failed':
-            for row in bindings.get('diagnostics', [])[:8]:
-                report['observations'].append({
-                    'kind': 'undefined_binding', 'confirmed': True,
-                    'message': f"{row['file']}:{row['line']}: {row['name']} is not declared",
-                    'evidence': row})
+        binding_failure = binding_failure_observation(bindings)
+        if binding_failure:
+            report['observations'].append(binding_failure)
             report['status'] = 'failed'
         report["source_hash"] = version
         (destination / "health.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
@@ -5363,7 +5361,8 @@ class Flow:
         # Unavailable measurement is not a product exception or a repair target.
         return ("Browser health " + report.get("status", "unknown") + ": "
                 + "; ".join(str(row.get("message")) for row in report.get("observations", []))
-                + str(report.get("reason", "")))
+                + str(report.get("reason", ""))
+                + f"; full evidence: {report.get('artifact_dir', 'unavailable')}/health.json")
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
         if getattr(self, 'derived_as_specs', False) is True and self.derived_review_needed(node_id):
@@ -8241,16 +8240,17 @@ class Flow:
             self.write_derived_handoff()
             self.snapshot_protected()
 
-    def pre_review_derived_system_check(self) -> None:
+    def pre_review_derived_system_check(self) -> bool | None:
         """Check build/start/browser before long test review can consume repair time."""
         if not getattr(self, 'derived_as_specs', False):
-            return
+            return None
         reserve = self.final_measurement_reserve() + self.repair_minimum()
         if self.remaining() < reserve + self.repair_minimum() + 60:
             self.metric('pre_review_system_check', outcome='deferred', remaining=round(self.remaining()))
-            return
+            return None
         healthy = self.rehearsal(preserve_seconds=reserve, restore_on_failure=False)
         self.metric('pre_review_system_check', outcome='healthy' if healthy else 'unverified_or_failed')
+        return healthy
 
     def remeasure_after_rehearsal(self, source_before: str, rehearsed: bool) -> bool:
         """Remeasure after startup repair, then verify any final source edits."""
@@ -11242,6 +11242,7 @@ class Flow:
     # -- final ------------------------------------------------------------
     def rehearsal(self, *, preserve_seconds: float = 0.0,
                   restore_on_failure: bool = True, repair_on_failure: bool = True) -> bool:
+        self._last_rehearsal_system_failure = False
         for attempt in range(1, 4):
             log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {self.smoke_port}, grader-like env)")
             server = self.app_server(grader_like=True, test_hooks=False)
@@ -11250,16 +11251,19 @@ class Flow:
                 err = self.rehearsal_browser_error()
             server.stop()
             if err is None:
+                self._last_rehearsal_system_failure = False
                 log("[rehearsal] app builds, starts and renders in the browser")
                 return True
             log(f"[rehearsal] FAILED: {err.splitlines()[0][:200]}")
             if err.startswith("Browser health unknown"):
                 self.metric("rehearsal", outcome="measurement_unavailable", reason=err)
                 return False  # do not edit app code to fix missing browser infrastructure
+            self._last_rehearsal_system_failure = True
             if (not repair_on_failure or attempt == 3
                     or self.remaining() <= preserve_seconds + self.repair_minimum()
                     or self.wound_down()):
                 if restore_on_failure and self.restore_startable_commit():
+                    self._last_rehearsal_system_failure = False
                     return True
                 log("[rehearsal] giving up; current source remains for later checks")
                 return False
@@ -11275,7 +11279,10 @@ class Flow:
             if self.last_turn_changed:
                 self.test_verdict = {key: None for key in self.test_verdict}
             self.commit("fix: startup rehearsal repair")
-        return self.restore_startable_commit() if restore_on_failure else False
+        restored = self.restore_startable_commit() if restore_on_failure else False
+        if restored:
+            self._last_rehearsal_system_failure = False
+        return restored
 
     def discard_runtime_store(self) -> bool:
         """Remove the scaffold's JSON store written by our own local runs.
@@ -11437,14 +11444,22 @@ class Flow:
                     self.implement_sequential(tree, ordered, unchanged)
 
                 self._generation_active = False
+                system_ready = None
                 try:
-                    self.pre_review_derived_system_check()
+                    system_ready = self.pre_review_derived_system_check()
                 except Exception as exc:
                     self.metric('pre_review_system_check', outcome='unavailable', reason=str(exc)[:300])
-                try:
-                    self.review_derived_after_implementation(ordered)
-                except Exception as exc:  # test planning never discards generated source
-                    self.metric('derived_post_code_review', outcome='unavailable', reason=str(exc)[:300])
+                if system_ready is False and getattr(self, '_last_rehearsal_system_failure', False):
+                    # A confirmed build/start/browser fault has already had
+                    # bounded repair attempts. Keep the remaining time for the
+                    # final system rehearsal instead of spending it on specs
+                    # that cannot exercise a broken application.
+                    self.metric('derived_post_code_review', outcome='deferred_system_failure')
+                else:
+                    try:
+                        self.review_derived_after_implementation(ordered)
+                    except Exception as exc:  # test planning never discards generated source
+                        self.metric('derived_post_code_review', outcome='unavailable', reason=str(exc)[:300])
                 try:
                     self.phase_integration_audit()
                 except Exception as exc:  # source and final rehearsal still proceed
