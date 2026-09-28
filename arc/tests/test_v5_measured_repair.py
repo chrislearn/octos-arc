@@ -269,6 +269,8 @@ class MeasuredRepairTests(TestCase):
         f.rehearsal_browser_error = Mock(return_value=None)
         f.head = Mock(return_value='broken99')
         f.restore_app = Mock()
+        f.runtime = SimpleNamespace(git=SimpleNamespace(
+            run=Mock(return_value=SimpleNamespace(returncode=0, stdout=''))))
         f.commit = Mock()
         f.test_verdict = {'A': True}
         builds = iter(['start failed', 'start failed', None])
@@ -287,6 +289,8 @@ class MeasuredRepairTests(TestCase):
         f.rehearsal_browser_error = Mock(return_value=None)
         f.head = Mock(return_value='current9')
         f.restore_app = Mock()
+        f.runtime = SimpleNamespace(git=SimpleNamespace(
+            run=Mock(return_value=SimpleNamespace(returncode=0, stdout=''))))
         builds = iter(['port busy', None])
         f.app_server = lambda **kw: SimpleNamespace(build=lambda: next(builds), start=lambda: None, stop=Mock())
         f.turn = Mock()
@@ -296,10 +300,39 @@ class MeasuredRepairTests(TestCase):
     def test_startable_commit_is_recorded_only_when_the_tree_equals_head(self):
         f = self.flow
         f.head = Mock(return_value='abc')
-        f.note_startable_commit(lambda args: SimpleNamespace(returncode=1))
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=1), 'passed')
         self.assertIsNone(getattr(f, 'last_startable_sha', None))
-        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0))
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0), 'unknown')
+        self.assertIsNone(getattr(f, 'last_startable_sha', None))
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0), 'passed')
         self.assertEqual(f.last_startable_sha, 'abc')
+
+    def test_failed_restore_candidate_returns_to_current_commit_without_committing(self):
+        f = self.flow
+        f.last_startable_sha = 'good1234'
+        f.head = Mock(return_value='current9')
+        f.runtime = SimpleNamespace(git=SimpleNamespace(
+            run=Mock(return_value=SimpleNamespace(returncode=0, stdout=''))))
+        f.restore_app = Mock()
+        f.commit = Mock()
+        f.test_verdict = {'A': True}
+        builds = iter(['broken app', 'broken candidate'])
+        f.app_server = lambda **kw: SimpleNamespace(build=lambda: next(builds), start=lambda: None, stop=Mock())
+        self.assertFalse(f.restore_startable_commit())
+        self.assertEqual([call.args[0] for call in f.restore_app.call_args_list], ['good1234', 'current9'])
+        f.commit.assert_not_called()
+        self.assertEqual(f.test_verdict, {'A': True})
+
+    def test_uncommitted_app_is_never_destroyed_by_rollback(self):
+        f = self.flow
+        f.last_startable_sha = 'good1234'
+        f.head = Mock(return_value='current9')
+        f.runtime = SimpleNamespace(git=SimpleNamespace(
+            run=Mock(return_value=SimpleNamespace(returncode=0, stdout=' M frontend/src/App.jsx'))))
+        f.restore_app = Mock()
+        f.app_server = lambda **kw: SimpleNamespace(build=lambda: 'build failed', stop=Mock())
+        self.assertFalse(f.restore_startable_commit())
+        f.restore_app.assert_not_called()
 
     def test_measurement_reserve_adapts_to_observed_suite_cost(self):
         f = self.flow

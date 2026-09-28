@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -172,48 +173,89 @@ def run_kernel(octos_bin: str, spec_path: Path, policy_path: Path, translator: T
     if os.environ.get("OCTOS_ARC_DRYRUN") == "1":
         cmd.append("--dry-run")
     log(f"[engine] {' '.join(cmd)}")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None, text=True, errors="replace", bufsize=1, env=env)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None, text=True, errors="replace",
+                            bufsize=1, env=env, start_new_session=True)
     assert proc.stdout is not None
-    for line in proc.stdout:
-        line = line.rstrip("\n")
-        event = parse_event(line)
-        if event is None:
-            log(line)
-            continue
-        if event.get("event") == "log":
-            continue  # already printed as a plain line by the kernel
+    try:
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            event = parse_event(line)
+            if event is None:
+                log(line)
+                continue
+            if event.get("event") == "log":
+                continue  # already printed as a plain line by the kernel
+            try:
+                translator.handle(event)
+            except Exception as exc:  # noqa: BLE001 - translation must never kill the run
+                log(f"[engine] event {event.get('event')} not translated: {exc}")
+        return proc.wait()
+    except BaseException:
+        # An interrupted or broken stream must not leave a paid kernel and its
+        # child processes running after the adapter records a failed run.
         try:
-            translator.handle(event)
-        except Exception as exc:  # noqa: BLE001 - translation must never kill the run
-            log(f"[engine] event {event.get('event')} not translated: {exc}")
-    return proc.wait()
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            proc.wait()
+        raise
+    finally:
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
 
 
 def main(args) -> int:
     import main as legacy  # the Python adapter: reused for platform plumbing only
 
     log = log_factory()
-    from arcbench_agent_runtime import AgentRuntime
+    output_dir = None
+    try:
+        from arcbench_agent_runtime import AgentRuntime
+        req_src = Path(args.requirement_path).resolve()
+        if args.output_dir:
+            output_dir = Path(args.output_dir).resolve()
+        elif os.environ.get("ARCBENCH_TEMPLATE_DIR"):
+            output_dir = Path(os.environ["ARCBENCH_TEMPLATE_DIR"]).resolve()
+        else:
+            output_dir = Path.cwd() / "workspace" / f"run-{time.strftime('%Y%m%d-%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if os.environ.get("ARCBENCH_TEMPLATE_DIR"):
+            req_dir = req_src
+        else:
+            req_dir = output_dir / "requirements"
+            if req_dir.exists():
+                shutil.rmtree(req_dir)
+            shutil.copytree(req_src, req_dir)
+        runtime = AgentRuntime.from_env(project_dir=str(output_dir))
+        runtime.events.mark_run_started("octos bundle started (rust engine)")
+    except Exception as exc:  # noqa: BLE001 - kernel setup needs a terminal verdict too
+        log(f"[engine] setup failed: {type(exc).__name__}")
+        if output_dir is not None:
+            legacy.write_minimal_terminal_state(output_dir, "failed", f"rust setup: {type(exc).__name__}")
+        return 1
 
-    req_src = Path(args.requirement_path).resolve()
-    if args.output_dir:
-        output_dir = Path(args.output_dir).resolve()
-    elif os.environ.get("ARCBENCH_TEMPLATE_DIR"):
-        output_dir = Path(os.environ["ARCBENCH_TEMPLATE_DIR"]).resolve()
-    else:
-        output_dir = Path.cwd() / "workspace" / f"run-{time.strftime('%Y%m%d-%H%M%S')}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if os.environ.get("ARCBENCH_TEMPLATE_DIR"):
-        req_dir = req_src
-    else:
-        req_dir = output_dir / "requirements"
-        if req_dir.exists():
-            shutil.rmtree(req_dir)
-        shutil.copytree(req_src, req_dir)
-
-    runtime = AgentRuntime.from_env(project_dir=str(output_dir))
-    runtime.events.mark_run_started("octos bundle started (rust engine)")
     translator = Translator(runtime, log)
+    completed = False
+    interrupted = False
+    completion_message = "completed"
+    failure_reason = "rust engine did not complete"
+    def terminate(_signum, _frame):
+        raise KeyboardInterrupt
+    try:
+        old_term_handler = signal.signal(signal.SIGTERM, terminate)
+    except Exception as exc:  # noqa: BLE001 - cannot safely supervise the child
+        log(f"[engine] signal setup failed: {type(exc).__name__}")
+        legacy.write_minimal_terminal_state(output_dir, "failed", f"rust signal setup: {type(exc).__name__}")
+        return 1
     try:
         # Evolution: the template's committed requirement table is what the kernel
         # compares fingerprints against; store_requirement_tree() below overwrites
@@ -236,22 +278,66 @@ def main(args) -> int:
         log(f"[engine] octos arc run exited {rc}")
         runtime.git.commit("chore: traceability and acceptance state")
         final = translator.final or {}
-        if final.get("event") == "run_completed":
-            runtime.events.mark_run_completed(final.get("message") or "completed")
+        if rc == 0 and final.get("event") == "run_completed":
+            completion_message = final.get("message") or "completed"
+            completed = True
         else:
-            runtime.events.mark_run_failed((final.get("message") or f"octos arc run exited {rc} without a completion event")[:1000])
+            failure_reason = (f"octos arc run exited {rc}; final event {final.get('event') or 'missing'}: "
+                              f"{final.get('message') or 'no message'}")
+            runtime.events.mark_run_failed(failure_reason[:1000])
+    except KeyboardInterrupt:
+        interrupted = True
+        failure_reason = "rust engine interrupted by user"
+        try:
+            runtime.events.mark_run_failed(failure_reason)
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as exc:  # noqa: BLE001 - the platform judges by events, not exit code
         log(f"[engine] aborted: {exc!r}")
-        runtime.events.mark_run_failed(str(exc)[:1000])
-    legacy._reap_stray_processes("postflight")
-    legacy._postflight_structure_check(output_dir)
-    legacy._free_web_port(args.web_port)
+        failure_reason = f"rust engine exception: {type(exc).__name__}"
+        try:
+            runtime.events.mark_run_failed(str(exc)[:1000])
+        except Exception:  # noqa: BLE001 - terminal file remains the fallback
+            pass
+    try:
+        legacy._reap_stray_processes("postflight", output_dir)
+        legacy._postflight_structure_check(output_dir)
+        legacy._free_web_port(args.web_port, output_dir)
+    except KeyboardInterrupt:
+        interrupted = True
+        completed = False
+        failure_reason = "rust engine interrupted during postflight"
+        try:
+            runtime.events.mark_run_failed(failure_reason)
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception as exc:  # noqa: BLE001 - postflight cannot erase the verdict
+        log(f"[engine] postflight failed: {type(exc).__name__}")
+        failure_reason = f"rust postflight: {type(exc).__name__}"
+        completed = False
+        try:
+            runtime.events.mark_run_failed(failure_reason)
+        except Exception:  # noqa: BLE001
+            pass
+    if completed:
+        try:
+            runtime.events.mark_run_completed(completion_message)
+        except Exception as exc:  # noqa: BLE001
+            completed = False
+            failure_reason = f"rust completion event: {type(exc).__name__}"
+    legacy.write_minimal_terminal_state(
+        output_dir, "completed" if completed else "interrupted_by_user" if interrupted else "failed",
+        "rust engine completed" if completed else failure_reason)
     artifacts_dir = os.environ.get("ARCBENCH_ARTIFACTS_DIR")
-    if artifacts_dir:
+    if artifacts_dir and completed:
         try:
             Path(artifacts_dir).mkdir(parents=True, exist_ok=True)
             (Path(artifacts_dir) / "preview-ready.json").write_text(
                 json.dumps({"ready": True, "reason": "octos bundle completed"}) + "\n", encoding="utf-8")
         except OSError:
             pass
-    return 0
+    try:
+        signal.signal(signal.SIGTERM, old_term_handler)
+    except Exception as exc:  # noqa: BLE001 - terminal verdict is already durable
+        log(f"[engine] signal restoration failed: {type(exc).__name__}")
+    return 0 if completed else 130 if interrupted else 1

@@ -6,10 +6,27 @@ from pathlib import Path
 
 import main as m
 from acceptance import AppServer
-from web_checks import backend_sources, scaffold_issues, scaffold_warnings, static_route_conflicts
+from web_checks import backend_sources, commonjs_cycle_issues, scaffold_issues, scaffold_warnings, static_route_conflicts
 
 
 class ScaffoldChecksTests(unittest.TestCase):
+    def test_mutual_top_level_commonjs_imports_warn_on_stale_exports(self):
+        sources = {
+            'backend/routes/orgs.js': "const repos = require('./repos');\nmodule.exports = register;\n",
+            'backend/routes/repos.js': "const orgs = require('./orgs');\nmodule.exports = register;\n",
+        }
+        issues = commonjs_cycle_issues(sources)
+        self.assertEqual(len(issues), 1)
+        self.assertIn('backend/routes/orgs.js and backend/routes/repos.js', issues[0])
+        self.assertIn('empty export object', issues[0])
+        for rel, source in sources.items():
+            (self.root / rel).write_text(source)
+        self.assertIn('empty export object', '\n'.join(scaffold_warnings(self.root)))
+        sources['backend/routes/repos.js'] = "module.exports = register;\n"
+        self.assertEqual(commonjs_cycle_issues(sources), [])
+        sources['backend/routes/repos.js'] = "function register() {\n  const orgs = require('./orgs');\n}\nmodule.exports = register;\n"
+        self.assertEqual(commonjs_cycle_issues(sources), [])
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

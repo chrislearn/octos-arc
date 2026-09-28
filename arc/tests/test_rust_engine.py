@@ -95,17 +95,86 @@ class RunnerSpecTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text())["previous_requirements"], str(copy))
 
 
+class RustTerminalTests(unittest.TestCase):
+    def test_requirements_setup_failure_records_terminal_state(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from rust_engine import main
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            req = root / 'task'
+            req.mkdir()
+            output = root / 'output'
+            args = argparse.Namespace(requirement_path=str(req), output_dir=str(output), web_port=3000)
+            with patch.dict('sys.modules', {'arcbench_agent_runtime': SimpleNamespace(AgentRuntime=object)}), \
+                    patch('rust_engine.shutil.copytree', side_effect=OSError('copy failed')):
+                self.assertEqual(main(args), 1)
+            state = json.loads((output / '.arc/terminal-state.json').read_text())
+            self.assertEqual(state['state'], 'failed')
+            self.assertEqual(state['pending_usage_status'], 'unknown')
+
+    def test_kernel_exit_and_final_event_must_both_succeed(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from rust_engine import main
+        for rc, event, expected in ((1, 'run_failed', 'failed'),
+                                    (0, 'run_failed', 'failed'),
+                                    (0, 'run_completed', 'completed'),
+                                    (None, None, 'interrupted_by_user')):
+            with self.subTest(rc=rc, event=event), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                req = root / 'task'
+                req.mkdir()
+                output = root / 'output'
+                args = argparse.Namespace(requirement_path=str(req), output_dir=str(output), web_port=3000)
+                runtime = Runtime()
+                runtime.git = Calls()
+                agent = SimpleNamespace(from_env=lambda **_: runtime)
+                def kernel(_bin, _spec, _policy, translator, _log, _env):
+                    if rc is None:
+                        raise KeyboardInterrupt
+                    translator.final = {'event': event, 'message': 'kernel result'}
+                    return rc
+                with patch.dict('sys.modules', {'arcbench_agent_runtime': SimpleNamespace(AgentRuntime=agent)}), \
+                        patch('rust_engine.snapshot_previous_requirements', return_value=output / 'previous.json'), \
+                        patch('rust_engine.write_runner_spec'), \
+                        patch('rust_engine.run_kernel', side_effect=kernel), \
+                        patch('main.load_requirement_tree', return_value={}), \
+                        patch('main.locate_acceptance_tests', return_value=None), \
+                        patch('main.find_octos', return_value='octos'), \
+                        patch('main._reap_stray_processes') as reap, \
+                        patch('main._postflight_structure_check'), \
+                        patch('main._free_web_port') as free_port:
+                    self.assertEqual(main(args), 0 if expected == 'completed' else
+                                     130 if expected == 'interrupted_by_user' else 1)
+                    reap.assert_called_once_with('postflight', output)
+                    free_port.assert_called_once_with(3000, output)
+                state = json.loads((output / '.arc/terminal-state.json').read_text())
+                self.assertEqual(state['state'], expected)
+                if rc == 1:
+                    self.assertIn('exited 1', state['reason'])
+                mark = 'mark_run_completed' if expected == 'completed' else 'mark_run_failed'
+                self.assertIn(mark, [name for name, _, _ in runtime.events.calls])
+
+
 if __name__ == "__main__":
     unittest.main()
 
 
 class ModelRouteCommandTests(unittest.TestCase):
     def test_routes_are_explicit_kernel_argument(self):
+        import io
         from pathlib import Path
         from unittest.mock import patch, MagicMock
         from rust_engine import run_kernel
         proc = MagicMock()
-        proc.stdout = []
+        proc.stdout = io.StringIO('')
         proc.wait.return_value = 0
         rules = '[{"model":"small","phases":["implement"]}]'
         with patch('rust_engine.subprocess.Popen', return_value=proc) as launch:
@@ -113,3 +182,24 @@ class ModelRouteCommandTests(unittest.TestCase):
                        lambda _: None, {'OCTOS_ARC_MODEL_ROUTES': rules})
         args = launch.call_args.args[0]
         self.assertEqual(args[args.index('--model-routes-json') + 1], rules)
+
+    def test_interrupted_kernel_stream_stops_its_process_group(self):
+        import signal
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+        from rust_engine import run_kernel
+        proc = MagicMock()
+        proc.pid = 12345
+        def lines():
+            yield '[engine] started\n'
+            raise KeyboardInterrupt
+        proc.stdout.__iter__.side_effect = lines
+        with patch('rust_engine.subprocess.Popen', return_value=proc) as launch, \
+                patch('rust_engine.os.killpg') as kill_group:
+            with self.assertRaises(KeyboardInterrupt):
+                run_kernel('octos', Path('spec.json'), Path('policy.toml'), None,
+                           lambda _: None, {})
+        self.assertTrue(launch.call_args.kwargs['start_new_session'])
+        kill_group.assert_called_once_with(12345, signal.SIGTERM)
+        proc.wait.assert_called_once_with(timeout=5)
+        proc.stdout.close.assert_called_once()

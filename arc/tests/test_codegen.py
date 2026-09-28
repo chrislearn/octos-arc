@@ -356,6 +356,23 @@ class EditTurnTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn('getOrganization', api.read_text())
 
+    def test_repair_with_destructured_export_is_written_for_build_validation(self):
+        hooks = self.root / 'frontend/src/hooks.js'
+        hooks.write_text('export const oldHealth = () => false;\n')
+        reply = ("<<<FILE frontend/src/hooks.js>>>\n"
+                 "const hooks = { useHealth() { return true; } };\n"
+                 "export const { useHealth } = hooks;\n<<<END FILE>>>\n"
+                 "<<<FILE frontend/src/App.jsx>>>\n"
+                 "import { useHealth } from './hooks.js';\n"
+                 "export default function App() { return useHealth() ? null : null; }\n"
+                 "<<<END FILE>>>")
+        self.flow.text_turn.return_value = True, reply
+        ok, _ = self.flow.codegen_turn('--- frontend/src/hooks.js ---\n' + hooks.read_text(),
+                                       60, 'startup repair')
+        self.assertTrue(ok)
+        self.assertEqual(sorted(self.flow.last_codegen_written),
+                         ['frontend/src/App.jsx', 'frontend/src/hooks.js'])
+
     def test_mixed_file_and_edit_for_one_path_is_refused(self):
         reply = (self.edit('frontend/src/index.html', 'old', 'new') + '\n'
                  '<<<FILE frontend/src/index.html>>>\n<p>whole</p>\n<<<END FILE>>>')

@@ -5225,7 +5225,7 @@ class Flow:
                                      artifact_dirs=[health["artifact_dir"]])
                 summary.error = "Application runtime failure: " + "\n".join(application_failures(summary))
                 return summary
-            self.note_startable_commit(git_run)
+            self.note_startable_commit(git_run, health.get("status"))
             # A derived suite has one spec file per leaf (47 for the GitHub task);
             # a fixed 900s wall would kill the full run before its verdict.
             policy = self.generated_test_policy()
@@ -5363,6 +5363,49 @@ class Flow:
                 + "; ".join(str(row.get("message")) for row in report.get("observations", []))
                 + str(report.get("reason", ""))
                 + f"; full evidence: {report.get('artifact_dir', 'unavailable')}/health.json")
+
+    def rehearsal_server_error(self, server) -> str | None:
+        """A backend that exits during browser probing is an app failure even
+        when Chromium itself could not complete the measurement."""
+        proc = getattr(server, "proc", None)
+        if not isinstance(proc, subprocess.Popen):
+            return None
+        try:
+            code = proc.poll()
+            if code is None:
+                return None
+            return f"Server crash during rehearsal (rc={code}): {clip_ends(server.tail(), 400)}"
+        except Exception:  # noqa: BLE001 - diagnosis must not break cleanup
+            return None
+
+    def measure_rehearsal_server(self) -> str | None:
+        """Build, start and probe once; always stop the owned server process.
+
+        An exception from the browser collector is unavailable evidence. A
+        backend exit observed during that same interval takes precedence.
+        """
+        server = None
+        err = None
+        try:
+            server = self.app_server(grader_like=True, test_hooks=False)
+            err = server.build() or server.start()
+            if err is None:
+                try:
+                    err = self.rehearsal_browser_error()
+                except Exception as exc:  # noqa: BLE001
+                    err = f"Browser health unknown: {type(exc).__name__}"
+                err = self.rehearsal_server_error(server) or err
+        except Exception as exc:  # noqa: BLE001 - collector failure is not app evidence
+            err = (self.rehearsal_server_error(server) if server is not None else None) or \
+                f"Rehearsal measurement unknown: {type(exc).__name__}"
+        finally:
+            if server is not None:
+                try:
+                    server.stop()
+                except Exception as exc:  # noqa: BLE001
+                    log(f"[rehearsal] server cleanup failed: {type(exc).__name__}")
+                    err = err or f"Browser health unknown: server cleanup failed: {type(exc).__name__}"
+        return err
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
         if getattr(self, 'derived_as_specs', False) is True and self.derived_review_needed(node_id):
@@ -11199,9 +11242,15 @@ class Flow:
         return (self.output_dir / "frontend" / "package.json").is_file() and \
             (self.output_dir / "backend" / "package.json").is_file()
 
-    def note_startable_commit(self, git_run) -> None:
-        """Remember HEAD when the app just built and started from it unchanged
-        (run_specs staged the worktree; an empty cached diff means HEAD == tree)."""
+    def note_startable_commit(self, git_run, browser_status: str = "unknown") -> None:
+        """Remember only a committed tree that also passed fresh-browser health.
+
+        A build or browser measurement marked unknown is not a safe rollback
+        target. run_specs staged the worktree; an empty cached diff means HEAD
+        matches the measured frontend/backend tree.
+        """
+        if browser_status != "passed":
+            return
         try:
             same = getattr(git_run(["diff", "--cached", "--quiet", "HEAD", "--", "frontend", "backend"]),
                            "returncode", 1) == 0
@@ -11211,53 +11260,73 @@ class Flow:
             pass
 
     def restore_startable_commit(self) -> bool:
-        """After a failed rehearsal, ship the last commit that built and started
-        rather than a tree that does not (v10.0 sheet: "giving up; submitting as-is")."""
+        """Use a previously browser-verified commit only if it still passes.
+
+        Never commit a restored candidate before measuring it. If it fails,
+        return to the original committed tree instead of shipping a second
+        broken version.
+        """
         sha = getattr(self, "last_startable_sha", None)
-        if not sha or sha == self.head():
+        original_sha = self.head()
+        if not sha or not original_sha or sha == original_sha:
             return False
         # A busy port or a slow npm can fail one attempt; never trade features for a transient error.
-        server = self.app_server(grader_like=True, test_hooks=False)
-        err = server.build() or server.start()
-        if err is None:
-            err = self.rehearsal_browser_error()
-        server.stop()
+        err = self.measure_rehearsal_server()
         if err is None:
             log("[rehearsal] current tree builds and starts on a second check; keeping it")
             return True
-        self.restore_app(sha)
-        self.commit("fix: restore last startable commit after failed rehearsal")
-        server = self.app_server(grader_like=True, test_hooks=False)
-        err = server.build() or server.start()
-        if err is None:
-            err = self.rehearsal_browser_error()
-        server.stop()
-        if err is not None:
-            log(f"[rehearsal] restored {sha[:8]} also fails: {err.splitlines()[0][:200]}")
+        if err.startswith(("Browser health unknown", "Rehearsal measurement unknown")):
+            log("[rehearsal] measurement unavailable; keeping current source")
             return False
-        log(f"[rehearsal] restored last startable commit {sha[:8]}; it builds and starts cleanly")
-        self.test_verdict = {key: None for key in self.test_verdict}
-        return True
+        # restore_app is destructive for uncommitted app files. A final repair
+        # normally commits its edits, but preserve them if that invariant broke.
+        try:
+            dirty = self.runtime.git.run(
+                ["status", "--porcelain", "--", "frontend", "backend"], check=False)
+            if getattr(dirty, "returncode", 1) != 0 or (getattr(dirty, "stdout", "") or "").strip():
+                log("[rehearsal] app worktree has uncommitted files; refusing destructive rollback")
+                return False
+        except Exception as exc:  # noqa: BLE001
+            log(f"[rehearsal] could not verify clean app worktree: {exc}")
+            return False
+        accepted = False
+        try:
+            self.restore_app(sha)
+            err = self.measure_rehearsal_server()
+            if err is not None:
+                log(f"[rehearsal] restored {sha[:8]} also fails: {err.splitlines()[0][:200]}")
+                return False
+            if not self.commit("fix: restore last browser-verified commit after failed rehearsal"):
+                log("[rehearsal] restored candidate passed but could not be committed")
+                return False
+            accepted = True  # HEAD now points at the measured candidate.
+            log(f"[rehearsal] restored last browser-verified commit {sha[:8]}")
+            self.test_verdict = {key: None for key in self.test_verdict}
+            return True
+        except Exception as exc:  # noqa: BLE001 - rollback must not crash finalization
+            log(f"[rehearsal] restored candidate could not be measured: {type(exc).__name__}")
+            return False
+        finally:
+            if not accepted:
+                self.restore_app(original_sha)
 
     # -- final ------------------------------------------------------------
     def rehearsal(self, *, preserve_seconds: float = 0.0,
                   restore_on_failure: bool = True, repair_on_failure: bool = True) -> bool:
         self._last_rehearsal_system_failure = False
+        self._last_rehearsal_measurement_unavailable = False
         for attempt in range(1, 4):
             log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {self.smoke_port}, grader-like env)")
-            server = self.app_server(grader_like=True, test_hooks=False)
-            err = server.build() or server.start()
-            if err is None:
-                err = self.rehearsal_browser_error()
-            server.stop()
+            err = self.measure_rehearsal_server()
             if err is None:
                 self._last_rehearsal_system_failure = False
                 log("[rehearsal] app builds, starts and renders in the browser")
                 return True
             log(f"[rehearsal] FAILED: {err.splitlines()[0][:200]}")
-            if err.startswith("Browser health unknown"):
+            if err.startswith(("Browser health unknown", "Rehearsal measurement unknown")):
+                self._last_rehearsal_measurement_unavailable = True
                 self.metric("rehearsal", outcome="measurement_unavailable", reason=err)
-                return False  # do not edit app code to fix missing browser infrastructure
+                return False  # do not edit app code to fix failed measurement infrastructure
             self._last_rehearsal_system_failure = True
             if (not repair_on_failure or attempt == 3
                     or self.remaining() <= preserve_seconds + self.repair_minimum()
@@ -11545,7 +11614,10 @@ class Flow:
             self.commit("chore: traceability and acceptance state")
             failed = [i for i in node_ids if self.test_verdict.get(i) is not True]
             if not rehearsed:
-                self.events.mark_run_failed("generated application did not pass final build/start rehearsal")
+                reason = ("final rehearsal measurement unavailable; application startup not verified"
+                          if getattr(self, "_last_rehearsal_measurement_unavailable", False) else
+                          "generated application did not pass final build/start rehearsal")
+                self.events.mark_run_failed(reason)
             elif failed:
                 self.events.mark_run_completed(f"completed; nodes not verified: {', '.join(failed)}")
             elif not self.tests_dir:
@@ -11684,6 +11756,18 @@ def probe_endpoint() -> None:
         time.sleep(30)
 
 
+def write_minimal_terminal_state(output_dir: Path, state: str, reason: str) -> None:
+    """Last-resort record when Flow construction or its richer writer fails."""
+    try:
+        terminal = output_dir / ".arc" / "terminal-state.json"
+        terminal.parent.mkdir(parents=True, exist_ok=True)
+        terminal.write_text(json.dumps({"state": state, "timestamp": time.time(),
+                                        "reason": reason, "pending_usage_status": "unknown",
+                                        "automatic_restart": False}, indent=2))
+    except OSError:
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Octos agent bundle for ARC-Bench")
     parser.add_argument("requirement_path", nargs="?", default=os.environ.get("ARCBENCH_TASK_DIR", "/workspace/task"))
@@ -11705,24 +11789,38 @@ def main() -> int:
     print(f"[env] ARCBENCH_TEMPLATE_DIR={os.environ.get('ARCBENCH_TEMPLATE_DIR', '<unset>')}", flush=True)
     print(f"[env] ARCBENCH_TASK_DIR={os.environ.get('ARCBENCH_TASK_DIR', '<unset>')}", flush=True)
     print(f"[env] argv requirement_path={args.requirement_path}", flush=True)
-    req_src = Path(args.requirement_path).resolve()
-    if args.output_dir:
-        output_dir = Path(args.output_dir).resolve()
-    elif os.environ.get("ARCBENCH_TEMPLATE_DIR"):
-        output_dir = Path(os.environ["ARCBENCH_TEMPLATE_DIR"]).resolve()
-    else:
-        output_dir = Path.cwd() / "workspace" / f"run-{time.strftime('%Y%m%d-%H%M%S')}"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        req_src = Path(args.requirement_path).resolve()
+        if args.output_dir:
+            output_dir = Path(args.output_dir).resolve()
+        elif os.environ.get("ARCBENCH_TEMPLATE_DIR"):
+            output_dir = Path(os.environ["ARCBENCH_TEMPLATE_DIR"]).resolve()
+        else:
+            output_dir = Path.cwd() / "workspace" / f"run-{time.strftime('%Y%m%d-%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:  # noqa: BLE001 - an unwritable output has no place for a terminal file
+        log(f"[flow] output setup failed: {type(exc).__name__}")
+        return 1
 
     on_platform = bool(os.environ.get("ARCBENCH_TEMPLATE_DIR"))
-    if on_platform:
-        req_dir = req_src
-    else:
-        req_dir = output_dir / "requirements"
-        if req_dir.exists():
-            shutil.rmtree(req_dir)
-        shutil.copytree(req_src, req_dir)
-    flow = Flow(args, output_dir, req_dir)
+    try:
+        if on_platform:
+            req_dir = req_src
+        else:
+            req_dir = output_dir / "requirements"
+            if req_dir.exists():
+                shutil.rmtree(req_dir)
+            shutil.copytree(req_src, req_dir)
+    except Exception as exc:  # noqa: BLE001 - pre-Flow setup also needs a terminal record
+        log(f"[flow] requirements setup failed: {type(exc).__name__}")
+        write_minimal_terminal_state(output_dir, "failed", f"requirements setup: {type(exc).__name__}")
+        return 1
+    try:
+        flow = Flow(args, output_dir, req_dir)
+    except Exception as exc:  # noqa: BLE001 - preserve a terminal record before a Flow exists
+        log(f"[flow] initialization failed: {type(exc).__name__}")
+        write_minimal_terminal_state(output_dir, "failed", f"initialization: {type(exc).__name__}")
+        return 1
     import signal
     interrupted = {"state": "interrupted_by_user"}
     def terminate(signum, frame):
@@ -11731,18 +11829,57 @@ def main() -> int:
         if proxy:
             proxy._stopped = True
         raise KeyboardInterrupt
-    old_handlers = {sig: signal.signal(sig, terminate) for sig in (signal.SIGINT, signal.SIGTERM)}
+    old_handlers = {}
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            old_handlers[sig] = signal.signal(sig, terminate)
+    except Exception as exc:  # noqa: BLE001 - signal setup precedes the run boundary
+        for sig, handler in old_handlers.items():
+            try:
+                signal.signal(sig, handler)
+            except Exception:  # noqa: BLE001
+                pass
+        log(f"[flow] signal setup failed: {type(exc).__name__}")
+        write_minimal_terminal_state(output_dir, "failed", f"signal setup: {type(exc).__name__}")
+        return 1
     try:
         code = flow.run()
         flow.write_terminal_state("completed" if code == 0 else "failed")
         return code
     except KeyboardInterrupt:
-        flow.write_terminal_state(interrupted["state"])
-        flow.postflight()
+        try:
+            flow.write_terminal_state(interrupted["state"])
+        except Exception:  # noqa: BLE001
+            write_minimal_terminal_state(output_dir, interrupted["state"], "interrupted")
+        try:
+            flow.postflight()
+        except Exception:  # noqa: BLE001
+            pass
         return 130
+    except Exception as exc:  # noqa: BLE001 - last-resort harness boundary
+        # Flow.run normally records failures itself. Its cleanup or terminal
+        # writer can also raise; preserve a failed state and free processes.
+        log(f"[flow] fatal harness exception: {type(exc).__name__}")
+        try:
+            if getattr(flow, "events", None) is not None:
+                flow.events.mark_run_failed(f"fatal harness exception: {type(exc).__name__}")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            flow.write_terminal_state("failed")
+        except Exception:  # noqa: BLE001
+            write_minimal_terminal_state(output_dir, "failed", f"fatal harness exception: {type(exc).__name__}")
+        try:
+            flow.postflight()
+        except Exception:  # noqa: BLE001
+            pass
+        return 1
     finally:
         for sig, handler in old_handlers.items():
-            signal.signal(sig, handler)
+            try:
+                signal.signal(sig, handler)
+            except Exception as exc:  # noqa: BLE001 - do not erase the terminal verdict
+                log(f"[flow] signal restoration failed: {type(exc).__name__}")
 
 
 if __name__ == "__main__":

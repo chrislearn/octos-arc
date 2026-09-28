@@ -6,6 +6,32 @@ from llm_proxy import BUDGET_NOTICE, WRITE_DECISION_NOTICE, LlmProxy, completed_
 
 
 class InjectTests(unittest.TestCase):
+    def test_complete_codegen_retry_supersedes_an_interrupted_stream(self):
+        proxy = LlmProxy('http://127.0.0.1:1/v1', 'medium')
+        try:
+            proxy.no_tools = True
+            proxy.phase, proxy.label = 'implement', 'wave 1'
+            proxy.begin_turn(3)
+            body = json.dumps({'model': 'qwen3.7-plus', 'messages': [], 'stream': False}).encode()
+            upstream = MagicMock()
+            upstream.status = 200
+            upstream.headers = {'Content-Type': 'text/event-stream'}
+            upstream.__enter__.return_value = upstream
+            partial = {'arc_stream_integrity': 'upstream_incomplete',
+                       'choices': [{'finish_reason': 'length', 'message': {'role': 'assistant', 'content': 'partial'}}]}
+            complete = {'arc_stream_integrity': 'complete',
+                        'choices': [{'finish_reason': 'stop', 'message': {'role': 'assistant', 'content': 'done'}}]}
+            with patch('llm_proxy.open_upstream', return_value=upstream), patch(
+                    'llm_proxy.collect_codegen_stream', side_effect=[
+                        (json.dumps(partial).encode(), 'incomplete_stream'),
+                        (json.dumps(complete).encode(), None)]):
+                self.assertEqual(proxy._request_upstream('POST', '/chat/completions', body, {})[0], 200)
+                self.assertTrue(proxy.interrupted_reply)
+                self.assertEqual(proxy._request_upstream('POST', '/chat/completions', body, {})[0], 200)
+                self.assertFalse(proxy.interrupted_reply)
+        finally:
+            proxy.server.server_close()
+
     def test_two_reasoning_only_tool_replies_stop_local_turn_without_third_provider_call(self):
         proxy = LlmProxy('http://127.0.0.1:1/v1', 'medium')
         try:

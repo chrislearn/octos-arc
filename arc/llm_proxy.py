@@ -1336,8 +1336,22 @@ class LlmProxy:
                     and meta.get("turn_serial") == self.turn_serial):
                 self.retain_edit_arguments(payload)
             if status == 200 and meta.get("codegen"):
-                if meta.get("stream_integrity") in {"upstream_incomplete", "locally_interrupted"} and meta.get("turn_serial") == self.turn_serial:
-                    self.interrupted_reply = True
+                if meta.get("turn_serial") == self.turn_serial:
+                    integrity = meta.get("stream_integrity")
+                    if integrity in {"upstream_incomplete", "locally_interrupted"}:
+                        self.interrupted_reply = True
+                    elif integrity in {None, "complete"}:
+                        # The kernel can retry within this turn. Only a real,
+                        # complete provider reply supersedes an earlier broken
+                        # stream; a local or length-limited reply does not.
+                        try:
+                            response = json.loads(payload)
+                            choices = response.get("choices") or []
+                            finished = len(choices) == 1 and choices[0].get("finish_reason") in {"stop", "tool_calls"}
+                            if finished and not response.get("arc_local_response"):
+                                self.interrupted_reply = False
+                        except (ValueError, TypeError, AttributeError):
+                            pass
                 self.capture_truncated_reply(payload, meta)
             self._log(payload, int((time.time() - attempt_started) * 1000), body, len(body), len(payload), status=status, meta=meta)
             future.set_result(result)

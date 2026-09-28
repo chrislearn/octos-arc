@@ -7,6 +7,32 @@
 </head>
 <body>
   <div id="app"></div>
+  <script>
+    // Module loading can fail before React mounts, outside an error boundary.
+    (() => {
+      const showStartupError = () => {
+        const root = document.getElementById('app');
+        if (!root || root.hasChildNodes()) return;
+        const main = document.createElement('main');
+        main.setAttribute('data-arc-runtime-error', 'startup');
+        main.setAttribute('role', 'alert');
+        const heading = document.createElement('h1');
+        heading.textContent = 'This page could not be displayed';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Reload';
+        button.addEventListener('click', () => window.location.reload());
+        main.append(heading, button);
+        root.append(main);
+      };
+      window.addEventListener('error', event => {
+        if (event.target === window || event.target?.tagName === 'SCRIPT')
+          setTimeout(showStartupError, 0);
+      }, true);
+      window.addEventListener('unhandledrejection', () => setTimeout(showStartupError, 0));
+      setTimeout(showStartupError, 10000);
+    })();
+  </script>
   <script type="module" src="/main.jsx"></script>
 </body>
 </html>

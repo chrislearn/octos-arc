@@ -15,7 +15,7 @@ def diagnose(summary) -> list[dict]:
     for observation in getattr(summary, "runtime_observations", []):
         kind = observation.get("kind", "unknown")
         confirmed = observation.get("confirmed") is True
-        owner = "app" if confirmed and kind in {"pageerror", "blank_page", "server_crash", "undefined_binding"} else "unknown"
+        owner = "app" if confirmed and kind in {"pageerror", "blank_page", "server_crash", "undefined_binding", "runtime_fallback"} else "unknown"
         if kind in {"collector_error", "browser_unavailable"}:
             owner = "harness" if kind == "collector_error" else "environment"
         message = str(observation.get("message") or kind)

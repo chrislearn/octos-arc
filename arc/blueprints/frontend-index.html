@@ -9,5 +9,29 @@
 </head>
 <body>
   <main id="app"></main>
+  <script>
+    // Keep an actionable page when the application module fails before it can render.
+    (() => {
+      const showStartupError = () => {
+        const root = document.getElementById('app');
+        if (!root || root.hasChildNodes()) return;
+        root.setAttribute('data-arc-runtime-error', 'startup');
+        root.setAttribute('role', 'alert');
+        const heading = document.createElement('h1');
+        heading.textContent = 'This page could not be displayed';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Reload';
+        button.addEventListener('click', () => window.location.reload());
+        root.append(heading, button);
+      };
+      window.addEventListener('error', event => {
+        if (event.target === window || event.target?.tagName === 'SCRIPT')
+          setTimeout(showStartupError, 0);
+      }, true);
+      window.addEventListener('unhandledrejection', () => setTimeout(showStartupError, 0));
+      setTimeout(showStartupError, 10000);
+    })();
+  </script>
 </body>
 </html>

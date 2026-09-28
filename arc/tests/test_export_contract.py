@@ -44,6 +44,13 @@ class MissingExportTests(unittest.TestCase):
                                                 "// import {commented} from '../api.js';\n")}
         self.assertEqual(missing_export_errors(sources, list(sources)), [])
 
+    def test_should_not_refuse_a_valid_destructured_named_export(self):
+        sources = {
+            "frontend/src/hooks.js": "const hooks = { useHealth() { return true; } };\nexport const { useHealth } = hooks;\n",
+            "frontend/src/App.jsx": "import { useHealth } from './hooks.js';\nuseHealth();\n",
+        }
+        self.assertEqual(missing_export_errors(sources, ["frontend/src/hooks.js"]), [])
+
     def test_check_batch_reports_it_without_running_a_build(self):
         import tempfile
         from pathlib import Path

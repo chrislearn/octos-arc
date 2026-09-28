@@ -45,9 +45,14 @@ const path = require('path');
         await page.waitForTimeout(400);
         const state = await page.evaluate(() => ({
           text: document.body?.innerText.trim() || '',
-          controls: document.querySelectorAll('input,button,canvas,svg,img').length
+          controls: document.querySelectorAll('input,button,canvas,svg,img').length,
+          runtimeFallback: !!document.querySelector('[data-arc-runtime-error]')
         }));
         report.pages.push({ path: url.pathname, textLength: state.text.length, controls: state.controls });
+        if (state.runtimeFallback) report.observations.push({
+          kind: 'runtime_fallback', confirmed: true, path: url.pathname,
+          message: `Application error fallback rendered at ${url.pathname}`
+        });
         if (index < config.paths.length && routes.length < config.paths.length + 2) {
           const links = await page.locator('a[href]').evaluateAll(items => items
             .filter(item => item.getClientRects().length > 0 && !item.hasAttribute('download'))
@@ -86,10 +91,15 @@ const path = require('path');
           await page.waitForTimeout(400);
           const refreshed = await page.evaluate(() => ({
             text: document.body?.innerText.trim() || '',
-            controls: document.querySelectorAll('input,button,canvas,svg,img').length
+            controls: document.querySelectorAll('input,button,canvas,svg,img').length,
+            runtimeFallback: !!document.querySelector('[data-arc-runtime-error]')
           }));
           report.pages.push({ path: url.pathname, phase: 'refresh',
                               textLength: refreshed.text.length, controls: refreshed.controls });
+          if (refreshed.runtimeFallback) report.observations.push({
+            kind: 'runtime_fallback', confirmed: true, path: url.pathname,
+            message: `Application error fallback rendered at ${url.pathname} after refresh`
+          });
           if (!errors.length && !refreshed.text && !refreshed.controls) report.observations.push({
             kind: 'blank_page', confirmed: true, path: url.pathname,
             message: `No rendered content or controls at ${url.pathname} after refresh`

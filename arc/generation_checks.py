@@ -228,7 +228,11 @@ def _module_exports(source):
     """Named exports of an ES module, or None when they cannot be known
     statically (re-exports, CommonJS)."""
     source = _without_comments(source)
-    if _EXPORT_FROM.search(source) or 'module.exports' in source:
+    if (_EXPORT_FROM.search(source) or 'module.exports' in source
+            or re.search(r'\bexport\s+(?:const|let|var)\s*[\{\[]', source)):
+        # Destructured declarations also create named exports. This narrow
+        # parser cannot enumerate every binding pattern reliably, so leave the
+        # contract to the compiler instead of rejecting a valid repair.
         return None
     names = set(_DECLARED_EXPORT.findall(source))
     if re.search(r'\bexport\s+default\b', source):

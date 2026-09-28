@@ -18,6 +18,17 @@ from acceptance import AppServer
 
 
 class WebStackTests(unittest.TestCase):
+    def test_fresh_react_entry_wraps_the_app_in_a_visible_error_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install_generic_template(root, m.BUNDLE_DIR, 3000, [], react=True)
+            entry = (root / 'frontend/src/main.jsx').read_text()
+            html = (root / 'frontend/src/index.html').read_text()
+            self.assertIn('getDerivedStateFromError', entry)
+            self.assertIn('data-arc-runtime-error', entry)
+            self.assertIn('<RuntimeErrorBoundary><BrowserRouter><App />', entry)
+            self.assertIn("main.setAttribute('data-arc-runtime-error', 'startup')", html)
+
     def test_reactive_state_contract_is_scoped_to_react_stack(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -40,6 +51,8 @@ class WebStackTests(unittest.TestCase):
         self.assertTrue((self.root / "frontend/src/app.js").is_file())
         self.assertTrue((self.root / "frontend/src/shared/router.js").is_file())
         self.assertFalse((self.root / "frontend/src/main.jsx").exists())
+        self.assertIn("root.setAttribute('data-arc-runtime-error', 'startup')",
+                      (self.root / "frontend/src/index.html").read_text())
         prompt = flow.codegen_implement_prompt({"id": "A", "description": "Create form"}, "page.goto('/')")
         self.assertNotIn("Fixed frontend baseline: React", prompt)
         self.assertNotIn("react-hook-form@", prompt)

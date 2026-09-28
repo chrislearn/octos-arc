@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -104,6 +105,10 @@ def _generic_entry(project: Path) -> bool:
 # Installed by the generic template; their module-level state is infrastructure.
 _TASK_NEUTRAL_BACKEND = {'backend/lib/arc.js', 'backend/lib/store.js', 'backend/lib/collection.js',
                          'backend/lib/errors.js', 'backend/lib/query.js'}
+_TOP_LEVEL_REQUIRE = re.compile(
+    r'^(?:const|let|var)[ \t]+[\w{}, \t]+?=[ \t]*require\([ \t]*[\'\"](?P<path>\.{1,2}/[^\'\"]+)[\'\"][ \t]*\)',
+    re.M)
+_EXPORT_REASSIGN = re.compile(r'\bmodule\.exports\s*=')
 
 
 def backend_sources(project: Path, overrides: dict[str, str] | None = None) -> dict[str, str]:
@@ -123,6 +128,37 @@ def backend_sources(project: Path, overrides: dict[str, str] | None = None) -> d
         if rel.startswith(('backend/routes/', 'backend/lib/')) and rel.endswith('.js'):
             sources[rel] = text
     return sources
+
+
+def commonjs_cycle_issues(sources: dict[str, str]) -> list[str]:
+    """Warn on a direct load cycle with late CommonJS export reassignment.
+
+    CommonJS gives one participant its peer's initial empty exports object.
+    Reassigning module.exports later cannot update that captured reference.
+    Only literal, top-level, mutual imports are reported; dynamic imports stay
+    for the browser/API probes to assess.
+    """
+    edges: dict[str, set[str]] = {}
+    for rel, source in sources.items():
+        imports = set()
+        for match in _TOP_LEVEL_REQUIRE.finditer(source):
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel), match.group('path')))
+            if not posixpath.splitext(target)[1]:
+                target += '.js'
+            if target in sources:
+                imports.add(target)
+        edges[rel] = imports
+    issues = []
+    for left in sorted(edges):
+        for right in sorted(edges[left]):
+            if left >= right or left not in edges.get(right, ()):
+                continue
+            if not (_EXPORT_REASSIGN.search(sources[left]) or _EXPORT_REASSIGN.search(sources[right])):
+                continue
+            issues.append(f'{left} and {right} require each other at module load while reassigning '
+                          'module.exports; one side may retain an empty export object. Move shared '
+                          'helpers to a third module or defer an import, then exercise both API routes.')
+    return issues
 
 
 def _segments(route: str) -> list[str]:
@@ -292,7 +328,8 @@ def scaffold_warnings(project: Path, runtime: bool = False) -> list[str]:
     report = runtime_route_report(project) if runtime else None
     conflicts = report['conflicts'] if report is not None else static_route_conflicts(sources)
     warnings = [str(conflict.get('message')) for conflict in conflicts if conflict.get('message')]
-    return warnings + express5_param_issues(sources) + module_state_issues(sources)
+    return (warnings + express5_param_issues(sources) + module_state_issues(sources)
+            + commonjs_cycle_issues(sources))
 
 
 def scaffold_issues(project: Path) -> list[str]:
