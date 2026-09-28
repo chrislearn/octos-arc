@@ -164,16 +164,53 @@ def missing_backend_module_errors(sources, changed):
 _CJS_NAMED_REQUIRE = re.compile(
     r'''(?m)^\s*(?:const|let|var)\s*\{([^{}\n]+)\}\s*=\s*require\(\s*['"](\.{1,2}/[^'"\n]+)['"]\s*\)''')
 _CJS_STATIC_EXPORT = re.compile(r'\bmodule\.exports\s*=\s*\{([^{}]*)\}\s*;?\s*$', re.S)
+_CJS_PROPERTY_ASSIGN = re.compile(r'(?m)^([ \t]*)module\.exports\.([A-Za-z_$][\w$]*)\s*=(?!=)')
+_CJS_ROOT_ASSIGN = re.compile(r'(?m)^module\.exports\s*=(?!=)')
+_CJS_FRESH_FUNCTION = re.compile(
+    r'\s*(?:async\s+)?(?:function(?:\s+[A-Za-z_$][\w$]*)?\s*\(|'
+    r'\([^()\n]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)')
+_JS_OPAQUE = re.compile(
+    r'''//[^\n]*|/\*[\s\S]*?\*/|"(?:\\[\s\S]|[^"\\])*"|'''
+    r'''\'(?:\\[\s\S]|[^\'\\])*\'|`(?:\\[\s\S]|[^`\\])*`''')
 
 
-def missing_backend_export_errors(sources, changed):
-    """Advisory for literal CJS destructuring against a simple final export object.
+def _overwritten_cjs_names(source: str) -> set[str]:
+    """Certain lost named exports; complex/dynamic assignments remain unknown.
+
+    Only column-zero assignments and one fresh function replacement are
+    recognized. A later property assignment on the replacement restores that
+    property. Keeping this narrow matters: the result is repair advice, never
+    a reason to reject a potentially correct edit.
+    """
+    opaque = [match.span() for match in _JS_OPAQUE.finditer(source)]
+    def executable(match):
+        return not any(left <= match.start() < right for left, right in opaque)
+    roots = [match for match in _CJS_ROOT_ASSIGN.finditer(source) if executable(match)]
+    if len(roots) != 1 or not _CJS_FRESH_FUNCTION.match(source, roots[0].end()):
+        return set()
+    # An unrecognized later reference may attach properties through a helper.
+    # Leave it unknown rather than asking for an automatic source rewrite.
+    tail = _JS_OPAQUE.sub('', source[roots[0].end():])
+    if re.search(r'\bmodule\.exports\b', _CJS_PROPERTY_ASSIGN.sub('', tail)):
+        return set()
+    assignments = [match for match in _CJS_PROPERTY_ASSIGN.finditer(source) if executable(match)]
+    before = {match.group(2) for match in assignments
+              if match.start() < roots[0].start() and not match.group(1)}
+    # Any later attachment could restore the property. Indented assignments
+    # may be conditional; leave them unknown rather than triggering an edit.
+    after = {match.group(2) for match in assignments if match.start() > roots[0].start()}
+    return before - after
+
+
+def missing_backend_export_errors(sources, changed, *, limit=8):
+    """Advisory for certain broken literal CJS destructuring edges.
 
     Dynamic/computed/spread exports are deliberately unknown. Check an edge
     when either endpoint changed; a deleted export breaks unchanged callers.
     """
     changed = set(changed)
-    errors = []
+    overwritten, errors = [], []
+    lost_by_target = {}
     for importer, source in sorted(sources.items()):
         if not importer.startswith('backend/') or not importer.endswith(('.js', '.cjs')):
             continue
@@ -185,6 +222,17 @@ def missing_backend_export_errors(sources, changed):
             group, rel = match.groups()
             target = _resolve_module(importer, rel, sources)
             if target is None or (importer not in changed and target not in changed):
+                continue
+            wanted = [item.strip().split(':', 1)[0].strip() for item in group.split(',') if item.strip()]
+            if not all(re.fullmatch(r'[A-Za-z_$][\w$]*', item) for item in wanted):
+                continue
+            if target not in lost_by_target:
+                lost_by_target[target] = _overwritten_cjs_names(sources[target])
+            lost = sorted(set(wanted) & lost_by_target[target])
+            if lost:
+                overwritten.append(f'{importer}: {target} loses {", ".join(lost)} because a later '
+                                   'module.exports = function replaces earlier named assignments; '
+                                   'attach properties after the function export or move shared state to a separate module')
                 continue
             exported_source = _without_comments(sources[target])
             exports = _CJS_STATIC_EXPORT.search(exported_source)
@@ -203,14 +251,12 @@ def missing_backend_export_errors(sources, changed):
                 known.add(match.group(1))
             if not known:
                 continue
-            wanted = [item.strip().split(':', 1)[0].strip() for item in group.split(',') if item.strip()]
-            if not all(re.fullmatch(r'[A-Za-z_$][\w$]*', item) for item in wanted):
-                continue
             missing = sorted(set(wanted) - known)
             if missing:
                 errors.append(f'{importer}: {target} does not export {", ".join(missing)} '
                               f'(static CJS exports: {", ".join(sorted(known))}); check caller and module')
-    return errors[:8]
+    findings = overwritten + errors
+    return findings[:limit] if limit is not None else findings
 
 
 _JS_SUFFIXES = ('.js', '.jsx', '.ts', '.tsx', '.mjs')

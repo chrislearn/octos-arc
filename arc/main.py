@@ -1947,7 +1947,7 @@ Output: FILE blocks for new files or necessary replacements; prefer exact anchor
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
 JSX (including Context providers) needs .jsx/.tsx, not .js/.ts; update imports. Fix source parse errors before changing build config.
 Collection API: const {collection} = require('../lib/collection'); do not call the module object. Pass initial: [{id:'example'}], NOT initial: {items:[...]}. Only migration callbacks receive the envelope {items:[...]}. Correct callers rather than changing shared exports. Invalid stored shapes require an explicit preserving migration, never deletion/reset of persisted data.
-Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes. Each METHOD+path is registered once across all route files: change an existing route in the file that owns it. Express 5 wildcards are named: '/files/*path' gives req.params.path (an array of segments); req.params[0] is undefined.
+Shared task-neutral files already exist. backend/server.js is an Express 5 entry: JSON/form parsers, frontend/dist, and automatic backend/routes/*.js registration. Route modules export (app) => { app.get/post/patch/delete(...); }; use req.body/params, res.json/status. If another module needs a route module's named exports, attach them AFTER assigning the route function to module.exports, or put shared collections in a separate module; assigning module.exports again discards earlier module.exports.name properties. Register literal paths before :parameter paths; keep server.js unchanged for ordinary routes. Each METHOD+path is registered once across all route files: change an existing route in the file that owns it. Express 5 wildcards are named: '/files/*path' gives req.params.path (an array of segments); req.params[0] is undefined.
 From backend/routes/: require('../lib/store') exports read(name,fallback), write(name,value), update(name,fallback,synchronousChange). Prefer require('../lib/collection').collection(name,{idKey,initial,migrations,normalize}) for ordinary CRUD instead of regenerating persistence; it exports all/list/get/create/patch/remove/transact. initial applies only to a new store; persist changes to existing data via versioned migrations up(data) mutating data.items synchronously, preserving __arcMigrations. Never reseed deleted records. Optional normalize(record) returns an object with the SAME id on reads/create/patch and before/after transact; choose defaults from requirements, not fixtures. Reads do not persist normalization. transact(items => result) synchronously mutates one collection in one write; duplicate/missing IDs and async callbacks fail. Atomicity is single-store/single-process only; cross-store effects need one aggregate or transactional storage. require('../lib/errors').HttpError(status,message) gives explicit 4xx {error:message}; 5xx details are hidden. Define domain validation, authorization and messages from requirements. Seed records live in code (collection initial); backend/data/ is runtime state (tests run on a private copy; it is deleted before grading), so never hand-write it. Module-level in-memory state (undo stacks, caches) must clear on require('../lib/store').onReset(() => ...).
 Optional require('../lib/query') exports optionalBoolean(value) (missing/true/false, invalid => 400) and matchesFlags(record,flags) (strict booleans, undefined ignored). Whitelist fields, resolve view defaults once, combine filters, and enforce ownership separately; clients cannot recover server-excluded rows.
 Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (empty successful response => null), or throws an Error with server message and numeric status on HTTP/JSON failure; no Response methods or {ok,value} envelope. Plain object/array request bodies are JSON-encoded; FormData/URLSearchParams bodies keep their native encoding. React uses main.jsx/App.jsx. Plain scaffold uses app.js, shared/dom.js (escapeHtml) and shared/router.js (startRouter(render), arc.spa=true). Optional build.mjs/vite.config.mjs: build is "node build.mjs"; bundle JSX/local assets. frontend/public copies to dist root. Define fields, pages, sessions and seed data from the task. Do not output FILE blocks for unchanged shared helpers.
@@ -2549,12 +2549,14 @@ class Flow:
                                    if row.get("status") == "approved_behavior" and self.trusted_derived_case(str(row.get("node_id")), row.get("title", ""))}
         current_source = self.app_source_digest()
         findings = list(getattr(self, "quality_observations", {}).values())
-        from generation_checks import cross_layer_advisories, missing_hook_return_errors
+        from generation_checks import (cross_layer_advisories, missing_backend_export_errors,
+                                       missing_hook_return_errors)
         sources = {str(path.relative_to(self.output_dir)):
                    path.read_text(encoding="utf-8", errors="replace")
                    for path in app_source_files(self.output_dir)}
         static_contract_errors = missing_hook_return_errors(sources, sources) if sources else []
         static_contract_advisories = cross_layer_advisories(sources, sources) if sources else []
+        backend_export_advisories = missing_backend_export_errors(sources, sources) if sources else []
         phase_rows = []
         for phase in (getattr(self, "phase_plan", None) or {}).get("phases", []):
             leaves = phase["leaves"]
@@ -2601,6 +2603,7 @@ class Flow:
                    "stale_findings": sum(row["source_hash"] != current_source for row in findings),
                    "static_contract_errors": static_contract_errors,
                    "static_contract_advisories": static_contract_advisories,
+                   "backend_export_advisories": backend_export_advisories,
                    "phases": phase_rows,
                    "note": ("Per-leaf source_written requires an attributed source change or trusted acceptance. "
                             "Shared waves remain implemented_unverified until attributed or measured. "
@@ -6707,6 +6710,89 @@ class Flow:
         self.metric('generation_gate', label=label, **result)
         if result['errors']:
             log(f"[flow] {label}: early checks found {len(result['errors'])} issue(s); exact evidence queued for next batch")
+
+    def repair_overwritten_route_exports(self) -> None:
+        """Offer one focused correction for a certain CommonJS interface break.
+
+        This is source evidence, not an acceptance verdict or a write gate. A
+        failed or incomplete correction leaves the application for the normal
+        test and repair path; the static check never rolls back a valid edit.
+        """
+        if (self.wound_down() or not isinstance(getattr(self, 'output_dir', None), Path)):
+            return
+        from generation_checks import missing_backend_export_errors
+        sources = self.repair_source_index().sources
+        marker = ' because a later module.exports = function replaces earlier named assignments'
+        issues = [issue for issue in missing_backend_export_errors(sources, sources, limit=None)
+                  if marker in issue]
+        if not issues:
+            return
+        reserve = max(self.final_measurement_reserve(), self.final_rehearsal_reserve())
+        allowance = min(240, self.remaining() - reserve - self.repair_minimum())
+        if allowance < 60:
+            self.metric('source_interface_repair', outcome='deferred_budget', issues=issues[:3])
+            return
+        targets = []
+        for issue in issues:
+            match = re.match(r'[^\s:]+: (backend/[^\s:]+) loses ', issue)
+            if match and match.group(1) in sources and match.group(1) not in targets:
+                targets.append(match.group(1))
+        if not targets:
+            self.metric('source_interface_repair', outcome='deferred_context', issues=issues[:3])
+            return
+        # Quote complete files. If the implicated source does not fit, leave
+        # its diagnosis in the evidence ledger instead of asking for a blind edit.
+        quoted = [f'--- {rel} ---\n{sources[rel]}\n' for rel in targets[:2]
+                  if len(sources[rel]) <= 50000]
+        selected_issues = [issue for issue in issues
+                           if any(f': {rel} loses ' in issue for rel in targets[:2])][:4]
+        prompt = ("A backend module overwrites its own named CommonJS exports. "
+                  "This is confirmed by assignment order, even when build and the public page pass. "
+                  "Make one focused source correction: assign the route function to module.exports first, "
+                  "then attach the named properties that callers destructure. Preserve their shared object "
+                  "identity, all route registration, and existing behavior. If a require cycle makes this "
+                  "ordering unsafe, request the missing caller source and move shared state to a separate "
+                  "module with corresponding caller updates; do not guess from unquoted files. "
+                  "Do not alter unrelated features or tests. The harness will verify the result.\n"
+                  "Source evidence:\n" + '\n'.join(selected_issues) + '\nCurrent files (complete):\n'
+                  + ''.join(quoted))
+        codegen = self.codegen_mode()
+        if (len(quoted) != len(targets[:2]) or
+                len(prompt) + (len(FORMAT_INSTRUCTIONS) if codegen else 0) > self.codegen_context_chars()):
+            self.metric('source_interface_repair', outcome='deferred_context', issues=issues[:3])
+            return
+        self.metric('source_interface_repair', outcome='attempted', issues=selected_issues, targets=targets[:2])
+        before = self.app_source_digest()
+        self.last_codegen_written = []
+        try:
+            if codegen:
+                self.codegen_turn(prompt, int(allowance), 'source interface repair',
+                                  spec_chars=0, force_files=True)
+            else:
+                self.turn(prompt, int(allowance), 'source interface repair (tools)',
+                          expect_verification=False)
+        finally:
+            # A model/tool failure can happen after a partial write. The outer
+            # recovery catches it, but the old measurements must be invalidated
+            # even when this turn itself did not return normally.
+            try:
+                edited = self.app_source_digest() != before
+            except OSError:
+                # A partial write can make hashing unavailable. Never carry a
+                # passing verdict forward across an unknown source version.
+                edited = True
+            if edited:
+                self.test_verdict = {node: None for node in self.test_verdict}
+                self.test_state = {node: 'not_run' for node in self.test_state}
+                self.whole_app_summary = None
+                self.final_suite_green = False
+                self._final_retry_measurement = None
+                self.commit('fix: restore CommonJS route exports')
+            current = self.repair_source_index().sources
+            remaining = [issue for issue in missing_backend_export_errors(current, current, limit=None)
+                         if marker in issue]
+            self.metric('source_interface_repair', outcome='edited' if edited else 'unchanged',
+                        remaining=remaining[:3])
 
     def retain_safe_no_spec_partial(self, node_id: str) -> bool:
         """Keep useful writes from a capped turn when no local suite exists.
@@ -11513,6 +11599,10 @@ class Flow:
                     self.implement_sequential(tree, ordered, unchanged)
 
                 self._generation_active = False
+                try:
+                    self.repair_overwritten_route_exports()
+                except Exception as exc:  # source advice cannot abort the run
+                    self.metric('source_interface_repair', outcome='unavailable', reason=str(exc)[:300])
                 system_ready = None
                 try:
                     system_ready = self.pre_review_derived_system_check()
@@ -11543,10 +11633,11 @@ class Flow:
                     # cannot produce a measured verdict. Preserve time for the
                     # deterministic startup rehearsal and final grading.
                     check_cap = max(30, int(os.environ.get('OCTOS_ARC_NO_SPEC_FINAL_CHECK_SECONDS', '600')))
-                    from generation_checks import contract_warnings
+                    from generation_checks import contract_warnings, missing_backend_export_errors
                     sources = self.repair_source_index().sources
                     wiring = [item for item in contract_warnings(sources, sources)
                               if item.startswith(('ROUTE_LINK', 'API_CALL', 'ROUTE_CONFLICT'))]
+                    backend_exports = missing_backend_export_errors(sources, sources)
                     literals = source_literal_gaps(self.requirement_contracts, sources) if not self.tests_dir else []
                     seeds = source_seed_gaps(self.requirement_contracts, sources) if not self.tests_dir else []
                     if wiring:
@@ -11555,7 +11646,7 @@ class Flow:
                         log(f'[flow] final requirement-literal audit: {len(literals)} potential gap(s)')
                     if seeds:
                         log(f'[flow] final required-seed audit: {len(seeds)} concrete gap(s)')
-                    findings = wiring + literals + seeds
+                    findings = wiring + backend_exports + literals + seeds
                     audit = ('\nStatic findings to inspect and fix only if confirmed (advisory, not test verdicts):\n' +
                              '\n'.join(findings) + '\n') if findings else ''
                     final_prompt = FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,

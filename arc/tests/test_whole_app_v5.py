@@ -397,6 +397,92 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.run_specs.call_args.kwargs["grader_like"])
         flow.record_full_suite.assert_called_once()
 
+    def test_overwritten_route_exports_get_one_focused_repair_before_measurement(self):
+        flow = self.flow
+        m.write_codegen_manifests(self.root)
+        m.install_generic_template(self.root, Path(m.__file__).parent, 3000, [])
+        routes = self.root / 'backend/routes'
+        routes.mkdir(parents=True, exist_ok=True)
+        broken = ('const accounts = new Map();\n'
+                  'module.exports.accounts = accounts;\n'
+                  'module.exports = (app) => {};\n')
+        (routes / 'auth.js').write_text(broken)
+        (routes / 'repos.js').write_text("const {accounts} = require('./auth');\n")
+        flow.test_verdict = {'A': True, 'B': False}
+        flow.test_state = {'A': 'passed', 'B': 'failed'}
+        flow.whole_app_summary = RunSummary(passed=1, total=2)
+
+        def repaired(prompt, *args, **kwargs):
+            self.assertIn('backend/routes/auth.js loses accounts', prompt)
+            self.assertIn('--- backend/routes/auth.js ---', prompt)
+            self.assertTrue(kwargs['force_files'])
+            (routes / 'auth.js').write_text(
+                'const accounts = new Map();\n'
+                'module.exports = (app) => {};\n'
+                'module.exports.accounts = accounts;\n')
+            flow.last_codegen_written = ['backend/routes/auth.js']
+            return True, 'applied'
+
+        flow.codegen_turn = Mock(side_effect=repaired)
+        flow.repair_overwritten_route_exports()
+        flow.codegen_turn.assert_called_once()
+        flow.commit.assert_called_once_with('fix: restore CommonJS route exports')
+        self.assertEqual(flow.test_verdict, {'A': None, 'B': None})
+        self.assertEqual(flow.test_state, {'A': 'not_run', 'B': 'not_run'})
+        self.assertIsNone(flow.whole_app_summary)
+        flow.repair_overwritten_route_exports()
+        flow.codegen_turn.assert_called_once()
+
+    def test_partial_interface_repair_exception_invalidates_old_measurement(self):
+        flow = self.flow
+        routes = self.root / 'backend/routes'
+        routes.mkdir(parents=True, exist_ok=True)
+        (routes / 'auth.js').write_text('const accounts = new Map();\n'
+                                        'module.exports.accounts = accounts;\n'
+                                        'module.exports = (app) => {};\n')
+        (routes / 'repos.js').write_text("const {accounts} = require('./auth');\n")
+        flow.test_verdict = {'A': True}
+        flow.test_state = {'A': 'passed'}
+        flow.whole_app_summary = RunSummary(passed=1, total=1)
+
+        def partial_write(*args, **kwargs):
+            (routes / 'auth.js').write_text('const accounts = new Map();\n'
+                                            'module.exports = (app) => {};\n'
+                                            'module.exports.accounts = accounts;\n')
+            raise RuntimeError('provider interrupted after source write')
+
+        flow.codegen_turn = Mock(side_effect=partial_write)
+        with self.assertRaisesRegex(RuntimeError, 'provider interrupted'):
+            flow.repair_overwritten_route_exports()
+        self.assertEqual(flow.test_verdict, {'A': None})
+        self.assertEqual(flow.test_state, {'A': 'not_run'})
+        self.assertIsNone(flow.whole_app_summary)
+        flow.commit.assert_called_once_with('fix: restore CommonJS route exports')
+
+    def test_interface_repair_tool_fallback_keeps_harness_verification(self):
+        flow = self.flow
+        routes = self.root / 'backend/routes'
+        routes.mkdir(parents=True, exist_ok=True)
+        (routes / 'auth.js').write_text('const accounts = new Map();\n'
+                                        'module.exports.accounts = accounts;\n'
+                                        'module.exports = (app) => {};\n')
+        (routes / 'repos.js').write_text("const {accounts} = require('./auth');\n")
+        flow.codegen_mode = Mock(return_value=False)
+        flow.test_verdict = {'A': True}
+
+        def repaired(prompt, *args, **kwargs):
+            self.assertFalse(kwargs['expect_verification'])
+            (routes / 'auth.js').write_text('const accounts = new Map();\n'
+                                            'module.exports = (app) => {};\n'
+                                            'module.exports.accounts = accounts;\n')
+            return True, 'edited'
+
+        flow.turn = Mock(side_effect=repaired)
+        flow.repair_overwritten_route_exports()
+        flow.turn.assert_called_once()
+        self.assertEqual(flow.test_verdict, {'A': None})
+        flow.commit.assert_called_once_with('fix: restore CommonJS route exports')
+
     def test_incomplete_suite_never_marks_leaf_passed(self):
         flow = self.flow
         flow.run_specs = Mock(return_value=RunSummary(passed=1, total=1, results=[

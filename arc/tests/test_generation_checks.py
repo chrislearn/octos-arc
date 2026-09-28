@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -30,6 +31,81 @@ class GenerationChecksTests(TestCase):
         self.assertEqual(missing_backend_export_errors(sources, sources), [])
         sources['backend/routes/orgs.js'] = "const doc = `\nconst {collaborators} = require('../collections/orgs');\n`;\n"
         self.assertEqual(missing_backend_export_errors(sources, sources), [])
+
+    def test_cjs_named_exports_lost_to_later_route_function_are_advisory(self):
+        auth = ('module.exports.accounts = accounts;\n'
+                'module.exports.sessions = sessions;\n'
+                'module.exports = (app) => { app.get("/api/auth", handler); };\n')
+        sources = {
+            'backend/routes/auth.js': auth,
+            'backend/routes/repositories.js': "const {accounts, sessions} = require('./auth');\n",
+        }
+        issues = missing_backend_export_errors(sources, ['backend/routes/auth.js'])
+        self.assertEqual(len(issues), 1)
+        self.assertIn('loses accounts, sessions', issues[0])
+        self.assertEqual(issues, missing_backend_export_errors(sources, ['backend/routes/repositories.js']))
+        crowded = dict(sources)
+        crowded['backend/shared.js'] = 'module.exports = {present};\n'
+        crowded.update({f'backend/routes/a{i}.js': "const {missing} = require('../shared');\n"
+                        for i in range(10)})
+        self.assertIn('loses accounts, sessions', missing_backend_export_errors(crowded, crowded)[0])
+        self.assertGreater(len(missing_backend_export_errors(crowded, crowded, limit=None)), 8)
+        with tempfile.TemporaryDirectory() as folder:
+            gate = check_batch(Path(folder), ['backend/routes/auth.js'], sources=sources)
+            self.assertEqual(gate['errors'], [])
+            self.assertIn('loses accounts, sessions', '\n'.join(gate['deferred']))
+
+        # A valid repair must make the advisory disappear without a hard gate.
+        sources['backend/routes/auth.js'] = (
+            'module.exports = (app) => {};\n'
+            'module.exports.accounts = accounts;\n'
+            'module.exports.sessions = sessions;\n')
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/routes/auth.js'] = auth + (
+            'module.exports.accounts = accounts;\n'
+            'module.exports.sessions = sessions;\n')
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        with tempfile.TemporaryDirectory() as folder:
+            gate = check_batch(Path(folder), ['backend/routes/auth.js'], sources=sources)
+            self.assertEqual(gate['errors'], [], 'a corrected export must not be rejected')
+
+        # Conditional, computed and alternate constructions are left unknown.
+        sources['backend/routes/auth.js'] = auth.replace(
+            'module.exports = (app) =>', 'module.exports = register; // (app) =>')
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/routes/auth.js'] = auth + 'Object.assign(module.exports, {accounts, sessions});\n'
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/routes/auth.js'] = auth + 'Object.defineProperties(module.exports, {accounts: {value: accounts}});\n'
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/routes/auth.js'] = auth + 'attachSharedState(module.exports);\n'
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+        sources['backend/routes/auth.js'] = auth + '  module.exports.accounts = accounts;\n'
+        self.assertIn('loses sessions', '\n'.join(missing_backend_export_errors(sources, sources)))
+        self.assertNotIn('loses accounts', '\n'.join(missing_backend_export_errors(sources, sources)))
+        sources['backend/routes/auth.js'] = auth + '// Object.assign(module.exports, {accounts});\n'
+        self.assertIn('loses accounts, sessions', '\n'.join(missing_backend_export_errors(sources, sources)))
+        sources['backend/routes/auth.js'] = (
+            'const prose = `module.exports.accounts = accounts;\n'
+            'module.exports = (app) => {};`;\n')
+        self.assertEqual(missing_backend_export_errors(sources, sources), [])
+
+    def test_cjs_export_order_matches_node_runtime(self):
+        if not shutil.which('node'):
+            self.skipTest('Node.js unavailable')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            auth = root / 'auth.js'
+            read = "const {accounts} = require('./auth'); console.log(typeof accounts?.get);"
+            auth.write_text('const accounts = new Map();\n'
+                            'module.exports.accounts = accounts;\n'
+                            'module.exports = (app) => {};\n')
+            lost = subprocess.run(['node', '-e', read], cwd=root, capture_output=True, text=True, check=True)
+            self.assertEqual(lost.stdout.strip(), 'undefined')
+            auth.write_text('const accounts = new Map();\n'
+                            'module.exports = (app) => {};\n'
+                            'module.exports.accounts = accounts;\n')
+            restored = subprocess.run(['node', '-e', read], cwd=root, capture_output=True, text=True, check=True)
+            self.assertEqual(restored.stdout.strip(), 'function')
 
     def bundled_sources(self):
         blueprints = Path(__file__).resolve().parents[1] / 'blueprints'

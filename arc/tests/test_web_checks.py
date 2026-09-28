@@ -27,6 +27,22 @@ class ScaffoldChecksTests(unittest.TestCase):
         sources['backend/routes/repos.js'] = "function register() {\n  const orgs = require('./orgs');\n}\nmodule.exports = register;\n"
         self.assertEqual(commonjs_cycle_issues(sources), [])
 
+    def test_overwritten_named_route_exports_warn_at_final_preflight(self):
+        routes = self.root / 'backend/routes'
+        (routes / 'auth.js').write_text(
+            'module.exports.accounts = accounts;\n'
+            'module.exports = (app) => {};\n')
+        (routes / 'repositories.js').write_text(
+            "const {accounts} = require('./auth');\n"
+            'module.exports = (app) => { app.get("/api/repositories", () => accounts.get("a")); };\n')
+        warnings = scaffold_warnings(self.root)
+        self.assertIn('loses accounts', '\n'.join(warnings))
+        self.assertEqual(scaffold_issues(self.root), [], 'the advisory must not block a repair')
+        (routes / 'auth.js').write_text(
+            'module.exports = (app) => {};\n'
+            'module.exports.accounts = accounts;\n')
+        self.assertNotIn('loses accounts', '\n'.join(scaffold_warnings(self.root)))
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

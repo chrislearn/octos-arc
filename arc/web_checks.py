@@ -325,11 +325,16 @@ def scaffold_warnings(project: Path, runtime: bool = False) -> list[str]:
     if not _generic_entry(project):
         return []
     sources = backend_sources(project)
+    # Include cross-module export contracts at final startup as well as in
+    # per-wave checks. A public-page render cannot exercise an authenticated
+    # handler that destructures a lost CommonJS property.
+    from generation_checks import missing_backend_export_errors
     report = runtime_route_report(project) if runtime else None
     conflicts = report['conflicts'] if report is not None else static_route_conflicts(sources)
     warnings = [str(conflict.get('message')) for conflict in conflicts if conflict.get('message')]
     return (warnings + express5_param_issues(sources) + module_state_issues(sources)
-            + commonjs_cycle_issues(sources))
+            + commonjs_cycle_issues(sources)
+            + missing_backend_export_errors(sources, sources.keys()))
 
 
 def scaffold_issues(project: Path) -> list[str]:
