@@ -95,6 +95,35 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(f.run_specs.call_count, 2)
         f.affected_regression_specs.assert_called_once_with({'frontend/shared.js'}, ['A.spec.ts'])
 
+    def test_regression_audit_invalidation_never_marks_leaf_failed(self):
+        import test_resumable_recovery as fixtures
+        from types import SimpleNamespace
+        import time
+        fixtures.RecoveryControlTests.setUp(self)
+        f = self.flow
+        f.repair_rounds = 0
+        f.derived_as_specs = True
+        reviewed = {'B': True}
+        f.derived_review_needed = Mock(side_effect=lambda node: node == 'B' and not reviewed['B'])
+        f.trusted_derived_case = Mock(return_value=True)
+        def audit(specs, summary, **kwargs):
+            if specs == ['B.spec.ts']:
+                reviewed['B'] = False
+            return summary
+        f.audit_related_derived_specs = Mock(side_effect=audit)
+        f.mark = Mock()
+        f.codegen_mode = Mock(return_value=False)
+        f.repair_source_index = Mock(return_value=SimpleNamespace(versions={'frontend/shared.js': 'new'}))
+        f.affected_regression_specs = Mock(return_value=['B.spec.ts'])
+        f.spec_map = {'A': ['A.spec.ts'], 'B': ['B.spec.ts']}
+        f.test_verdict = {'B': True}
+        f.run_specs = Mock(side_effect=[observed(['A.spec.ts']), observed(['B.spec.ts'], ['B.spec.ts'])])
+        self.assertTrue(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 300,
+                                          source_versions={'frontend/shared.js': 'old'}))
+        self.assertIsNone(f.test_verdict['B'])
+        self.assertFalse(any(call.args[:2] == ('test_failed', 'B') for call in f.mark.call_args_list))
+        self.assertFalse(any('missing control' in str(note) for note in f.pending_corrections))
+
     def test_failed_new_feature_still_checks_previously_passing_behavior(self):
         import test_resumable_recovery as fixtures
         from types import SimpleNamespace

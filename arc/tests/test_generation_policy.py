@@ -150,7 +150,44 @@ class GenerationPolicyTests(unittest.TestCase):
             flow.record_tests("REQ-1-1", ["REQ-1-1.spec.ts"], RunSummary(results=[outcome], total=1, passed=1))
             flow.runtime.traceability.upsert_test.assert_not_called()
 
-    def test_final_generated_measurement_includes_unreviewed_files_without_granting_trust(self):
+    def test_partly_reviewed_leaf_failure_is_not_recorded_as_product_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.derived_review_needed = Mock(return_value=True)
+            flow.record_quality_observation = Mock()
+            flow.metric = Mock()
+            flow.runtime = SimpleNamespace(traceability=SimpleNamespace(upsert_test=Mock()))
+            outcome = TestOutcome('A: candidate', False, 'failed', 1, file='A.spec.ts',
+                                  message='candidate assertion failed')
+            flow.record_tests('A', ['A.spec.ts'], RunSummary(results=[outcome], total=1, passed=0))
+            flow.record_quality_observation.assert_not_called()
+            flow.runtime.traceability.upsert_test.assert_not_called()
+
+    def test_full_suite_stops_when_case_audit_invalidates_leaf_review(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'A.spec.ts').write_text("test('A: approved', async () => {});\n")
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.tests_dir = root
+            flow.derived_as_specs = True
+            flow.runner = SimpleNamespace(timeout_ms=1000)
+            flow.spec_map = {'A': ['A.spec.ts']}
+            flow.test_verdict = {'A': False}
+            pending = {'A': False}
+            flow.derived_review_needed = lambda node: pending[node]
+            flow.metric = Mock()
+            flow.run_specs = Mock(return_value=RunSummary(results=[
+                TestOutcome('A: approved', False, 'failed', 1, file='A.spec.ts')], total=1, passed=0))
+            flow.audit_related_derived_specs = lambda _specs, summary: (pending.update(A=True) or summary)
+            flow.suite_repair_turn = Mock()
+            flow.final_acceptance()
+            self.assertIsNone(flow.test_verdict['A'])
+            flow.suite_repair_turn.assert_not_called()
+            self.assertEqual(flow.run_specs.call_count, 1)
+
+    def test_final_generated_measurement_waits_for_unreviewed_leaf(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "A.spec.ts").write_text("test('A: approved', async () => {});\n")
@@ -160,6 +197,7 @@ class GenerationPolicyTests(unittest.TestCase):
             flow.derived_as_specs = True
             flow.runner = SimpleNamespace(timeout_ms=1000)
             flow.trusted_derived_case = Mock(side_effect=lambda node, title: node == "A")
+            flow.derived_review_needed = Mock(side_effect=lambda node: node == "B")
             flow.remaining = Mock(return_value=1000)
             flow.final_measurement_reserve = Mock(return_value=100)
             flow.run_specs = Mock(return_value=RunSummary(results=[
@@ -167,7 +205,7 @@ class GenerationPolicyTests(unittest.TestCase):
             flow.suite_is_measured = Mock(return_value=True)
             flow.record_full_suite = Mock()
             flow.final_acceptance_passes()
-            flow.run_specs.assert_called_once_with(["A.spec.ts", "B.spec.ts"], workers=1, grader_like=True)
+            flow.run_specs.assert_called_once_with(["A.spec.ts"], workers=1, grader_like=True)
             flow.record_full_suite.assert_called_once()
 
     def test_generated_load_check_only_rechecks_changed_spec(self):

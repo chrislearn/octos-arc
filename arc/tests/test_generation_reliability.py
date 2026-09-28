@@ -203,6 +203,14 @@ class NoSpecPartialRetentionTests(unittest.TestCase):
         self.assertIn('do not restart the module', self.flow.pending_corrections[-1])
         self.flow.metric.assert_called_once()
 
+    def test_generated_candidate_suite_does_not_discard_safe_partial_code(self):
+        self.flow.tests_dir = self.root / 'derived-tests'
+        self.flow.derived_as_specs = True
+        self.flow._generation_gate_result = {
+            'errors': [], 'checked': ['frontend build'], 'deferred': [],
+        }
+        self.assertTrue(self.flow.retain_safe_no_spec_partial('REQ-5-2-2'))
+
     def test_unbuilt_frontend_partial_is_not_retained(self):
         self.flow._generation_gate_result = {
             'errors': [], 'checked': [],

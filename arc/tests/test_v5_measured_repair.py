@@ -179,6 +179,89 @@ class MeasuredRepairTests(TestCase):
         self.assertFalse(f.rehearsal())
         f.turn.assert_not_called()
 
+    def test_early_system_check_keeps_review_and_final_repair_time(self):
+        f = self.flow
+        f.derived_as_specs = True
+        f.final_measurement_reserve = Mock(return_value=120)
+        f.repair_minimum = Mock(return_value=60)
+        f.remaining = Mock(return_value=239)
+        f.rehearsal = Mock(return_value=True)
+        f.metric = Mock()
+        f.pre_review_derived_system_check()
+        f.rehearsal.assert_not_called()
+        f.remaining.return_value = 500
+        f.pre_review_derived_system_check()
+        f.rehearsal.assert_called_once_with(preserve_seconds=180, restore_on_failure=False)
+
+    def test_early_rehearsal_repair_turn_cannot_borrow_preserved_time(self):
+        f = self.flow
+        f.remaining = lambda: 240
+        f.repair_minimum = lambda: 60
+        f.node_timeout = 1200
+        f.app_server = lambda **kw: SimpleNamespace(build=lambda: 'build failed', stop=Mock())
+        f.turn = Mock()
+        f.commit = Mock()
+        f.last_turn_changed = False
+        f.restore_startable_commit = Mock(return_value=False)
+        f.derived_as_specs = True
+        self.assertFalse(f.rehearsal(preserve_seconds=180, restore_on_failure=False))
+        f.turn.assert_not_called()
+        f.remaining = lambda: 300
+        self.assertFalse(f.rehearsal(preserve_seconds=180, restore_on_failure=False))
+        self.assertEqual(f.turn.call_args.args[1], 120)
+        self.assertIn('do not read, search, run, or modify generated tests', f.turn.call_args.args[0])
+        f.restore_startable_commit.assert_not_called()
+
+    def test_source_changed_by_final_rehearsal_reopens_one_measured_suite(self):
+        f = self.flow
+        f.runner = Mock()
+        f.test_verdict = {'A': True}
+        f._final_suite_attempted = True
+        f.app_source_digest = Mock(return_value='after-repair')
+        f.final_acceptance_passes = Mock()
+        f.rehearsal = Mock(return_value=True)
+        self.assertTrue(f.remeasure_after_rehearsal('before-repair', True))
+        self.assertFalse(f._final_suite_attempted)
+        self.assertIsNone(f.test_verdict['A'])
+        f.final_acceptance_passes.assert_called_once()
+        f.rehearsal.assert_not_called()
+        f._final_suite_attempted = True
+        self.assertTrue(f.remeasure_after_rehearsal('after-repair', True))
+        self.assertTrue(f._final_suite_attempted)
+        f.rehearsal.assert_not_called()
+
+    def test_final_suite_source_repair_must_pass_another_startup_check(self):
+        f = self.flow
+        f.runner = Mock()
+        f.test_verdict = {'A': None}
+        f.app_source_digest = Mock(side_effect=['same', 'changed'])
+        f.final_acceptance_passes = Mock()
+        f.rehearsal = Mock(return_value=False)
+        self.assertFalse(f.remeasure_after_rehearsal('same', True))
+        f.final_acceptance_passes.assert_called_once()
+        f.rehearsal.assert_called_once_with(repair_on_failure=False)
+
+    def test_final_suite_reverting_startup_repair_still_needs_startup_check(self):
+        f = self.flow
+        f.runner = Mock()
+        f.test_verdict = {'A': True}
+        f.app_source_digest = Mock(side_effect=['after-startup', 'before-startup'])
+        f.final_acceptance_passes = Mock()
+        f.rehearsal = Mock(return_value=False)
+        self.assertFalse(f.remeasure_after_rehearsal('before-startup', True))
+        f.final_acceptance_passes.assert_called_once()
+        f.rehearsal.assert_called_once_with(repair_on_failure=False)
+
+    def test_final_startup_check_does_not_launch_another_repair_turn(self):
+        f = self.flow
+        f.app_server = lambda **kw: SimpleNamespace(build=lambda: 'build failed', stop=Mock())
+        f.rehearsal_browser_error = Mock()
+        f.turn = Mock()
+        f.restore_startable_commit = Mock(return_value=False)
+        self.assertFalse(f.rehearsal(repair_on_failure=False))
+        f.turn.assert_not_called()
+        f.restore_startable_commit.assert_called_once()
+
     def test_failed_rehearsal_ships_the_last_startable_commit_instead_of_as_is(self):
         f = self.flow
         f.remaining = lambda: -1

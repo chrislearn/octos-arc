@@ -135,7 +135,7 @@ class FlowAuditTests(unittest.TestCase):
         observed = self.flow.audit_failed_derived_specs(SHEET["id"], [self.path.name], outcome())
         self.assertTrue(observed.all_passed)
         self.flow.runner.list_specs.assert_called_once_with([self.path.name])
-        self.flow.run_specs.assert_called_once_with([self.path.name])
+        self.flow.run_specs.assert_called_once_with([self.path.name], audit_candidate=True)
         self.flow.snapshot_protected.assert_called_once()
         self.assertIn("h.expectCell(page, 'A1', 'East')", self.path.read_text())
         self.assertEqual(len(list((self.root / ".arc" / "spec-audit" / SHEET["id"]).glob("*.spec.ts"))), 1)
@@ -176,7 +176,7 @@ class FlowAuditTests(unittest.TestCase):
         result = self.flow.acceptance_loop(SHEET["id"], [self.path.name], time.time() + 120,
                                            initial_summary=outcome())
         self.assertTrue(result)
-        self.flow.run_specs.assert_called_once_with([self.path.name])
+        self.flow.run_specs.assert_called_once_with([self.path.name], audit_candidate=True)
         self.flow.commit.assert_called_once()
 
     def test_reach_only_pass_remains_unverified(self):
@@ -374,7 +374,7 @@ class FlowAuditTests(unittest.TestCase):
         self.assertEqual(self.flow.text_turn.call_count, 3)  # second claim gets a schema-only retry
         self.assertEqual(self.flow.disputed_generated_failures(failed), [])
 
-    def test_final_suite_repairs_uncontested_failure_while_oracle_is_disputed(self):
+    def test_final_suite_repairs_reviewed_leaf_without_running_pending_leaf(self):
         self.path.unlink()
         first = self.directory / "A.spec.ts"
         second = self.directory / "B.spec.ts"
@@ -383,7 +383,7 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.spec_map = {"A": [first.name], "B": [second.name]}
         self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
         self.flow.test_verdict = {"A": None, "B": None}
-        self.flow.derived_review_needed = Mock(return_value=False)
+        self.flow.derived_review_needed = Mock(side_effect=lambda node_id: node_id == 'A')
         self.flow.audit_related_derived_specs = Mock(side_effect=lambda _specs, summary: summary)
         self.flow.record_tests = Mock()
         self.flow.remember_delivery_checkpoint = Mock()
@@ -393,26 +393,26 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.wound_down = Mock(return_value=False)
         self.flow.suite_repair_turn = Mock(return_value=("tools", ""))
         self.flow.repair_test_location = Mock(return_value="derived tests")
-        before = RunSummary(passed=0, total=2, results=[
-            TestOutcome("A: disputed [model]", False, "failed", 1, file=first.name),
+        before = RunSummary(passed=0, total=1, results=[
             TestOutcome("B: broken [model]", False, "failed", 1, file=second.name)])
-        after = RunSummary(passed=1, total=2, results=[
-            TestOutcome("A: disputed [model]", False, "failed", 1, file=first.name),
+        after = RunSummary(passed=1, total=1, results=[
             TestOutcome("B: broken [model]", True, "passed", 1, file=second.name)])
-        self.flow.run_specs = Mock(return_value=after)
+        self.flow.run_specs = Mock(side_effect=[before, after])
         with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1",
                                     "OCTOS_ARC_FINAL_CONFIRM_RUNS": "1"}):
-            self.flow.final_acceptance(initial_summary=before)
+            self.flow.final_acceptance()
+        self.assertTrue(all(call.args[0] == [second.name]
+                            for call in self.flow.run_specs.call_args_list))
         self.flow.suite_repair_turn.assert_called_once()
         self.assertIn("B: broken", self.flow.suite_repair_turn.call_args.args[2])
         self.assertNotIn("A: disputed", self.flow.suite_repair_turn.call_args.args[2])
         self.assertIsNone(self.flow.test_verdict["A"])
         self.assertTrue(self.flow.test_verdict["B"])
-        self.assertTrue(self.flow.final_spec_dispute)
-        self.assertFalse(self.flow.final_suite_green)
+        self.assertFalse(self.flow.final_spec_dispute)
 
     def test_disputed_pass_does_not_improve_trusted_score(self):
         self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
+        self.flow.derived_review_needed = Mock(side_effect=lambda node_id: node_id != 'B')
         rows = [TestOutcome("A: disputed [model]", True, "passed", 1, file="A.spec.ts"),
                 TestOutcome("B: checked [model]", True, "passed", 1, file="B.spec.ts")]
         summary = RunSummary(passed=2, total=2, results=rows)
@@ -430,15 +430,16 @@ class FlowAuditTests(unittest.TestCase):
         second.write_text("test('B: broken [model]', async ({ page }) => {});\n")
         self.flow.spec_map = {"A": [first.name], "B": [second.name]}
         self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
+        self.flow.derived_review_needed = Mock(side_effect=lambda node_id: node_id == 'A')
         self.flow.audit_related_derived_specs = Mock(side_effect=lambda _specs, summary: summary)
         self.flow.record_tests = Mock()
         self.flow.remember_delivery_checkpoint = Mock()
-        self.flow.run_specs = Mock(return_value=RunSummary(passed=0, total=2, results=[
-            TestOutcome("A: disputed [model]", False, "failed", 1, file=first.name),
+        self.flow.run_specs = Mock(return_value=RunSummary(passed=0, total=1, results=[
             TestOutcome("B: broken [model]", False, "failed", 1, file=second.name)]))
         with patch("main.scaffold_issues", return_value=[]):
             failing = self.flow.whole_app_first_suite([{"id": "A"}, {"id": "B"}])
         self.assertEqual(failing, {"B"})
+        self.flow.run_specs.assert_called_once_with([second.name], workers=1, grader_like=True)
         self.assertIsNone(self.flow.test_verdict["A"])
         self.assertFalse(self.flow.test_verdict["B"])
 

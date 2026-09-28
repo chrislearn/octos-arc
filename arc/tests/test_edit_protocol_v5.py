@@ -88,6 +88,16 @@ class EditProtocolTests(TestCase):
         self.assertIn('never scan future acceptance files', observed[0])
         self.assertEqual(self.flow.llm_proxy.extra_drop_tools, {'original'})
 
+    def test_derived_implementation_tools_do_not_request_candidate_specs(self):
+        self.flow.derived_as_specs = True
+        self.flow._generation_active = True
+        self.flow.llm_proxy = SimpleNamespace(extra_drop_tools=set())
+        captured = []
+        self.flow.turn = lambda prompt, *_args, **_kwargs: (captured.append(prompt) or True, 'done')
+        self.flow.structured_edit_turn('Requirement contract: Save item', 90, 'A implement')
+        self.assertIn('do not read, search or run them', captured[0])
+        self.assertNotIn('read only the named active spec', captured[0])
+
     def test_tool_configuration_restored_on_failure(self):
         self.source('a' * 13000)
         self.flow.llm_proxy = SimpleNamespace(extra_drop_tools={'original'})

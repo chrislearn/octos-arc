@@ -1069,23 +1069,24 @@ class WholeAppTests(unittest.TestCase):
         self.assertIn(("implementation_done", "C"), marks)
         self.assertIn(("implementation_started", "B"), marks)
         self.assertNotIn(("implementation_done", "B"), marks)
-        self.assertEqual(order[0], ("spec", ["A"]))
-        self.assertEqual(order[1][0], "code")
+        self.assertEqual(order[0][0], "code")
+        self.assertFalse(any(kind == "spec" for kind, _ in order))
 
-    def test_sequential_flow_prepares_each_spec_before_its_node_code(self):
+    def test_sequential_derived_code_does_not_prepare_specs_before_nodes(self):
         flow = self.flow
+        flow.derived_as_specs = True
         order = []
         flow.prepare_derived_spec_batch = Mock(side_effect=lambda nodes: order.append(
             ("spec", [node["id"] for node in nodes])))
+        flow.prepare_derived_build_batch = Mock(side_effect=lambda nodes: order.append(
+            ("spec_window", [node["id"] for node in nodes])))
         flow.node_cycle = Mock(side_effect=lambda node, *args, **kwargs: order.append(("code", [node["id"]])))
         flow.regression_checkpoint = Mock()
         flow.driver = Mock()
         flow.final_phase_due = Mock(return_value=False)
         flow.time_up = Mock(return_value=False)
         flow.implement_sequential(self.tree, self.nodes, set())
-        self.assertEqual(order, [("spec", ["A"]), ("code", ["A"]),
-                                 ("spec", ["B"]), ("code", ["B"]),
-                                 ("spec", ["C"]), ("code", ["C"])])
+        self.assertEqual(order, [("code", ["A"]), ("code", ["B"]), ("code", ["C"])])
 
     def test_unfittable_split_defers_leaf_and_preserves_later_generation(self):
         flow = self.flow
@@ -1787,7 +1788,7 @@ class CompletenessPassTests(WholeAppTests):
         flow.suite_is_measured = Mock(return_value=True)
         flow.derived_completeness_pass(nodes)
         flow.turn.assert_not_called()
-        self.assertGreater(flow.run_specs.call_count, 0)
+        flow.run_specs.assert_not_called()  # incomplete review keeps acceptance waiting
         queue = json.loads((self.root / "diagnostics/recovery-queue.json").read_text())
         self.assertEqual({row["node_id"] for row in queue}, {"A", "B", "C"})
         self.assertTrue(all(row["status"] == "unverified" for row in queue))
@@ -1818,10 +1819,10 @@ class DerivedWorkersTests(WholeAppTests):
                 TestOutcome(title="A", ok=True, status="passed", duration_ms=1, file="A.spec.ts")]))[1])
         with patch.object(m, "snapshot_worktree"), patch.object(m, "restore_worktree"), \
                 patch.object(m, "mutated_by_tests", return_value=[]), patch.object(m, "store_changes_by_tests", return_value=[]):
-            flow.run_specs(["A.spec.ts"], workers=2, runner=runner)
+            flow.run_specs(["A.spec.ts"], workers=2, runner=runner, audit_candidate=True)
             self.assertEqual(captured["workers"], 1)
             with patch.dict(os.environ, {"OCTOS_ARC_DERIVED_WORKERS": "2"}):
-                flow.run_specs(["A.spec.ts"], workers=2, runner=runner)
+                flow.run_specs(["A.spec.ts"], workers=2, runner=runner, audit_candidate=True)
             self.assertEqual(captured["workers"], 2)
             flow.derived_as_specs = False
             flow.run_specs(["A.spec.ts"], workers=2, runner=runner)
@@ -1856,7 +1857,8 @@ class DerivedIsolationTests(WholeAppTests):
         runner = SimpleNamespace(run=run)
         with patch.object(m, "snapshot_worktree"), patch.object(m, "restore_worktree") as restore, \
                 patch.object(m, "mutated_by_tests", return_value=[]), patch.object(m, "store_changes_by_tests", return_value=[]):
-            summary = flow.run_specs(["A.spec.ts", "B.spec.ts", "C.spec.ts"], runner=runner)
+            summary = flow.run_specs(["A.spec.ts", "B.spec.ts", "C.spec.ts"], runner=runner,
+                                     audit_candidate=True)
         self.assertEqual(calls, [["A.spec.ts"], ["B.spec.ts"], ["C.spec.ts"]])
         self.assertEqual((summary.passed, summary.total), (3, 3))
         self.assertEqual(summary.stores_written, ["B.spec.ts"])
@@ -1873,5 +1875,5 @@ class DerivedIsolationTests(WholeAppTests):
         with patch.object(m, "snapshot_worktree"), patch.object(m, "restore_worktree"), \
                 patch.object(m, "mutated_by_tests", return_value=[]), patch.object(m, "store_changes_by_tests", return_value=[]), \
                 patch.dict(os.environ, {"OCTOS_ARC_DERIVED_ISOLATE": "0"}):
-            flow.run_specs(["A.spec.ts", "B.spec.ts"], runner=runner)
+            flow.run_specs(["A.spec.ts", "B.spec.ts"], runner=runner, audit_candidate=True)
         self.assertEqual(calls, [["A.spec.ts", "B.spec.ts"]])

@@ -123,7 +123,7 @@ class RequirementContractRoutingTests(unittest.TestCase):
             flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": [], None: []}
             self.assertIn("derived from requirements.yaml", flow.spec_bodies("REQ-1"))
             self.assertIn("derived from requirements.yaml", flow.tests_prompt_for("REQ-1"))
-            self.assertIn("derived Playwright specs", flow.tests_prompt_for(None, skeleton=True))
+            self.assertIn("DERIVED REQUIREMENT VERIFICATION CONTRACT", flow.tests_prompt_for(None, skeleton=True))
             self.assertEqual(flow.spec_bodies("REQ-2"), "(none)")
             self.assertFalse(flow.tiny_mode(200))
 

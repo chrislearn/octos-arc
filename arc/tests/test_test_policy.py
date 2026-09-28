@@ -167,10 +167,10 @@ class OracleWorkflowTests(unittest.TestCase):
         self.assertEqual(self.flow.text_turn.call_args_list[0].args[0],self.flow.text_turn.call_args_list[1].args[0])
         self.assertEqual(self.path.read_text(),self.source)
         active = self.flow.uncontested_derived_results(observed)
-        self.assertEqual((active.passed,active.total),(0,1))
+        self.assertEqual((active.passed,active.total),(0,0))  # whole leaf is not audited
         self.flow.audit_related_derived_specs = Mock(return_value=observed)
         self.flow.repair_rounds = 0
-        self.assertFalse(self.flow.acceptance_loop('REQ-1',[self.path.name],time.time()+120, initial_summary=observed))
+        self.assertIsNone(self.flow.acceptance_loop('REQ-1',[self.path.name],time.time()+120, initial_summary=observed))
         report = json.loads((self.root/'.arc/derived-coverage.json').read_text())
         self.assertEqual(report['execution']['quarantined'],1)
         self.assertEqual(report['execution']['active_total'],1)
@@ -223,7 +223,7 @@ class IncrementalGateTests(unittest.TestCase):
             summary=RunSummary(total=2,results=[TestOutcome('wrong',False,'quarantined',0,file='A.spec.ts'),
                                                 TestOutcome('valid',False,'failed',1,file='A.spec.ts')])
             flow.record_full_suite(summary,{},scope=['A.spec.ts'])
-            self.assertEqual(flow.test_verdict,{'A':False,'B':True})
+            self.assertEqual(flow.test_verdict,{'A':None,'B':True})
 
     def test_known_generated_load_error_never_drives_app_repair(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -238,7 +238,7 @@ class IncrementalGateTests(unittest.TestCase):
             self.assertEqual((directory/'A.spec.ts').read_text(),'BROKEN syntax')
             self.assertTrue(flow.generated_load_errors(['A.spec.ts']))
             self.assertFalse(flow.generated_load_errors(['B.spec.ts']))
-            observed=flow.run_specs(['A.spec.ts'])
+            observed=flow.run_specs(['A.spec.ts'], audit_candidate=True)
             self.assertTrue(observed.error.startswith('generated test load blocked:'))
             flow.audit_related_derived_specs=Mock(return_value=observed)
             flow.repair_source_index=Mock(return_value=SimpleNamespace(versions={}))
