@@ -27,6 +27,17 @@ const allowed = new Set([...Object.getOwnPropertyNames(globalThis),
 const diagnostics = [];
 let skippedTypeScript = 0;
 const sourceRoot = path.join(frontend, 'src');
+function definitelyReadOnStatementPath(identifier, statement) {
+  for (let current = identifier; current && current !== statement; current = current.parentPath) {
+    const parent = current.parentPath;
+    if (!parent) return false;
+    if (parent.isLogicalExpression() && current.key === 'right') return false;
+    if (parent.isConditionalExpression() && current.key !== 'test') return false;
+    if ((parent.isOptionalMemberExpression() || parent.isOptionalCallExpression())
+        && current.key !== 'object' && current.key !== 'callee') return false;
+  }
+  return true;
+}
 function scan(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const file = path.join(directory, entry.name);
@@ -45,12 +56,32 @@ function scan(directory) {
     const seen = new Set();
     traverse(ast, { ReferencedIdentifier(identifier) {
       const name = identifier.node.name;
-      if (allowed.has(name) || identifier.scope.hasBinding(name)) return;
+      const binding = identifier.scope.getBinding(name);
+      if (binding && (binding.kind === 'let' || binding.kind === 'const')) {
+        const useStatement = identifier.getStatementParent();
+        const declarationStatement = binding.path.getStatementParent();
+        // A direct read in the same block executes before a later lexical
+        // declaration. Do not infer execution order across callbacks or blocks.
+        if (useStatement && declarationStatement
+            && useStatement.parentPath === declarationStatement.parentPath
+            && identifier.getFunctionParent() === binding.path.getFunctionParent()
+            && useStatement.node.start < declarationStatement.node.start
+            && definitelyReadOnStatementPath(identifier, useStatement)) {
+          const line = identifier.node.loc?.start.line || 0;
+          const key = `tdz:${name}:${line}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            diagnostics.push({ file: path.relative(frontend, file), line, name,
+              kind: 'temporal_dead_zone', declaration_line: binding.identifier.loc?.start.line || 0 });
+          }
+        }
+      }
+      if (allowed.has(name) || binding) return;
       const line = identifier.node.loc?.start.line || 0;
-      const key = `${name}:${line}`;
+      const key = `missing:${name}:${line}`;
       if (seen.has(key)) return;
       seen.add(key);
-      diagnostics.push({ file: path.relative(frontend, file), line, name });
+      diagnostics.push({ file: path.relative(frontend, file), line, name, kind: 'undefined_binding' });
     }});
   }
 }
@@ -58,9 +89,11 @@ try {
   if (fs.existsSync(sourceRoot)) scan(sourceRoot);
   const names = new Map();
   for (const row of diagnostics) {
-    const current = names.get(row.name);
+    const key = `${row.kind}:${row.name}`;
+    const current = names.get(key);
     if (current) current.count++;
-    else names.set(row.name, { name: row.name, count: 1, file: row.file, line: row.line });
+    else names.set(key, { name: row.name, kind: row.kind, count: 1, file: row.file,
+      line: row.line, declaration_line: row.declaration_line });
   }
   process.stdout.write(JSON.stringify({ status: diagnostics.length ? 'failed' : skippedTypeScript ? 'unknown' : 'passed',
                                      diagnostics: diagnostics.slice(0, 40),

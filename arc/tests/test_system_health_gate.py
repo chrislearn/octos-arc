@@ -1,5 +1,7 @@
 """A broken detail page must be caught before derived business tests are reviewed."""
 import argparse
+import json
+import os
 import subprocess
 import tempfile
 import threading
@@ -11,10 +13,61 @@ from unittest.mock import Mock, patch
 
 from acceptance import AcceptanceRunner
 from main import Flow
-from runtime_diagnostics import browser_health, diagnose
+from runtime_diagnostics import (binding_failure_observation, browser_failure_summary,
+                                 browser_health, diagnose, frontend_binding_health)
 
 
 class HealthGateTests(unittest.TestCase):
+    def test_repair_summary_leads_with_specific_error_not_repeated_fallback(self):
+        report = {'status': 'failed', 'artifact_dir': '/tmp/health', 'observations': [
+            {'kind': 'runtime_fallback', 'path': '/a', 'message': 'Application error fallback rendered at /a'},
+            {'kind': 'runtime_fallback', 'path': '/b', 'message': 'Application error fallback rendered at /b'},
+            {'kind': 'pageerror', 'path': '/b', 'message': 'ReferenceError: activeSheet is not initialized\nstack'},
+            {'kind': 'temporal_dead_zone', 'message': 'activeSheet read at EditorPage.jsx:2, declared at line 3'},
+        ]}
+        summary = browser_failure_summary(report)
+        self.assertLess(summary.index('temporal_dead_zone'), summary.index('pageerror'))
+        self.assertLess(summary.index('pageerror'), summary.index('runtime_fallback'))
+        self.assertIn('/tmp/health/health.json', summary)
+
+    def test_lexical_check_finds_direct_read_before_const_not_deferred_callback(self):
+        # Babel is installed by the generated frontend. A missing optional
+        # local dependency must leave the health check unknown, not a failure.
+        modules = Path(os.environ.get('OCTOS_ARC_TEST_BABEL_MODULES') or
+                       Path(__file__).parents[1] / 'local-grader/node_modules')
+        if not (modules / '@babel/parser').exists():
+            self.skipTest('Babel is not installed locally')
+        with tempfile.TemporaryDirectory() as tmp:
+            frontend = Path(tmp)
+            (frontend / 'src').mkdir()
+            (frontend / 'package.json').write_text('{}')
+            (frontend / 'node_modules').symlink_to(modules.resolve(), target_is_directory=True)
+            (frontend / 'src/EditorPage.jsx').write_text(
+                "import { useMemo } from 'react';\n"
+                "function EditorPage() {\n"
+                "  const hiddenRows = useMemo(() => activeSheet, [activeSheet]);\n"
+                "  const activeSheet = {id: 1};\n"
+                "  return hiddenRows;\n"
+                "}\n"
+                "function Deferred() {\n"
+                "  const getValue = () => later;\n"
+                "  const later = 1;\n"
+                "  return getValue();\n"
+                "}\n"
+                "function Conditional() {\n"
+                "  const maybe = false && future;\n"
+                "  const future = 1;\n"
+                "  return maybe;\n"
+                "}\n")
+            report = frontend_binding_health(frontend)
+        self.assertEqual(report['status'], 'failed', report)
+        self.assertEqual(report['diagnostics'], [{
+            'file': 'src/EditorPage.jsx', 'line': 3, 'name': 'activeSheet',
+            'kind': 'temporal_dead_zone', 'declaration_line': 4}], report)
+        observation = binding_failure_observation(report)
+        self.assertEqual(observation['kind'], 'temporal_dead_zone')
+        self.assertIn('declared at line 4', observation['message'])
+
     def test_module_load_failure_shows_startup_fallback_and_fails_health(self):
         playwright_root = Path(__file__).parents[1] / 'local-grader'
         if not (playwright_root / 'node_modules' / '@playwright' / 'test').exists():

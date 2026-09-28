@@ -1058,7 +1058,11 @@ class AppServer:
             return 124, f"timeout after {timeout}s"
         except OSError as exc:
             return 127, str(exc)
-        return r.returncode, clip_ends((r.stdout or "") + "\n" + (r.stderr or ""), 1500)
+        output = (r.stdout or "") + "\n" + (r.stderr or "")
+        # A bundler can emit many progress lines before the first useful error;
+        # clipping first would permanently remove the cause from repair context.
+        return r.returncode, (startup_error_digest(output, 1500) if r.returncode
+                              else clip_ends(output, 1500))
 
     def build(self) -> str | None:
         frontend, backend = self.project / "frontend", self.project / "backend"

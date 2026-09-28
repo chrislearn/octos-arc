@@ -134,7 +134,8 @@ from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
 from runtime_diagnostics import (application_failures, binding_failure_observation,
-                                 browser_health, frontend_binding_health, diagnose)
+                                 browser_failure_summary, browser_health,
+                                 frontend_binding_health, diagnose)
 from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, dynamic_health_patterns, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
 from obligation_planning import applicable_obligations, prepare_obligations, reviewed_obligations_intact
 from domain_contracts import DOMAIN_GUIDANCE, contract_manifest, official_status, requirement_index, source_contract_advisories
@@ -2233,12 +2234,13 @@ Final end-to-end check of the web application in the current directory:
 """ + PORT_RULES
 
 REHEARSAL_REPAIR_PROMPT = """\
-The app failed the pre-grading startup rehearsal. The runner executes exactly:
+The app failed the pre-grading startup rehearsal. The runner checks:
 1. cd frontend && npm install && npm run build   (must exit 0)
 2. cd backend && npm install && npm start        (must bind PORT and stay up)
+3. a fresh browser must render the discovered pages without a runtime error.
 Rehearsal error:
 {error}
-Fix the project so this sequence works (typical causes: a require() path that does not match a real file, a file referenced but never written, a startup syntax error, a dependency missing from package.json). Verify: build the frontend, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, confirm it binds, stop it. Never bind {port}. Write the fix now.\
+Fix the specific build, server, or browser error shown above. A lexical read before a later const/let declaration is a runtime error even when the name is in scope. Read only the named source and a directly needed dependency, then edit the cause. Use only tools actually offered in this turn; if shell tools are unavailable, do not repeatedly request them. The runner will rebuild, start, and recheck in a fresh browser after your edit. If the evidence does not identify a safe fix, report the precise blocker instead of guessing. Never bind {port}; the runner owns smoke port {smoke}.\
 """
 
 DERIVED_SPECS_NOTE = (
@@ -5362,10 +5364,7 @@ class Flow:
         if report.get("status") == "passed":
             return None
         # Unavailable measurement is not a product exception or a repair target.
-        return ("Browser health " + report.get("status", "unknown") + ": "
-                + "; ".join(str(row.get("message")) for row in report.get("observations", []))
-                + str(report.get("reason", ""))
-                + f"; full evidence: {report.get('artifact_dir', 'unavailable')}/health.json")
+        return browser_failure_summary(report)
 
     def rehearsal_server_error(self, server) -> str | None:
         """A backend that exits during browser probing is an app failure even
@@ -11408,7 +11407,8 @@ class Flow:
                 self._last_rehearsal_system_failure = False
                 log("[rehearsal] app builds, starts and renders in the browser")
                 return True
-            log(f"[rehearsal] FAILED: {err.splitlines()[0][:200]}")
+            failure_line = startup_error_digest(err, 320).replace('\n', ' | ')
+            log(f"[rehearsal] FAILED: {failure_line}")
             if err.startswith(("Browser health unknown", "Rehearsal measurement unknown")):
                 self._last_rehearsal_measurement_unavailable = True
                 self.metric("rehearsal", outcome="measurement_unavailable", reason=err)

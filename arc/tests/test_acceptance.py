@@ -1011,6 +1011,24 @@ class BuildFailureEvidenceTests(unittest.TestCase):
             prompt = main.REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(error, 1200), port=3000, smoke=3100)
             self.assertIn("Cannot find module", prompt)
 
+    def test_failed_build_keeps_an_error_buried_between_long_logs(self):
+        from acceptance import AppServer
+        with tempfile.TemporaryDirectory(prefix='buried-build-error-') as folder:
+            root = Path(folder)
+            (root / 'frontend').mkdir(); (root / 'backend').mkdir()
+            (root / 'frontend/package.json').write_text(
+                '{"name":"f","private":true,"scripts":{"build":"node build.js"}}')
+            (root / 'frontend/build.js').write_text(
+                "process.stdout.write('progress\\n'.repeat(500));\n"
+                "console.error(\"src/EditorPage.jsx:10: ERROR: Cannot access 'activeSheet'\");\n"
+                "process.stdout.write('npm trailing output\\n'.repeat(500));\n"
+                "process.exit(1);\n")
+            (root / 'backend/package.json').write_text(
+                '{"name":"b","private":true,"scripts":{"start":"node server.js"}}')
+            (root / 'backend/server.js').write_text('')
+            error = AppServer(root, 3999, lambda _message: None).build()
+            self.assertIn('Cannot access', error)
+
 
 class BoundPortEvidenceTests(unittest.TestCase):
     """A backend that ignores PORT and binds its own is a common way to miss the
