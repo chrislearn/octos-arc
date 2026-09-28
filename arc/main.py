@@ -71,7 +71,12 @@ Environment (all optional):
     OCTOS_ARC_NO_SPEC_EDIT_REQUESTS  structured-edit request budget without official specs (default 12)
     OCTOS_ARC_NO_SPEC_REVIEW_SECONDS  maximum focused repair time after a scenario/seed audit (default 180)
     OCTOS_ARC_DERIVED_SPEC_AUDIT  "0" disables requirement-grounded corrections of failing self-generated specs
-    OCTOS_ARC_DERIVED_PREFLIGHT_SECONDS / OCTOS_ARC_DERIVED_PREFLIGHT_TOKENS  whole preflight caps (default min(1800, 30% of run) / min(1.5M, 25% of total tokens))
+    OCTOS_ARC_DERIVED_PREFLIGHT_SECONDS / OCTOS_ARC_DERIVED_PREFLIGHT_TOKENS  startup test-planning caps
+    OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES  categories before first code (default 1; 0 = all)
+    OCTOS_ARC_DERIVED_FIRST_CODE_SECONDS / OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS  startup / just-in-time test windows (2700 / 300)
+    OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS  cumulative just-in-time test window before implementation (1800)
+    OCTOS_ARC_DERIVED_COMPLETENESS_SECONDS  late weak-spec recovery window (7200)
+    OCTOS_ARC_DESIGN_RECOVERY_SECONDS / OCTOS_ARC_DESIGN_CATEGORY_SECONDS  shared design recovery caps (1200 / 240)
     OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on pre-implementation AI spec-plan batches (default 8..30, task-sized)
     OCTOS_ARC_DERIVED_LLM_WALL_SECONDS  total AI spec-planning wall cap (default 1200)
     OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS / OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS  independent case-review caps (24 / 1200)
@@ -514,6 +519,37 @@ def app_design_errors(design, requirements=None) -> list[dict]:
 
 def valid_app_design(design, requirements=None) -> dict | None:
     return design if not app_design_errors(design, requirements) else None
+
+
+def salvage_app_design(accepted: dict, proposal: dict | None, requirements=None) -> dict:
+    """Add individually valid design entries without changing accepted contracts."""
+    if not isinstance(proposal, dict):
+        return accepted
+    merged = {key: value.copy() if isinstance(value, (dict, list)) else value
+              for key, value in accepted.items()}
+    def usable(value):
+        return not [error for error in app_design_errors(value, requirements)
+                    if error['path'] != '/' or error['expected'] != 'at least one nonempty data_model, routes or pages']
+    proposed_model = proposal.get('data_model')
+    for key, value in (proposed_model.items() if isinstance(proposed_model, dict) else ()):
+        if key in merged.setdefault('data_model', {}):
+            continue
+        candidate = {**merged, 'data_model': {**merged['data_model'], key: value}}
+        if usable(candidate):
+            merged = candidate
+    for kind in ('routes', 'pages', 'modules', 'contracts', 'domain_contracts', 'commands', 'obligations'):
+        items = proposal.get(kind)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if item in merged.setdefault(kind, []):
+                continue
+            candidate = {**merged, kind: [*merged[kind], item]}
+            if usable(candidate):
+                merged = candidate
+    if isinstance(proposal.get('notes'), str) and proposal['notes']:
+        merged['notes'] = (str(merged.get('notes') or '') + '\n' + proposal['notes']).strip()
+    return merged
 
 
 def app_design_coverage(design: dict | None) -> set[str]:
@@ -3605,22 +3641,34 @@ class Flow:
         deadline = time.monotonic() + self.design_timeout
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
-        design = valid_app_design(parse_app_design_reply(text, validate=False), self._design_requirements) if ok else None
+        parsed_initial = parse_app_design_reply(text, validate=False) if ok else None
+        design = valid_app_design(parsed_initial, self._design_requirements) if parsed_initial else None
+        initial_invalid_contract = parsed_initial is not None and design is None
         if design is None:
-            self.save_rejected_reply("application design", "invalid_json" if ok else "failed", text or "")
+            self.save_rejected_reply("application design", "invalid_contract" if parsed_initial else "invalid_json" if ok else "failed", text or "")
+            if parsed_initial:
+                partial = salvage_app_design({"data_model": {}, "routes": [], "pages": [], "modules": [],
+                                              "contracts": [], "domain_contracts": [], "commands": [], "notes": ""},
+                                             parsed_initial, self._design_requirements)
+                design = valid_app_design(partial, self._design_requirements)
+                if design:
+                    self.metric('design_partial_salvage', stage='initial',
+                                covered=sorted(app_design_coverage(design)),
+                                schema_errors=app_design_errors(parsed_initial, self._design_requirements)[:20])
         wanted = {str(node.get("id")) for node in ordered if node.get("id")}
         coverage_floor = max(3, int(os.environ.get("OCTOS_ARC_DESIGN_COVERAGE_MIN_NODES", "8")))
         missing = wanted - app_design_coverage(design)
         # v9.2.2 (cce3f5ad4f21): the compact retry timed out at 120s; the model
         # needs ~90s for the first reply, the retry deserves as much.
         retry_seconds = min(600, int(deadline - time.monotonic()), int(self.remaining()))
-        if ((ok and not design) or (not ok and 'output_truncated' in text)
+        if ((ok and not design) or initial_invalid_contract or (not ok and 'output_truncated' in text)
                 or (design and len(wanted) >= coverage_floor and missing)) \
                 and retry_seconds >= 30 and not self.wound_down():
-            invalid = parse_app_design_reply(text, validate=False) if ok and design is None else None
+            invalid = parsed_initial if parsed_initial is not design else None
             schema_errors = app_design_errors(invalid, self._design_requirements) if invalid is not None else []
-            reason = ("incomplete requirement ownership" if design and missing
-                      else "schema errors" if schema_errors else "incomplete or invalid JSON")
+            reason = ("schema errors" if schema_errors
+                      else "incomplete requirement ownership" if design and missing
+                      else "incomplete or invalid JSON")
             log(f"[flow] application design: {reason}; one bounded contract retry")
             # Repeating the full 60k-character outline encourages another
             # oversized reply. A compact shared contract is more useful than
@@ -3657,8 +3705,15 @@ class Flow:
             retried = valid_app_design(parse_app_design_reply(text, validate=False), self._design_requirements) if ok else None
             if retried is None:
                 self.save_rejected_reply("application design (format retry)", "invalid_json" if ok else "failed", text or "")
+                parsed_retry = parse_app_design_reply(text, validate=False) if ok else None
+                if parsed_retry:
+                    base = design or {"data_model": {}, "routes": [], "pages": [], "modules": [],
+                                      "contracts": [], "domain_contracts": [], "commands": [], "notes": ""}
+                    partial = salvage_app_design(base, parsed_retry, self._design_requirements)
+                    design = valid_app_design(partial, self._design_requirements) or design
             if retried is not None and (design is None or
-                    len(app_design_coverage(retried) & wanted) >= len(app_design_coverage(design) & wanted)):
+                    (preserves_design(design, retried) and
+                     len(app_design_coverage(retried) & wanted) >= len(app_design_coverage(design) & wanted))):
                 design = retried
         if not design:
             # Recover small category designs; retain the already accepted shared
@@ -3702,7 +3757,10 @@ class Flow:
                                  "contracts": [], "domain_contracts": [], "commands": [], "notes": ""}
         phases = first_level_phases(tree)
         by_id = {str(n.get("id")): n for n in ordered}
-        recovery_deadline = time.monotonic() + min(self.design_timeout, self.remaining())
+        recovery_cap = max(0, int(os.environ.get('OCTOS_ARC_DESIGN_RECOVERY_SECONDS', '1200')))
+        category_cap = max(0, int(os.environ.get('OCTOS_ARC_DESIGN_CATEGORY_SECONDS', '240')))
+        recovery_deadline = time.monotonic() + min(recovery_cap, self.design_timeout, self.remaining())
+        requirement_sources = requirement_index(tree)
         for phase in phases.get("phases", []):
             if accepted and set(phase['leaves']) <= app_design_coverage(aggregate):
                 continue
@@ -3717,16 +3775,43 @@ class Flow:
             if len(prompt) > self.codegen_context_chars():
                 self.metric("design_recovery", phase=phase["id"], outcome="insufficient_context")
                 continue
-            ok, reply = self.text_turn(prompt, int(min(600, left)), "application design category " + phase["id"],
-                                      system=APP_DESIGN_SYSTEM, spec_chars=len(prompt))
-            candidate = valid_app_design(parse_app_design_reply(reply, validate=False), requirement_index(tree)) if ok else None
-            if candidate and app_design_coverage(candidate) >= app_design_coverage(aggregate) and preserves_design(aggregate, candidate):
-                aggregate = candidate
-                self.metric("design_recovery", phase=phase["id"], outcome="schema_valid",
-                            covered=sorted(app_design_coverage(candidate)))
-            else:
-                self.save_rejected_reply("design category " + phase["id"], "invalid_contract", reply or "")
-        return aggregate if valid_app_design(aggregate, requirement_index(tree)) else None
+            category_deadline = min(recovery_deadline, time.monotonic() + category_cap)
+            for attempt in range(2):
+                left = min(category_deadline - time.monotonic(), self.remaining() - self.final_phase_reserve())
+                if left < 30 or self.wound_down():
+                    break
+                ok, reply = self.text_turn(prompt, int(min(240 if attempt == 0 else 120, left)),
+                    "application design category " + phase["id"] + (" correction" if attempt else ""),
+                    system=APP_DESIGN_SYSTEM, spec_chars=len(prompt))
+                parsed = parse_app_design_reply(reply, validate=False) if ok else None
+                errors = app_design_errors(parsed, requirement_sources)
+                candidate = valid_app_design(parsed, requirement_sources) if parsed else None
+                if candidate and preserves_design(aggregate, candidate):
+                    aggregate = candidate
+                    self.metric("design_recovery", phase=phase["id"], outcome="schema_valid",
+                                covered=sorted(app_design_coverage(candidate)))
+                    break
+                if candidate and not preserves_design(aggregate, candidate):
+                    errors.append({"path": "/", "expected": "preserve all accepted contracts",
+                                   "actual": "candidate removed or changed accepted fields"})
+                before = len(app_design_coverage(aggregate))
+                aggregate = salvage_app_design(aggregate, parsed, requirement_sources)
+                self.metric("design_recovery", phase=phase["id"], outcome="partial" if parsed else "invalid_json" if ok else "unavailable",
+                            attempt=attempt + 1, schema_errors=errors[:20],
+                            covered_before=before, covered_after=len(app_design_coverage(aggregate)))
+                self.save_rejected_reply("design category " + phase["id"], "invalid_contract" if ok else "failed", reply or "")
+                if attempt == 0 and parsed:
+                    correction = ('\nRepair the invalid design fields listed below. Preserve every accepted '
+                                  'contract. Return the complete JSON design, including the accepted object. '
+                                  'If a requirement is unresolved, record it in notes and continue.\n'
+                                  'SCHEMA ERRORS:\n' + json.dumps(errors[:20], ensure_ascii=False)
+                                  + '\nACCEPTED DESIGN:\n' + json.dumps(aggregate, ensure_ascii=False))
+                    if len(prompt) + len(correction) > self.codegen_context_chars():
+                        break
+                    prompt += correction
+                elif not parsed:
+                    break
+        return aggregate if valid_app_design(aggregate, requirement_sources) else None
 
     def review_domain_design(self, tree: dict, design: dict) -> dict:
         """One independent, read-only review before tests or source can bias the model."""
@@ -6297,7 +6382,7 @@ class Flow:
         if setting == "auto":
             log(f"[flow] no official specs: generating {len(ids)} leaves in bounded waves")
             return self.whole_app_waves(tree, ordered)
-        self.prepare_derived_spec_batch(ordered)
+        self.prepare_derived_build_batch(ordered)
         spec = self.batch_spec_bodies(ids)
         # A large input can fit while the corresponding application cannot fit
         # in one output. Keep the one-shot experiment for smaller trees; the
@@ -7160,30 +7245,61 @@ class Flow:
         if not getattr(self, "derived_as_specs", False):
             return
         weak = self.weak_derived_leaves(ordered)
-        deadline = time.monotonic() + min(3600, max(0, self.remaining() - self.final_measurement_reserve()))
+        completeness_cap = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_COMPLETENESS_SECONDS', '7200')))
+        deadline = time.monotonic() + min(completeness_cap, max(0, self.remaining() - self.final_measurement_reserve()))
         self.derived_preflight_deadline = deadline
         queue = []
+        owners = (getattr(self, 'phase_plan', None) or {}).get('leaf_phase', {})
+        groups: list[list[dict]] = []
         for node in ordered:
             node_id = str(node.get("id"))
             if node_id not in weak:
                 continue
-            row = {"node_id": node_id, "status": "pending", "reason": "weak_behavior_coverage"}
-            queue.append(row)
-            if (time.monotonic() + 120 >= deadline or self.wound_down()
+            if (not groups or len(groups[-1]) >= 6
+                    or owners.get(str(groups[-1][0].get('id')), str(groups[-1][0].get('id'))) != owners.get(node_id, node_id)):
+                groups.append([])
+            groups[-1].append(node)
+            queue.append({"node_id": node_id, "status": "pending", "reason": "weak_behavior_coverage"})
+        rows = {row['node_id']: row for row in queue}
+        for index, group in enumerate(groups):
+            slice_seconds = max(0, (deadline - time.monotonic()) / (len(groups) - index))
+            group_deadline = min(deadline, time.monotonic() + slice_seconds)
+            self.derived_preflight_deadline = group_deadline
+            if (time.monotonic() + 120 >= group_deadline or self.wound_down()
                     or os.environ.get("OCTOS_ARC_DRYRUN") == "1"):
-                row["status"] = "budget_blocked"
+                for node in group:
+                    rows[str(node.get('id'))]['status'] = 'budget_blocked'
                 continue
-            self.augment_derived_tests([node])
-            self.review_derived_cases({node_id}, reserve_requests=1)
-            corrected = self.correct_derived_cases({node_id})
-            if corrected:
-                self.review_derived_cases(corrected)
-            self.adopt_derived_specs([str(n["id"]) for n in ordered])
-            specs = self.spec_map.get(node_id, [])
-            if specs and self.runner is not None:
-                verdict = self.acceptance_loop(node_id, specs, time.time() + max(1, deadline - time.monotonic()))
-                row["execution"] = "passed" if verdict is True else "failed" if verdict is False else "unknown"
-            row["status"] = "unverified" if self.derived_review_needed(node_id) else "behavior_reviewed"
+            try:
+                # Leaves skipped by the short pre-code windows still need the
+                # same source-grounded obligation and case audit pipeline.
+                self.prepare_derived_spec_batch(group)
+            except Exception as exc:
+                for node in group:
+                    row = rows[str(node.get('id'))]
+                    row['status'] = 'planning_unavailable'
+                    row['reason'] = str(exc)[:300]
+                self.metric('completeness_pass', nodes=[str(node.get('id')) for node in group],
+                            outcome='planning_unavailable', reason=str(exc)[:300])
+                continue
+            for node in group:
+                node_id = str(node.get('id'))
+                row = rows[node_id]
+                if (getattr(self, 'derived_augmentation_attempts', {}).get(node_id, 0) >= 6
+                        and getattr(self, 'derived_obligation_status', {}).get(node_id, {}).get('status') != 'reviewed'
+                        and time.monotonic() + 30 < group_deadline):
+                    try:
+                        prepare_obligations(self, [node])
+                    except Exception as exc:
+                        self.metric('completeness_pass', node_id=node_id,
+                                    outcome='obligation_unavailable', reason=str(exc)[:300])
+                specs = self.spec_map.get(node_id, [])
+                if specs and self.runner is not None and time.monotonic() + 30 < group_deadline:
+                    verdict = self.acceptance_loop(node_id, specs,
+                                                   time.time() + max(1, group_deadline - time.monotonic()))
+                    row["execution"] = "passed" if verdict is True else "failed" if verdict is False else "unknown"
+                row["status"] = "unverified" if self.derived_review_needed(node_id) else "behavior_reviewed"
+        self.derived_preflight_deadline = deadline
         for node_id in self.weak_derived_leaves(ordered):
             self.self_audit_node(node_id, "generated test coverage remains weak or unreviewed after recovery")
         destination = self.output_dir / "diagnostics"
@@ -7552,8 +7668,13 @@ class Flow:
                       "suffix, toast or substring alone is not a format oracle. Do not approve a reach/entry-only check "
                       "as behavioral. For every state-changing case, identify the commit action and verify the "
                       "created, deleted, or updated state after it; a dialog, button, seeded value, field echo or toast "
-                      "does not prove the transition. If persistence is promised, require a reload and a repeated "
-                      "state assertion. For rejected actions, require both rejection and unchanged state. "
+                      "does not prove the transition. If persistence is promised, require a reload or reopen as "
+                      "specified by the requirement, and a repeated "
+                      "state assertion. For rejected actions, require an assertion of the exact object or property "
+                      "before the action, the documented error or response status, and the same object or property "
+                      "unchanged afterward; a matching string elsewhere on the page is insufficient. If the "
+                      "rejection promises persistence, reload or reopen and assert that unchanged state again. For API "
+                      "errors, check the exact official status when given, otherwise the appropriate error category. "
                       "A skip must be justified by an impossible fixture, not a difficult assertion. "
                       "Return ONLY a JSON array, one item per id: {id,status,branch,obligation_ids,obligation_evidence,requirement_quote,test_quote,reason}. Include only supplied obligation IDs actually proved by the assertions. For EACH mapped obligation, supply obligation_evidence [{obligation_id,requirement_quote,test_quote}]; its quote must come from that obligation and its assertion must prove the entire stated outcome. If the case proves only part, do not map the whole obligation. "
                       "status is approved_behavior, approved_smoke_only, needs_correction, disputed, or "
@@ -7768,6 +7889,9 @@ class Flow:
         ordered_phases += [phase for phase in groups if phase not in ordered_phases]
         requested = max(0, int(os.environ.get(
             "OCTOS_ARC_DERIVED_PREFLIGHT_SECONDS", str(min(max(10800, len(ordered) * 240), 14400, int(self.budget * .35))))))
+        category_limit = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES', '1')))
+        if category_limit:
+            requested = min(requested, max(0, int(os.environ.get('OCTOS_ARC_DERIVED_FIRST_CODE_SECONDS', '2700'))))
         code_reserve = max(600, int(self.budget * .4))
         allowance = min(requested, max(0, int(self.remaining() - self.final_phase_reserve() - code_reserve)))
         proxy = getattr(self, "llm_proxy", None)
@@ -7782,6 +7906,8 @@ class Flow:
         retried: list[str] = []
         try:
             active_phases = [phase for phase in ordered_phases if phase in groups]
+            if category_limit:
+                active_phases = active_phases[:category_limit]
             global_deadline = self.derived_preflight_deadline
             for phase_index, phase in enumerate(active_phases):
                 if phase not in groups:
@@ -7834,6 +7960,8 @@ class Flow:
             self.derived_specs_frozen = False
             self.derived_preflight_deadline = float("inf")
             self.derived_preflight_token_cap = None
+            self._derived_preflight_node_ids = {
+                str(node.get('id')) for phase in attempted for node in groups[phase]}
             self.metric("derived_preflight", attempted=attempted, failed=failed,
                         retried=retried,
                         pending=[phase for phase in ordered_phases if phase in groups and phase not in attempted],
@@ -7842,6 +7970,33 @@ class Flow:
             log(f"[derived] preflight attempted {len(attempted)}/{len(groups)} categories "
                 f"({len(failed)} unavailable); "
                 "remaining cases stay unreviewed, proceeding with source generation")
+
+    def prepare_derived_build_batch(self, nodes: list[dict]) -> None:
+        """Spend a short test window near implementation, then always reach code."""
+        attempted = getattr(self, '_derived_build_spec_attempted_ids', set())
+        pending = [node for node in nodes
+                   if str(node.get('id')) not in getattr(self, '_derived_preflight_node_ids', set())
+                   and str(node.get('id')) not in attempted]
+        if not pending:
+            return
+        cap = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS', '300')))
+        total = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS', '1800')))
+        cap = min(cap, max(0, int(total - getattr(self, 'derived_build_spec_seconds', 0.0))),
+                  max(0, int(self.remaining() - self.final_phase_reserve() - 60)))
+        if cap < 30:
+            return
+        prior_deadline = getattr(self, 'derived_preflight_deadline', float('inf'))
+        self.derived_preflight_deadline = min(prior_deadline, time.monotonic() + cap)
+        self._derived_build_spec_attempted_ids = attempted | {str(node.get('id')) for node in pending}
+        started = time.monotonic()
+        try:
+            self.prepare_derived_spec_batch(pending)
+        except Exception as exc:
+            self.metric('derived_build_spec', outcome='unavailable',
+                        nodes=[str(node.get('id')) for node in pending], reason=str(exc)[:300])
+        finally:
+            self.derived_build_spec_seconds = getattr(self, 'derived_build_spec_seconds', 0.0) + time.monotonic() - started
+            self.derived_preflight_deadline = prior_deadline
 
     def start_derived_designs(self, node_ids: list[str], message: str) -> None:
         if getattr(self, "events", None) is None:
@@ -8192,7 +8347,7 @@ class Flow:
                     if unresolved:
                         self.metric("wave_dependency_unverified", node_id=str(item.get("id")),
                                     dependencies=unresolved)
-                self.prepare_derived_spec_batch(group)
+                self.prepare_derived_build_batch(group)
                 spec = self.batch_spec_bodies(ids)
                 # The derived contract already carries the full scenarios.
                 # Avoid a duplicate copy while keeping official-spec waves
@@ -8576,7 +8731,7 @@ class Flow:
                 group = None
             group_nodes = ([ordered[index - 1 + offset] for offset in range(len(group))]
                            if group and not any(member in unchanged for member in group) else [node])
-            self.prepare_derived_spec_batch(group_nodes)
+            self.prepare_derived_build_batch(group_nodes)
             if node_id in unchanged:
                 self.regression_cycle(node)
             else:
@@ -8865,7 +9020,7 @@ class Flow:
                 continue
             if not self.admit_node(node):
                 continue
-            self.prepare_derived_spec_batch([node])
+            self.prepare_derived_build_batch([node])
             attempted_fallback_ids.add(node_id)
             if node_id in getattr(self, "whole_app_partial_ids", ()) and self.tests_dir:
                 self.node_cycle(node, ordered, index, len(ordered), preimplemented=True)
@@ -10863,7 +11018,7 @@ class Flow:
                     # Repair-only evolution has no new leaves to generate. One
                     # full baseline reveals shared failures and establishes a
                     # comparable delivery checkpoint before spending model tokens.
-                    self.prepare_derived_spec_batch(ordered)
+                    self.prepare_derived_build_batch(ordered)
                     log("[flow] unchanged requirements: measure and repair the existing application as one suite")
                     for node_id in node_ids:
                         self.mark("design_started", node_id)

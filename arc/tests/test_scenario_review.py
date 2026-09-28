@@ -7,7 +7,7 @@ import yaml
 
 from scenario_review import (allowed_literals, ancestor_context, behavior_test_titles, build_prompt, compile_reply,
                              grounded_behavior_test, CSV_FORMAT_ROWS, csv_format_contract, csv_export_contract,
-                             proposal_problems,
+                             proposal_problems, rejection_case_evidence,
                              parse_failure_review, parse_reply,
                              prioritize_review_targets, review_targets, validate_proposal)
 from scenario_tests import suite_fixtures
@@ -932,6 +932,15 @@ class BusinessFlowBranchTests(unittest.TestCase):
         weak_negative = {**negative, "steps": negative["steps"][:-1]}
         self.assertTrue(any("post-commit" in item for item in proposal_problems(
             weak_negative, target, fixtures)))
+        no_initial_object = {**negative, "steps": negative["steps"][1:]}
+        self.assertTrue(proposal_problems(no_initial_object, target, fixtures),
+                        'the old name after rejection must be tied to the object opened before the action')
+        persistent_contract = {**target['negative_contracts'][0], 'persistence': True}
+        self.assertFalse(rejection_case_evidence(negative['steps'], persistent_contract))
+        self.assertTrue(rejection_case_evidence(negative['steps'] + [
+            {'op': 'reload'}, {'op': 'expect_visible', 'target': 'Q3 Sales'}], persistent_contract))
+        self.assertTrue(rejection_case_evidence(negative['steps'] + [
+            {'op': 'open', 'target': 'Q3 Sales'}, {'op': 'expect_visible', 'target': 'Q3 Sales'}], persistent_contract))
         reply = json.dumps({"scenarios": [{"id": target["id"], "title": target["title"],
                                           "cases": [positive, negative]}]})
         scripts, dropped = compile_reply(reply, [target], fixtures)

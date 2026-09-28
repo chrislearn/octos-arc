@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from main import Flow
+from main import Flow, salvage_app_design, app_design_coverage
 from scenario_tests import Fixtures, spec_header
 from scenario_review import compile_reply, proposal_problems, retry_prompt, validate_proposal
 from obligation_planning import source_scope, parse_obligations, prepare_obligations, applicable_obligations
@@ -54,6 +54,13 @@ class PipelineRecovery(unittest.TestCase):
         body = json.loads(self.reply()); body['obligations'] = body['obligations'][1:]
         self.assertTrue(any('inherited' in e for e in parse_obligations(json.dumps(body), sources, ancestry)[1]))
 
+    def test_single_complete_json_fence_is_accepted_without_prose(self):
+        sources, ancestry = source_scope(self.tree, ['A'])
+        rows, errors = parse_obligations('```json\n' + self.reply() + '\n```', sources, ancestry)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(errors, [])
+        self.assertTrue(parse_obligations('```json\n' + self.reply() + '\n```\nApproved.', sources, ancestry)[1])
+
     def test_fake_quote_or_cross_leaf_applicability_is_rejected(self):
         sources, ancestry = source_scope(self.tree, ['A'])
         for key, value in [('quote', 'Made up outcome not in requirement'), ('applies_to', ['B'])]:
@@ -76,6 +83,15 @@ class PipelineRecovery(unittest.TestCase):
         prepare_obligations(self.flow, self.tree['children'])
         self.assertEqual(self.flow.derived_obligations, [])
         self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
+
+    def test_partial_independent_review_keeps_valid_sourced_candidates_as_debt(self):
+        proposal = json.loads(self.reply())
+        proposal['gaps'] = ['unresolved status for malformed request']
+        self.flow.text_turn = Mock(side_effect=[(True, self.reply()), (True, json.dumps(proposal))])
+        prepare_obligations(self.flow, self.tree['children'])
+        self.assertEqual(len(self.flow.derived_obligations), 2)
+        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
+        self.assertIn('semantic gap', self.flow.derived_obligation_status['A']['errors'][0])
 
     def test_zero_budget_marks_missing_plan_without_model_call(self):
         self.flow.text_turn = Mock()
@@ -215,12 +231,65 @@ class PipelineRecovery(unittest.TestCase):
         self.assertIn('Complete missing domain_contracts', self.flow.text_turn.call_args.args[0])
         self.assertFalse(self.flow._design_semantics_reviewed)
 
+    def test_design_salvage_retains_valid_items_and_correction_uses_pointer_errors(self):
+        accepted = {'data_model': {'items': {'id': 'string'}}, 'routes': [], 'pages': [],
+                    'modules': [], 'contracts': [], 'domain_contracts': [], 'commands': [], 'notes': ''}
+        bad = {**accepted, 'routes': [
+            {'method': 'GET', 'path': '/api/items', 'requirements': ['A']},
+            {'method': 'GET', 'path': 'api/broken', 'requirements': ['A']}]}
+        partial = salvage_app_design(accepted, bad)
+        self.assertEqual(len(partial['routes']), 1)
+        self.assertEqual(partial['routes'][0]['path'], '/api/items')
+        self.assertEqual(accepted['routes'], [])
+        corrected = {**partial, 'routes': [partial['routes'][0],
+                    {'method': 'POST', 'path': '/api/items', 'requirements': ['A']}]}
+        self.flow.text_turn = Mock(side_effect=[(True, json.dumps(bad)), (True, json.dumps(corrected))])
+        self.flow.save_rejected_reply = Mock()
+        with patch.dict(os.environ, {'OCTOS_ARC_DESIGN_RECOVERY_SECONDS': '600',
+                                      'OCTOS_ARC_DESIGN_CATEGORY_SECONDS': '300'}):
+            result = self.flow.recover_category_design(self.tree, self.tree['children'], accepted=accepted)
+        self.assertEqual(len(result['routes']), 2)
+        self.assertIn('A', app_design_coverage(result))
+        correction_prompt = self.flow.text_turn.call_args_list[1].args[0]
+        self.assertIn('/routes/1/path', correction_prompt)
+        self.assertIn('ACCEPTED DESIGN', correction_prompt)
+
     def test_recovery_restores_cumulative_obligation_budget(self):
         self.flow.derived_obligation_seconds = 2400
         with recovery_budget(self.flow):
             self.assertEqual(self.flow.derived_obligation_seconds, 0)
             self.flow.derived_obligation_seconds = 100
         self.assertEqual(self.flow.derived_obligation_seconds, 2500)
+
+    def test_late_completeness_reuses_obligation_and_case_review_pipeline(self):
+        node = self.tree['children'][0]
+        self.flow.derived_as_specs = True
+        self.flow.weak_derived_leaves = Mock(return_value=['A'])
+        self.flow.final_measurement_reserve = Mock(return_value=600)
+        self.flow.prepare_derived_spec_batch = Mock()
+        self.flow.derived_review_needed = Mock(return_value=True)
+        self.flow.self_audit_node = Mock()
+        self.flow.spec_map = {}
+        self.flow.runner = None
+        self.flow._derived_completeness_work([node])
+        self.flow.prepare_derived_spec_batch.assert_called_once_with([node])
+        queue = json.loads((self.root/'diagnostics/recovery-queue.json').read_text())
+        self.assertEqual(queue[0]['status'], 'unverified')
+
+    def test_late_completeness_batches_weak_leaves_by_category(self):
+        nodes = [{'id': key} for key in ('A', 'B', 'C')]
+        self.flow.derived_as_specs = True
+        self.flow.phase_plan = {'leaf_phase': {'A': 'one', 'B': 'one', 'C': 'two'}}
+        self.flow.weak_derived_leaves = Mock(return_value=['A', 'B', 'C'])
+        self.flow.final_measurement_reserve = Mock(return_value=600)
+        self.flow.prepare_derived_spec_batch = Mock()
+        self.flow.derived_review_needed = Mock(return_value=True)
+        self.flow.self_audit_node = Mock()
+        self.flow.spec_map = {}
+        self.flow.runner = None
+        self.flow._derived_completeness_work(nodes)
+        self.assertEqual([call.args[0] for call in self.flow.prepare_derived_spec_batch.call_args_list],
+                         [nodes[:2], nodes[2:]])
 
     def test_whole_app_queue_keeps_all_nodes_with_incomplete_design(self):
         nodes = [{'id': key} for key in ('A', 'B', 'C')]

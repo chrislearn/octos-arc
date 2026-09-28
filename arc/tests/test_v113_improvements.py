@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 import argparse
+from unittest.mock import patch
 from pathlib import Path
 
 from derived_case_review import parse_review_decisions, review_request_admissible, validate_review
@@ -84,7 +85,8 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.metric = lambda *args, **kwargs: None
             batches = []
             flow.prepare_derived_spec_batch = lambda nodes: batches.append([n['id'] for n in nodes])
-            flow.preflight_derived_specs([{'id': 'a1'}, {'id': 'b1'}, {'id': 'a2'}])
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES': '0'}):
+                flow.preflight_derived_specs([{'id': 'a1'}, {'id': 'b1'}, {'id': 'a2'}])
             self.assertEqual(batches, [['a1', 'a2'], ['b1']])
             self.assertFalse(flow.derived_specs_frozen)
 
@@ -102,7 +104,8 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.metric = lambda *args, **kwargs: None
             deadlines = []
             flow.prepare_derived_spec_batch = lambda nodes: deadlines.append(flow.derived_preflight_deadline)
-            flow.preflight_derived_specs([{'id': key} for key in 'abc'])
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES': '0'}):
+                flow.preflight_derived_specs([{'id': key} for key in 'abc'])
             self.assertEqual(len(deadlines), 3)
             self.assertLess(deadlines[0], deadlines[1])
             self.assertLess(deadlines[1], deadlines[2])
@@ -130,8 +133,59 @@ class DerivedPreflightTests(unittest.TestCase):
                 flow.derived_augmentation_attempts[node_id] = flow.derived_augmentation_attempts.get(node_id, 0) + 1
                 coverage[node_id][0] += 1
             flow.prepare_derived_spec_batch = prepare
-            flow.preflight_derived_specs([{'id': 'a'}, {'id': 'b'}])
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES': '0'}):
+                flow.preflight_derived_specs([{'id': 'a'}, {'id': 'b'}])
             self.assertEqual(calls, ['a', 'b', 'a'])
+
+    def test_default_preflight_starts_code_after_first_category_and_jit_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.phase_plan = {'phases': [{'id': 'A'}, {'id': 'B'}],
+                               'leaf_phase': {'a': 'A', 'b': 'B'}}
+            flow.budget = 10000
+            flow.t_start = time.time()
+            flow.final_phase_reserve = lambda: 600
+            flow.wound_down = lambda: False
+            flow.metric = lambda *args, **kwargs: None
+            calls = []
+            flow.prepare_derived_spec_batch = lambda nodes: calls.append(
+                ([node['id'] for node in nodes], flow.derived_preflight_deadline - time.monotonic()))
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES': '1',
+                                            'OCTOS_ARC_DERIVED_FIRST_CODE_SECONDS': '120',
+                                            'OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS': '45'}):
+                flow.preflight_derived_specs([{'id': 'a'}, {'id': 'b'}])
+                self.assertEqual([ids for ids, _ in calls], [['a']])
+                self.assertLessEqual(calls[0][1], 121)
+                flow.prepare_derived_build_batch([{'id': 'a'}, {'id': 'b'}])
+                flow.prepare_derived_build_batch([{'id': 'b'}])
+            self.assertEqual([ids for ids, _ in calls], [['a'], ['b']])
+            self.assertLessEqual(calls[1][1], 46)
+
+    def test_jit_spec_exception_and_zero_budget_do_not_withhold_implementation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.budget = 10000
+            flow.t_start = time.time()
+            flow.final_phase_reserve = lambda: 600
+            metrics = []
+            flow.metric = lambda name, **kwargs: metrics.append((name, kwargs))
+            calls = []
+            def failed(nodes):
+                calls.append([node['id'] for node in nodes])
+                raise RuntimeError('test planner unavailable')
+            flow.prepare_derived_spec_batch = failed
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_CODE_BATCH_SPEC_SECONDS': '45',
+                                            'OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS': '45'}):
+                flow.prepare_derived_build_batch([{'id': 'a'}])
+                flow.prepare_derived_build_batch([{'id': 'a'}])
+            with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_CODE_TOTAL_SPEC_SECONDS': '0'}):
+                flow.prepare_derived_build_batch([{'id': 'b'}])
+            self.assertEqual(calls, [['a']])
+            self.assertEqual(metrics[0][0], 'derived_build_spec')
+            self.assertEqual(flow.derived_preflight_deadline, float('inf'))
 
     def test_partial_leaf_is_planned_again_even_after_one_accepted_script(self):
         from unittest.mock import Mock, patch

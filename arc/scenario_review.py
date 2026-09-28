@@ -730,7 +730,8 @@ def negative_contracts(target: Mapping) -> list[dict]:
                                                               value, re.I)), "")
         if error:
             found.append({"kind": "blank_validation", "error": error, "preserved": preserved,
-                          "testable": bool(preserved), "requirement_quote": sentence})
+                          "testable": bool(preserved), "requirement_quote": sentence,
+                          "persistence": bool(re.search(r'\b(?:refresh|reload|reopen)\b', sentence, re.I))})
     return found
 
 
@@ -744,6 +745,20 @@ def rejection_case_evidence(steps: list, contract: Mapping) -> bool:
                       and step.get("op") == "click" and _COMMIT_ACTION.search(str(step.get("target") or ""))), -1)
     if blank_at < 0 or commit_at < 0:
         return False
+    old = contract['preserved']
+    if not any(i < commit_at and isinstance(step, dict)
+               and ((step.get('op') == 'open' and step.get('target') == old)
+                    or (step.get('op') == 'expect_visible' and step.get('target') == old))
+               for i, step in enumerate(steps)):
+        return False
+    if contract.get('persistence'):
+        reload_at = next((i for i, step in enumerate(steps) if i > commit_at and isinstance(step, dict)
+                          and (step.get('op') == 'reload'
+                               or (step.get('op') == 'open' and step.get('target') == old))), -1)
+        if reload_at < 0 or not any(i > reload_at and isinstance(step, dict)
+                                  and step.get('op') == 'expect_visible' and step.get('target') == old
+                                  for i, step in enumerate(steps)):
+            return False
     return all(any(i > commit_at and isinstance(step, dict) and step.get("op") == "expect_visible"
                    and step.get("target") == value for i, step in enumerate(steps))
                for value in (contract["error"], contract["preserved"]))
@@ -760,7 +775,18 @@ def source_rejection_evidence(source: str, title: str, target: Mapping) -> bool:
                            block[blank.end():] if blank else "", re.I)
         if not blank or not commit:
             continue
+        before = block[:blank.end()]
+        old = _ts(contract['preserved'])
+        if (f'await h.openNamed(page, {old});' not in before
+                and f'await h.expectTextsVisible(page, [{old}]);' not in before):
+            continue
         after = block[blank.end() + commit.end():]
+        if contract.get('persistence'):
+            reloads = [index for index in (after.find('await page.reload('),
+                                            after.find(f'await h.openNamed(page, {old});')) if index >= 0]
+            reload_at = min(reloads) if reloads else -1
+            if reload_at < 0 or f'await h.expectTextsVisible(page, [{old}]);' not in after[reload_at:]:
+                continue
         if all(f"await h.expectTextsVisible(page, [{_ts(value)}]);" in after
                for value in (contract["error"], contract["preserved"])):
             return True

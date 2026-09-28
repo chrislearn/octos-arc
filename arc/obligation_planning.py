@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 
 
@@ -38,6 +39,11 @@ def parse_obligations(reply, sources, ancestry):
     """Accept only exact source quotes, known applicability and stable IDs."""
     errors, result = [], []
     try:
+        if isinstance(reply, str) and reply.lstrip().startswith('```'):
+            fence = re.fullmatch(r'\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*', reply, re.I)
+            if not fence:
+                return [], ['invalid JSON envelope']
+            reply = fence.group(1)
         body = json.loads(reply)
     except (ValueError, TypeError):
         return [], ['invalid JSON object']
@@ -151,8 +157,10 @@ def prepare_obligations(flow, nodes):
             for leaf in ids:
                 flow.derived_obligation_status[leaf] = {'status': 'reviewed' if reviewed else 'incomplete',
                                                        'errors': errors or ([] if reviewed else ['independent review unavailable'])}
-            # Keep failed batches as explicit gaps, not partially trusted obligations.
-            if reviewed:
+            # A partially valid independent review still yields sourced candidate
+            # obligations. Its status remains incomplete, so candidates cannot
+            # silently become approved coverage or hide the reported gaps.
+            if len(replies) == 2 and rows:
                 flow.derived_obligations = [row for row in flow.derived_obligations if not set(row['applies_to']) & set(ids)] + rows
             (path.parent / ('obligation-' + hashlib.sha256('|'.join(ids).encode()).hexdigest()[:12] + '.json')).write_text(
                 json.dumps({'leaves': ids, 'replies': replies, 'errors': errors}, ensure_ascii=False, indent=2))
