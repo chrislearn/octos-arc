@@ -113,6 +113,60 @@ class OrderedRequestsTests(unittest.TestCase):
 
 
 class ScenarioCommitTests(unittest.TestCase):
+    def test_one_leaf_uses_at_most_two_proposal_requests_including_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            node = {"id": "A", "name": "A", "type": "ATOMIC",
+                    "description": "Feature A shows Done A.",
+                    "scenarios": [{"name": "A: Scenario 1", "steps": [
+                        {"keyword": "WHEN", "content": "The visitor clicks “Open A”."},
+                        {"keyword": "THEN", "content": "The page shows “Done A”."}]}]}
+            flow.requirement_tree = {"id": "ROOT", "children": [node]}
+            flow.prepare_derived_tests([node])
+            flow.remaining = Mock(return_value=10000)
+            flow.final_phase_reserve = Mock(return_value=0)
+            flow.text_turn = Mock(return_value=(True, '{"scenarios":[]}'))
+            flow.augment_derived_tests([node])
+            self.assertEqual(flow.text_turn.call_count, 2)
+            self.assertEqual(flow.derived_augmentation_attempts["A"], 2)
+            self.assertEqual(flow.derived_review_requests, 2)
+            flow.augment_derived_tests([node])
+            self.assertEqual(flow.text_turn.call_count, 2)
+
+    def test_parallel_chunks_reserve_two_requests_per_leaf_before_retry(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+                os.environ, {"OCTOS_ARC_DERIVED_LLM_BATCH": "1"}):
+            root = Path(directory)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            node = {"id": "A", "name": "A", "type": "ATOMIC",
+                    "description": "Feature A shows Done 1, Done 2, and Done 3.",
+                    "scenarios": [{"name": f"A: Scenario {number}", "steps": [
+                        {"keyword": "WHEN", "content": f"The visitor clicks “Open {number}”."},
+                        {"keyword": "THEN", "content": f"The page shows “Done {number}”."}]}
+                                  for number in range(1, 4)]}
+            flow.requirement_tree = {"id": "ROOT", "children": [node]}
+            flow.prepare_derived_tests([node])
+            flow.remaining = Mock(return_value=10000)
+            flow.final_phase_reserve = Mock(return_value=0)
+            flow.text_turn = Mock(side_effect=AssertionError("unexpected serial request"))
+            submitted = []
+            def make_pool(_count, *, on_submit, allowed):
+                if _count < 2:
+                    return None
+                def execute(request):
+                    submitted.append(request.prompt)
+                    return SpecReply(True, '{"scenarios":[]}', tokens=10)
+                return OrderedSpecRequests(2, execute, lambda request, _reserved, _count: allowed(request),
+                                           lambda request, _reply: flow.note_turn(request.label), on_submit)
+            flow.isolated_spec_requests = make_pool
+            flow.augment_derived_tests([node])
+            self.assertEqual(len(submitted), 2)
+            self.assertEqual(flow.derived_augmentation_attempts["A"], 2)
+            self.assertEqual(flow.derived_review_requests, 2)
+            flow.augment_derived_tests([node])
+            self.assertEqual(len(submitted), 2)
+
     def test_obligation_extractions_overlap_and_independent_reviews_stay_ordered(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"OCTOS_ARC_OBLIGATION_BATCH_LEAVES": "1"}):
             root = Path(directory)

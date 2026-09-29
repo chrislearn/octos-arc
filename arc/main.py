@@ -7734,7 +7734,7 @@ class Flow:
             for node in group:
                 node_id = str(node.get('id'))
                 row = rows[node_id]
-                if (getattr(self, 'derived_augmentation_attempts', {}).get(node_id, 0) >= 6
+                if (getattr(self, 'derived_augmentation_attempts', {}).get(node_id, 0) >= 2
                         and getattr(self, 'derived_obligation_status', {}).get(node_id, {}).get('status') != 'reviewed'
                         and time.monotonic() + 30 < group_deadline):
                     try:
@@ -7805,11 +7805,36 @@ class Flow:
                        if scenario["status"] != "covered"}
         targets = prioritize_review_targets([target for target in all_targets
                                              if target["node_id"] in selected
-                                             and target_attempts.get(target['id'], 0) < 6
+                                             and self.derived_augmentation_attempts.get(target["node_id"], 0) < 2
+                                             and target_attempts.get(target['id'], 0) < 2
                                              and (target["node_id"] in first_attempt
                                                   or target["id"] in missing_ids
                                                   or self.derived_review_needed(target["node_id"]))])
         batch = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_BATCH", "3")))
+        # A node gets at most two model requests for scenario proposals,
+        # including a rejected-script retry. Keep each node in at most two
+        # initial chunks, even when requests for separate nodes are batched.
+        by_node: dict[str, list[dict]] = {}
+        for target in targets:
+            by_node.setdefault(str(target["node_id"]), []).append(target)
+        parts_by_round: list[list[list[dict]]] = [[], []]
+        for node_id, node_targets in by_node.items():
+            slots = max(0, 2 - self.derived_augmentation_attempts.get(node_id, 0))
+            for round_number, start in enumerate(range(0, min(len(node_targets), slots * batch), batch)):
+                parts_by_round[round_number].append(node_targets[start:start + batch])
+        chunks: list[list[dict]] = []
+        for round_parts in parts_by_round:
+            for part in round_parts:
+                if chunks and len(chunks[-1]) + len(part) <= batch:
+                    chunks[-1].extend(part)
+                else:
+                    chunks.append(part)
+        planned_node_requests: dict[str, int] = {}
+        for chunk in chunks:
+            for node_id in {str(t["node_id"]) for t in chunk}:
+                planned_node_requests[node_id] = planned_node_requests.get(node_id, 0) + 1
+        retry_room = {node_id for node_id, count in planned_node_requests.items()
+                      if self.derived_augmentation_attempts.get(node_id, 0) + count < 2}
         # Node batches may be smaller than the scenario batch (including one
         # leaf at a time), so the default must not exhaust before later nodes.
         phase_plan = getattr(self, "phase_plan", None) or {}
@@ -7872,8 +7897,7 @@ class Flow:
         job_context: dict[int, tuple[list[dict], str]] = {}
         common_deadline = min(getattr(self, "derived_preflight_deadline", float("inf")),
                               time.monotonic() + max(0, wall_cap - self.derived_llm_seconds))
-        for offset in range(0, len(targets), batch):
-            proposal_chunk = targets[offset:offset + batch]
+        for index, proposal_chunk in enumerate(chunks):
             proposal_phase = (phase_plan.get("leaf_phase", {}) or {}).get(str(proposal_chunk[0]["node_id"]), "")
             proposal_prompt = build_review_prompt(
                 proposal_chunk, fixtures, phase_contexts.get(proposal_phase, "")) + TEST_QUALITY_GUIDANCE
@@ -7881,14 +7905,16 @@ class Flow:
                 continue
             job = SpecRequest(proposal_prompt, timeout, "derived scenario review", REVIEW_SYSTEM,
                               reservation_tokens(proposal_prompt), common_deadline)
-            jobs_by_index[offset] = job
+            jobs_by_index[index] = job
             jobs.append(job)
             job_context[id(job)] = (proposal_chunk, proposal_phase)
         parallel_numbers: dict[int, int] = {}
         def parallel_allowed(job: SpecRequest) -> bool:
-            phase = job_context[id(job)][1]
+            chunk, phase = job_context[id(job)]
             return (self.derived_review_requests < max_requests
                     and self.derived_llm_seconds < wall_cap - 30
+                    and all(self.derived_augmentation_attempts.get(str(t["node_id"]), 0) < 2
+                            for t in chunk)
                     and (not reserved_phases or phase in reserved_phases)
                     and (phase not in reserved_phases or review_request_admissible(
                         phase, reserved_phases, phase_counts, self.derived_review_requests, max_requests)))
@@ -7919,7 +7945,7 @@ class Flow:
                 self.derived_llm_seconds = initial_generation_seconds + time.monotonic() - generation_started
         added = 0
         dropped_total: list[str] = []
-        for index in range(0, len(targets), batch):
+        for index, chunk in enumerate(chunks):
             prefetched_job = jobs_by_index.get(index) if not parallel_fallback else None
             reserved_request = prefetched_job is not None and id(prefetched_job) in parallel_numbers
             preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
@@ -7938,8 +7964,10 @@ class Flow:
             if not reserved_request and (self.wound_down() or self.remaining() < self.final_phase_reserve() + 600):
                 log("[derived] model review stopped: time reserved for the final phases")
                 break
-            chunk = targets[index:index + batch]
             phase_id = (phase_plan.get("leaf_phase", {}) or {}).get(str(chunk[0]["node_id"]), "")
+            if not reserved_request and any(
+                    self.derived_augmentation_attempts.get(str(t["node_id"]), 0) >= 2 for t in chunk):
+                continue
             if not reserved_request and ((reserved_phases and phase_id not in reserved_phases) or (
                     phase_id in reserved_phases and not review_request_admissible(
                         phase_id, reserved_phases, phase_counts, self.derived_review_requests, max_requests))):
@@ -7991,7 +8019,12 @@ class Flow:
                 continue
             scripts, dropped, retryable = compile_review_reply(text, chunk, fixtures, with_retryable=True)
             retry_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-            if (retryable and not self.wound_down()
+            target_nodes = {target["id"]: str(target["node_id"]) for target in chunk}
+            eligible_retryable = [item for item in retryable
+                                  if target_nodes.get(item.get("id")) in retry_room
+                                  and self.derived_augmentation_attempts.get(
+                                      target_nodes[item["id"]], 0) < 2]
+            if (eligible_retryable and not self.wound_down()
                     and self.derived_llm_seconds + 30 < wall_cap and retry_left >= 30
                     and not self.derived_preflight_tokens_spent()
                     and self.derived_review_requests < max_requests
@@ -7999,7 +8032,10 @@ class Flow:
                         phase_id, reserved_phases, phase_counts, self.derived_review_requests, max_requests))):
                 # One correction round: the model sees exactly which rule each
                 # rejected script broke; anything still invalid is dropped.
-                prompt = build_review_retry(retryable, chunk, fixtures, phase_contexts.get(phase_id, "")) + TEST_QUALITY_GUIDANCE
+                retry_ids = {item.get("id") for item in eligible_retryable}
+                retry_chunk = [target for target in chunk if target["id"] in retry_ids]
+                prompt = build_review_retry(eligible_retryable, retry_chunk, fixtures,
+                                            phase_contexts.get(phase_id, "")) + TEST_QUALITY_GUIDANCE
                 if len(prompt) > self.codegen_context_chars():
                     self.metric("derived_spec_retry", outcome="insufficient_context", phase=phase_id)
                     prompt = ""
@@ -8007,6 +8043,11 @@ class Flow:
                 self.derived_review_requests += bool(prompt)
                 if phase_id and prompt:
                     phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
+                if prompt:
+                    for admitted_id in {str(t["node_id"]) for t in retry_chunk}:
+                        self.derived_augmentation_attempts[admitted_id] = self.derived_augmentation_attempts.get(admitted_id, 0) + 1
+                    for target in retry_chunk:
+                        target_attempts[target["id"]] = target_attempts.get(target["id"], 0) + 1
                 started = time.monotonic()
                 ok, text = (self.text_turn(prompt, max(1, int(min(
                     timeout, max(1, wall_cap - self.derived_llm_seconds), retry_left))),
@@ -8014,13 +8055,12 @@ class Flow:
                                           spec_chars=len(prompt)) if prompt else (False, "insufficient_context"))
                 record_generation_seconds(time.monotonic() - started)
                 (review_dir / f"batch-{batch_number}-retry.txt").write_text(
-                    f"# ok={ok}\n# rejected={[r['title'] for r in retryable]}\n{text}", encoding="utf-8")
+                    f"# ok={ok}\n# rejected={[r['title'] for r in eligible_retryable]}\n{text}", encoding="utf-8")
                 if ok:
-                    retry_ids = {item.get('id') for item in retryable}
                     prior_counts = {item.get('id'): len(item.get('previous_proposal', {}).get('cases') or [None])
-                                    for item in retryable}
+                                    for item in eligible_retryable}
                     retry_targets = [dict(target, minimum_case_count=prior_counts.get(target.get('id'), 1))
-                                     for target in chunk if target.get('id') in retry_ids]
+                                     for target in retry_chunk]
                     fixed, dropped_again = compile_review_reply(text, retry_targets, fixtures)
                     for node_id, tests in fixed.items():
                         scripts.setdefault(node_id, []).extend(tests)
@@ -8763,7 +8803,7 @@ class Flow:
         pending = []
         for node in ordered:
             node_id = str(node.get("id"))
-            if getattr(self, "derived_augmentation_attempts", {}).get(node_id, 0) >= 6:
+            if getattr(self, "derived_augmentation_attempts", {}).get(node_id, 0) >= 2:
                 continue
             if node_id not in getattr(self, "derived_augmented_nodes", set()):
                 pending.append(node)
