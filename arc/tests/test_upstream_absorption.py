@@ -180,6 +180,43 @@ class SchedulingTests(unittest.TestCase):
             flow.remaining = lambda: 600
             self.assertTrue(flow.final_phase_due())
 
+    def test_derived_review_reserve_counts_only_runnable_specs_and_updates_after_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.runner = SimpleNamespace(timeout_ms=30000)
+            flow.tests_dir = root
+            flow.derived_as_specs = True
+            flow.final_measurement_reserve = Mock(return_value=120)
+            flow.repair_minimum = Mock(return_value=60)
+            for name in ('A', 'B', 'C'):
+                (root / f'{name}.spec.ts').write_text("test('case', async () => {});\n")
+            runnable = set()
+            flow.derived_has_runnable_cases = lambda node_id: node_id in runnable
+            self.assertEqual(flow.derived_review_reserve(), 180)
+            runnable.add('A')
+            self.assertEqual(flow.derived_review_reserve(), 270)
+            runnable.add('B')
+            self.assertEqual(flow.derived_review_reserve(), 330)
+
+    def test_derived_generation_reserve_uses_health_suite_and_bounded_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'A.spec.ts').write_text("test('case', async () => {});\n")
+            flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.budget = 7200
+            flow.n_nodes = 24
+            flow.tests_dir = root
+            flow.runner = SimpleNamespace(timeout_ms=30000)
+            flow.derived_as_specs = True
+            flow.final_measurement_reserve = Mock(return_value=120)
+            flow.repair_minimum = Mock(return_value=60)
+            flow.derived_has_runnable_cases = Mock(return_value=True)
+            # R_suite = 2*90+60; R_tail cold start = 300; ordinary = 600.
+            self.assertEqual(flow.final_phase_reserve(), 660)
+            flow.derived_review_request_durations = [500]
+            self.assertEqual(flow.final_phase_reserve(), 860)
+
     def test_measured_duration_median_and_phase_classification(self):
         self.assertEqual(repair_seconds([], 300), 300)
         self.assertEqual(repair_seconds([80, 100, 110], 300), 300)

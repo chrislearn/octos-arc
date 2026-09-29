@@ -204,7 +204,9 @@ class RecoveryControlTests(TestCase):
             return True
         f.recover_deferred_startup = Mock(side_effect=recover)
         f.implement_sequential(self.tree, self.nodes, set())
-        self.assertEqual(entered, ['A', 'B', 'C'])
+        self.assertEqual(entered, ['A'])
+        self.assertTrue(any(call.kwargs.get('decision') == 'stop_new_nodes'
+                            for call in f.metric.call_args_list))
 
     def rollback_flow(self, restored_summary):
         f = self.flow

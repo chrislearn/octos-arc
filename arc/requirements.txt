@@ -1,2 +1,3 @@
 pyyaml>=6.0
 arcbench-runtime>=0.1.0
+Pillow>=10.0

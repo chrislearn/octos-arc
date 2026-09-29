@@ -113,6 +113,35 @@ def outcome_text(target: dict | None) -> str:
             + "\n" + "\n".join(row.get("quote", "") for row in target.get("obligations", [])))
 
 
+def numbered_review_quotes(row: dict) -> dict[str, str]:
+    """Stable, source-derived quote choices; an ID carries no review authority."""
+    result: dict[str, str] = {}
+    for prefix, source in (("R", row.get("outcome", "")), ("T", row.get("case", ""))):
+        lines = [line.strip() for line in str(source).splitlines() if line.strip()]
+        if prefix == "T":
+            lines = [line for line in lines if re.search(r"\b(?:h\.)?expect\w*\s*\(|\bassert\s*\(", line)]
+        for line in dict.fromkeys(lines):
+            if len(line) >= 12 and len(result) < 100:
+                result[f"{prefix}{1 + sum(key.startswith(prefix) for key in result)}"] = line
+    return result
+
+
+def restore_review_quote_ids(decision: dict, quotes: dict[str, str]) -> dict:
+    """Replace selected IDs with exact source text before the existing validator."""
+    restored = dict(decision)
+    for field in ("requirement_quote", "test_quote"):
+        value = restored.get(field)
+        if isinstance(value, str) and value in quotes:
+            restored[field] = quotes[value]
+    evidence = restored.get("obligation_evidence")
+    if isinstance(evidence, list):
+        restored["obligation_evidence"] = [
+            {key: quotes.get(value, value) if key in ("requirement_quote", "test_quote")
+             and isinstance(value, str) else value for key, value in item.items()}
+            if isinstance(item, dict) else item for item in evidence]
+    return restored
+
+
 def skip_category(reason: str) -> str:
     """A proposed skip is a coverage gap, classified without model authority."""
     text = str(reason).lower()

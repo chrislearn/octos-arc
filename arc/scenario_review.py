@@ -1059,9 +1059,6 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                  '[{value,requirement_id,quote}] with an exact quote containing the value from SOURCE CONTRACTS. '
                  'Do not invent controls, enum options or error messages. For arbitrary inputs use test_data instead.')
     parts.append(f"\nFixture account: `{fixtures.account}` / `{fixtures.password}` (email `{fixtures.email}`).")
-    if phase_context:
-        parts.append("\nTOP-LEVEL CATEGORY CONTRACT (shared context for these scenarios; "
-                     "each assertion must still be grounded in its own scenario): " + phase_context)
     parts.append('\nMark steps with phase setup/action/assertion. Setup cannot earn behavior credit. '
                  'Use a real command and a changed-state assertion; preserve exact raw values, empty fields and boundaries. '
                  'Each category needs a successful chain and an applicable rejection chain before extra entry checks. '
@@ -1069,6 +1066,9 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                  'Optional watch_response {target:path,method:METHOD} before the UI action and '
                  'expect_response {target:path,status:integer,json:optional-object-subset} afterward supplement UI assertions. '
                  'Only declared API paths are allowed; expected status/body must follow the branch requirement.')
+    if phase_context:
+        parts.append("\nTOP-LEVEL CATEGORY CONTRACT (shared context for these scenarios; "
+                     "each assertion must still be grounded in its own scenario): " + phase_context)
     for target in targets:
         if target.get('source_contracts'):
             parts.append(f"\nSOURCE CONTRACTS for [{target['id']}] (authoritative dependency descriptions): "
@@ -2185,6 +2185,25 @@ def compile_reply(text: str, targets: list[dict], fixtures: Fixtures, with_retry
             dropped.append(f"{target['title']}: {reason}")
             retryable.append({'id': target.get('id'), 'title': target['title'], 'reasons': [reason]})
     return (scripts, dropped, retryable) if with_retryable else (scripts, dropped)
+
+
+def rejection_category(reason: str) -> str:
+    """Deterministic labels for proposal failures; never changes admission."""
+    text = str(reason).lower()
+    if any(term in text for term in ('after action', 'after submit', 'after commit', 'state change',
+                                     'transition', 'post-action', 'outcome assertion')):
+        return 'missing_post_action_assertion'
+    if 'reload' in text or 'reopen' in text or 'persistence' in text:
+        return 'missing_persistence_assertion'
+    if 'csv' in text or 'field order' in text or 'escaping' in text:
+        return 'format_or_csv'
+    if 'literal' in text or 'unsupported value' in text or 'not allowed' in text:
+        return 'unsupported_literal'
+    if 'fixture' in text or 'seed' in text:
+        return 'fixture'
+    if 'omitted' in text or 'duplicate' in text:
+        return 'missing_or_duplicate'
+    return 'dsl_or_other'
 
 
 def retry_prompt(rejected: list[dict], targets: list[dict], fixtures: Fixtures, phase_context: str = "") -> str:

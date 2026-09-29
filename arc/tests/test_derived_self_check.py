@@ -10,7 +10,8 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from main import Flow
-from derived_case_review import CaseStatus, collect_cases, validate_review
+from derived_case_review import (CaseStatus, collect_cases, numbered_review_quotes,
+                                 restore_review_quote_ids, validate_review)
 from scenario_review import (authentication_invariants, behavior_test_titles, compile_reply,
                              grounded_behavior_test, review_targets, validate_proposal)
 from scenario_tests import Fixtures, suite_fixtures
@@ -98,6 +99,40 @@ class AuthenticationInvariantTests(unittest.TestCase):
 
 @patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class AuditCorrectionTests(unittest.TestCase):
+    def test_numbered_quotes_restore_source_without_approving_an_action(self):
+        row = {'outcome': 'A created record shows “Done”.',
+               'case': "await h.clickNamed(page, 'Create');\nawait h.expectTextsVisible(page, ['Done']);"}
+        quotes = numbered_review_quotes(row)
+        self.assertEqual(quotes['R1'], row['outcome'])
+        self.assertEqual(quotes['T1'], "await h.expectTextsVisible(page, ['Done']);")
+        restored = restore_review_quote_ids({'requirement_quote': 'R1', 'test_quote': 'T1'}, quotes)
+        self.assertEqual(restored['test_quote'], quotes['T1'])
+        self.assertEqual(restore_review_quote_ids({'test_quote': 'T99'}, quotes)['test_quote'], 'T99')
+
+    def test_quote_invalid_gets_one_bounded_rereview_with_full_validation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, _ = self.setup_flow(Path(folder))
+            calls = []
+            case_ids = []
+            def audit(prompt, allowance, label, **kwargs):
+                calls.append(label)
+                if 'quote rereview' in label:
+                    return True, json.dumps([{'id': case_ids[0], 'status': 'approved_behavior',
+                        'requirement_quote': 'R1', 'test_quote': 'T1',
+                        'reason': 'The assertion after the Create action proves the stated outcome.'}])
+                case_id = json.loads(prompt.split('\nCases: ')[1])[0]['id']
+                case_ids.append(case_id)
+                return True, json.dumps([{'id': case_id, 'status': 'approved_behavior',
+                    'requirement_quote': 'A created record shows “Done”.',
+                    'test_quote': "await h.clickNamed(page, 'Create');",
+                    'reason': 'The action alone was incorrectly cited as the outcome.'}])
+            flow.text_turn = Mock(side_effect=audit)
+            flow.review_derived_cases({'A'})
+            record = next(iter(flow.derived_case_reviews.values()))
+            self.assertEqual(record['status'], 'approved_behavior')
+            self.assertTrue(record['quote_rereview_attempted'])
+            self.assertEqual(len(calls), 2)
+            self.assertTrue(flow.trusted_derived_case('A', target['title'] + ' [model]'))
     def test_case_status_enum_separates_approval_repair_invalid_and_dispute(self):
         self.assertEqual({status.value for status in CaseStatus}, {
             'unreviewed', 'needs_correction', 'approved_behavior', 'approved_smoke_only',

@@ -78,10 +78,10 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.final_measurement_reserve = lambda: 120
             flow.repair_minimum = lambda: 60
             flow._derived_post_code_review_active = True
-            self.assertEqual(flow.final_phase_reserve(), 390)
+            self.assertEqual(flow.final_phase_reserve(), 180)  # no reviewed case can run
             flow._in_final_repair = True  # completeness uses this lower generic reserve
             self.assertEqual(flow.final_phase_reserve(), 120)
-            self.assertEqual(flow.derived_review_reserve(), 390)
+            self.assertEqual(flow.derived_review_reserve(), 180)
 
     def test_final_rehearsal_reserves_rerun_only_for_reviewed_derived_specs(self):
         from types import SimpleNamespace
@@ -101,7 +101,7 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.repair_minimum = lambda: 60
             flow.derived_review_needed = lambda node_id: node_id != 'A'
             flow.derived_has_runnable_cases = lambda node_id: node_id == 'A'
-            self.assertEqual(flow.derived_review_reserve(), 330)  # both files need review time
+            self.assertEqual(flow.derived_review_reserve(), 270)  # only A can run
             self.assertEqual(flow.final_rehearsal_reserve(), 270)  # only A can rerun
             flow.remaining = Mock(return_value=270)
             flow.metric = Mock()

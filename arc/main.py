@@ -105,11 +105,14 @@ Environment (all optional):
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import hashlib
 import json
 import os
+import queue
 import re
 import shutil
 import shlex
@@ -119,6 +122,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 import yaml
@@ -147,8 +152,13 @@ from obligation_planning import applicable_obligations, prepare_obligations, rev
 from domain_contracts import DOMAIN_GUIDANCE, contract_manifest, official_status, requirement_index, source_contract_advisories
 from implementation_evidence import STATUSES as IMPLEMENTATION_STATUSES, initial_status  # noqa: E402
 from derived_case_review import (CaseStatus, collect_cases, parse_review_decisions, review_request_admissible,
-                                 requirement_text, skip_category,
+                                 requirement_text, skip_category, numbered_review_quotes,
+                                 restore_review_quote_ids,
                                  validate_review, review_validation_errors, safe_records, sha as case_sha)  # noqa: E402
+from derived_pipeline import DerivedSpecPipeline
+from visual_requirements import (cache_key as visual_cache_key, parse_observations,
+                                 read_reference, references as visual_references,
+                                 summary_for_nodes as visual_summary)
 from reply_quality import prune_degenerate_edits  # noqa: E402
 from repair_context import diagnosed_failure_evidence as balanced_failure_evidence  # noqa: E402
 from generic_template import generic_entry_intact, generic_template_active, install_generic_template  # noqa: E402
@@ -161,6 +171,7 @@ from scenario_tests import compile_suite as compile_derived_suite, suite_fixture
 from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests, behavior_test_titles,  # noqa: E402
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
                              folder_text, grounded_behavior_test, parse_failure_review, prioritize_review_targets,
+                             rejection_category,
                              retry_prompt as build_review_retry, review_targets)
 from spec_parallel import (OrderedSpecRequests, SpecRequest, SpecReply, append_worker_records,
                            reservation_tokens)  # noqa: E402
@@ -707,6 +718,20 @@ def _design_catalog(design: dict) -> list[str]:
         if isinstance(page, dict):
             lines.append(f"P{i} {page.get('path', '')}".strip())
     return lines
+
+
+def phase_design_for_tests(design: dict | None, requirement_ids: set[str]) -> dict | None:
+    """Keep the shared schema and only phase-owned design artifacts in test prompts."""
+    if not isinstance(design, dict):
+        return None
+    scoped = {key: design[key] for key in ('data_model',) if key in design}
+    for key in ('routes', 'pages', 'contracts', 'domain_contracts', 'commands'):
+        entries = design.get(key)
+        if isinstance(entries, list):
+            scoped[key] = [entry for entry in entries if isinstance(entry, dict)
+                           and (not entry.get('requirements')
+                                or requirement_ids.intersection(map(str, entry['requirements'])))]
+    return scoped
 
 
 def app_design_blocks(design: dict | None, spec_text: str, cap: int, *,
@@ -1975,7 +2000,8 @@ Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (
 
 # Text-only turns outside the build-turn cap (see Flow.note_turn).
 NON_BUILD_TURN_LABELS = ("derived scenario review", "derived failed-spec review", "application design",
-                         "derived obligation", "derived case independent review", "shared domain contract review")
+                         "derived obligation", "derived case independent review", "derived case quote rereview",
+                         "visual reference preflight", "shared domain contract review")
 
 TASK_NEUTRAL_HELPERS = {
     "backend/lib/arc.js": "arc-runtime.js",
@@ -2407,6 +2433,7 @@ class Flow:
         self.max_turns = int(os.environ.get("OCTOS_ARC_MAX_TURNS", "-1"))
         self.max_total_tokens_abs = int(os.environ.get("OCTOS_ARC_MAX_TOTAL_TOKENS_ABS", "0"))
         self.turn_count = 0
+        self._turn_lock = threading.Lock()
         self._wound_down_logged = False
         self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
         self.design_min_nodes = int(os.environ.get("OCTOS_DESIGN_MIN_NODES", "3"))
@@ -2721,7 +2748,22 @@ class Flow:
             return min(available, max(0.0, float(configured)))
         measurement = self.final_measurement_reserve()
         desired = max(600.0, 2 * measurement + 2 * self.repair_minimum())
-        return min(desired, available * 0.25)
+        ordinary = min(desired, available * 0.25)
+        if not getattr(self, 'derived_as_specs', False):
+            return ordinary
+        # The optional audit tail shares the existing reserve. Priority is a
+        # runnable subset, never every unreviewed mechanical spec file.
+        health = measurement
+        runnable = [path for path in sorted(self.tests_dir.glob('*.spec.ts'))
+                    if self.derived_has_runnable_cases(path.name.removesuffix('.spec.ts'))]
+        suite = (2 * self.estimate_derived_suite_window(runnable[:4]) + self.repair_minimum()
+                 if runnable else 0.0)
+        samples = sorted(duration for duration in getattr(self, 'derived_review_request_durations', [])
+                         if isinstance(duration, (int, float)) and duration > 0)
+        p90 = (samples[max(0, (9 * len(samples) + 9) // 10 - 1)] if samples else
+               getattr(self, 'historical_derived_review_p90', 300.0))
+        tail = min(max(0.0, float(self.budget) * 0.25 - health - suite), max(180.0, p90))
+        return min(available, max(ordinary, health + suite + tail))
 
     def derived_review_reserve(self) -> float:
         """Keep a measured cross-leaf suite and final repair after spec review."""
@@ -2729,10 +2771,13 @@ class Flow:
         repair = self.repair_minimum()
         if not getattr(self, 'derived_as_specs', False) or self.runner is None or not self.tests_dir:
             return measurement + repair
-        suite_window = getattr(self, '_derived_suite_window_seconds', None)
-        if suite_window is None:
-            suite_window = self.estimate_derived_suite_window(sorted(self.tests_dir.glob('*.spec.ts')))
-            self._derived_suite_window_seconds = suite_window
+        # The mechanical compiler may create many specs before any case has
+        # passed independent review. Those files cannot consume suite time.
+        # Re-evaluate admission on each call: approval can change without a
+        # spec file changing, so a cached window would become stale.
+        runnable = [path for path in sorted(self.tests_dir.glob('*.spec.ts'))
+                    if self.derived_has_runnable_cases(path.name.removesuffix('.spec.ts'))]
+        suite_window = self.estimate_derived_suite_window(runnable) if runnable else 0.0
         return measurement + repair + suite_window
 
     def estimate_derived_suite_window(self, specs: list[Path]) -> float:
@@ -2795,10 +2840,18 @@ class Flow:
         the design turn are short, text-only and bounded by their own count:
         v10.0 sheet 819388a5f77b spent 38 of its 96 turns on reviews and hit
         the cap with 21743s and 53M tokens left."""
-        if label.startswith(NON_BUILD_TURN_LABELS):
-            self.review_turn_count = getattr(self, "review_turn_count", 0) + 1
-        else:
-            self.turn_count += 1
+        lock = vars(self).get('_turn_lock')
+        if lock is None:
+            if label.startswith(NON_BUILD_TURN_LABELS):
+                self.review_turn_count = getattr(self, "review_turn_count", 0) + 1
+            else:
+                self.turn_count += 1
+            return
+        with lock:
+            if label.startswith(NON_BUILD_TURN_LABELS):
+                self.review_turn_count = getattr(self, "review_turn_count", 0) + 1
+            else:
+                self.turn_count += 1
 
     def review_budget_spent(self) -> bool:
         default = self.max_turns
@@ -3343,6 +3396,10 @@ class Flow:
             if node.get("scenarios") or node.get("dependencies")
             else str(node.get("description") or "").strip(), spec=spec,
             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
+        visual_note = Flow.visual_summary_for_nodes(self,
+            set(map(str, node.get('active_requirement_ids') or [node.get('id')])))
+        if visual_note:
+            task += '\n' + visual_note + '\n'
         if re.search(r'\b(?:spreadsheet\s+grid|worksheet\s+grid|gridcell)\b', task, re.I):
             task += ("\nGrid accessibility: expose the required grid role and name. "
                      "Coordinate-named cells need role gridcell and that coordinate as their accessible name; "
@@ -3638,7 +3695,8 @@ class Flow:
             proxy.codegen_max_tokens = saved_cap
 
     def isolated_spec_requests(self, count: int, *, on_submit=None,
-                               allowed=None) -> OrderedSpecRequests | None:
+                               allowed=None, force_single: bool = False,
+                               defer_metrics: bool = False) -> OrderedSpecRequests | None:
         """Tool-free requests in private proxy/kernel processes, with main-thread commits.
 
         The main Flow and its protected snapshots are never touched by a worker.
@@ -3647,7 +3705,8 @@ class Flow:
         workers = max(1, min(4, int(os.environ.get("OCTOS_ARC_SPEC_PARALLEL_WORKERS", "2"))))
         master = getattr(self, "llm_proxy", None)
         driver = getattr(self, "driver", None)
-        if workers < 2 or count < 2 or not isinstance(master, LlmProxy) or not isinstance(driver, OctosDriver):
+        if ((workers < 2 or count < 2) and not force_single
+                or not isinstance(master, LlmProxy) or not isinstance(driver, OctosDriver)):
             return None
         worker_env = driver.env.copy()
         original_config = Path(worker_env.get("OCTOS_CONFIG_DIR", "")) / "config.json"
@@ -3662,6 +3721,7 @@ class Flow:
             worker_routes = copy.deepcopy(master.routes)
             worker_contexts = dict(master.model_contexts)
         model_mode = getattr(self, "base_reasoning_mode", master.mode)
+        pool_id = object()
         destream, trim = master.destream, master.trim
         min_tokens = master.min_max_tokens
         max_iterations = driver.max_iterations
@@ -3728,32 +3788,175 @@ class Flow:
         def admissible(job: SpecRequest, reserved: int, in_flight: int) -> bool:
             with master._lock:
                 used = master.total_tokens
+                others = [value for key, value in getattr(master, '_spec_reservations', {}).items()
+                          if key is not pool_id]
+                other_tokens = sum(value[0] for value in others)
+                other_turns = sum(value[1] for value in others)
             limits = [cap for cap in (self.max_total_tokens, self.max_total_tokens_abs,
                                       master.max_total_tokens_abs) if cap > 0]
             preflight = getattr(self, "derived_preflight_token_cap", None)
             if preflight is not None:
                 limits.append(getattr(self, "derived_preflight_start_tokens", used) + preflight)
-            return (all(used + reserved <= cap for cap in limits)
+            return (all(used + other_tokens + reserved <= cap for cap in limits)
                     and not self.review_budget_spent()
                     and (not int(os.environ.get("OCTOS_ARC_REVIEW_TURNS", "0"))
-                         or getattr(self, "review_turn_count", 0) + in_flight <= int(os.environ["OCTOS_ARC_REVIEW_TURNS"]))
+                         or getattr(self, "review_turn_count", 0) + other_turns + in_flight
+                         <= int(os.environ["OCTOS_ARC_REVIEW_TURNS"]))
                     and (allowed(job) if allowed is not None else True)
                     and self.remaining() >= self.final_phase_reserve() + 60
                     and getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic() >= 30)
 
         def account(job: SpecRequest, reply: SpecReply) -> None:
             append_worker_records(master, reply)
-            self.note_turn(job.label)
-            self.metric("turn", label=job.label, phase=phase_for_label(job.label),
-                        mode="isolated_text", ok=reply.ok, elapsed_seconds=round(reply.elapsed, 3),
-                        tokens=reply.tokens, requests=reply.requests)
+            if defer_metrics:
+                self.note_turn(job.label)
+                self._background_spec_metrics.put((job.label, reply.ok, reply.elapsed,
+                                                   reply.tokens, reply.requests))
+            else:
+                self.note_turn(job.label)
+                self.metric("turn", label=job.label, phase=phase_for_label(job.label),
+                            mode="isolated_text", ok=reply.ok, elapsed_seconds=round(reply.elapsed, 3),
+                            tokens=reply.tokens, requests=reply.requests)
         def reservation_changed(tokens: int, turns: int) -> None:
             with master._lock:
-                master.external_reserved_tokens = tokens
-                master.external_reserved_turns = turns
+                reservations = getattr(master, '_spec_reservations', {})
+                if tokens or turns:
+                    reservations[pool_id] = (tokens, turns)
+                else:
+                    reservations.pop(pool_id, None)
+                master._spec_reservations = reservations
+                master.external_reserved_tokens = sum(value[0] for value in reservations.values())
+                master.external_reserved_turns = sum(value[1] for value in reservations.values())
 
         return OrderedSpecRequests(workers, execute, admissible, account, on_submit,
                                    reservation_changed)
+
+    def prepare_visual_evidence(self) -> None:
+        """Inspect in-tree reference images before design, within one short budget."""
+        if (os.environ.get('OCTOS_ARC_VISUAL', '1') == '0'
+                or not getattr(self, 'derived_as_specs', False)):
+            return
+        refs = visual_references(getattr(self, 'requirement_contracts', {}),
+                                 getattr(self, 'requirement_tree', None))
+        if not refs:
+            return
+        proxy = getattr(self, 'llm_proxy', None)
+        routes = getattr(proxy, 'routes', []) if isinstance(proxy, LlmProxy) else []
+        model = (os.environ.get('OCTOS_ARC_VISUAL_MODEL') or next(
+            (rule.get('model') for rule in routes if rule.get('images')
+             and 'design' in rule.get('phases', ['design'])), ''))
+        wall_cap = max(1, int(os.environ.get('OCTOS_ARC_VISUAL_WALL_SECONDS', '120')))
+        max_images = max(0, int(os.environ.get('OCTOS_ARC_VISUAL_MAX_IMAGES', '12')))
+        workers = max(1, min(3, int(os.environ.get('OCTOS_ARC_VISUAL_WORKERS', '2'))))
+        deadline = time.monotonic() + min(wall_cap, max(0, self.remaining() - self.final_phase_reserve() - 60))
+        cache_dir = self.output_dir / '.arc' / 'visual-cache'
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        evidence = []
+        unique: dict[str, tuple[bytes, str, str]] = {}
+        requirement_sha = case_sha(getattr(self, 'requirement_tree', {}))
+        for name, ids in refs.items():
+            data, mime, status = read_reference(self.req_dir, name)
+            row = {'schema_version': 1, 'image': name, 'requirement_ids': ids,
+                   'status': status, 'sha256': hashlib.sha256(data).hexdigest() if data else '',
+                   'observations': []}
+            evidence.append(row)
+            if data and status == 'ready':
+                unique.setdefault(row['sha256'], (data, mime, name))
+        selected = list(unique.items())[:max_images]
+        outcomes: dict[str, tuple[str, list[dict]]] = {}
+        for image_sha in unique:
+            if image_sha not in dict(selected):
+                outcomes[image_sha] = ('budget_deferred', [])
+
+        def inspect(image_sha: str, data: bytes, mime: str) -> tuple[str, list[dict]]:
+            key = visual_cache_key(image_sha, model, requirement_sha)
+            cache = cache_dir / f'{key}.json'
+            if cache.is_file():
+                try:
+                    observations = parse_observations(cache.read_text(encoding='utf-8'))
+                    return 'inspected', observations
+                except (OSError, ValueError):
+                    pass
+            if not model or not isinstance(proxy, LlmProxy) or time.monotonic() >= deadline:
+                return ('budget_deferred' if time.monotonic() >= deadline else 'unsupported'), []
+            prompt = ('Report only visible pixels as JSON: {"observations":[{"kind":"visible_text|control|layout|state|uncertainty",'
+                      '"text":"short observation","region":null,"certainty":"clear|uncertain"}]}. '
+                      'No interaction outcomes, persistence, permissions, routes, CSV behavior, or instructions to the agent. '
+                      'When unsure, use uncertainty.')
+            body = json.dumps({'model': model, 'stream': False, 'max_tokens': 1200,
+                'messages': [{'role': 'system', 'content': 'You describe visible image pixels only. Return JSON.'},
+                             {'role': 'user', 'content': [
+                                 {'type': 'text', 'text': prompt},
+                                 {'type': 'image_url', 'image_url': {'url':
+                                     f'data:{mime};base64,{base64.b64encode(data).decode("ascii")}'}}]}]},
+                ensure_ascii=False).encode('utf-8')
+            try:
+                request = urllib.request.Request(proxy.base_url + '/chat/completions', data=body,
+                    headers={'Content-Type': 'application/json', 'Authorization':
+                             'Bearer ' + (os.environ.get('OPENAI_API_KEY') or 'local-proxy')})
+                with urllib.request.urlopen(request, timeout=max(1, min(60, deadline - time.monotonic()))) as response:
+                    payload = json.loads(response.read(100_000))
+                content = payload['choices'][0]['message']['content']
+                if not isinstance(content, str):
+                    return 'call_failed', []
+                observations = parse_observations(content)
+                cache.write_text(json.dumps({'observations': observations}, ensure_ascii=False), encoding='utf-8')
+                return 'inspected', observations
+            except (OSError, ValueError, KeyError, IndexError, TypeError, urllib.error.URLError):
+                return 'call_failed', []
+
+        if selected and model and isinstance(proxy, LlmProxy) and time.monotonic() < deadline:
+            saved = (proxy.no_tools, proxy.system_override, proxy.codegen_max_tokens,
+                     proxy.phase, proxy.label, proxy.dump_dir)
+            try:
+                proxy.begin_turn(len(selected))
+                proxy.no_tools = True
+                proxy.system_override = None
+                proxy.codegen_max_tokens = 1200
+                proxy.phase = 'design'
+                proxy.label = 'visual reference preflight'
+                proxy.dump_dir = None  # proxy debug dumps must never contain image base64
+                first_sha, (first_data, first_mime, _) = selected[0]
+                outcomes[first_sha] = inspect(first_sha, first_data, first_mime)
+                if outcomes[first_sha][0] == 'inspected' and time.monotonic() < deadline:
+                    executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix='arc-visual')
+                    try:
+                        futures = {executor.submit(inspect, image_sha, data, mime): image_sha
+                                   for image_sha, (data, mime, _) in selected[1:]}
+                        for future in as_completed(futures, timeout=max(0.01, deadline - time.monotonic())):
+                            outcomes[futures[future]] = future.result()
+                    except TimeoutError:
+                        pass
+                    finally:
+                        # Finish the bounded HTTP calls before returning the
+                        # shared proxy to code generation.
+                        executor.shutdown(wait=True, cancel_futures=True)
+                for image_sha, _ in selected:
+                    outcomes.setdefault(image_sha, ('budget_deferred', []))
+            finally:
+                (proxy.no_tools, proxy.system_override, proxy.codegen_max_tokens,
+                 proxy.phase, proxy.label, proxy.dump_dir) = saved
+                proxy._last_prompt_text = ''
+                self.note_turn('visual reference preflight')
+        else:
+            for image_sha, _ in selected:
+                outcomes.setdefault(image_sha, ('unsupported' if not model else 'budget_deferred', []))
+        for row in evidence:
+            if row['status'] == 'ready':
+                row['status'], row['observations'] = outcomes.get(row['sha256'], ('budget_deferred', []))
+        self.visual_evidence = evidence
+        path = self.output_dir / '.arc' / 'visual-evidence.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({'version': 1, 'images': evidence}, ensure_ascii=False, indent=2) + '\n',
+                        encoding='utf-8')
+        self.metric('visual_preflight', images=len(evidence), inspected=sum(
+            row['status'] == 'inspected' for row in evidence), statuses={
+                status: sum(row['status'] == status for row in evidence)
+                for status in sorted({row['status'] for row in evidence})})
+
+    def visual_summary_for_nodes(self, node_ids: set[str]) -> str:
+        evidence = getattr(self, 'visual_evidence', [])
+        return visual_summary(evidence if isinstance(evidence, list) else [], node_ids)
 
     def prepare_build(self, tree: dict, ordered: list[dict]) -> None:
         """What happens before the first node: the application design (loaded
@@ -3764,6 +3967,7 @@ class Flow:
         fresh build called app_design, so a rerun over an existing app -- which
         is every rerun -- could never reuse the design it had stored; app_design
         itself only ever generates on a fresh build."""
+        self.prepare_visual_evidence()
         build_dir = getattr(self, "output_dir", None)
         if (not self.evolution and build_dir is not None and not app_source_files(build_dir) and self.codegen_mode()
                 and os.environ.get("OCTOS_ARC_GENERIC_TEMPLATE", "1") != "0"):
@@ -3864,7 +4068,10 @@ class Flow:
             # this exact tree is trusted over the code.
             return None
         self._design_requirements = requirement_index(tree)
-        prompt = stack_note(self.output_dir) + seed_contract_text(self) + DOMAIN_GUIDANCE + BUSINESS_QUALITY_GUIDANCE + APP_DESIGN_PROMPT.format(outline=outline)
+        visual_note = Flow.visual_summary_for_nodes(self, {str(node.get('id')) for node in ordered})
+        prompt = (stack_note(self.output_dir) + seed_contract_text(self) + DOMAIN_GUIDANCE
+                  + BUSINESS_QUALITY_GUIDANCE + APP_DESIGN_PROMPT.format(outline=outline)
+                  + ('\n' + visual_note if visual_note else ''))
         deadline = time.monotonic() + self.design_timeout
         ok, text = self.text_turn(prompt, self.design_timeout, "application design", system=APP_DESIGN_SYSTEM,
                                   spec_chars=len(outline))
@@ -4611,6 +4818,22 @@ class Flow:
                 break
             available = {str(p.relative_to(self.output_dir)) for p in app_source_files(self.output_dir)
                          if not str(p.relative_to(self.output_dir)).startswith("backend/data/")}
+            if phase_for_label(label) == 'repair':
+                try:
+                    versions_now = tuple(sorted((name, hashlib.sha256(
+                        (self.output_dir / name).read_bytes()).hexdigest()) for name in request['paths']
+                        if name in available))
+                except OSError:
+                    versions_now = ()
+                if versions_now and len(versions_now) == len(request['paths']):
+                    key = (label.split(' (', 1)[0], versions_now)
+                    seen_repairs = getattr(self, '_repair_context_versions', set())
+                    if key in seen_repairs:
+                        self.metric('context_recovery', label=label, outcome='same_version_limit',
+                                    paths=[name for name, _ in versions_now])
+                        return result(False, 'Repeated NEEDS_CONTEXT for unchanged repair source; '
+                                      'return to local source check or tool edit', 'needs_context_repeated')
+                    self._repair_context_versions = seen_repairs | {key}
             try:
                 evidence, versions = context_evidence(self.output_dir, request, available, seen_context)
             except (OSError, ValueError) as exc:
@@ -7012,6 +7235,12 @@ class Flow:
         truncated whole-app reply falls through to bounded multi-node waves.
         """
         # Incomplete model design is quality debt, not authority to discard the implementation queue.
+        if self.final_phase_due():
+            self.metric('final_phase_reserve_reassigned', path='whole_app_codegen',
+                        remaining_seconds=round(self.remaining(), 3),
+                        pending_nodes=[str(node.get('id')) for node in ordered],
+                        decision='stop_new_nodes')
+            return False
         ids = [str(node.get("id")) for node in ordered]
         setting = os.environ.get("OCTOS_ARC_WHOLE_APP", "auto").strip().lower()
         has_executable_specs = bool(self.tests_dir)
@@ -8298,7 +8527,10 @@ class Flow:
                                   "description": str(node.get("description") or "")}
                                  for node in siblings],
                 "cross_dependencies": phase.get("cross_dependencies", []),
-                "design": getattr(self, 'app_design_doc', None),
+                "design": phase_design_for_tests(getattr(self, 'app_design_doc', None),
+                                                 {str(node.get('id')) for node in siblings}),
+                "visual_navigation_only": Flow.visual_summary_for_nodes(self,
+                    {str(node.get('id')) for node in siblings}),
             }, ensure_ascii=False)
         def report_nodes(chunk: list[dict], batch_number: int, status: str) -> None:
             counts: dict[str, int] = {}
@@ -8368,6 +8600,7 @@ class Flow:
                 self.derived_llm_seconds = initial_generation_seconds + time.monotonic() - generation_started
         added = 0
         dropped_total: list[str] = []
+        rejected_attempts: list[str] = []
         for index, chunk in enumerate(chunks):
             prefetched_job = jobs_by_index.get(index) if not parallel_fallback else None
             reserved_request = prefetched_job is not None and id(prefetched_job) in parallel_numbers
@@ -8441,6 +8674,7 @@ class Flow:
                 report_nodes(chunk, batch_number, "unavailable")
                 continue
             scripts, dropped, retryable = compile_review_reply(text, chunk, fixtures, with_retryable=True)
+            rejected_attempts.extend(dropped)
             retry_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
             target_nodes = {target["id"]: str(target["node_id"]) for target in chunk}
             eligible_retryable = [item for item in retryable
@@ -8485,6 +8719,7 @@ class Flow:
                     retry_targets = [dict(target, minimum_case_count=prior_counts.get(target.get('id'), 1))
                                      for target in retry_chunk]
                     fixed, dropped_again = compile_review_reply(text, retry_targets, fixtures)
+                    rejected_attempts.extend(dropped_again)
                     for node_id, tests in fixed.items():
                         scripts.setdefault(node_id, []).extend(tests)
                     fixed_titles = {t.split("test('", 1)[1].split(" [model]")[0] for ts in fixed.values() for t in ts}
@@ -8548,7 +8783,14 @@ class Flow:
         log(f"[derived] model review: {added} validated script(s) added for {len(targets)} planned scenario(s); "
             f"{len(dropped_total)} proposal(s) rejected")
         self.metric("derived_model_review", added=added, targets=len(targets), rejected=len(dropped_total),
-                    rejected_reasons=dropped_total[:12])
+                    rejected_reasons=dropped_total[:12],
+                    rejected_attempt_categories={category: sum(rejection_category(reason) == category
+                        for reason in rejected_attempts)
+                        for category in sorted({rejection_category(reason) for reason in rejected_attempts})},
+                    remaining_invalid_categories={category: sum(rejection_category(reason) == category
+                        for reason in dropped_total)
+                        for category in sorted({rejection_category(reason) for reason in dropped_total})},
+                    unique_rejected_scenarios=len({reason.split(': ', 1)[0] for reason in dropped_total}))
         return added
 
     def review_derived_cases(self, node_ids: set[str], *, reserve_requests: int = 0) -> None:
@@ -8597,9 +8839,11 @@ class Flow:
         # unchanged case, requirement, helper and fixture versions.
         for row in rows:
             previous = getattr(self, "derived_case_reviews", {}).get((row["node_id"], row["title"]))
-            if previous and previous.get("status") in {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only", "invalid", "skip_review"} and all(
-                    previous.get(key) == row.get(key) for key in
-                    ("case_hash", "requirements_hash", "helper_hash", "fixture_hash")):
+            same_version = bool(previous and all(previous.get(key) == row.get(key) for key in
+                          ("case_hash", "requirements_hash", "helper_hash", "fixture_hash")))
+            if same_version and previous.get("quote_rereview_attempted"):
+                row["quote_rereview_attempted"] = True
+            if same_version and previous.get("status") in {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only", "invalid", "skip_review"}:
                 row.update({key: previous[key] for key in
                             ("status", "outcome_quote", "assertion_quote", "reason", "review_request", "review_completed", "review_error_confirmed", "branch", "obligation_ids", "obligation_evidence", "review_validation") if key in previous})
         if self.fast_test_mode():
@@ -8650,6 +8894,7 @@ class Flow:
         def audit_prompt(chunk):
             shown = [{"id": row["id"], "requirement": row["requirement"],
                       "case": row["case"], "origin": row.get("origin", "requirement_scenario"),
+                      "quote_options": numbered_review_quotes(row),
                       "obligations": row.get('obligations', []),
                       "kind": "skip" if row["status"] == "skipped_unreviewed" else "test"}
                      for row in chunk]
@@ -8678,7 +8923,9 @@ class Flow:
                       "Use needs_correction only when this case has a wrong action, unsupported oracle, or "
                       "missing proof of its own stated outcome. Quotes must be verbatim. requirement_quote must come from the "
                       "leaf description, a THEN step, or an inherited obligation's source quote, not GIVEN/WHEN; test_quote must be an assertion that "
-                      "proves that outcome. Do not approve entry-only checks.\n"
+                      "proves that outcome. You may return a quote_options ID such as R1 or T1 in any quote field; "
+                      "the program restores its exact source text and applies every normal witness check. "
+                      "Do not approve entry-only checks.\n"
                       "Cases marked baseline_invariant are inferred password-login safety properties, not "
                       "verbatim product scenarios. Check that the original requirement supports password login "
                       "and that the supplied invariant THEN is valid; dispute it if the product permits an exception. "
@@ -8801,11 +9048,14 @@ class Flow:
                     if prefetched_reply is None:
                         parallel_fallback = True
                 if prefetched_reply is None:
+                    request_started = time.monotonic()
                     ok, reply = self.text_turn(review_prompt, allowance,
                                                "derived case independent review" + (" (format retry)" if attempt else ""),
                                                system=audit_system, spec_chars=len(review_prompt))
+                    request_elapsed = time.monotonic() - request_started
                 else:
                     ok, reply = prefetched_reply.ok, prefetched_reply.text
+                    request_elapsed = prefetched_reply.elapsed
                 if not audit_input_current(chunk):
                     ok, reply = False, "stale_audit_input: spec, helper or fixture changed during review"
                     self.metric("derived_case_review", outcome="stale_input",
@@ -8813,6 +9063,9 @@ class Flow:
                 (review_dir / f"audit-{current_request_number}.txt").write_text(str(reply), encoding="utf-8")
                 decisions, parse_error = (parse_review_decisions(reply, {row["id"] for row in chunk})
                                           if ok else ([], "unavailable"))
+                if parse_error is None and request_elapsed > 0:
+                    samples = getattr(self, 'derived_review_request_durations', [])
+                    self.derived_review_request_durations = (samples + [request_elapsed])[-32:]
                 self.metric("derived_case_review_parse", outcome=parse_error or "parsed", request=current_request_number,
                             cases=len(decisions))
                 if parse_error != "format_invalid":
@@ -8832,8 +9085,49 @@ class Flow:
             for row in chunk:
                 if row["id"] not in by_id and len(chunk) > 1:
                     continue
-                decision = by_id.get(row["id"], {})
+                decision = restore_review_quote_ids(by_id.get(row["id"], {}), numbered_review_quotes(row))
                 validation_errors = review_validation_errors(row, decision)
+                quote_errors = {'requirement_quote_not_in_authoritative_outcome', 'test_quote_not_in_case',
+                                'test_quote_has_no_assertion', 'assertion_does_not_follow_action',
+                                'missing_or_duplicate_obligation_witness', 'invalid_obligation_evidence',
+                                'invalid_or_missing_obligation_ids'}
+                rereview_prompt = (audit_prompt([row]) + '\nThe earlier proposed approval failed these witness checks: '
+                                   + json.dumps(validation_errors, ensure_ascii=False)
+                                   + '\nReassess the complete THEN outcome from scratch. Return one decision for this ID. '
+                                     'If the case lacks proof, choose needs_correction. Do not edit the case or weaken its assertion.')
+                if (decision.get('status') == 'approved_behavior' and row['status'] == 'unreviewed'
+                        and validation_errors and not row.get('quote_rereview_attempted')
+                        and any(any(error.endswith(reason) for reason in quote_errors)
+                                for error in validation_errors)
+                        and len(rereview_prompt) <= self.codegen_context_chars()
+                        and spent < cap and review_request_admissible(
+                            current_phase, phase_order, phase_counts, spent, cap)
+                        and review_seconds + time.monotonic() - review_started < wall_cap
+                        and audit_input_current([row])
+                        and not self.wound_down() and not self.review_budget_spent()
+                        and not self.derived_preflight_tokens_spent()
+                        and self.remaining() >= self.final_phase_reserve() + 300
+                        and getattr(self, 'derived_preflight_deadline', float('inf')) - time.monotonic() >= 30):
+                    row['quote_rereview_attempted'] = True
+                    spent += 1
+                    phase_counts[current_phase] = phase_counts.get(current_phase, 0) + 1
+                    self.derived_case_review_requests = spent
+                    current_request_number = spent
+                    rereview_timeout = max(1, int(min(600, self.remaining() - self.final_phase_reserve() - 180,
+                                                      wall_cap - review_seconds - (time.monotonic() - review_started),
+                                                      getattr(self, 'derived_preflight_deadline', float('inf'))
+                                                      - time.monotonic())))
+                    rereview_ok, rereview_text = self.text_turn(rereview_prompt, rereview_timeout,
+                        'derived case quote rereview', system=audit_system, spec_chars=len(rereview_prompt))
+                    (review_dir / f'audit-{spent}.txt').write_text(str(rereview_text), encoding='utf-8')
+                    rereview_decisions, rereview_error = parse_review_decisions(
+                        rereview_text, {row['id']}) if rereview_ok and audit_input_current([row]) else ([], 'unavailable')
+                    self.metric('derived_case_quote_rereview', case_id=row['id'],
+                                outcome=rereview_error or 'parsed', request=spent)
+                    if rereview_decisions:
+                        decision = restore_review_quote_ids(rereview_decisions[0], numbered_review_quotes(row))
+                        validation_errors = review_validation_errors(row, decision)
+                        current_request_number = spent
                 if not validation_errors:
                     row["status"] = "approved_behavior"
                     row["outcome_quote"] = decision["requirement_quote"]
@@ -9292,6 +9586,303 @@ class Flow:
                           "business test specs generated, validated and independently reviewed")
                 self.mark("design_done", node_id, detail)
 
+    def start_background_specs(self, ordered: list[dict]) -> None:
+        """Run the existing multi-stage spec process in a private workspace.
+
+        Every model turn uses the isolated request executor and the main proxy's
+        locked token reservation. The worker never writes application source,
+        the protected suite, or Flow state; poll_background_specs owns admission.
+        """
+        if (os.environ.get('OCTOS_ARC_BACKGROUND_SPECS', '1') == '0'
+                or self.fast_test_mode() or not getattr(self, 'derived_as_specs', False)
+                or not ordered or not isinstance(getattr(self, 'llm_proxy', None), LlmProxy)
+                or not isinstance(getattr(self, 'driver', None), OctosDriver)
+                or not getattr(self, 'derived_tests_dir', None)):
+            return
+        config = Path(self.driver.env.get('OCTOS_CONFIG_DIR', '')) / 'config.json'
+        if not config.is_file():
+            self.metric('derived_background', outcome='unavailable', reason='isolated_request_config_missing')
+            return
+        scratch = tempfile.TemporaryDirectory(prefix='arc-derived-pipeline-')
+        private_root = Path(scratch.name)
+        private_tests = private_root / 'derived-tests'
+        shutil.copytree(self.derived_tests_dir, private_tests)
+        private = Flow(self.args, private_root, self.req_dir)
+        for name, value in vars(self).items():
+            if name.startswith(('derived_', '_derived_')) and name not in {'derived_tests_dir'}:
+                try:
+                    setattr(private, name, copy.deepcopy(value))
+                except (TypeError, ValueError):
+                    pass
+        for name in ('requirement_tree', 'requirement_nodes', 'phase_plan', 'app_design_doc',
+                     'visual_evidence',
+                     'spec_map', 'requirement_contracts'):
+            if hasattr(self, name):
+                setattr(private, name, copy.deepcopy(getattr(self, name)))
+        private.derived_tests_dir = private_tests
+        private.tests_dir = private_tests
+        private.llm_proxy = self.llm_proxy  # read-only budget observation; no proxy settings are changed
+        private.driver = None
+        private.runner = None
+        private.t_start = self.t_start
+        private.budget = self.budget
+        private.n_nodes = getattr(self, 'n_nodes', len(ordered))
+        private.snapshot_protected = lambda: None
+        self._background_spec_metrics = queue.Queue()
+        self._derived_background_stale = False
+        self._background_specs_paused = False
+        self._background_regression_windows = 0
+        requirement_sha = case_sha(getattr(self, 'requirement_tree', {}))
+        helper_sha = helper_evidence_hash(private_tests)
+        phase_of = (getattr(self, 'phase_plan', None) or {}).get('leaf_phase', {})
+        batches = []
+        for node in ordered:
+            phase = phase_of.get(str(node.get('id')), str(node.get('id')))
+            if not batches or len(batches[-1]) >= 3 or phase_of.get(str(batches[-1][0].get('id')),
+                                                                       str(batches[-1][0].get('id'))) != phase:
+                batches.append([])
+            batches[-1].append(copy.deepcopy(node))
+        overall_deadline = time.monotonic() + max(0, self.remaining() - self.final_phase_reserve() - 60)
+        stop_holder = {}
+
+        def private_turn(prompt, timeout, label, *, system=CODEGEN_SYSTEM, spec_chars=0, request_budget=None):
+            pipeline = stop_holder.get('pipeline')
+            if (pipeline is not None and pipeline.stopping) or time.monotonic() >= overall_deadline:
+                return False, 'background spec deadline reached'
+            deadline = min(overall_deadline, time.monotonic() + max(1, float(timeout)))
+            job = SpecRequest(prompt, max(1, int(min(timeout, deadline - time.monotonic()))), label,
+                              system, reservation_tokens(prompt), deadline)
+            pool = self.isolated_spec_requests(1, force_single=True, defer_metrics=True,
+                allowed=lambda _job: time.monotonic() < overall_deadline and
+                                     not self._background_specs_paused and
+                                     (pipeline is None or not pipeline.stopping))
+            if pool is None:
+                return False, 'isolated spec request unavailable'
+            replies = pool.ordered([job])
+            try:
+                reply = next(replies, None)
+            finally:
+                replies.close()
+            return (reply.ok, reply.text) if reply is not None else (False, 'spec request budget unavailable')
+
+        private.text_turn = private_turn
+        private.derived_preflight_deadline = overall_deadline
+
+        def run_batch(batch):
+            ids = [str(node.get('id')) for node in batch]
+            before = {node_id: case_sha((private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8'))
+                      if (private_tests / f'{node_id}.spec.ts').is_file() else '' for node_id in ids}
+            private.prepare_derived_spec_batch(batch)
+            files = {node_id: (private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8')
+                     for node_id in ids if (private_tests / f'{node_id}.spec.ts').is_file()}
+            review_dir = private_tests / 'review'
+            return {'node_ids': ids, 'before': before, 'files': files,
+                    'requirement_sha': requirement_sha, 'helper_sha': helper_sha,
+                    'obligations': copy.deepcopy(getattr(private, 'derived_obligations', [])),
+                    'obligation_status': copy.deepcopy(getattr(private, 'derived_obligation_status', {})),
+                    'targets': copy.deepcopy(private.planned_derived_scenarios()),
+                    'case_reviews': copy.deepcopy([row for (node_id, _), row in
+                        getattr(private, 'derived_case_reviews', {}).items() if node_id in ids]),
+                    'augmented_nodes': sorted(getattr(private, 'derived_augmented_nodes', set())),
+                    'augmentation_attempts': copy.deepcopy(getattr(private, 'derived_augmentation_attempts', {})),
+                    'target_attempts': copy.deepcopy(getattr(private, 'derived_target_attempts', {})),
+                    'review_files': {path.name: path.read_text(encoding='utf-8')
+                                     for path in review_dir.iterdir() if path.is_file()} if review_dir.is_dir() else {}}
+
+        self._derived_background_scratch = scratch
+        self._derived_background_pipeline = DerivedSpecPipeline(batches, run_batch)
+        stop_holder['pipeline'] = self._derived_background_pipeline
+        self.metric('derived_background', outcome='started', batches=len(batches))
+
+    def poll_background_specs(self) -> None:
+        """Install only current, independently validated private results."""
+        self.check_background_code_health()
+        metrics = getattr(self, '_background_spec_metrics', None)
+        if metrics is not None:
+            while True:
+                try:
+                    label, ok, elapsed, tokens, requests = metrics.get_nowait()
+                except queue.Empty:
+                    break
+                self.metric('turn', label=label, phase=phase_for_label(label), mode='isolated_text',
+                            ok=ok, elapsed_seconds=round(elapsed, 3), tokens=tokens, requests=requests)
+        pipeline = getattr(self, '_derived_background_pipeline', None)
+        if pipeline is None or not getattr(self, 'derived_tests_dir', None):
+            return
+        for result in pipeline.poll_ready():
+            ids = result.get('node_ids', [])
+            if getattr(self, '_derived_background_stale', False):
+                self.metric('derived_background', outcome='discarded_after_stale_input', nodes=ids)
+                continue
+            if result.get('error'):
+                self.metric('derived_background', outcome='failed', nodes=ids, reason=result['error'])
+                continue
+            directory = self.derived_tests_dir
+            current = {node_id: case_sha((directory / f'{node_id}.spec.ts').read_text(encoding='utf-8'))
+                       if (directory / f'{node_id}.spec.ts').is_file() else '' for node_id in ids}
+            if (result.get('requirement_sha') != case_sha(getattr(self, 'requirement_tree', {}))
+                    or result.get('helper_sha') != helper_evidence_hash(directory)
+                    or current != result.get('before')):
+                self.metric('derived_background', outcome='stale_input', nodes=ids)
+                self._derived_background_stale = True
+                pipeline.close(0)
+                continue
+            for node_id, source in result['files'].items():
+                (directory / f'{node_id}.spec.ts').write_text(source, encoding='utf-8')
+            self.verify_derived_suite()
+            review_dir = directory / 'review'
+            review_dir.mkdir(parents=True, exist_ok=True)
+            for name, source in result['review_files'].items():
+                if name != 'cases.json':
+                    (review_dir / name).write_text(source, encoding='utf-8')
+            self.derived_obligations = result['obligations']
+            self.derived_obligation_status = result['obligation_status']
+            self._derived_scenario_targets = result['targets']
+            self.derived_augmented_nodes = set(result['augmented_nodes'])
+            self.derived_augmentation_attempts = result['augmentation_attempts']
+            self.derived_target_attempts = result['target_attempts']
+            rebuilt = collect_cases(directory, result['targets'], set(ids),
+                                    ancestor_context(getattr(self, 'requirement_tree', None)))
+            by_key = {(row['node_id'], row['title']): row for row in rebuilt}
+            reviews = getattr(self, 'derived_case_reviews', {})
+            for candidate in result['case_reviews']:
+                key = (candidate['node_id'], candidate['title'])
+                row = by_key.get(key)
+                if row is None or any(row.get(field) != candidate.get(field) for field in
+                                      ('case_hash', 'requirements_hash', 'file_hash')):
+                    continue
+                row['helper_hash'] = helper_evidence_hash(directory)
+                row['fixture_hash'] = case_sha(str(suite_fixtures(getattr(self, 'derived_nodes', []))))
+                if any(row.get(field) != candidate.get(field) for field in ('helper_hash', 'fixture_hash')):
+                    continue
+                if candidate.get('status') == 'approved_behavior':
+                    if review_validation_errors(row, candidate):
+                        self.metric('derived_background', outcome='approval_rejected', case_id=row['id'])
+                        continue
+                row.update(candidate)
+                reviews[key] = row
+            self.derived_case_reviews = reviews
+            (review_dir / 'cases.json').write_text(json.dumps({'version': 1, 'cases': safe_records(
+                list(reviews.values()))}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            self._derived_preflight_node_ids = getattr(self, '_derived_preflight_node_ids', set()) | set(ids)
+            self._derived_spec_batch_completed_ids = getattr(self, '_derived_spec_batch_completed_ids', set()) | set(ids)
+            pending = getattr(self, '_background_pending_specs', set())
+            pending.update(f'{node_id}.spec.ts' for node_id in ids if self.derived_has_runnable_cases(node_id))
+            self._background_pending_specs = pending
+            self.write_derived_handoff()
+            self.snapshot_protected()
+            self.metric('derived_background', outcome='committed', nodes=ids,
+                        runnable=sum(self.derived_has_runnable_cases(node_id) for node_id in ids))
+
+    def check_background_code_health(self) -> None:
+        """Pause test requests on sustained code latency or cache regression.
+
+        Baselines come from a same-task serial control supplied to the run.
+        Without one, report observations but do not infer provider contention.
+        """
+        if getattr(self, '_derived_background_pipeline', None) is None:
+            return
+        proxy = getattr(self, 'llm_proxy', None)
+        path = getattr(proxy, 'log_path', None)
+        if not isinstance(path, Path) or not path.is_file():
+            return
+        try:
+            records = [json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()[-120:]]
+        except (OSError, ValueError):
+            return
+        code = [row for row in records if row.get('phase') == 'implement'
+                and row.get('status') == 200 and isinstance(row.get('elapsed_ms'), (int, float))
+                and isinstance(row.get('prompt_tokens'), (int, float)) and row['prompt_tokens'] > 0]
+        if len(code) < 4:
+            return
+        model = code[-1].get('model')
+        same_model = [row for row in code if row.get('model') == model]
+        recent = same_model[-4:]
+        if len(recent) < 4:
+            return
+        signature = tuple(row.get('prompt_sha256') or row.get('ts') for row in recent)
+        if signature == getattr(self, '_background_health_last_signature', None):
+            return
+        self._background_health_last_signature = signature
+        p90_ms = sorted(row['elapsed_ms'] for row in recent)[-1]
+        known_cache = [row for row in recent if isinstance(row.get('prompt_cache_hit_tokens'), (int, float))]
+        prompt_total = sum(row['prompt_tokens'] for row in known_cache)
+        hits = sum(row['prompt_cache_hit_tokens'] for row in known_cache)
+        hit_pct = 100 * hits / prompt_total if prompt_total else None
+        uncached = ((prompt_total - hits) / len(known_cache)) if known_cache else None
+        def baseline(name):
+            try:
+                return float(os.environ[name])
+            except (KeyError, ValueError):
+                return None
+        base_p90 = baseline('OCTOS_ARC_CODE_P90_BASELINE_MS')
+        base_hit = baseline('OCTOS_ARC_CODE_CACHE_BASELINE_PCT')
+        base_uncached = baseline('OCTOS_ARC_CODE_UNCACHED_BASELINE_TOKENS')
+        if len(same_model) >= 8 and any(value is None for value in (base_p90, base_hit, base_uncached)):
+            prior = same_model[-8:-4]
+            prior_size = sum(row['prompt_tokens'] for row in prior) / len(prior)
+            recent_size = sum(row['prompt_tokens'] for row in recent) / len(recent)
+            if prior_size and 0.75 <= recent_size / prior_size <= 1.25:
+                if base_p90 is None:
+                    base_p90 = sorted(row['elapsed_ms'] for row in prior)[-1]
+                prior_known = [row for row in prior if isinstance(row.get('prompt_cache_hit_tokens'), (int, float))]
+                prior_total = sum(row['prompt_tokens'] for row in prior_known)
+                prior_hits = sum(row['prompt_cache_hit_tokens'] for row in prior_known)
+                if prior_total and base_hit is None:
+                    base_hit = 100 * prior_hits / prior_total
+                if prior_known and base_uncached is None:
+                    base_uncached = (prior_total - prior_hits) / len(prior_known)
+        reasons = []
+        if base_p90 and p90_ms > 1.2 * base_p90:
+            reasons.append('p90_latency')
+        if base_hit is not None and hit_pct is not None and hit_pct < base_hit - 5:
+            reasons.append('cache_hit')
+        if base_uncached and uncached is not None and uncached > 1.1 * base_uncached:
+            reasons.append('uncached_tokens')
+        windows = getattr(self, '_background_regression_windows', 0)
+        self._background_regression_windows = windows + 1 if reasons else 0
+        self.metric('background_code_health', model=model, p90_ms=p90_ms, cache_hit_pct=hit_pct,
+                    uncached_tokens_per_request=uncached, regression_reasons=reasons,
+                    consecutive_windows=self._background_regression_windows)
+        if self._background_regression_windows >= 2 and not getattr(self, '_background_specs_paused', False):
+            self._background_specs_paused = True
+            self._derived_background_pipeline.close(0)
+            self.metric('derived_background', outcome='paused_for_code_regression', reasons=reasons)
+
+    def close_background_specs(self) -> None:
+        pipeline = getattr(self, '_derived_background_pipeline', None)
+        if pipeline is None:
+            return
+        pipeline.close(0)
+        self.poll_background_specs()
+        self._derived_background_pipeline = None
+        scratch = getattr(self, '_derived_background_scratch', None)
+        if scratch is not None and not pipeline._thread.is_alive():
+            scratch.cleanup()
+
+    def approved_checkpoint_specs(self, candidates: list[str], *, current_ids: set[str] | None = None) -> list[str]:
+        """Only execute approved specs whose known leaf dependencies have code."""
+        nodes = {str(node.get('id')): node for node in getattr(self, 'derived_nodes', [])}
+        implemented = (set(current_ids or set()) | set(getattr(self, 'whole_app_generated_ids', set()))
+                       | {node_id for node_id, row in getattr(self, 'implementation_evidence', {}).items()
+                          if row.get('status') in {'implemented_unverified', 'behavior_verified'}}
+                       | {node_id for node_id, verdict in getattr(self, 'test_verdict', {}).items()
+                          if verdict is True})
+        ready = []
+        for spec in candidates:
+            owners = [node_id for node_id, paths in getattr(self, 'spec_map', {}).items()
+                      if spec in paths and node_id in nodes]
+            if not owners:
+                continue
+            if all(self.derived_has_runnable_cases(owner) and owner in implemented
+                   and all(str(dependency) not in nodes or str(dependency) in implemented
+                           for dependency in nodes[owner].get('dependencies') or [])
+                   for owner in owners):
+                ready.append(spec)
+            else:
+                self.metric('derived_checkpoint', spec=spec, outcome='waiting_for_dependency')
+        return sorted(set(ready))
+
     def prepare_derived_spec_batch(self, ordered: list[dict]) -> None:
         """Generate and review a bounded set of leaves in the test queue."""
         if (getattr(self, "derived_specs_frozen", False)
@@ -9576,6 +10167,14 @@ class Flow:
         deferred_run = 0
         repaired_builds: set[str] = set()
         while start < len(ordered):
+            self.poll_background_specs()
+            if self.final_phase_due():
+                pending = [str(node.get('id')) for node in ordered[start:]]
+                self.metric('final_phase_reserve_reassigned', path='whole_app_wave',
+                            remaining_seconds=round(self.remaining(), 3),
+                            pending_nodes=pending, decision='stop_new_nodes')
+                self.whole_app_deferred_ids.update(pending)
+                break
             if self.remaining() < self.min_repair_seconds + 120 or self.wound_down():
                 log("[flow] whole-app waves: insufficient budget; measuring any partial application")
                 return wave > 0
@@ -9862,20 +10461,21 @@ class Flow:
                     self.whole_app_tool_ids.update(ids)
                     start += size
                     break
+                self.poll_background_specs()
                 if (getattr(self, "runner", None) is not None and self.runtime is not None
                         and (not getattr(self, "derived_as_specs", False)
-                             or os.environ.get("OCTOS_ARC_WAVE_DERIVED_TESTS", "0") == "1")
+                             or os.environ.get("OCTOS_ARC_WAVE_DERIVED_TESTS", "1") == "1")
                         and self.remaining() > self.final_phase_reserve() + 180):
                     own_specs = sorted({p for nid in ids for p in self.spec_map.get(nid, [])})
                     affected = self.affected_regression_specs(set(getattr(self, "last_codegen_written", [])), own_specs)
-                    gate_specs = sorted(set(own_specs + affected))
+                    gate_specs = sorted(set(own_specs + affected)
+                                        | set(getattr(self, '_background_pending_specs', set())))
                     if getattr(self, 'derived_as_specs', False):
-                        reviewed_specs = {spec for owner, paths in self.spec_map.items()
-                                          if owner and self.derived_has_runnable_cases(owner)
-                                          for spec in paths}
-                        gate_specs = [spec for spec in gate_specs if spec in reviewed_specs]
+                        gate_specs = self.approved_checkpoint_specs(gate_specs, current_ids=set(ids))
                     if gate_specs:
                         measured = self.run_specs(gate_specs)
+                        self._background_pending_specs = (set(getattr(self, '_background_pending_specs', set()))
+                                                          - set(gate_specs))
                         self.record_full_suite(measured, {}, scope=gate_specs)
                         active = self.uncontested_derived_results(measured)
                         self.metric("wave_behavior_gate", node_ids=ids, passed=active.passed,
@@ -9989,6 +10589,12 @@ class Flow:
         preimplemented: set[str] = set()
         for index, node in enumerate(ordered, 1):
             node_id = str(node.get("id"))
+            if self.final_phase_due():
+                self.metric("final_phase_reserve_reassigned", path="sequential", node_id=node_id,
+                            remaining_seconds=round(self.remaining(), 3),
+                            pending_nodes=[str(item.get('id')) for item in ordered[index - 1:]],
+                            decision="stop_new_nodes")
+                break
             proxy = getattr(self, 'llm_proxy', None)
             if isinstance(proxy, LlmProxy) and proxy.provider_unavailable:
                 allowance = max(0, min(90, self.remaining() - self.final_phase_reserve()))
@@ -10003,10 +10609,6 @@ class Flow:
                     self.metric('provider_circuit', decision='defer', after_nodes=index - 1,
                                 pending_nodes=[str(n.get('id')) for n in ordered[index - 1:]])
                     break
-            if self.final_phase_due():
-                self.metric("final_phase_reserve_reassigned", node_id=node_id,
-                            remaining_seconds=round(self.remaining(), 3),
-                            decision="continue_generation")
             if not self.node_start_budget_available(node_id, measurement_only=node_id in unchanged):
                 continue
             if not self.admit_node(node):
@@ -10314,6 +10916,12 @@ class Flow:
         # pay for a broad suite while those leaves have never been attempted.
         for index, node in enumerate(ordered, 1):
             node_id = str(node.get("id"))
+            if self.final_phase_due():
+                self.metric('final_phase_reserve_reassigned', path='whole_app_fallback',
+                            remaining_seconds=round(self.remaining(), 3),
+                            pending_nodes=[str(item.get('id')) for item in ordered[index - 1:]],
+                            decision='stop_new_nodes')
+                break
             preimplemented = node_id in getattr(self, "whole_app_partial_ids", ()) and bool(self.tests_dir)
             if node_id in generated or not self.node_start_budget_available(node_id,
                                                                              measurement_only=preimplemented):
@@ -10939,6 +11547,20 @@ class Flow:
         return False
 
     def regression_checkpoint(self, index: int, total: int) -> None:
+        if getattr(self, 'derived_as_specs', False) and getattr(self, '_generation_active', False):
+            self.poll_background_specs()
+            specs = sorted(getattr(self, '_background_pending_specs', set()))
+            if (specs and self.runner is not None and getattr(self, 'runtime', None) is not None
+                    and self.remaining() > self.final_phase_reserve() + 180):
+                specs = self.approved_checkpoint_specs(specs)
+                if specs:
+                    measured = self.run_specs(specs)
+                    self.record_full_suite(measured, {}, scope=specs)
+                    active = self.uncontested_derived_results(measured)
+                    self.metric('regression_checkpoint', scope='approved_derived',
+                                passed=active.passed, total=active.total)
+                    self._background_pending_specs.difference_update(specs)
+            return
         if (getattr(self, "_generation_active", False)
                 and os.environ.get("OCTOS_ARC_POST_GENERATION_CHECKPOINT", "0") != "1"):
             # Repeated broad tests may consume the remaining implementation
@@ -12504,6 +13126,7 @@ class Flow:
             try:
                 self.prepare_build(tree, ordered)
                 self.prime_generation_dependencies()
+                self.start_background_specs(ordered)
                 self._generation_active = True
                 if (self.evolution and self.runner is not None and self.tests_dir
                         and unchanged == set(node_ids) and len(node_ids) > 1):
@@ -12520,6 +13143,7 @@ class Flow:
                     self.implement_sequential(tree, ordered, unchanged)
 
                 self._generation_active = False
+                self.close_background_specs()
                 self.log_usage_checkpoint("after_implementation", nodes=node_ids)
                 try:
                     self.repair_overwritten_route_exports()
