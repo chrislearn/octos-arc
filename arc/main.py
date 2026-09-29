@@ -137,7 +137,8 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
 from guard import TurnMonitor  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
-from runtime_diagnostics import (application_failures, binding_failure_observation,
+from runtime_diagnostics import (application_failures, backend_binding_health,
+                                 backend_http_failure_observation, binding_failure_observation,
                                  browser_failure_summary, browser_health,
                                  frontend_binding_health, diagnose)
 from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, dynamic_health_patterns, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
@@ -5549,6 +5550,9 @@ class Flow:
                 summary = (runner or self.runner).run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
                                           wall_timeout=max(1, min(wall, int(self.remaining()))))
             summary.server_errors = backend_error_digest(server.tail(5000))
+            backend_failure = backend_http_failure_observation(summary)
+            if backend_failure:
+                summary.runtime_observations.append(backend_failure)
             # A page exception may occur after a business action. Reproduce its
             # route in a clean browser before promoting it to an app defect.
             from urllib.parse import urlsplit
@@ -5609,6 +5613,10 @@ class Flow:
             merged.results += part.results
             merged.load_errors += part.load_errors
             merged.runtime_observations += part.runtime_observations
+            part.server_errors = backend_error_digest(server.tail(5000))
+            backend_failure = backend_http_failure_observation(part)
+            if backend_failure:
+                merged.runtime_observations.append(backend_failure)
             merged.artifact_dirs += part.artifact_dirs
             if index < len(specs) - 1:
                 status = git_run(["status", "--porcelain", "--", "frontend", "backend"])
@@ -5648,6 +5656,12 @@ class Flow:
         binding_failure = binding_failure_observation(bindings)
         if binding_failure:
             report['observations'].append(binding_failure)
+            report['status'] = 'failed'
+        backend_bindings = backend_binding_health(self.output_dir)
+        report['backend_bindings'] = backend_bindings
+        backend_failure = binding_failure_observation(backend_bindings, 'Backend')
+        if backend_failure:
+            report['observations'].append(backend_failure)
             report['status'] = 'failed'
         report["source_hash"] = version
         (destination / "health.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))

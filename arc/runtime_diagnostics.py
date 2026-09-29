@@ -15,7 +15,7 @@ def diagnose(summary) -> list[dict]:
     for observation in getattr(summary, "runtime_observations", []):
         kind = observation.get("kind", "unknown")
         confirmed = observation.get("confirmed") is True
-        owner = "app" if confirmed and kind in {"pageerror", "blank_page", "server_crash", "undefined_binding", "temporal_dead_zone", "runtime_fallback"} else "unknown"
+        owner = "app" if confirmed and kind in {"pageerror", "blank_page", "server_crash", "backend_exception", "undefined_binding", "temporal_dead_zone", "runtime_fallback"} else "unknown"
         if kind in {"collector_error", "browser_unavailable"}:
             owner = "harness" if kind == "collector_error" else "environment"
         message = str(observation.get("message") or kind)
@@ -30,6 +30,32 @@ def diagnose(summary) -> list[dict]:
 def application_failures(summary) -> list[str]:
     return [issue["message"] for issue in diagnose(summary)
             if issue["owner"] == "app" and issue["state"] == "confirmed"]
+
+
+def backend_http_failure_observation(summary) -> dict | None:
+    """Confirm an observed 5xx when the owned backend logged an exception.
+
+    A Playwright test can mock an HTTP 500. Its response alone is useful
+    diagnostic evidence, but does not prove the application produced it.
+    """
+    error = str(getattr(summary, 'server_errors', '') or '').strip()
+    if not error:
+        return None
+    for event in getattr(summary, 'runtime_observations', []):
+        if event.get('kind') != 'http_response':
+            continue
+        try:
+            status = int(event.get('status', 0))
+        except (ValueError, TypeError):
+            continue
+        if status < 500:
+            continue
+        method = str(event.get('method') or 'HTTP')[:12]
+        path = str(event.get('path') or '/')[:200]
+        return {'kind': 'backend_exception', 'confirmed': True,
+                'message': f'Backend returned HTTP {status} for {method} {path}: {error[:800]}',
+                'status': status, 'method': method, 'path': path}
+    return None
 
 
 def browser_health(root: Path, base_url: str, destination: Path, *, paths=None,
@@ -82,7 +108,26 @@ def frontend_binding_health(frontend: Path, *, timeout: int = 20) -> dict:
         return {'status': 'unknown', 'reason': str(exc)[:300]}
 
 
-def binding_failure_observation(report: dict) -> dict | None:
+def backend_binding_health(project: Path, *, timeout: int = 20) -> dict:
+    """Check backend source with the same scope analysis after frontend install."""
+    frontend = project / 'frontend'
+    backend = project / 'backend'
+    if not backend.is_dir():
+        return {'status': 'passed', 'diagnostics': [], 'total': 0}
+    try:
+        completed = subprocess.run(
+            ['node', str(Path(__file__).with_name('undefined_bindings.cjs')),
+             str(frontend.resolve()), str(backend.resolve())],
+            text=True, capture_output=True, timeout=timeout, check=False)
+        report = json.loads(completed.stdout)
+        if completed.returncode or report.get('status') not in {'passed', 'failed', 'unknown'}:
+            raise ValueError('invalid binding-check response')
+        return report
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return {'status': 'unknown', 'reason': str(exc)[:300]}
+
+
+def binding_failure_observation(report: dict, component: str = 'Frontend') -> dict | None:
     """Keep lexical failures visible in a bounded startup repair message."""
     if report.get('status') != 'failed':
         return None
@@ -116,7 +161,7 @@ def binding_failure_observation(report: dict) -> dict | None:
         details = ', '.join(kept) + f"; {len(entries) - len(kept)} more names in health.json"
     total = report.get('total', sum(row['count'] for row in names))
     has_tdz = any(row.get('kind') == 'temporal_dead_zone' for row in names)
-    label = 'Frontend lexical failures' if has_tdz else 'Undefined frontend bindings'
+    label = f'{component} lexical failures' if has_tdz else f'Undefined {component.lower()} bindings'
     return {'kind': 'temporal_dead_zone' if has_tdz else 'undefined_binding', 'confirmed': True,
             'message': f"{label} ({total} references): {details}",
             'evidence': report}
@@ -127,7 +172,7 @@ def browser_failure_summary(report: dict, *, limit: int = 1100) -> str:
     status = str(report.get('status', 'unknown'))
     rows = report.get('observations', [])
     priority = {'temporal_dead_zone': 0, 'undefined_binding': 1,
-                'pageerror': 2, 'server_crash': 3, 'blank_page': 4,
+                'pageerror': 2, 'backend_exception': 3, 'server_crash': 3, 'blank_page': 4,
                 'runtime_fallback': 5}
     ordered = sorted((row for row in rows if isinstance(row, dict)),
                      key=lambda row: priority.get(row.get('kind'), 6))

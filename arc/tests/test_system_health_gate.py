@@ -11,13 +11,27 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from acceptance import AcceptanceRunner
+from acceptance import AcceptanceRunner, RunSummary
 from main import Flow
-from runtime_diagnostics import (binding_failure_observation, browser_failure_summary,
-                                 browser_health, diagnose, frontend_binding_health)
+from runtime_diagnostics import (application_failures, backend_binding_health,
+                                 backend_http_failure_observation, binding_failure_observation,
+                                 browser_failure_summary, browser_health, diagnose,
+                                 frontend_binding_health)
 
 
 class HealthGateTests(unittest.TestCase):
+    def test_backend_500_with_exception_blocks_a_passing_browser_test(self):
+        summary = RunSummary(passed=1, total=1, runtime_observations=[
+            {'kind': 'http_response', 'status': 500, 'method': 'PUT',
+             'path': '/api/workbooks/seed-q3-sales', 'confirmed': False}])
+        self.assertIsNone(backend_http_failure_observation(summary))
+        summary.server_errors = 'ReferenceError: range is not defined'
+        observation = backend_http_failure_observation(summary)
+        self.assertIsNotNone(observation)
+        summary.runtime_observations.append(observation)
+        self.assertIn('range is not defined', application_failures(summary)[0])
+        self.assertFalse(summary.all_passed)
+
     def test_document_500_is_confirmed_application_failure(self):
         playwright_root = Path(__file__).parents[1] / 'local-grader'
         if not (playwright_root / 'node_modules' / '@playwright' / 'test').exists():
@@ -102,6 +116,46 @@ class HealthGateTests(unittest.TestCase):
         observation = binding_failure_observation(report)
         self.assertEqual(observation['kind'], 'temporal_dead_zone')
         self.assertIn('declared at line 4', observation['message'])
+
+    def test_backend_binding_check_catches_unreached_validation_handler(self):
+        modules = Path(os.environ.get('OCTOS_ARC_TEST_BABEL_MODULES') or
+                       Path(__file__).parents[1] / 'local-grader/node_modules')
+        if not (modules / '@babel/parser').exists():
+            self.skipTest('Babel is not installed locally')
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            frontend = project / 'frontend'
+            backend = project / 'backend'
+            frontend.mkdir()
+            backend.mkdir()
+            (frontend / 'package.json').write_text('{}')
+            (frontend / 'node_modules').symlink_to(modules.resolve(), target_is_directory=True)
+            (backend / 'routes.js').write_text(
+                "const router = require('express').Router();\n"
+                "router.put('/workbooks/:id', (req, res) => {\n"
+                "  const { action } = req.body;\n"
+                "  if (action === 'set_validation') res.json({ range, type });\n"
+                "});\nmodule.exports = router;\n")
+            report = backend_binding_health(project)
+            self.assertEqual(report['status'], 'failed', report)
+            self.assertEqual({row['name'] for row in report['diagnostics']}, {'range', 'type'})
+            observation = binding_failure_observation(report, 'Backend')
+            self.assertIn('Undefined backend bindings', observation['message'])
+            flow = Flow(argparse.Namespace(web_port=3000), project, project)
+            flow.runner = AcceptanceRunner(project, project, project / 'runner', lambda _message: None)
+            flow.remaining = Mock(return_value=50)
+            flow.app_source_digest = Mock(return_value='source-v1')
+            flow.metric = Mock()
+            def healthy_browser(_root, _base_url, destination, **_options):
+                destination.mkdir(parents=True, exist_ok=True)
+                return {'status': 'passed', 'observations': [], 'artifact_dir': str(destination)}
+            with patch('main.browser_health', side_effect=healthy_browser):
+                health = flow.check_browser_health(force=True)
+            self.assertEqual(health['status'], 'failed')
+            self.assertIn('range', browser_failure_summary(health))
+            (backend / 'routes.js').write_text((backend / 'routes.js').read_text().replace(
+                'const { action }', 'const { action, range, type }'))
+            self.assertEqual(backend_binding_health(project)['status'], 'passed')
 
     def test_module_load_failure_shows_startup_fallback_and_fails_health(self):
         playwright_root = Path(__file__).parents[1] / 'local-grader'

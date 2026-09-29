@@ -4,6 +4,7 @@ const path = require('path');
 const { createRequire } = require('module');
 
 const frontend = process.argv[2];
+const backend = process.argv[3];
 const fromFrontend = createRequire(path.join(frontend, 'package.json'));
 let parser, traverse;
 try {
@@ -23,10 +24,12 @@ const allowed = new Set([...Object.getOwnPropertyNames(globalThis),
   'indexedDB', 'matchMedia', 'getComputedStyle', 'FormData', 'TextEncoder', 'TextDecoder',
   'AbortController', 'fetch', 'WebSocket', 'Worker', 'CSS', 'DOMParser', 'Node', 'NodeFilter',
   'process', 'Buffer', 'global']);
+if (backend) for (const name of ['require', 'module', 'exports', '__dirname', '__filename']) allowed.add(name);
 
 const diagnostics = [];
 let skippedTypeScript = 0;
-const sourceRoot = path.join(frontend, 'src');
+const sourceRoot = backend || path.join(frontend, 'src');
+const displayRoot = backend || frontend;
 function definitelyReadOnStatementPath(identifier, statement) {
   for (let current = identifier; current && current !== statement; current = current.parentPath) {
     const parent = current.parentPath;
@@ -41,7 +44,10 @@ function definitelyReadOnStatementPath(identifier, statement) {
 function scan(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) { scan(file); continue; }
+    if (entry.isDirectory()) {
+      if (backend && (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.'))) continue;
+      scan(file); continue;
+    }
     if (!entry.isFile() || !/\.[cm]?[jt]sx?$/.test(entry.name)) continue;
     if (/\.[cm]?tsx?$/.test(entry.name)) { skippedTypeScript++; continue; }
     let ast;
@@ -71,7 +77,7 @@ function scan(directory) {
           const key = `tdz:${name}:${line}`;
           if (!seen.has(key)) {
             seen.add(key);
-            diagnostics.push({ file: path.relative(frontend, file), line, name,
+            diagnostics.push({ file: path.relative(displayRoot, file), line, name,
               kind: 'temporal_dead_zone', declaration_line: binding.identifier.loc?.start.line || 0 });
           }
         }
@@ -81,7 +87,7 @@ function scan(directory) {
       const key = `missing:${name}:${line}`;
       if (seen.has(key)) return;
       seen.add(key);
-      diagnostics.push({ file: path.relative(frontend, file), line, name, kind: 'undefined_binding' });
+      diagnostics.push({ file: path.relative(displayRoot, file), line, name, kind: 'undefined_binding' });
     }});
   }
 }
