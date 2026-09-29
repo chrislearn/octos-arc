@@ -140,7 +140,9 @@ class TestOracleBoundaries(unittest.TestCase):
         self.assertIsNone(flow.review_failed_derived_spec_with_model('A', ['A.spec.ts'], summary))
         self.assertEqual(flow.oracle_review_turn.call_count, 2)  # one format-only retry
         self.assertEqual((flow.tests_dir / 'A.spec.ts').read_text(), source)
-        flow.flag_derived_spec_dispute.assert_not_called()
+        flow.flag_derived_spec_dispute.assert_called_once()
+        self.assertEqual(flow.generated_test_policy().quarantines()['A.spec.ts'][0]['state'],
+                         'disputed')
 
 
 class TestExecutionBoundaries(unittest.TestCase):

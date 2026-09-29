@@ -138,6 +138,7 @@ class TrustTests(unittest.TestCase):
             flow.final_measurement_reserve=Mock(return_value=100); flow.final_retry_admission=Mock(return_value=200)
             flow.trusted_derived_case=Mock(return_value=True); flow.record_full_suite=Mock()
             flow.derived_review_needed=Mock(side_effect=lambda node_id: node_id == 'B')
+            flow.derived_has_runnable_cases=Mock(side_effect=lambda node_id: node_id == 'A')
             flow.test_verdict={'A':False,'B':True}
             bad=RunSummary(total=1,passed=0,results=[TestOutcome('A: approved',False,'failed',1,file='A.spec.ts')])
             good=RunSummary(total=1,passed=1,results=[TestOutcome('A: approved',True,'passed',1,file='A.spec.ts')])

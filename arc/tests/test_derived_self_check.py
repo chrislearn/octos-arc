@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from main import Flow
-from derived_case_review import collect_cases, validate_review
+from derived_case_review import CaseStatus, collect_cases, validate_review
 from scenario_review import (authentication_invariants, behavior_test_titles, compile_reply,
                              grounded_behavior_test, review_targets, validate_proposal)
 from scenario_tests import Fixtures, suite_fixtures
@@ -96,6 +96,73 @@ class AuthenticationInvariantTests(unittest.TestCase):
 
 
 class AuditCorrectionTests(unittest.TestCase):
+    def test_case_status_enum_separates_approval_repair_invalid_and_dispute(self):
+        self.assertEqual({status.value for status in CaseStatus}, {
+            'unreviewed', 'needs_correction', 'approved_behavior', 'approved_smoke_only',
+            'invalid', 'disputed', 'skipped_unreviewed', 'skipped_with_reason', 'unverified_gap'})
+
+    def test_approved_case_with_improvement_suggestion_remains_runnable(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, path = self.setup_flow(Path(folder))
+            def audit(prompt, *_args, **_kwargs):
+                item = json.loads(prompt.split('\nCases: ')[1])[0]
+                return True, json.dumps([{'id': item['id'], 'status': 'approved_behavior',
+                    'requirement_quote': 'A created record shows “Done”.',
+                    'test_quote': "await h.expectTextsVisible(page, ['Done']);",
+                    'reason': 'This case proves the branch; an extra boundary case would improve coverage.'}])
+            flow.text_turn = Mock(side_effect=audit)
+            flow.review_derived_cases({'A'})
+            row = flow.derived_case_reviews[('A', target['title'] + ' [model]')]
+            self.assertEqual(row['status'], 'approved_behavior')
+            self.assertIn('improve', row['reason'])
+            self.assertEqual(flow.derived_case_selection([path.name]), (1, {}))
+
+    def test_rejected_case_after_applied_correction_is_invalid_only_after_reaudit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, path = self.setup_flow(Path(folder))
+            row = collect_cases(flow.derived_tests_dir, [target], {'A'})[0]
+            row.update(status='needs_correction', reason='Wrong action remains after correction',
+                       review_completed=False, review_error_confirmed=False, review_request=2)
+            flow.derived_case_reviews[('A', row['title'])] = row
+            flow.derived_case_corrected_scenarios = {('A', target['id'])}
+            flow.finalize_rejected_derived_cases({'A'})
+            self.assertEqual(row['status'], 'needs_correction')  # unavailable re-audit is not a verdict
+            row['review_completed'] = True
+            flow.finalize_rejected_derived_cases({'A'})
+            self.assertEqual(row['status'], 'needs_correction')  # parsed but ungrounded claim is insufficient
+            row['review_error_confirmed'] = True
+            flow.finalize_rejected_derived_cases({'A'})
+            self.assertEqual(row['status'], 'invalid')
+            self.assertEqual(flow.generated_test_policy().quarantines()[path.name][0]['title'], row['title'])
+            self.assertEqual(flow.derived_case_selection([path.name]), (0, {path.name: {row['title']}}))
+
+    def test_invalid_case_does_not_exclude_approved_sibling_in_same_spec(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, path = self.setup_flow(Path(folder))
+            source = path.read_text()
+            path.write_text(source + '\n' + source.replace(' [model]', ' [case 2] [model]'))
+            def audit(prompt, *_args, **_kwargs):
+                shown = json.loads(prompt.split('\nCases: ')[1])
+                return True, json.dumps([{
+                    'id': row['id'],
+                    'status': 'approved_behavior' if '[case 2]' in row['case'] else 'needs_correction',
+                    'requirement_quote': 'A created record shows “Done”.',
+                    'test_quote': "await h.expectTextsVisible(page, ['Done']);",
+                    'reason': 'The model case has a wrong action; the sibling proves this branch.'
+                } for row in shown])
+            flow.text_turn = Mock(side_effect=audit)
+            flow.review_derived_cases({'A'})
+            flow.derived_case_corrected_scenarios = {('A', target['id'])}
+            flow.finalize_rejected_derived_cases({'A'})
+            self.assertEqual([(row['title'], row['status'], row.get('review_validation'))
+                              for row in flow.derived_case_reviews.values()],
+                             [(target['title'] + ' [model]', 'invalid', ['not_approved']),
+                              (target['title'] + ' [case 2] [model]', 'approved_behavior', [])])
+            active, excluded = flow.derived_case_selection([path.name])
+            self.assertEqual(active, 1)
+            self.assertEqual(excluded, {path.name: {target['title'] + ' [model]'}})
+            self.assertTrue(flow.trusted_derived_case('A', target['title'] + ' [case 2] [model]'))
+
     def test_preparation_orders_generation_audit_correction_reaudit_and_adoption(self):
         with tempfile.TemporaryDirectory() as folder:
             flow, _, _ = self.setup_flow(Path(folder))
@@ -155,6 +222,9 @@ class AuditCorrectionTests(unittest.TestCase):
             self.assertFalse(flow.trusted_derived_case("A", target["title"] + " [model]"))
             flow.review_derived_cases({"A"})
             self.assertTrue(flow.trusted_derived_case("A", target["title"] + " [model]"))
+            flow.derived_spec_disputes = {("A", target["title"] + " [model]"): "runtime reviewers disagree"}
+            self.assertFalse(flow.trusted_derived_case("A", target["title"] + " [model]"))
+            flow.derived_spec_disputes.clear()
             path.write_text(path.read_text() + "// changed\n")
             self.assertFalse(flow.trusted_derived_case("A", target["title"] + " [model]"))
 

@@ -105,6 +105,7 @@ class CoverageTests(unittest.TestCase):
         f.derived_as_specs = True
         reviewed = {'B': True}
         f.derived_review_needed = Mock(side_effect=lambda node: node == 'B' and not reviewed['B'])
+        f.derived_has_runnable_cases = Mock(side_effect=lambda node: node != 'B' or reviewed['B'])
         f.trusted_derived_case = Mock(return_value=True)
         def audit(specs, summary, **kwargs):
             if specs == ['B.spec.ts']:

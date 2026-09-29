@@ -168,6 +168,7 @@ class FlowAuditTests(unittest.TestCase):
     def test_acceptance_uses_corrected_spec_result_before_app_repair(self):
         self.flow.repair_rounds = 0
         self.flow.derived_review_needed = Mock(return_value=False)
+        self.flow.derived_has_runnable_cases = Mock(return_value=True)
         self.flow.head = Mock(return_value="head")
         self.flow.commit = Mock()
         self.flow.record_tests = Mock()
@@ -215,7 +216,7 @@ class FlowAuditTests(unittest.TestCase):
         self.assertIsNone(self.flow.review_failed_derived_spec_with_model(
             SHEET["id"], [self.path.name], failed))
         self.assertEqual(policy.decide.call_args.args[2:4],
-                         (self.path.read_text(), "unresolved"))
+                     (self.path.read_text(), "disputed"))
         self.flow.flag_derived_spec_dispute.assert_called_once()
         self.flow.text_turn.assert_not_called()
 
@@ -289,7 +290,7 @@ class FlowAuditTests(unittest.TestCase):
         path.write_text(path.read_text().replace("['Open']", "['Done']"))
         self.assertFalse(self.flow.derived_review_needed("REQ-2"))
 
-    def test_unproven_oracle_concern_does_not_suppress_application_failure(self):
+    def test_unproven_oracle_concern_excludes_only_the_disputed_case(self):
         node = {"id": "REQ-1", "name": "Open", "description": "The page has “Open”.",
                 "scenarios": [{"name": "REQ-1: action", "steps": [
                     {"keyword": "WHEN", "content": "The visitor clicks “Open”."},
@@ -315,10 +316,12 @@ class FlowAuditTests(unittest.TestCase):
         failed = RunSummary(passed=0, total=1, results=[TestOutcome(
             "REQ-1: action [model]", False, "failed", 1, file=path.name)])
         self.flow.repair_rounds = 0
-        self.assertFalse(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
+        self.assertIsNone(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
                                                    initial_summary=failed))
-        self.assertEqual(self.flow.derived_spec_disputes, {})
-        self.assertEqual(self.flow.text_turn.call_count, 2)  # schema-only retry; failure stays active
+        self.assertEqual(self.flow.generated_test_policy().quarantines()[path.name][0]['state'],
+                         'disputed')
+        self.assertEqual(self.flow.text_turn.call_count, 2)  # schema-only retry
+        self.flow.node_repair_turn.assert_not_called()
 
     def test_related_regression_audits_its_spec_then_remeasures_both_features(self):
         other = self.directory / "other.spec.ts"
@@ -372,7 +375,8 @@ class FlowAuditTests(unittest.TestCase):
         self.assertFalse(self.flow.acceptance_loop("REQ-1", [path.name], time.time() + 120,
                                                    initial_summary=failed, source_versions={}))
         self.assertEqual(self.flow.text_turn.call_count, 3)  # second claim gets a schema-only retry
-        self.assertEqual(self.flow.disputed_generated_failures(failed), [])
+        self.assertEqual(self.flow.disputed_generated_failures(failed),
+                         [('REQ-1', 'REQ-1: Save [model]')])
 
     def test_final_suite_repairs_reviewed_leaf_without_running_pending_leaf(self):
         self.path.unlink()
@@ -384,6 +388,7 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
         self.flow.test_verdict = {"A": None, "B": None}
         self.flow.derived_review_needed = Mock(side_effect=lambda node_id: node_id == 'A')
+        self.flow.derived_has_runnable_cases = Mock(side_effect=lambda node_id: node_id == 'B')
         self.flow.audit_related_derived_specs = Mock(side_effect=lambda _specs, summary: summary)
         self.flow.record_tests = Mock()
         self.flow.remember_delivery_checkpoint = Mock()
@@ -431,6 +436,7 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.spec_map = {"A": [first.name], "B": [second.name]}
         self.flow.derived_spec_disputes = {("A", "A: disputed [model]"): "Wrong oracle"}
         self.flow.derived_review_needed = Mock(side_effect=lambda node_id: node_id == 'A')
+        self.flow.derived_has_runnable_cases = Mock(side_effect=lambda node_id: node_id == 'B')
         self.flow.audit_related_derived_specs = Mock(side_effect=lambda _specs, summary: summary)
         self.flow.record_tests = Mock()
         self.flow.remember_delivery_checkpoint = Mock()
@@ -443,7 +449,7 @@ class FlowAuditTests(unittest.TestCase):
         self.assertIsNone(self.flow.test_verdict["A"])
         self.assertFalse(self.flow.test_verdict["B"])
 
-    def test_model_review_repairs_action_order_without_weakening_oracle(self):
+    def test_two_grounded_runtime_reviews_retire_wrong_action_without_rewriting_test(self):
         node = {"id": "REQ-1", "name": "Open feature", "description": "The home page has “Open” and shows “Done”.",
                 "scenarios": [{"name": "REQ-1: action", "steps": [
                     {"keyword": "GIVEN", "content": "The visitor is on the home page."},
@@ -465,17 +471,20 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.text_turn = Mock(return_value=(True, json.dumps(grounded)))
         for suffix in ("model", "script"):
             with self.subTest(suffix=suffix):
+                self.flow.run_specs.reset_mock()
                 path.write_text(f"test('REQ-1: action [{suffix}]', async ({{ page }}) => {{\n"
                                 "  await h.openHome(page);\n"
                                 "  await h.expectTextsVisible(page, ['Done']);\n"
                                 "  await h.clickNamed(page, 'Open');\n});\n")
+                original = path.read_text()
                 failed = RunSummary(passed=0, total=1, results=[TestOutcome(
                     f"REQ-1: action [{suffix}]", False, "failed", 1, file=path.name)])
-                observed = self.flow.review_failed_derived_spec_with_model("REQ-1", [path.name], failed)
-                self.assertTrue(observed.all_passed)
-                source = path.read_text()
-                self.assertLess(source.index("h.clickNamed"), source.index("h.expectTextsVisible"))
-                self.assertIn("h.expectTextsVisible(page, ['Done'])", source)
+                self.flow.review_failed_derived_spec_with_model("REQ-1", [path.name], failed)
+                self.flow.run_specs.assert_not_called()
+                self.assertEqual(path.read_text(), original)
+                decisions = self.flow.generated_test_policy().quarantines()[path.name]
+                self.assertIn(f"REQ-1: action [{suffix}]", {row['title'] for row in decisions})
+                self.assertEqual(decisions[-1]['state'], 'invalid')
 
 
 if __name__ == "__main__":

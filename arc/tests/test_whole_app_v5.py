@@ -1894,6 +1894,7 @@ class DerivedWorkersTests(WholeAppTests):
     def test_derived_suites_run_sequentially_by_default(self):
         flow = self.flow
         flow.derived_as_specs = True
+        flow.derived_tests_dir = flow.tests_dir
         flow.time_up = Mock(return_value=False)
         flow.runtime = SimpleNamespace(git=SimpleNamespace(run=Mock(return_value=SimpleNamespace(stdout=""))))
         server = SimpleNamespace(build=Mock(return_value=None), start=Mock(return_value=None), stop=Mock(),
@@ -1922,6 +1923,7 @@ class DerivedIsolationTests(WholeAppTests):
     def _flow(self):
         flow = self.flow
         flow.derived_as_specs = True
+        flow.derived_tests_dir = flow.tests_dir
         flow.time_up = Mock(return_value=False)
         self.status = [""]
         flow.runtime = SimpleNamespace(git=SimpleNamespace(run=lambda args, check=False: SimpleNamespace(

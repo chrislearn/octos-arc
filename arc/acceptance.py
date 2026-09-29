@@ -1270,15 +1270,18 @@ class AcceptanceRunner:
             source = spec.read_text(encoding="utf-8")
             rel = spec.relative_to(self.work_dir / "tests").as_posix()
             rows = quarantines.get(rel, [])
-            if rows:
-                # Revalidate copied bytes, in case the source changed during copying.
-                from test_policy import digest
-                titles = [row["title"] for row in rows if digest(source) == row["file_hash"]]
-                if titles:
-                    self._quarantined[rel] = set(titles)
-                    source += ("\ntest.beforeEach(({}, info) => { test.skip("
-                               + json.dumps(titles) + ".includes(info.title), "
-                               + json.dumps("Harness: independently confirmed invalid generated test") + "); });\n")
+            # Revalidate the copied case, in case its own source changed.
+            from test_policy import digest, test_block
+            titles = {row["title"] for row in rows
+                      if (block := test_block(source, row["title"])) is not None
+                      and digest(block) == row["test_hash"]}
+            if policy is not None and self.tests_dir.resolve() == policy.directory:
+                titles.update(getattr(self, "case_exclusions", {}).get(rel, ()))
+            if titles:
+                self._quarantined[rel] = titles
+                source += ("\ntest.beforeEach(({}, info) => { test.skip("
+                           + json.dumps(sorted(titles)) + ".includes(info.title), "
+                           + json.dumps("Harness: generated case excluded from execution") + "); });\n")
             alias = "__octosObservePageErrors"
             while alias in source:
                 alias += "_"

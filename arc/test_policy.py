@@ -4,9 +4,20 @@ import hashlib
 import json
 import re
 import time
+from enum import Enum
 from pathlib import Path
 
 VERSION = 1
+
+
+class TestDecisionState(str, Enum):
+    VALID = 'valid'
+    INVALID = 'invalid'
+    DISPUTED = 'disputed'
+
+
+EXCLUDED_STATES = {TestDecisionState.INVALID, TestDecisionState.DISPUTED, 'unresolved'}  # legacy name
+STORED_STATES = set(TestDecisionState) | {'unresolved'}
 REASONS = {'requirement_conflict', 'unsupported_constraint', 'fixture_error', 'wrong_action'}
 START = re.compile(r"^test\('((?:\\.|[^'\\])*)',", re.M)
 
@@ -23,7 +34,14 @@ def test_block(source: str, title: str) -> str | None:
     if len(matches) != 1:
         return None  # Ambiguous titles cannot be filtered safely.
     i = matches[0]
-    return source[starts[i].start(): starts[i + 1].start() if i + 1 < len(starts) else len(source)]
+    candidate = source[starts[i].start(): starts[i + 1].start() if i + 1 < len(starts) else len(source)]
+    # Generated tests close at column zero. Bound the hash to this case, so
+    # adding or editing a sibling cannot revive a retired title.
+    close = re.search(r"(?m)^}\);[ \t]*(?:\r?\n|$)", candidate)
+    if close:
+        return candidate[:close.end()].rstrip()
+    inline_close = candidate.rfind("});")
+    return candidate[:inline_close + 3].rstrip() if inline_close >= 0 else candidate.rstrip()
 
 
 def grounded_verdict(review: dict | None, requirement: str, block: str) -> bool:
@@ -60,7 +78,7 @@ class TestPolicy:
         for row in self.records.values():
             if not isinstance(row, dict) or row.get('context') != self.context:
                 continue
-            if (row.get('origin') != 'derived' or row.get('state') not in {'valid', 'invalid', 'unresolved'}
+            if (row.get('origin') != 'derived' or row.get('state') not in STORED_STATES
                     or not isinstance(row.get('file'), str) or not isinstance(row.get('title'), str)):
                 continue
             rel = Path(row['file'])
@@ -68,9 +86,10 @@ class TestPolicy:
                 continue
             path = self.directory / rel
             try:
-                if path.is_symlink() or not path.resolve().is_relative_to(self.directory) or digest(path.read_text()) != row.get('file_hash'):
+                if path.is_symlink() or not path.resolve().is_relative_to(self.directory):
                     continue
-                if test_block(path.read_text(), row['title']) is None:
+                block = test_block(path.read_text(), row['title'])
+                if block is None or digest(block) != row.get('test_hash'):
                     continue
             except (OSError, KeyError):
                 continue
@@ -79,15 +98,16 @@ class TestPolicy:
 
     def decide(self, rel: str, title: str, source: str, state: str, evidence: str,
                reviews=(), failure_hash: str = '') -> dict:
+        state = state.value if isinstance(state, TestDecisionState) else state
         path = Path(rel)
         if path.is_absolute() or '..' in path.parts or not rel.endswith('.spec.ts'):
             raise ValueError('decision must reference a generated spec within its directory')
-        if state not in {'invalid', 'unresolved', 'valid'} or test_block(source, title) is None:
+        if state not in {item.value for item in TestDecisionState} or test_block(source, title) is None:
             raise ValueError('invalid or ambiguous generated-test decision')
         row = {'id': self.identity(rel, title), 'origin': 'derived', 'context': self.context,
                'file': rel, 'title': title, 'file_hash': digest(source),
                'test_hash': digest(test_block(source, title)), 'state': state,
-               'execution': 'quarantined' if state == 'invalid' else 'not_run',
+               'execution': 'quarantined' if state in EXCLUDED_STATES else 'not_run',
                'evidence': evidence, 'reviews': list(reviews), 'failure_hash': failure_hash,
                'timestamp': time.time(), 'version': VERSION}
         self.records[row['id']] = row
@@ -103,6 +123,6 @@ class TestPolicy:
     def quarantines(self) -> dict[str, list[dict]]:
         result = {}
         for row in self.valid_records():
-            if row['state'] == 'invalid':
+            if row['state'] in EXCLUDED_STATES:
                 result.setdefault(row['file'], []).append(row)
         return result

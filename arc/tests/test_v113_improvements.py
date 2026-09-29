@@ -98,6 +98,7 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.final_measurement_reserve = lambda: 120
             flow.repair_minimum = lambda: 60
             flow.derived_review_needed = lambda node_id: node_id != 'A'
+            flow.derived_has_runnable_cases = lambda node_id: node_id == 'A'
             self.assertEqual(flow.derived_review_reserve(), 330)  # both files need review time
             self.assertEqual(flow.final_rehearsal_reserve(), 270)  # only A can rerun
             flow.remaining = Mock(return_value=270)
@@ -109,6 +110,7 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.final_acceptance_passes()
             flow.run_specs.assert_called_once_with(['A.spec.ts'], workers=1, grader_like=True)
             flow.derived_review_needed = lambda node_id: True
+            flow.derived_has_runnable_cases = lambda node_id: False
             self.assertEqual(flow.final_rehearsal_reserve(), 120)
             flow.derived_as_specs = False
             self.assertEqual(flow.final_rehearsal_reserve(), 120)
@@ -194,6 +196,7 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.remaining = Mock(return_value=5000)
             flow.final_phase_reserve = lambda: 300
             flow.derived_review_needed = lambda node_id: False
+            flow.derived_has_runnable_cases = lambda node_id: node_id == 'B'
             flow.metric = Mock()
             flow.write_derived_handoff = Mock()
             flow.snapshot_protected = Mock()
@@ -395,12 +398,14 @@ class DerivedPreflightTests(unittest.TestCase):
             root = Path(temp)
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
             flow.derived_as_specs = True
+            flow.tests_dir = root
+            flow.derived_tests_dir = root
             flow.derived_review_needed = Mock(return_value=True)
             flow.metric = Mock()
             flow.runner = Mock()
             summary = flow.run_specs(['A.spec.ts'])
-            self.assertIn('await complete independent review', summary.error)
-            self.assertIn('no fully reviewed', flow.run_specs([]).error)
+            self.assertIn('no independently approved', summary.error)
+            self.assertIn('no independently approved', flow.run_specs([]).error)
             flow.runner.run.assert_not_called()
             self.assertIsNone(flow.acceptance_loop('A', ['A.spec.ts'], time.time() + 120))
             flow.runner.run.assert_not_called()
@@ -430,6 +435,7 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.preflight_derived_specs = first
             flow.prepare_derived_build_batch = later
             flow.derived_review_needed = lambda node_id: node_id not in ready
+            flow.derived_has_runnable_cases = lambda node_id: node_id in ready
             flow.acceptance_loop = lambda node_id, *_args: events.append('accept_' + node_id) or True
             flow.derived_completeness_pass = lambda nodes: events.append('completeness')
             flow.review_derived_after_implementation([{'id': 'A'}, {'id': 'B'}])

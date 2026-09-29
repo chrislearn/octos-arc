@@ -123,6 +123,7 @@ class LiveRunRecoveryTests(unittest.TestCase):
                 flow._derived_build_spec_attempted_ids = set(keys)
             flow.prepare_derived_build_batch = prepare
             flow.derived_review_needed = Mock(return_value=False)
+            flow.derived_has_runnable_cases = Mock(return_value=True)
             accepted = []
             flow.acceptance_loop = Mock(side_effect=lambda node_id, *_args: accepted.append(node_id) or True)
             flow.derived_completeness_pass = Mock()

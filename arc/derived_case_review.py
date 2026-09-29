@@ -4,14 +4,29 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from enum import Enum
 from pathlib import Path
 
 from scenario_review import behavior_test_titles, grounded_behavior_test, semantic_contract_evidence
 from test_policy import test_block
 
 TITLES = re.compile(r"^test\('((?:\\.|[^'\\])*)',", re.M)
-REVIEW_STATUSES = {"approved_behavior", "approved_smoke_only", "needs_correction",
-                   "disputed", "skipped_with_reason"}
+class CaseStatus(str, Enum):
+    """Persistent per-case review states; execution outcomes are separate."""
+    UNREVIEWED = "unreviewed"
+    NEEDS_CORRECTION = "needs_correction"
+    APPROVED_BEHAVIOR = "approved_behavior"
+    APPROVED_SMOKE_ONLY = "approved_smoke_only"
+    INVALID = "invalid"
+    DISPUTED = "disputed"
+    SKIPPED_UNREVIEWED = "skipped_unreviewed"
+    SKIPPED_WITH_REASON = "skipped_with_reason"
+    UNVERIFIED_GAP = "unverified_gap"
+
+
+REVIEW_STATUSES = {CaseStatus.APPROVED_BEHAVIOR, CaseStatus.APPROVED_SMOKE_ONLY,
+                   CaseStatus.NEEDS_CORRECTION, CaseStatus.DISPUTED,
+                   CaseStatus.SKIPPED_WITH_REASON}
 REVIEW_FIELDS = {"id", "status", "requirement_quote", "test_quote", "reason", "branch", "obligation_ids", "obligation_evidence"}
 REVIEW_FENCE = re.compile(r"\A```(?:json)?\r?\n([\s\S]*?)\r?\n```\Z", re.I)
 

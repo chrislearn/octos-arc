@@ -156,13 +156,14 @@ class GenerationPolicyTests(unittest.TestCase):
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
             flow.derived_as_specs = True
             flow.derived_review_needed = Mock(return_value=True)
+            flow.trusted_derived_case = Mock(return_value=False)
             flow.record_quality_observation = Mock()
             flow.metric = Mock()
             flow.runtime = SimpleNamespace(traceability=SimpleNamespace(upsert_test=Mock()))
             outcome = TestOutcome('A: candidate', False, 'failed', 1, file='A.spec.ts',
                                   message='candidate assertion failed')
             flow.record_tests('A', ['A.spec.ts'], RunSummary(results=[outcome], total=1, passed=0))
-            flow.record_quality_observation.assert_not_called()
+            self.assertFalse(flow.record_quality_observation.call_args.kwargs['reliable'])
             flow.runtime.traceability.upsert_test.assert_not_called()
 
     def test_full_suite_stops_when_case_audit_invalidates_leaf_review(self):
@@ -198,6 +199,7 @@ class GenerationPolicyTests(unittest.TestCase):
             flow.runner = SimpleNamespace(timeout_ms=1000)
             flow.trusted_derived_case = Mock(side_effect=lambda node, title: node == "A")
             flow.derived_review_needed = Mock(side_effect=lambda node: node == "B")
+            flow.derived_has_runnable_cases = Mock(side_effect=lambda node: node == "A")
             flow.remaining = Mock(return_value=1000)
             flow.final_measurement_reserve = Mock(return_value=100)
             flow.run_specs = Mock(return_value=RunSummary(results=[

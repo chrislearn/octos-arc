@@ -321,18 +321,17 @@ class FlowRegression(unittest.TestCase):
         f.derived_nodes = [node]; f.requirement_nodes = {'A':node}; f.driver = object()
         f.runner = Mock(); f.snapshot_protected = Mock(); f.final_phase_reserve = Mock(return_value=0)
         failed = RunSummary(total=1, results=[TestOutcome(title,False,'failed',1,file='A.spec.ts')])
-        observed = RunSummary(total=1, results=[TestOutcome(title,False,'quarantined',0,file='A.spec.ts')])
         review = {'verdict':'oracle_dispute', 'reason_code':'requirement_conflict', 'requirement_quote':description,
                   'test_quote':"await h.signIn(page, 'alice-dev', 'Original-pass-123!');",
                   'evidence':'Test authenticates the visitor before the entry that requires an unauthenticated visitor.'}
-        f.text_turn = Mock(return_value=(True,json.dumps(review))); f.run_specs = Mock(return_value=observed)
+        f.text_turn = Mock(return_value=(True,json.dumps(review))); f.run_specs = Mock()
         f.write_derived_coverage = Mock()
         with patch.dict(os.environ, {'OCTOS_ARC_DERIVED_SPEC_REPAIR':'0'}):
             result = f.review_failed_derived_spec_with_model('A',['A.spec.ts'],failed)
-        self.assertIs(result, observed); self.assertEqual(f.text_turn.call_count, 2)
+        self.assertIsNone(result); self.assertEqual(f.text_turn.call_count, 2)
+        f.run_specs.assert_not_called()
         self.assertEqual((directory/'A.spec.ts').read_text(),source)
         self.assertEqual(set(f.generated_test_policy().quarantines()), {'A.spec.ts'})
-        self.assertFalse(result.all_passed)
 
     def test_missing_import_in_complete_atomic_response_is_not_written(self):
         f = self.flow; f._atomic_codegen_response = True

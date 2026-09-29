@@ -8,13 +8,16 @@ from unittest.mock import Mock, patch
 from types import SimpleNamespace
 from acceptance import AcceptanceRunner, RunSummary, TestOutcome
 from main import Flow
-from test_policy import TestPolicy, grounded_verdict, test_block
+from test_policy import TestDecisionState, TestPolicy, grounded_verdict, test_block
 from generation_checks import missing_export_errors, placeholder_overwrites
 from llm_proxy import context_limit_error, LlmProxy
 
 SOURCE = "import { test, expect } from '@playwright/test';\ntest('wrong', async () => { expect(1).toBe(2); });\ntest('valid', async () => { expect(1).toBe(1); });\n"
 
 class TestPolicyTests(unittest.TestCase):
+    def test_runtime_decision_state_enum(self):
+        self.assertEqual({state.value for state in TestDecisionState}, {'valid', 'invalid', 'disputed'})
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -27,12 +30,14 @@ class TestPolicyTests(unittest.TestCase):
     def decide(self):
         return self.policy.decide('A.spec.ts', 'wrong', SOURCE, 'invalid', 'Two independent evidence-backed reviews', [{}, {}])
 
-    def test_decision_is_bound_to_requirements_helpers_and_entire_file(self):
+    def test_decision_is_bound_to_requirements_helpers_and_case_content(self):
         self.decide()
         self.assertEqual(set(self.policy.quarantines()), {'A.spec.ts'})
         self.assertEqual(TestPolicy(self.directory, {}, 'helper-v1').quarantines(), {})
         self.assertEqual(TestPolicy(self.directory, {'description': 'The result must equal one.'}, 'helper-v2').quarantines(), {})
-        (self.directory / 'A.spec.ts').write_text(SOURCE + '// changed\n')
+        (self.directory / 'A.spec.ts').write_text(SOURCE + "test('new sibling', async () => {});\n")
+        self.assertEqual({row['title'] for row in self.policy.quarantines()['A.spec.ts']}, {'wrong'})
+        (self.directory / 'A.spec.ts').write_text(SOURCE.replace('expect(1).toBe(2)', 'expect(1).toBe(3)'))
         self.assertEqual(self.policy.quarantines(), {})
         self.assertTrue((self.policy.control / 'test-decisions.jsonl').exists())
 
@@ -44,9 +49,12 @@ class TestPolicyTests(unittest.TestCase):
         self.policy.records['malformed'] = {'context': self.policy.context, 'title': None, 'file': None}
         self.assertEqual(self.policy.quarantines(), {})
 
-    def test_unresolved_and_valid_are_never_skipped(self):
-        self.policy.decide('A.spec.ts', 'wrong', SOURCE, 'unresolved', 'Reviewers disagree')
-        self.assertEqual(self.policy.quarantines(), {})
+    def test_disputed_and_legacy_unresolved_are_skipped_until_validated(self):
+        legacy = self.policy.decide('A.spec.ts', 'wrong', SOURCE, 'disputed', 'Reviewers disagree')
+        legacy['state'] = 'unresolved'
+        self.assertEqual({row['title'] for row in self.policy.quarantines()['A.spec.ts']}, {'wrong'})
+        self.policy.decide('A.spec.ts', 'wrong', SOURCE, 'disputed', 'Reviewers disagree')
+        self.assertEqual({row['title'] for row in self.policy.quarantines()['A.spec.ts']}, {'wrong'})
         self.policy.decide('A.spec.ts', 'wrong', SOURCE, 'valid', 'Application must be repaired')
         self.assertEqual(self.policy.quarantines(), {})
 
@@ -72,6 +80,30 @@ class TestPolicyTests(unittest.TestCase):
         runner._prepare()
         self.assertNotIn('test.skip(', (self.root / 'work/tests/A.spec.ts').read_text())
         self.assertEqual(runner._quarantined, {})
+
+    def test_case_exclusion_skips_one_title_and_keeps_sibling_available(self):
+        runner = AcceptanceRunner(self.root, self.directory, self.root / 'work', lambda *_: None)
+        runner.derived_policy = self.policy
+        runner.case_exclusions = {'A.spec.ts': {'wrong'}}
+        runner._prepare()
+        copied = (self.root / 'work/tests/A.spec.ts').read_text()
+        self.assertIn('test.skip(["wrong"].includes(info.title)', copied)
+        self.assertIn("test('valid'", copied)
+        self.assertEqual(runner._quarantined, {'A.spec.ts': {'wrong'}})
+        self.assertEqual((self.directory / 'A.spec.ts').read_text(), SOURCE)
+        public = self.root / 'public'; public.mkdir()
+        (public / 'A.spec.ts').write_text(SOURCE)
+        runner.tests_dir = public
+        runner._prepare()
+        self.assertEqual(runner._quarantined, {})
+
+    def test_runner_keeps_invalid_case_skipped_after_sibling_edit(self):
+        self.decide()
+        (self.directory / 'A.spec.ts').write_text(SOURCE + "test('new sibling', async () => {});\n")
+        runner = AcceptanceRunner(self.root, self.directory, self.root / 'work', lambda *_: None)
+        runner.derived_policy = self.policy
+        runner._prepare()
+        self.assertEqual(runner._quarantined, {'A.spec.ts': {'wrong'}})
 
     def test_all_quarantined_is_measured_but_never_a_pass(self):
         row = TestOutcome('wrong', False, 'quarantined', 0, file='A.spec.ts')
@@ -162,27 +194,70 @@ class OracleWorkflowTests(unittest.TestCase):
         self.flow.run_specs = Mock(return_value=self.quarantined)
         with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_SPEC_REPAIR':'0'}):
             observed = self.flow.review_failed_derived_spec_with_model('REQ-1',[self.path.name],self.failed)
-        self.assertIs(observed,self.quarantined)
+        self.assertIsNone(observed)
+        self.flow.run_specs.assert_not_called()
         self.assertEqual(self.flow.text_turn.call_count,2)
         self.assertEqual(self.flow.text_turn.call_args_list[0].args[0],self.flow.text_turn.call_args_list[1].args[0])
         self.assertEqual(self.path.read_text(),self.source)
-        active = self.flow.uncontested_derived_results(observed)
-        self.assertEqual((active.passed,active.total),(0,0))  # whole leaf is not audited
-        self.flow.audit_related_derived_specs = Mock(return_value=observed)
+        self.assertIn(('REQ-1', self.title), self.flow.derived_spec_disputes)
+        self.assertEqual(self.flow.derived_case_selection([self.path.name]),
+                         (1, {self.path.name: {self.title}}))
+        active = self.flow.uncontested_derived_results(self.quarantined)
+        self.assertEqual((active.passed,active.total),(0,1))  # valid sibling remains actionable
+        self.flow.audit_related_derived_specs = Mock(return_value=self.quarantined)
         self.flow.repair_rounds = 0
-        self.assertIsNone(self.flow.acceptance_loop('REQ-1',[self.path.name],time.time()+120, initial_summary=observed))
+        self.assertIsNone(self.flow.acceptance_loop('REQ-1',[self.path.name],time.time()+120, initial_summary=self.quarantined))
         report = json.loads((self.root/'.arc/derived-coverage.json').read_text())
-        self.assertEqual(report['execution']['quarantined'],1)
-        self.assertEqual(report['execution']['active_total'],1)
+        self.assertIsNone(report['execution'])  # retirement does not trigger another run
 
-    def test_disagreement_does_not_skip_or_modify_any_test(self):
+    def test_reviewed_suite_does_not_auto_rewrite_failed_case(self):
+        self.flow.derived_case_reviews = {}
+        self.flow.trusted_derived_case = Mock(return_value=True)
+        self.flow.spec_map = {'REQ-1': [self.path.name]}
+        self.flow.audit_failed_derived_specs = Mock()
+        self.flow.text_turn = Mock(return_value=(True, json.dumps(self.review)))
+        failed = RunSummary(total=2, passed=1, results=[self.failed.results[0],
+                            TestOutcome('REQ-1: valid [script]', True, 'passed', 1, file=self.path.name)])
+        observed = self.flow.audit_related_derived_specs([self.path.name], failed)
+        self.assertIs(observed, failed)
+        self.flow.audit_failed_derived_specs.assert_not_called()
+        self.assertEqual(self.flow.text_turn.call_count, 2)
+        self.assertEqual(self.path.read_text(), self.source)
+        self.assertEqual(self.flow.generated_test_policy().quarantines()[self.path.name][0]['state'],
+                         'invalid')
+
+    def test_disagreement_excludes_only_disputed_test_without_modifying_source(self):
         self.flow.text_turn = Mock(side_effect=[(True,json.dumps(self.review)),
                            (True,json.dumps({'verdict':'app_error','evidence':'The valid implementation is missing.','scenarios':[]}))])
         self.flow.run_specs = Mock()
         self.assertIsNone(self.flow.review_failed_derived_spec_with_model('REQ-1',[self.path.name],self.failed))
-        self.assertEqual(self.flow.generated_test_policy().quarantines(),{})
+        quarantines = self.flow.generated_test_policy().quarantines()
+        self.assertEqual({row['title'] for row in quarantines[self.path.name]}, {self.title})
+        self.assertEqual(quarantines[self.path.name][0]['state'], 'disputed')
+        self.assertEqual(self.flow.derived_case_selection([self.path.name]),
+                         (1, {self.path.name: {self.title}}))
         self.assertEqual(self.path.read_text(),self.source)
         self.flow.run_specs.assert_not_called()
+
+    def test_grounded_concern_without_second_review_is_disputed(self):
+        self.flow.text_turn = Mock(return_value=(True, json.dumps(self.review)))
+        self.flow.review_budget_spent = Mock(side_effect=[False, True])
+        self.assertIsNone(self.flow.review_failed_derived_spec_with_model(
+            'REQ-1', [self.path.name], self.failed))
+        self.assertEqual(self.flow.text_turn.call_count, 1)
+        self.assertEqual(self.flow.generated_test_policy().quarantines()[self.path.name][0]['state'],
+                         'disputed')
+
+    def test_ungrounded_error_claim_is_disputed_without_app_repair(self):
+        ungrounded = {**self.review, 'requirement_quote': 'A requirement that was never written.'}
+        self.flow.text_turn = Mock(return_value=(True, json.dumps(ungrounded)))
+        self.assertIsNone(self.flow.review_failed_derived_spec_with_model(
+            'REQ-1', [self.path.name], self.failed))
+        self.assertEqual(self.flow.generated_test_policy().quarantines()[self.path.name][0]['state'],
+                         'disputed')
+        self.assertEqual(self.flow.derived_case_selection([self.path.name]),
+                         (1, {self.path.name: {self.title}}))
+        self.assertEqual(self.path.read_text(), self.source)
 
 class RealQuarantineTests(unittest.TestCase):
     def test_real_playwright_skips_invalid_body_but_runs_valid_failure(self):
@@ -211,6 +286,23 @@ class RealQuarantineTests(unittest.TestCase):
             self.assertEqual({r.title:r.status for r in summary.results},{'wrong':'failed','valid':'passed'})
 
 class IncrementalGateTests(unittest.TestCase):
+    def test_partial_node_records_only_approved_sibling_result(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.derived_review_needed = Mock(return_value=True)
+            flow.trusted_derived_case = Mock(side_effect=lambda _node, title: title == 'valid')
+            flow.runtime = SimpleNamespace(traceability=Mock())
+            flow.metric = Mock(); flow.record_quality_observation = Mock()
+            flow.app_source_digest = Mock(return_value='source')
+            summary = RunSummary(total=2, passed=1, results=[
+                TestOutcome('wrong', False, 'quarantined', 0, file='A.spec.ts'),
+                TestOutcome('valid', True, 'passed', 1, file='A.spec.ts')])
+            flow.record_tests('A', ['A.spec.ts'], summary)
+            flow.runtime.traceability.upsert_test.assert_called_once()
+            self.assertEqual(flow.runtime.traceability.upsert_test.call_args.kwargs['test_id'], 'valid')
+
     def test_partial_scope_keeps_previous_pass_and_invalid_test_does_not_hide_valid_failure(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); directory = root/'.arc/derived-tests';directory.mkdir(parents=True)
@@ -223,7 +315,7 @@ class IncrementalGateTests(unittest.TestCase):
             summary=RunSummary(total=2,results=[TestOutcome('wrong',False,'quarantined',0,file='A.spec.ts'),
                                                 TestOutcome('valid',False,'failed',1,file='A.spec.ts')])
             flow.record_full_suite(summary,{},scope=['A.spec.ts'])
-            self.assertEqual(flow.test_verdict,{'A':None,'B':True})
+            self.assertEqual(flow.test_verdict,{'A':False,'B':True})
 
     def test_known_generated_load_error_never_drives_app_repair(self):
         with tempfile.TemporaryDirectory() as folder:
