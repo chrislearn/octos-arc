@@ -232,6 +232,26 @@ def reviewed_obligations_intact(flow, node_id):
         return False
 
 
+def obligation_prompt(sources, ancestry):
+    """Stable shared prefix followed by the batch's exact source contracts."""
+    return ('Extract an exhaustive test obligation ledger from the original requirements below. '
+            'One independent hard outcome, format field/rule, state transition, error branch or persistence rule '
+            'per obligation. Preserve exact official schemas, values and HTTP status codes where given. '
+            'Separate valid and invalid workflows, and identify preconditions and unchanged state on failure '
+            'in outcome. Do not invent product rules. Include inherited parent constraints for applicable leaves; '
+            'for scope-only parents record their scope restriction, not a new product feature. '
+            'For EACH leaf include at least one exact quote from that leaf and from EACH ancestor '
+            'with substantive text. One parent obligation may apply to several leaves. '
+            'Return ONLY {"obligations":[{"requirement_id":"source ID","applies_to":["leaf ID"],'
+            '"quote":"exact original substring","branch":"success|rejection|mixed",'
+            '"outcome":"concrete action and observable result"}],'
+            '"gaps":[{"applies_to":["leaf ID"],"reason":"unresolved issue"}]}. '
+            'Record unresolved contradictions or unsupported obligations in leaf-scoped gaps; do not silently omit them. '
+            'No application code or generated tests are evidence.\nSOURCES:\n' + json.dumps(
+                {key: dedupe_source_text(value) for key, value in sources.items()}, ensure_ascii=False)
+            + '\nLEAF ANCESTRY (every listed source needs coverage):\n' + json.dumps(ancestry))
+
+
 def prepare_obligations(flow, nodes):
     """Two bounded turns per small batch, with leaf-local admission."""
     tree = getattr(flow, 'requirement_tree', None)
@@ -259,32 +279,39 @@ def prepare_obligations(flow, nodes):
     deadline = time.monotonic() + max(0, min(cap - spent, phase_left * .30,
                                            flow.remaining() - flow.final_phase_reserve() - 600))
     started = time.monotonic()
+    parallel_results = None
     try:
         batch_size = max(1, min(6, int(os.environ.get('OCTOS_ARC_OBLIGATION_BATCH_LEAVES', '3'))))
         batch_count = (len(pending) + batch_size - 1) // batch_size
-        for batch_index, offset in enumerate(range(0, len(pending), batch_size)):
+        batches = []
+        for offset in range(0, len(pending), batch_size):
             batch = pending[offset:offset + batch_size]
             ids = [str(n['id']) for n in batch]
             sources, ancestry = source_scope(tree, ids)
+            batches.append((batch, ids, sources, ancestry, obligation_prompt(sources, ancestry)))
+        from spec_parallel import SpecRequest, reservation_tokens
+        jobs = []
+        jobs_by_batch = {}
+        for index, (_, ids, _, ancestry, prompt) in enumerate(batches):
+            if not ancestry or len(prompt) > flow.codegen_context_chars():
+                continue
+            job = SpecRequest(prompt, min(300, max(30, int((deadline - started) / max(1, 2 * batch_count)))),
+                              'derived obligation extraction',
+                              'You audit requirement contracts. Return one JSON object only.',
+                              reservation_tokens(prompt), deadline)
+            jobs.append(job)
+            jobs_by_batch[index] = job
+        pool = (flow.isolated_spec_requests(
+            len(jobs), allowed=lambda _job: deadline - time.monotonic() >= 60 and not flow.wound_down())
+            if hasattr(flow, 'isolated_spec_requests') else None)
+        parallel_results = pool.ordered(jobs) if pool is not None else None
+        first_parallel_reply = next(parallel_results) if parallel_results is not None else None
+        parallel_fallback = first_parallel_reply is None and parallel_results is not None
+        for batch_index, offset in enumerate(range(0, len(pending), batch_size)):
+            batch, ids, sources, ancestry, prompt = batches[batch_index]
             if (deadline - time.monotonic() < 60 or flow.wound_down() or flow.review_budget_spent() or flow.derived_preflight_tokens_spent()
                     or not ancestry):
                 continue
-            prompt = ('Extract an exhaustive test obligation ledger from the original requirements below. '
-                      'One independent hard outcome, format field/rule, state transition, error branch or persistence rule '
-                      'per obligation. Preserve exact official schemas, values and HTTP status codes where given. '
-                      'Separate valid and invalid workflows, and identify preconditions and unchanged state on failure '
-                      'in outcome. Do not invent product rules. Include inherited parent constraints for applicable leaves; '
-                      'for scope-only parents record their scope restriction, not a new product feature. '
-                      'For EACH leaf include at least one exact quote from that leaf and from EACH ancestor '
-                      'with substantive text. One parent obligation may apply to several leaves. '
-                      'Return ONLY {"obligations":[{"requirement_id":"source ID","applies_to":["leaf ID"],'
-                      '"quote":"exact original substring","branch":"success|rejection|mixed",'
-                      '"outcome":"concrete action and observable result"}],'
-                      '"gaps":[{"applies_to":["leaf ID"],"reason":"unresolved issue"}]}. '
-                      'Record unresolved contradictions or unsupported obligations in leaf-scoped gaps; do not silently omit them. '
-                      'No application code or generated tests are evidence.\nSOURCES:\n' + json.dumps(
-                          {key: dedupe_source_text(value) for key, value in sources.items()}, ensure_ascii=False)
-                      + '\nLEAF ANCESTRY (every listed source needs coverage):\n' + json.dumps(ancestry))
             if len(prompt) > flow.codegen_context_chars():
                 for leaf in ids:
                     flow.derived_obligation_status[leaf]['errors'] = ['insufficient_context']
@@ -303,9 +330,18 @@ def prepare_obligations(flow, nodes):
                 # sibling. Smaller output also avoids giant truncated JSON.
                 per_turn = min(300, max(30, left / (2 - turn)))
                 flow.snapshot_protected()
-                ok, reply = flow.text_turn(prompt, per_turn,
-                    'derived obligation extraction' if turn == 0 else 'derived obligation independent review',
-                    system='You audit requirement contracts. Return one JSON object only.', spec_chars=len(prompt))
+                prefetched = None
+                job = jobs_by_batch.get(batch_index) if not parallel_fallback and turn == 0 else None
+                if job is not None and parallel_results is not None:
+                    prefetched = first_parallel_reply if job is jobs[0] else next(parallel_results)
+                    if prefetched is None:
+                        parallel_fallback = True
+                if prefetched is not None:
+                    ok, reply = prefetched.ok, prefetched.text
+                else:
+                    ok, reply = flow.text_turn(prompt, per_turn,
+                        'derived obligation extraction' if turn == 0 else 'derived obligation independent review',
+                        system='You audit requirement contracts. Return one JSON object only.', spec_chars=len(prompt))
                 replies.append(str(reply))
                 rows, by_leaf, global_errors = (parse_obligation_details(reply, sources, ancestry) if ok else
                                                 ([], {leaf: [] for leaf in ids}, ['request unavailable']))
@@ -356,6 +392,8 @@ def prepare_obligations(flow, nodes):
                         reviewed=[leaf for leaf in ids if flow.derived_obligation_status[leaf]['status'] == 'reviewed'],
                         obligations=len(rows), errors=errors)
     finally:
+        if parallel_results is not None:
+            parallel_results.close()
         flow.derived_obligation_seconds = spent + time.monotonic() - started
         report = json.dumps({'version': 1, 'obligations': flow.derived_obligations,
             'nodes': flow.derived_obligation_status, 'seconds': flow.derived_obligation_seconds}, ensure_ascii=False, indent=2)

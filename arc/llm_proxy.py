@@ -1034,6 +1034,10 @@ class LlmProxy:
         self.total_requests = 0
         self.total_tokens = 0
         self.estimated_tokens = 0
+        # Tool-free spec workers run through private proxies. Their preflight
+        # leases still count against this run's absolute guard while in flight.
+        self.external_reserved_tokens = 0
+        self.external_reserved_turns = 0
         # Explicit absolute cap is enforced before EVERY upstream completion,
         # including requests inside a tool turn. In-flight usage may overshoot.
         self.max_total_tokens_abs = int(os.environ.get("OCTOS_ARC_MAX_TOTAL_TOKENS_ABS", "0"))
@@ -1231,7 +1235,8 @@ class LlmProxy:
                                'role': 'assistant', 'content': 'local_turn_budget_exhausted: '
                                'repair incomplete; evaluate current files before further work.'}}]}
                 return 200, json.dumps(payload).encode(), {'Content-Type': 'application/json'}
-            if key is not None and self.max_total_tokens_abs > 0 and self.total_tokens >= self.max_total_tokens_abs:
+            if (key is not None and self.max_total_tokens_abs > 0
+                    and self.total_tokens + self.external_reserved_tokens >= self.max_total_tokens_abs):
                 self.blocked_requests += 1
                 return 402, json.dumps({"error": {
                     "code": "local_token_budget_exhausted",

@@ -157,6 +157,8 @@ from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_t
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
                              folder_text, grounded_behavior_test, parse_failure_review, prioritize_review_targets,
                              retry_prompt as build_review_retry, review_targets)
+from spec_parallel import (OrderedSpecRequests, SpecRequest, SpecReply, append_worker_records,
+                           reservation_tokens)  # noqa: E402
 from derived_spec_audit import repair_failed_generated_specs, replace_failed_test_preserving_oracle  # noqa: E402
 from requirement_contracts import (compile_contracts, render_contracts, save_contracts,  # noqa: E402
                                    seed_gaps_by_node, source_literal_gaps, source_seed_gaps)
@@ -2791,7 +2793,10 @@ class Flow:
             # eight initial audits and eight audits after correction.
             default = max(default, self.case_review_cap() + 4 * len(self.planned_derived_scenarios()))
         cap = int(os.environ.get("OCTOS_ARC_REVIEW_TURNS", str(default)))
-        return cap > 0 and getattr(self, "review_turn_count", 0) >= cap
+        reserved = getattr(getattr(self, "llm_proxy", None), "external_reserved_turns", 0)
+        if not isinstance(reserved, (int, float)):
+            reserved = 0
+        return cap > 0 and getattr(self, "review_turn_count", 0) + reserved >= cap
 
     def case_review_cap(self) -> int:
         # The DSL permits eight cases per scenario. Count limits must allow
@@ -2808,7 +2813,10 @@ class Flow:
         """True once the run has spent its token or turn allowance: no more repair
         turns, remaining nodes get one implement turn each, one final suite, done."""
         proxy = getattr(self, "llm_proxy", None)
-        tokens = proxy.total_tokens if proxy is not None else 0
+        tokens = getattr(proxy, "total_tokens", 0) if proxy is not None else 0
+        reserved = getattr(proxy, "external_reserved_tokens", 0) if proxy is not None else 0
+        tokens = (tokens if isinstance(tokens, (int, float)) else 0) + (
+            reserved if isinstance(reserved, (int, float)) else 0)
         over = getattr(self, "local_budget_exhausted", False) or \
                (self.max_total_tokens > 0 and tokens >= self.max_total_tokens) or \
                (self.max_turns > 0 and self.turn_count >= self.max_turns) or \
@@ -3585,6 +3593,116 @@ class Flow:
             proxy.system_override = None
             self.base_reasoning_mode = saved_base
             proxy.codegen_max_tokens = saved_cap
+
+    def isolated_spec_requests(self, count: int, *, on_submit=None,
+                               allowed=None) -> OrderedSpecRequests | None:
+        """Tool-free requests in private proxy/kernel processes, with main-thread commits.
+
+        The main Flow and its protected snapshots are never touched by a worker.
+        Mock and dry-run flows retain the serial path for deterministic tests.
+        """
+        workers = max(1, min(4, int(os.environ.get("OCTOS_ARC_SPEC_PARALLEL_WORKERS", "2"))))
+        master = getattr(self, "llm_proxy", None)
+        driver = getattr(self, "driver", None)
+        if workers < 2 or count < 2 or not isinstance(master, LlmProxy) or not isinstance(driver, OctosDriver):
+            return None
+        worker_env = driver.env.copy()
+        original_config = Path(worker_env.get("OCTOS_CONFIG_DIR", "")) / "config.json"
+        if not original_config.is_file():
+            return None
+        config_text = original_config.read_text(encoding="utf-8")
+        upstream = master.upstream
+        model_mode = getattr(self, "base_reasoning_mode", master.mode)
+        destream, trim = master.destream, master.trim
+        min_tokens = master.min_max_tokens
+        max_iterations = driver.max_iterations
+        octos_bin = driver.octos_bin
+        def execute(job: SpecRequest) -> SpecReply:
+            started = time.monotonic()
+            turn_timeout = max(1, int(min(job.timeout, job.deadline - started)))
+            with tempfile.TemporaryDirectory(prefix="octos-spec-worker-") as private:
+                root = Path(private)
+                config_dir, data_dir, workspace = (root / name for name in ("config", "data", "work"))
+                config_dir.mkdir(); data_dir.mkdir(); workspace.mkdir()
+                config = json.loads(config_text)
+                if "base_url" in config:
+                    config["base_url"] = ""  # set to this worker's proxy after start
+                worker_mode = self.codegen_reasoning(len(job.prompt)) or model_mode
+                model_name = os.environ.get("OCTOS_MODEL") or os.environ.get("MODEL", "")
+                if worker_mode == default_reasoning_for_model(model_name):
+                    worker_mode = turn_reasoning_for_model(model_name, job.label)
+                proxy = LlmProxy(upstream, worker_mode,
+                                 root / "llm-usage.jsonl", destream=destream, trim=trim,
+                                 min_max_tokens=min_tokens)
+                proxy.no_tools = True
+                proxy.system_override = job.system
+                proxy.codegen_max_tokens = 32768
+                proxy.label = job.label
+                proxy.phase = phase_for_label(job.label)
+                proxy.max_total_tokens_abs = job.reservation
+                proxy.begin_turn(3)
+                proxy.turn_deadline = time.monotonic() + turn_timeout
+                proxy.start()
+                isolated = None
+                try:
+                    config["base_url"] = proxy.base_url
+                    (config_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
+                    env = worker_env.copy()
+                    env["OCTOS_CONFIG_DIR"] = str(config_dir)
+                    env["OPENAI_BASE_URL"] = proxy.base_url
+                    env["_ARC_BASE_URL"] = proxy.base_url
+                    runtime_data = root / "runtime-data"
+                    runtime_data.mkdir()
+                    env["ARC_DATA_DIR"] = str(runtime_data)
+                    env.pop("OCTOS_ARC_EDIT_ARGUMENTS_DIR", None)
+                    isolated = OctosDriver(octos_bin, workspace, env, data_dir, max_iterations,
+                                           events_log=root / "events.jsonl")
+                    with isolated.without_tools():
+                        ok, reply = isolated.run(job.prompt, turn_timeout)
+                    if proxy.hard_budget_exhausted or proxy.interrupted_reply:
+                        ok = False
+                except Exception as exc:
+                    ok, reply = False, f"isolated spec request failed: {exc}"[:1000]
+                finally:
+                    if isolated is not None:
+                        isolated.close()
+                    proxy.stop()
+                usage = root / "llm-usage.jsonl"
+                ledger = root / "request-ledger.jsonl"
+                return SpecReply(ok, reply, proxy.total_tokens, proxy.total_requests,
+                                 tuple(usage.read_text(encoding="utf-8").splitlines()) if usage.is_file() else (),
+                                 tuple(ledger.read_text(encoding="utf-8").splitlines()) if ledger.is_file() else (),
+                                 time.monotonic() - started)
+
+        def admissible(job: SpecRequest, reserved: int, in_flight: int) -> bool:
+            with master._lock:
+                used = master.total_tokens
+            limits = [cap for cap in (self.max_total_tokens, self.max_total_tokens_abs,
+                                      master.max_total_tokens_abs) if cap > 0]
+            preflight = getattr(self, "derived_preflight_token_cap", None)
+            if preflight is not None:
+                limits.append(getattr(self, "derived_preflight_start_tokens", used) + preflight)
+            return (all(used + reserved <= cap for cap in limits)
+                    and not self.review_budget_spent()
+                    and (not int(os.environ.get("OCTOS_ARC_REVIEW_TURNS", "0"))
+                         or getattr(self, "review_turn_count", 0) + in_flight <= int(os.environ["OCTOS_ARC_REVIEW_TURNS"]))
+                    and (allowed(job) if allowed is not None else True)
+                    and self.remaining() >= self.final_phase_reserve() + 60
+                    and getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic() >= 30)
+
+        def account(job: SpecRequest, reply: SpecReply) -> None:
+            append_worker_records(master, reply)
+            self.note_turn(job.label)
+            self.metric("turn", label=job.label, phase=phase_for_label(job.label),
+                        mode="isolated_text", ok=reply.ok, elapsed_seconds=round(reply.elapsed, 3),
+                        tokens=reply.tokens, requests=reply.requests)
+        def reservation_changed(tokens: int, turns: int) -> None:
+            with master._lock:
+                master.external_reserved_tokens = tokens
+                master.external_reserved_turns = turns
+
+        return OrderedSpecRequests(workers, execute, admissible, account, on_submit,
+                                   reservation_changed)
 
     def prepare_build(self, tree: dict, ordered: list[dict]) -> None:
         """What happens before the first node: the application design (loaded
@@ -7746,12 +7864,69 @@ class Flow:
                 self.metric("derived_spec_node", node_id=node_id, phase="ai", status=status,
                             batch=batch_number, scenarios_in_batch=count,
                             covered=coverage["covered"], total=coverage["total"])
+        # Prompt construction uses a frozen requirement/design/obligation view.
+        # Dispatch only tool-free text requests; this thread remains the sole
+        # compiler, spec writer, plan writer, and snapshot owner.
+        jobs_by_index: dict[int, SpecRequest] = {}
+        jobs: list[SpecRequest] = []
+        job_context: dict[int, tuple[list[dict], str]] = {}
+        common_deadline = min(getattr(self, "derived_preflight_deadline", float("inf")),
+                              time.monotonic() + max(0, wall_cap - self.derived_llm_seconds))
+        for offset in range(0, len(targets), batch):
+            proposal_chunk = targets[offset:offset + batch]
+            proposal_phase = (phase_plan.get("leaf_phase", {}) or {}).get(str(proposal_chunk[0]["node_id"]), "")
+            proposal_prompt = build_review_prompt(
+                proposal_chunk, fixtures, phase_contexts.get(proposal_phase, "")) + TEST_QUALITY_GUIDANCE
+            if len(proposal_prompt) > self.codegen_context_chars():
+                continue
+            job = SpecRequest(proposal_prompt, timeout, "derived scenario review", REVIEW_SYSTEM,
+                              reservation_tokens(proposal_prompt), common_deadline)
+            jobs_by_index[offset] = job
+            jobs.append(job)
+            job_context[id(job)] = (proposal_chunk, proposal_phase)
+        parallel_numbers: dict[int, int] = {}
+        def parallel_allowed(job: SpecRequest) -> bool:
+            phase = job_context[id(job)][1]
+            return (self.derived_review_requests < max_requests
+                    and self.derived_llm_seconds < wall_cap - 30
+                    and (not reserved_phases or phase in reserved_phases)
+                    and (phase not in reserved_phases or review_request_admissible(
+                        phase, reserved_phases, phase_counts, self.derived_review_requests, max_requests)))
+        def parallel_submitted(job: SpecRequest) -> None:
+            chunk, phase = job_context[id(job)]
+            self.derived_review_requests += 1
+            parallel_numbers[id(job)] = self.derived_review_requests
+            if phase:
+                phase_counts[phase] = phase_counts.get(phase, 0) + 1
+            for admitted_id in {str(t["node_id"]) for t in chunk}:
+                self.derived_augmentation_attempts[admitted_id] = self.derived_augmentation_attempts.get(admitted_id, 0) + 1
+            for target in chunk:
+                target_attempts[target["id"]] = target_attempts.get(target["id"], 0) + 1
+            report_nodes(chunk, parallel_numbers[id(job)], "generating")
+        pool = self.isolated_spec_requests(len(jobs), on_submit=parallel_submitted,
+                                           allowed=parallel_allowed)
+        parallel_results = pool.ordered(jobs) if pool is not None else None
+        first_parallel_reply = next(parallel_results) if parallel_results is not None else None
+        parallel_fallback = first_parallel_reply is None and parallel_results is not None
+        initial_generation_seconds = self.derived_llm_seconds
+        generation_started = time.monotonic()
+        def record_generation_seconds(elapsed: float) -> None:
+            if parallel_results is None:
+                self.derived_llm_seconds += elapsed
+            else:
+                # The configured cap is wall time; concurrent model durations
+                # overlap and must not be summed as if they were serial.
+                self.derived_llm_seconds = initial_generation_seconds + time.monotonic() - generation_started
         added = 0
         dropped_total: list[str] = []
         for index in range(0, len(targets), batch):
+            prefetched_job = jobs_by_index.get(index) if not parallel_fallback else None
+            reserved_request = prefetched_job is not None and id(prefetched_job) in parallel_numbers
             preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-            if (self.derived_review_requests >= max_requests or self.derived_llm_seconds >= wall_cap - 30
-                    or preflight_left < 30 or self.derived_preflight_tokens_spent()):
+            if ((not reserved_request and self.derived_review_requests >= max_requests)
+                    or (not reserved_request and self.derived_llm_seconds >= wall_cap - 30)
+                    or (not reserved_request and preflight_left < 30)
+                    or (not reserved_request and self.derived_preflight_tokens_spent())):
                 limits = {'requests': self.derived_review_requests >= max_requests,
                           'generation_seconds': self.derived_llm_seconds >= wall_cap - 30,
                           'phase_seconds': preflight_left < 30, 'tokens': self.derived_preflight_tokens_spent()}
@@ -7760,16 +7935,16 @@ class Flow:
                             request_cap=max_requests)
                 log("[derived] model review stopped: " + ', '.join(key for key, hit in limits.items() if hit))
                 break
-            if self.wound_down() or self.remaining() < self.final_phase_reserve() + 600:
+            if not reserved_request and (self.wound_down() or self.remaining() < self.final_phase_reserve() + 600):
                 log("[derived] model review stopped: time reserved for the final phases")
                 break
             chunk = targets[index:index + batch]
             phase_id = (phase_plan.get("leaf_phase", {}) or {}).get(str(chunk[0]["node_id"]), "")
-            if (reserved_phases and phase_id not in reserved_phases) or (
+            if not reserved_request and ((reserved_phases and phase_id not in reserved_phases) or (
                     phase_id in reserved_phases and not review_request_admissible(
-                        phase_id, reserved_phases, phase_counts, self.derived_review_requests, max_requests)):
+                        phase_id, reserved_phases, phase_counts, self.derived_review_requests, max_requests))):
                 break
-            batch_number = self.derived_review_requests + 1
+            batch_number = parallel_numbers.get(id(prefetched_job), self.derived_review_requests + 1)
             for target in chunk:
                 plan_rows[target["id"]]["status"] = "attempted"
             plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -7781,20 +7956,33 @@ class Flow:
                     plan_rows[target["id"]]["status"] = "insufficient_context"
                 plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                 continue
-            self.derived_review_requests += 1
-            if phase_id:
-                phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
-            for admitted_id in {str(t["node_id"]) for t in chunk}:
-                self.derived_augmentation_attempts[admitted_id] = self.derived_augmentation_attempts.get(admitted_id, 0) + 1
-            for target in chunk:
-                target_attempts[target['id']] = target_attempts.get(target['id'], 0) + 1
+            if not reserved_request:
+                self.derived_review_requests += 1
+                if phase_id:
+                    phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
+                for admitted_id in {str(t["node_id"]) for t in chunk}:
+                    self.derived_augmentation_attempts[admitted_id] = self.derived_augmentation_attempts.get(admitted_id, 0) + 1
+                for target in chunk:
+                    target_attempts[target['id']] = target_attempts.get(target['id'], 0) + 1
             self.snapshot_protected()  # commit harness plan/spec writes before calling the model
             Flow.start_derived_designs(self, [str(t["node_id"]) for t in chunk], "generating business test specs")
             started = time.monotonic()
-            ok, text = self.text_turn(prompt, max(1, int(min(
-                timeout, max(1, wall_cap - self.derived_llm_seconds), preflight_left))),
-                                      "derived scenario review", system=REVIEW_SYSTEM, spec_chars=len(prompt))
-            self.derived_llm_seconds += time.monotonic() - started
+            prefetched_reply = None
+            if prefetched_job is not None and parallel_results is not None:
+                if prefetched_job is jobs[0]:
+                    prefetched_reply = first_parallel_reply
+                else:
+                    prefetched_reply = next(parallel_results)
+            if prefetched_reply is None:
+                if prefetched_job is not None and parallel_results is not None:
+                    parallel_fallback = True
+                ok, text = self.text_turn(prompt, max(1, int(min(
+                    timeout, max(1, wall_cap - self.derived_llm_seconds), preflight_left))),
+                                          "derived scenario review", system=REVIEW_SYSTEM, spec_chars=len(prompt))
+                record_generation_seconds(time.monotonic() - started)
+            else:
+                ok, text = prefetched_reply.ok, prefetched_reply.text
+                record_generation_seconds(prefetched_reply.elapsed)
             (review_dir / f"batch-{batch_number}.txt").write_text(
                 f"# ok={ok}\n# scenarios={[t['title'] for t in chunk]}\n{text}", encoding="utf-8")
             if not ok:
@@ -7824,7 +8012,7 @@ class Flow:
                     timeout, max(1, wall_cap - self.derived_llm_seconds), retry_left))),
                                           "derived scenario review (retry)", system=REVIEW_SYSTEM,
                                           spec_chars=len(prompt)) if prompt else (False, "insufficient_context"))
-                self.derived_llm_seconds += time.monotonic() - started
+                record_generation_seconds(time.monotonic() - started)
                 (review_dir / f"batch-{batch_number}-retry.txt").write_text(
                     f"# ok={ok}\n# rejected={[r['title'] for r in retryable]}\n{text}", encoding="utf-8")
                 if ok:
@@ -7878,6 +8066,9 @@ class Flow:
                         plan_rows[target["id"]]["skip_category"] = skip_category(skip)
             plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             report_nodes(chunk, batch_number, "validated")
+        if parallel_results is not None:
+            parallel_results.close()
+            record_generation_seconds(0)
         for node_id in dict.fromkeys(str(node.get("id")) for node in ordered if str(node.get("id")) in selected):
             coverage = self.derived_scenario_coverage(node_id)
             status = "covered" if coverage["total"] and coverage["covered"] == coverage["total"] else "incomplete"
@@ -7973,24 +8164,7 @@ class Flow:
             if not chunks or len(chunks[-1]) >= batch_size or phase_of(chunks[-1][0]) != phase_of(row):
                 chunks.append([])
             chunks[-1].append(row)
-        chunk_index = 0
-        while chunk_index < len(chunks):
-            chunk = chunks[chunk_index]
-            chunk_index += 1
-            preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-            if (spent >= cap or review_seconds + time.monotonic() - review_started >= wall_cap
-                    or self.wound_down() or self.review_budget_spent()
-                    or preflight_left < 30 or self.derived_preflight_tokens_spent()
-                    or self.remaining() < self.final_phase_reserve() + 300
-                    or os.environ.get("OCTOS_ARC_DRYRUN") == "1"):
-                break
-            current_phase = phase_of(chunk[0])
-            future_reserve = sum(phase != current_phase and not phase_counts.get(phase, 0)
-                                 for phase in phase_order)
-            if not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap):
-                self.metric("derived_case_review", outcome="phase_reserved", phase=current_phase,
-                            requests=spent, reserved=future_reserve)
-                continue
+        def audit_prompt(chunk):
             shown = [{"id": row["id"], "requirement": row["requirement"],
                       "case": row["case"], "origin": row.get("origin", "requirement_scenario"),
                       "obligations": row.get('obligations', []),
@@ -8026,6 +8200,80 @@ class Flow:
                       + "\nAuthoritative seed fixtures: " + fixtures_text
                       + "\nShared test helper: " + review_evidence(directory)
                       + "\nCases: " + json.dumps(shown, ensure_ascii=False))
+            return prompt
+        audit_jobs: dict[int, SpecRequest] = {}
+        jobs: list[SpecRequest] = []
+        job_chunks: dict[int, list[dict]] = {}
+        audit_deadline = min(getattr(self, "derived_preflight_deadline", float("inf")),
+                             review_started + max(0, wall_cap - review_seconds),
+                             time.monotonic() + max(0, self.remaining() - self.final_phase_reserve() - 180))
+        audit_system = "You are an independent read-only test auditor. Return valid JSON only."
+        def audit_input_current(chunk: list[dict]) -> bool:
+            if helper_evidence_hash(directory) != helper_hash:
+                return False
+            if case_sha(str(suite_fixtures(getattr(self, "derived_nodes", [])))) != fixture_hash:
+                return False
+            for item in chunk:
+                filename, expected = item.get("file"), item.get("file_hash")
+                if filename and expected:
+                    path = directory / filename
+                    if not path.is_file() or case_sha(path.read_text(encoding="utf-8")) != expected:
+                        return False
+            return True
+        parallel_candidate = (len(chunks) > 1 and isinstance(getattr(self, "llm_proxy", None), LlmProxy)
+                              and isinstance(getattr(self, "driver", None), OctosDriver)
+                              and int(os.environ.get("OCTOS_ARC_SPEC_PARALLEL_WORKERS", "2")) > 1)
+        if parallel_candidate:
+            for original_chunk in chunks:
+                original_prompt = audit_prompt(original_chunk)
+                if len(original_prompt) > self.codegen_context_chars():
+                    continue
+                job = SpecRequest(original_prompt, 600, "derived case independent review", audit_system,
+                                  reservation_tokens(original_prompt), audit_deadline)
+                audit_jobs[id(original_chunk)] = job
+                jobs.append(job)
+                job_chunks[id(job)] = original_chunk
+        audit_numbers: dict[int, int] = {}
+        def audit_allowed(job: SpecRequest) -> bool:
+            phase = phase_of(job_chunks[id(job)][0])
+            return (spent < cap and review_seconds + time.monotonic() - review_started < wall_cap
+                    and review_request_admissible(phase, phase_order, phase_counts, spent, cap)
+                    and self.remaining() >= self.final_phase_reserve() + 300)
+        def audit_submitted(job: SpecRequest) -> None:
+            nonlocal spent
+            spent += 1
+            phase = phase_of(job_chunks[id(job)][0])
+            phase_counts[phase] = phase_counts.get(phase, 0) + 1
+            self.derived_case_review_requests = spent
+            audit_numbers[id(job)] = spent
+        pool = self.isolated_spec_requests(len(jobs), on_submit=audit_submitted,
+                                           allowed=audit_allowed)
+        parallel_results = pool.ordered(jobs) if pool is not None else None
+        first_parallel_reply = next(parallel_results) if parallel_results is not None else None
+        parallel_fallback = first_parallel_reply is None and parallel_results is not None
+        chunk_index = 0
+        while chunk_index < len(chunks):
+            chunk = chunks[chunk_index]
+            chunk_index += 1
+            prefetched_job = audit_jobs.get(id(chunk)) if not parallel_fallback else None
+            reserved_request = prefetched_job is not None and id(prefetched_job) in audit_numbers
+            preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
+            if ((not reserved_request and spent >= cap)
+                    or (not reserved_request and review_seconds + time.monotonic() - review_started >= wall_cap)
+                    or (not reserved_request and (self.wound_down() or self.review_budget_spent()))
+                    or (not reserved_request and preflight_left < 30)
+                    or (not reserved_request and self.derived_preflight_tokens_spent())
+                    or (not reserved_request and self.remaining() < self.final_phase_reserve() + 300)
+                    or os.environ.get("OCTOS_ARC_DRYRUN") == "1"):
+                break
+            current_phase = phase_of(chunk[0])
+            future_reserve = sum(phase != current_phase and not phase_counts.get(phase, 0)
+                                 for phase in phase_order)
+            if not reserved_request and not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap):
+                self.metric("derived_case_review", outcome="phase_reserved", phase=current_phase,
+                            requests=spent, reserved=future_reserve)
+                continue
+            prompt = audit_prompt(chunk)
             if len(prompt) > self.codegen_context_chars():
                 if len(chunk) > 1:
                     midpoint = len(chunk) // 2
@@ -8037,17 +8285,23 @@ class Flow:
                 continue
             decisions = []
             parse_error = None
+            current_request_number = audit_numbers.get(id(prefetched_job), spent)
             for attempt in range(2):
                 preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-                if (spent >= cap or review_seconds + time.monotonic() - review_started >= wall_cap
-                        or not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap)
-                        or preflight_left < 30 or self.derived_preflight_tokens_spent()
-                        or self.wound_down() or self.review_budget_spent()
-                        or self.remaining() < self.final_phase_reserve() + 300):
+                pre_reserved = attempt == 0 and reserved_request
+                if ((not pre_reserved and spent >= cap)
+                        or (not pre_reserved and review_seconds + time.monotonic() - review_started >= wall_cap)
+                        or (not pre_reserved and not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap))
+                        or (not pre_reserved and preflight_left < 30)
+                        or (not pre_reserved and self.derived_preflight_tokens_spent())
+                        or (not pre_reserved and (self.wound_down() or self.review_budget_spent()))
+                        or (not pre_reserved and self.remaining() < self.final_phase_reserve() + 300)):
                     break
-                spent += 1
-                phase_counts[current_phase] = phase_counts.get(current_phase, 0) + 1
-                self.derived_case_review_requests = spent
+                if not pre_reserved:
+                    spent += 1
+                    phase_counts[current_phase] = phase_counts.get(current_phase, 0) + 1
+                    self.derived_case_review_requests = spent
+                    current_request_number = spent
                 allowance = max(1, int(min(
                     600, max(1, wall_cap - review_seconds - (time.monotonic() - review_started)),
                     max(1, self.remaining() - self.final_phase_reserve() - 180), preflight_left)))
@@ -8055,14 +8309,25 @@ class Flow:
                     "\nThe previous reply had an invalid JSON envelope. Return exactly one JSON array "
                     "with no prose and unique IDs; do not change requirements or tests.")
                 Flow.start_derived_designs(self, [str(row["node_id"]) for row in chunk], "auditing business test specs")
-                ok, reply = self.text_turn(review_prompt, allowance,
-                                           "derived case independent review" + (" (format retry)" if attempt else ""),
-                                           system="You are an independent read-only test auditor. Return valid JSON only.",
-                                           spec_chars=len(review_prompt))
-                (review_dir / f"audit-{spent}.txt").write_text(str(reply), encoding="utf-8")
+                prefetched_reply = None
+                if pre_reserved and parallel_results is not None:
+                    prefetched_reply = first_parallel_reply if prefetched_job is jobs[0] else next(parallel_results)
+                    if prefetched_reply is None:
+                        parallel_fallback = True
+                if prefetched_reply is None:
+                    ok, reply = self.text_turn(review_prompt, allowance,
+                                               "derived case independent review" + (" (format retry)" if attempt else ""),
+                                               system=audit_system, spec_chars=len(review_prompt))
+                else:
+                    ok, reply = prefetched_reply.ok, prefetched_reply.text
+                if not audit_input_current(chunk):
+                    ok, reply = False, "stale_audit_input: spec, helper or fixture changed during review"
+                    self.metric("derived_case_review", outcome="stale_input",
+                                cases=[row["id"] for row in chunk], request=current_request_number)
+                (review_dir / f"audit-{current_request_number}.txt").write_text(str(reply), encoding="utf-8")
                 decisions, parse_error = (parse_review_decisions(reply, {row["id"] for row in chunk})
                                           if ok else ([], "unavailable"))
-                self.metric("derived_case_review_parse", outcome=parse_error or "parsed", request=spent,
+                self.metric("derived_case_review_parse", outcome=parse_error or "parsed", request=current_request_number,
                             cases=len(decisions))
                 if parse_error != "format_invalid":
                     break
@@ -8077,7 +8342,7 @@ class Flow:
                                 [missing[:midpoint], missing[midpoint:]])
                 chunks[chunk_index:chunk_index] = retry_chunks
                 self.metric("derived_case_review", outcome="split_incomplete",
-                            cases=[row["id"] for row in missing], request=spent)
+                            cases=[row["id"] for row in missing], request=current_request_number)
             for row in chunk:
                 if row["id"] not in by_id and len(chunk) > 1:
                     continue
@@ -8102,10 +8367,12 @@ class Flow:
                     row["status"] = decision["status"]
                 row['review_validation'] = validation_errors if decision.get('status') == 'approved_behavior' else [parse_error or 'not_approved']
                 row["reason"] = str(decision.get("reason") or "review unavailable")[:500]
-                row["review_request"] = spent
+                row["review_request"] = current_request_number
                 self.metric("derived_case_review_decision", case_id=row["id"], status=row["status"],
                             outcome="quote_invalid" if decision.get("status") == "approved_behavior"
                             and row["status"] != "approved_behavior" else row["status"])
+        if parallel_results is not None:
+            parallel_results.close()
         self.derived_case_review_seconds = review_seconds + time.monotonic() - review_started
         present = {(row["node_id"], row["title"]) for row in rows}
         self.derived_case_reviews = {key: row for key, row in self.derived_case_reviews.items()
@@ -8225,6 +8492,9 @@ class Flow:
             return False
         proxy = getattr(self, "llm_proxy", None)
         used = getattr(proxy, "total_tokens", 0) if proxy is not None else 0
+        reserved = getattr(proxy, "external_reserved_tokens", 0) if proxy is not None else 0
+        used = (used if isinstance(used, (int, float)) else 0) + (
+            reserved if isinstance(reserved, (int, float)) else 0)
         return used - getattr(self, "derived_preflight_start_tokens", 0) >= cap
 
     def preflight_derived_specs(self, ordered: list[dict]) -> None:
