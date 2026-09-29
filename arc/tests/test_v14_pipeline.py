@@ -18,7 +18,7 @@ from derived_case_review import collect_cases, sha as case_sha
 from derived_pipeline import DerivedSpecPipeline
 from llm_proxy import LlmProxy
 import main
-from main import Flow, phase_design_for_tests
+from main import Flow, phase_design_for_tests, source_contracts_for_tests
 from quality_control import helper_evidence_hash
 from scenario_review import review_targets, validate_proposal
 from scenario_tests import Fixtures, suite_fixtures
@@ -27,6 +27,18 @@ from visual_requirements import (parse_observations, read_reference, references,
 
 
 class PipelineTests(unittest.TestCase):
+    def test_test_source_contracts_keep_ancestors_and_transitive_dependencies_only(self):
+        tree = {'id': 'ROOT', 'type': 'FOLDER', 'description': 'Shared shell', 'children': [
+            {'id': 'GROUP', 'type': 'FOLDER', 'description': 'Group context', 'children': [
+                {'id': 'A', 'type': 'ATOMIC', 'description': 'The "Priority" options include "Critical".',
+                 'dependencies': []},
+                {'id': 'B', 'type': 'ATOMIC', 'description': 'Use the priority.', 'dependencies': ['A']},
+                {'id': 'C', 'type': 'ATOMIC', 'description': 'Submit the task.', 'dependencies': ['B']},
+                {'id': 'UNRELATED', 'type': 'ATOMIC', 'description': 'Unrelated secret', 'dependencies': []}]}]}
+        scoped = source_contracts_for_tests(tree, {'C'})['C']
+        self.assertEqual(set(scoped), {'ROOT', 'GROUP', 'A', 'B', 'C'})
+        self.assertEqual(scoped['A'], tree['children'][0]['children'][0]['description'])
+
     def test_test_prompt_design_slice_preserves_shared_schema_and_phase_owners(self):
         design = {'data_model': {'items': {'id': 'string'}}, 'routes': [
             {'path': '/a', 'requirements': ['A']},

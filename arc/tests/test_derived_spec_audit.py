@@ -241,6 +241,8 @@ class FlowAuditTests(unittest.TestCase):
         self.flow.write_derived_coverage()
         report = json.loads((self.root / ".arc" / "derived-coverage.json").read_text())
         self.assertEqual(report["totals"], {"obligations": 0, "missing_obligations": 0,
+                                         "mechanical_outcomes": 0, "mechanical_candidates": 0,
+                                         "mechanical_needs_ai": 0,
                                          "scenarios": 2, "covered": 1, "missing": 1,
                                          "disputed": 0, "semantic_contracts": 0,
                                          "missing_semantic_contracts": 0,

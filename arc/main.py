@@ -151,7 +151,8 @@ from quality_control import (helper_evidence_hash, preserves_design, recovery_bu
 from obligation_planning import applicable_obligations, prepare_obligations, reviewed_obligations_intact
 from domain_contracts import DOMAIN_GUIDANCE, contract_manifest, official_status, requirement_index, source_contract_advisories
 from implementation_evidence import STATUSES as IMPLEMENTATION_STATUSES, initial_status  # noqa: E402
-from derived_case_review import (CaseStatus, collect_cases, parse_review_decisions, review_request_admissible,
+from derived_case_review import (CaseStatus, audit_generated_suite, collect_cases, parse_review_decisions,
+                                 review_request_admissible, static_case_issues,
                                  requirement_text, skip_category, numbered_review_quotes,
                                  restore_review_quote_ids,
                                  validate_review, review_validation_errors, safe_records, sha as case_sha)  # noqa: E402
@@ -167,7 +168,8 @@ from progress_timeout import ProgressDeadline
 from llm_proxy import LlmProxy, configured_model_routes, default_reasoning_for_model, turn_reasoning_for_model  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, sibling_batches, topo_order  # noqa: E402
 from dataclasses import replace as dc_replace  # noqa: E402
-from scenario_tests import compile_suite as compile_derived_suite, suite_fixtures, write_suite  # noqa: E402
+from scenario_tests import (compile_suite as compile_derived_suite, mechanical_outcome_rows,
+                            suite_fixtures, write_suite)  # noqa: E402
 from scenario_review import (SYSTEM as REVIEW_SYSTEM, ancestor_context, append_tests, behavior_test_titles,  # noqa: E402
                              build_prompt as build_review_prompt, compile_reply as compile_review_reply,
                              folder_text, grounded_behavior_test, parse_failure_review, prioritize_review_targets,
@@ -732,6 +734,87 @@ def phase_design_for_tests(design: dict | None, requirement_ids: set[str]) -> di
                            and (not entry.get('requirements')
                                 or requirement_ids.intersection(map(str, entry['requirements'])))]
     return scoped
+
+
+def source_contracts_for_tests(tree: dict | None, node_ids: set[str]) -> dict[str, dict[str, str]]:
+    """Keep each leaf's own, ancestor and dependency source quotes for test planning.
+
+    A source_values proposal must still quote the original YAML description.
+    Unrelated siblings cannot grant new product obligations or consume prompt
+    space. Folder dependencies expand to their atomic descendants, matching
+    the implementation order's dependency semantics.
+    """
+    if not isinstance(tree, dict):
+        return {node_id: {} for node_id in node_ids}
+    from requirement_order import dependency_graph
+    nodes: dict[str, dict] = {}
+    parents: dict[str, str] = {}
+
+    def visit(node: dict, parent: str = "") -> None:
+        node_id = str(node.get("id") or "")
+        if node_id:
+            nodes[node_id] = node
+            parents[node_id] = parent
+        for child in node.get("children") or []:
+            if isinstance(child, dict):
+                visit(child, node_id)
+
+    visit(tree)
+    graph = dependency_graph(tree)
+    result: dict[str, dict[str, str]] = {}
+    for node_id in node_ids:
+        needed: set[str] = set()
+        pending = [node_id]
+        while pending:
+            current = pending.pop()
+            if current in needed or current not in nodes:
+                continue
+            needed.add(current)
+            pending.extend(graph.get(current, []))
+            pending.extend(str(value) for value in nodes[current].get("dependencies") or [])
+        for current in tuple(needed):
+            parent = parents.get(current, "")
+            while parent and parent not in needed:
+                needed.add(parent)
+                parent = parents.get(parent, "")
+        result[node_id] = {key: str(value.get("description") or "")
+                           for key, value in nodes.items() if key in needed}
+    return result
+
+
+def fit_derived_prompt_chunks(chunks: list[list[dict]], render, cap: int,
+                              slots: dict[str, int]) -> tuple[list[tuple[list[dict], str]], list[tuple[dict, int]], list[dict]]:
+    """Split oversized test requests without clipping any scenario or source quote.
+
+    A leaf never consumes more than its remaining proposal-request allowance.
+    Single-target overflow remains an explicit gap instead of a fake request.
+    """
+    accepted: list[tuple[list[dict], str]] = []
+    oversized: list[tuple[dict, int]] = []
+    deferred: list[dict] = []
+    used: dict[str, int] = {}
+
+    def visit(chunk: list[dict]) -> None:
+        prompt = render(chunk)
+        node_ids = {str(item['node_id']) for item in chunk}
+        no_slot = any(used.get(node_id, 0) >= slots.get(node_id, 0) for node_id in node_ids)
+        if (len(prompt) > cap or no_slot) and len(chunk) > 1:
+            middle = len(chunk) // 2
+            visit(chunk[:middle])
+            visit(chunk[middle:])
+            return
+        if no_slot:
+            deferred.extend(chunk)
+        elif len(prompt) > cap:
+            oversized.append((chunk[0], len(prompt)))
+        else:
+            accepted.append((chunk, prompt))
+            for node_id in node_ids:
+                used[node_id] = used.get(node_id, 0) + 1
+
+    for chunk in chunks:
+        visit(chunk)
+    return accepted, oversized, deferred
 
 
 def app_design_blocks(design: dict | None, spec_text: str, cap: int, *,
@@ -6258,7 +6341,8 @@ class Flow:
             fixture_hash = case_sha(str(suite_fixtures(getattr(self, "derived_nodes", []))))
         except (OSError, ValueError, TypeError):
             return False
-        return bool(block and row.get("file_hash") == case_sha(source)
+        return bool(block and not static_case_issues(block, target)
+                    and row.get("file_hash") == case_sha(source)
                     and row.get("case_hash") == case_sha(block)
                     and target and row.get("requirements_hash") == case_sha(requirement)
                     and row.get("helper_hash") == helper_hash
@@ -7878,12 +7962,13 @@ class Flow:
         log(f"[derived] compiling requirement specs for {len(ordered)} node(s)")
         def progress(node_id: str, index: int, total: int, scripts: int,
                      entries: int, kept: int) -> None:
-            status = "behavior" if scripts else "entry_only" if kept else "no_check"
+            status = "behavior_candidate" if scripts else "entry_only" if kept else "no_check"
             log(f"[derived] spec {index}/{total} {node_id}: mechanical={status}, "
                 f"behavior={scripts}, entry={entries}, kept={kept}")
             self.metric("derived_spec_node", node_id=node_id, phase="mechanical", status=status,
                         index=index, total=total, behavior=scripts, entry=entries, kept=kept)
         files = compile_derived_suite(ordered, ancestor_context(tree), folder_text(tree), progress=progress)
+        mechanical_outcomes = mechanical_outcome_rows(ordered, files)
         # These two baseline checks have a fixed, validated DSL recipe. Emit
         # them even if AI planning runs out of budget; audit still decides trust.
         from scenario_review import authentication_invariants, validate_proposal
@@ -7904,6 +7989,14 @@ class Flow:
         if directory.exists():
             shutil.rmtree(directory)
         write_suite(directory, files)
+        (directory / "mechanical-outcomes.json").write_text(json.dumps({
+            "version": 1, "basis": "diagnostic candidates only; independent review required",
+            "rows": mechanical_outcomes,
+        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self.derived_mechanical_outcomes = mechanical_outcomes
+        self.metric("derived_mechanical_outcomes", total=len(mechanical_outcomes),
+                    candidates=sum(row["status"] == "candidate" for row in mechanical_outcomes),
+                    needs_ai=sum(row["status"] == "needs_ai" for row in mechanical_outcomes))
         from scenario_review import OPS, MAX_STEPS, DSL
         (directory / 'capabilities.json').write_text(json.dumps({
             'operations': sorted(OPS), 'maximum_steps': MAX_STEPS,
@@ -8067,16 +8160,10 @@ class Flow:
             except (OSError, ValueError, KeyError, TypeError):
                 pass
         routes = (getattr(self, "app_design_doc", None) or {}).get("routes", [])
-        source_contracts = {}
-        def index_sources(node):
-            if isinstance(node, dict):
-                if node.get('id'):
-                    source_contracts[str(node['id'])] = str(node.get('description') or '')
-                for child in node.get('children') or []:
-                    index_sources(child)
-        index_sources(getattr(self, 'requirement_tree', None))
+        source_contracts = source_contracts_for_tests(
+            getattr(self, 'requirement_tree', None), {str(target['node_id']) for target in cached})
         for target in cached:
-            target['source_contracts'] = source_contracts
+            target['source_contracts'] = source_contracts.get(str(target['node_id']), {})
             target['obligations'] = applicable_obligations(self, target['node_id'])
             target["api_contracts"] = [route for route in routes if target["node_id"] in route.get("requirements", [])]
         return cached
@@ -8167,7 +8254,18 @@ class Flow:
                          if row.get('node_id') == node_id and obligation['id'] in row.get('obligation_ids', [])
                          and self.trusted_derived_case(node_id, row.get('title', ''))]
             obligations.append({**obligation, 'tests': witnesses, 'status': 'approved' if witnesses else 'missing'})
+        mechanical_rows = getattr(self, "derived_mechanical_outcomes", None)
+        if mechanical_rows is None and directory is not None:
+            try:
+                mechanical_rows = json.loads((directory / "mechanical-outcomes.json").read_text(
+                    encoding="utf-8")).get("rows", [])
+            except (OSError, ValueError, TypeError):
+                mechanical_rows = []
+        mechanical_here = [row for row in mechanical_rows or [] if row.get("node_id") == node_id]
         return {"node_id": node_id, "total": len(rows),
+                "mechanical_outcomes": mechanical_here,
+                "mechanical_candidates": sum(row.get("status") == "candidate" for row in mechanical_here),
+                "mechanical_needs_ai": sum(row.get("status") == "needs_ai" for row in mechanical_here),
                 'obligations': obligations, 'missing_obligations': sum(not row['tests'] for row in obligations),
                 'obligation_plan_incomplete': hasattr(self, 'derived_obligation_status') and (
                     getattr(self, 'derived_obligation_status', {}).get(node_id, {}).get('status') != 'reviewed'
@@ -8233,6 +8331,9 @@ class Flow:
         report = {"kind": "derived_scenario_coverage", "features": features,
                   "obligation_planning": getattr(self, "derived_obligation_status", {}),
                   "totals": {"obligations": sum(len(item.get('obligations', [])) for item in features),
+                             "mechanical_outcomes": sum(len(item.get('mechanical_outcomes', [])) for item in features),
+                             "mechanical_candidates": sum(item.get('mechanical_candidates', 0) for item in features),
+                             "mechanical_needs_ai": sum(item.get('mechanical_needs_ai', 0) for item in features),
                              "missing_obligations": sum(item.get('missing_obligations', 0) for item in features),
                              "scenarios": sum(item["total"] for item in features),
                              "covered": sum(item["covered"] for item in features),
@@ -8889,6 +8990,13 @@ class Flow:
             row["fixture_hash"] = fixture_hash
         review_dir = directory / "review"
         review_dir.mkdir(parents=True, exist_ok=True)
+        static_issues = audit_generated_suite(directory, targets, node_ids)
+        (review_dir / "static-audit.json").write_text(json.dumps({
+            "version": 1, "issues": static_issues,
+        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        self.metric("derived_suite_static_audit", nodes=len(node_ids), issues=len(static_issues),
+                    candidates=sum(issue["kind"] == "candidate" for issue in static_issues),
+                    gaps=sum(issue["kind"] == "gap" for issue in static_issues))
         plan_path = review_dir / "plan.json"
         if plan_path.is_file():
             try:
@@ -8914,9 +9022,10 @@ class Flow:
             previous = getattr(self, "derived_case_reviews", {}).get((row["node_id"], row["title"]))
             same_version = bool(previous and all(previous.get(key) == row.get(key) for key in
                           ("case_hash", "requirements_hash", "helper_hash", "fixture_hash")))
-            if same_version and previous.get("quote_rereview_attempted"):
+            if same_version and row["status"] != "invalid" and previous.get("quote_rereview_attempted"):
                 row["quote_rereview_attempted"] = True
-            if same_version and previous.get("status") in {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only", "invalid", "skip_review"}:
+            if (same_version and row["status"] != "invalid" and previous.get("status") in
+                    {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only", "invalid", "skip_review"}):
                 row.update({key: previous[key] for key in
                             ("status", "outcome_quote", "assertion_quote", "reason", "review_request", "review_completed", "review_error_confirmed", "branch", "obligation_ids", "obligation_evidence", "review_validation") if key in previous})
         if self.fast_test_mode():

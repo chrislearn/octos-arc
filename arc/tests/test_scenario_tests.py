@@ -1,7 +1,7 @@
 import re
 import unittest
 
-from scenario_tests import compile_leaf, compile_suite, suite_fixtures
+from scenario_tests import compile_leaf, compile_suite, mechanical_outcome_rows, suite_fixtures
 
 
 def leaf(node_id, scenarios, description=""):
@@ -16,6 +16,33 @@ SEED = ("The visitor starts at the application home page in a fresh unauthentica
 
 
 class ScenarioCompilerTests(unittest.TestCase):
+    def test_mechanical_outcomes_mark_mixed_and_negative_clauses_without_approval(self):
+        node = leaf("REQ-MIX", [("save and reject", [
+            ("GIVEN", "User is on the home page."),
+            ("WHEN", "Click the “Save” button."),
+            ("THEN", "The page shows “Saved”. The invalid record is not created."),
+        ])])
+        files = compile_suite([node])
+        rows = mechanical_outcome_rows([node], files)
+        self.assertEqual([row['status'] for row in rows], ['candidate', 'needs_ai'])
+        self.assertEqual(rows[1]['reason'], 'negative_outcome_requires_state_or_rejection_oracle')
+        self.assertTrue(rows[0]['test_title'].endswith('[script]'))
+        self.assertEqual(rows[1]['test_title'], '')
+
+    def test_mechanical_outcomes_follow_then_and_verify_retained_assertion(self):
+        node = leaf('REQ-AND', [('save', [
+            ('WHEN', 'Click the “Save” button.'),
+            ('THEN', 'The page shows “Saved”.'),
+            ('AND', 'The page shows “Ready”.'),
+        ])])
+        files = compile_suite([node])
+        rows = mechanical_outcome_rows([node], files)
+        self.assertEqual([row['status'] for row in rows], ['candidate', 'candidate'])
+        changed = dict(files)
+        changed['REQ-AND.spec.ts'] = files['REQ-AND.spec.ts'].replace("'Ready'", "'Other'")
+        self.assertEqual([row['status'] for row in mechanical_outcome_rows([node], changed)],
+                         ['candidate', 'needs_ai'])
+
     def test_should_reset_to_code_seeds_before_every_derived_test(self):
         from scenario_review import append_tests
         from scenario_tests import HELPERS

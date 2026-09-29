@@ -11,6 +11,51 @@ from scenario_review import behavior_test_titles, grounded_behavior_test, semant
 from test_policy import test_block
 
 TITLES = re.compile(r"^test\('((?:\\.|[^'\\])*)',", re.M)
+_INTERNAL_SHORTCUTS = (
+    (re.compile(r"\bpage\.goto\s*\("), "direct_page_navigation"),
+    (re.compile(r"\b(?:page\.)?request\.(?:get|post|put|patch|delete|fetch)\s*\("), "direct_api_request"),
+    (re.compile(r"\b(?:localStorage|sessionStorage)\b"), "browser_storage_access"),
+    (re.compile(r"\bpage\.(?:evaluate|route|url)\s*\(|\btoHaveURL\s*\("), "browser_internals"),
+    (re.compile(r"\.locator\(\s*['\"`](?:\.|#|\[data-)"), "implementation_selector"),
+)
+
+
+def static_case_issues(block: str, target: dict | None) -> list[str]:
+    """Check provenance and black-box boundaries without judging semantics.
+
+    Generated DSL helpers such as resetState and watchResponse remain valid;
+    they are not direct requests from a test case. Requirement-grounded API
+    assertions still go through the separate proposal and review gates.
+    """
+    issues = [] if target is not None else ["unmapped_scenario"]
+    for pattern, reason in _INTERNAL_SHORTCUTS:
+        if pattern.search(block):
+            issues.append(reason)
+    return issues
+
+
+def audit_generated_suite(directory: Path, targets: list[dict], node_ids: set[str]) -> list[dict]:
+    """Read-only suite audit; missing cases are gaps, never invented tests."""
+    issues: list[dict] = []
+    for node_id in sorted(node_ids):
+        path = directory / f"{node_id}.spec.ts"
+        if not path.is_file():
+            issues.append({"node_id": node_id, "title": "", "reason": "missing_spec", "kind": "gap"})
+            continue
+        source = path.read_text(encoding="utf-8")
+        titles = [match.group(1).replace("\\'", "'") for match in TITLES.finditer(source)]
+        for title in dict.fromkeys(titles):
+            target = next((row for row in targets if row.get("node_id") == node_id
+                           and title.startswith(str(row.get("title") or "") + " [")), None)
+            reasons = (["duplicate_title"] if titles.count(title) != 1 else [])
+            block = test_block(source, title)
+            reasons.extend(static_case_issues(block or "", target))
+            for reason in reasons:
+                issues.append({"node_id": node_id, "title": title, "reason": reason,
+                               "kind": "candidate"})
+        if not titles:
+            issues.append({"node_id": node_id, "title": "", "reason": "empty_spec", "kind": "gap"})
+    return issues
 class CaseStatus(str, Enum):
     """Persistent per-case review states; execution outcomes are separate."""
     UNREVIEWED = "unreviewed"
@@ -169,13 +214,16 @@ def collect_cases(directory: Path, targets: list[dict], node_ids: set[str],
         source = path.read_text(encoding="utf-8")
         by_title = sorted((t for t in targets if t.get("node_id") == node_id),
                           key=lambda t: len(t.get("title", "")), reverse=True)
-        for title in [m.group(1).replace("\\'", "'") for m in TITLES.finditer(source)]:
+        titles = [m.group(1).replace("\\'", "'") for m in TITLES.finditer(source)]
+        for title in dict.fromkeys(titles):
             block = test_block(source, title)
-            if not block:
-                continue
             target = next((t for t in by_title if title.startswith(t["title"] + " [")), None)
+            static_issues = (["duplicate_title"] if titles.count(title) != 1 else [])
+            static_issues += static_case_issues(block or "", target)
+            if not block and not static_issues:
+                continue
             requirement = requirement_text(target, (context or {}).get(node_id, ""))
-            structural = bool(target and title in behavior_test_titles(source)
+            structural = bool(not static_issues and target and title in behavior_test_titles(source)
                               and grounded_behavior_test(source, title, target))
             if structural and target.get("semantic_contracts"):
                 # A generic visible-text assertion must not approve an
@@ -184,16 +232,18 @@ def collect_cases(directory: Path, targets: list[dict], node_ids: set[str],
                 # remaining branches; each approved case needs one real edge.
                 structural = any(semantic_contract_evidence(source, title, contract["kind"])
                                  for contract in target["semantic_contracts"])
-            status = ("unreviewed" if structural else "approved_smoke_only" if title.endswith((" [entry]", " [reach]"))
+            status = ("invalid" if static_issues else "unreviewed" if structural
+                      else "approved_smoke_only" if title.endswith((" [entry]", " [reach]"))
                       else "needs_correction")
             rows.append({"id": sha([node_id, title])[:24], "node_id": node_id,
                          "scenario_id": str(target.get("id") or "") if target else "",
                          "title": title, "file": path.name,
                          "requirements_hash": sha(requirement), "file_hash": sha(source),
-                         "case_hash": sha(block), "status": status,
+                         "case_hash": sha(block or ""), "status": status,
+                         "static_issues": static_issues,
                          "origin": target.get("origin", "requirement_scenario") if target else "unmatched",
                          "obligations": target.get('obligations', []) if target else [],
-                         "requirement": requirement, "outcome": outcome_text(target), "case": block})
+                         "requirement": requirement, "outcome": outcome_text(target), "case": block or ""})
     return rows
 
 

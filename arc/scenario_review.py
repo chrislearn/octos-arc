@@ -1069,10 +1069,25 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
     if phase_context:
         parts.append("\nTOP-LEVEL CATEGORY CONTRACT (shared context for these scenarios; "
                      "each assertion must still be grounded in its own scenario): " + phase_context)
+    shared_sources: dict[str, str] = {}
     for target in targets:
-        if target.get('source_contracts'):
-            parts.append(f"\nSOURCE CONTRACTS for [{target['id']}] (authoritative dependency descriptions): "
-                         + json.dumps(target['source_contracts'], ensure_ascii=False))
+        source = target.get('source_contracts')
+        if isinstance(source, Mapping):
+            for requirement_id, description in source.items():
+                shared_sources[str(requirement_id)] = str(description)
+    if shared_sources:
+        parts.append("\nSOURCE CONTRACTS (original YAML descriptions for dependency source_values; "
+                     "each scenario may cite only its listed SOURCE CONTRACT IDS): "
+                     + json.dumps(shared_sources, ensure_ascii=False))
+    for target in targets:
+        source = target.get('source_contracts')
+        if isinstance(source, Mapping) and source:
+            parts.append(f"\nSOURCE CONTRACT IDS for [{target['id']}]: "
+                         + json.dumps(list(source), ensure_ascii=False))
+        elif source:
+            # Legacy callers may supply a list of source excerpts.
+            parts.append(f"\nSOURCE CONTRACTS for [{target['id']}]: "
+                         + json.dumps(source, ensure_ascii=False))
         controls = [c for c in (target.get("controls") or []) if len(c) <= 60][:160]
         if controls:
             parts.append(f"\nCONTROLS for [{target['id']}] (named in this requirement; "

@@ -1063,6 +1063,18 @@ class SuiteControlTests(unittest.TestCase):
             self.assertIn(f"SOURCE CONTRACTS for [{target['id']}]", prompt)
             self.assertIn(quote, prompt)
 
+    def test_batched_prompt_emits_shared_source_descriptions_once(self):
+        targets, fixtures = self._targets()
+        first = dict(next(iter(targets.values())))
+        second = dict(first, id='S-second', node_id='REQ-second')
+        quote = 'Dependency permits the exact value Critical.'
+        first['source_contracts'] = {'DEP': quote, first['node_id']: 'First leaf.'}
+        second['source_contracts'] = {'DEP': quote, 'REQ-second': 'Second leaf.'}
+        prompt = build_prompt([first, second], fixtures)
+        self.assertEqual(prompt.count(quote), 1)
+        self.assertIn(f"SOURCE CONTRACT IDS for [{first['id']}]", prompt)
+        self.assertIn(f"SOURCE CONTRACT IDS for [{second['id']}]", prompt)
+
 
 class CellValueTests(unittest.TestCase):
     def _target(self):

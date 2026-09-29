@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
 from requirement_contracts import _ui_bindings
+from test_policy import test_block
 
 HELPERS = Path(__file__).with_name("blueprints") / "derived-helpers.ts"
 
@@ -752,6 +753,64 @@ def compile_suite(leaves: Iterable[Mapping], context: Mapping[str, str] | None =
             progress(compiled.node_id, index, len(leaves), compiled.scripts,
                      compiled.reach_checks, len(kept))
     return files
+
+
+def mechanical_outcome_rows(leaves: Iterable[Mapping], files: Mapping[str, str],
+                            fixtures: Fixtures | None = None) -> list[dict]:
+    """Describe exactly which THEN clauses have a mechanical assertion candidate.
+
+    These rows are diagnostics, not test approvals. They use the same conservative
+    clause and literal recognition as the compiler and check the final retained
+    spec, so a dropped or entry-only script never earns candidate coverage.
+    """
+    leaves = list(leaves)
+    fixtures = fixtures or suite_fixtures(leaves)
+    rows: list[dict] = []
+    for node in leaves:
+        node_id = str(node.get("id") or "")
+        source = files.get(f"{node_id}.spec.ts", "")
+        retained_titles = [match.group(1).replace("\\'", "'") for match in re.finditer(
+            r"(?m)^test\('((?:\\.|[^'\\])*)',", source)]
+        for scenario_index, scenario in enumerate(node.get("scenarios") or [], 1):
+            parsed = _compile_scenario(scenario, fixtures, _node_text(node))
+            title = parsed.title if parsed.title.startswith(node_id) else f"{node_id}: {parsed.title}"
+            script_title = next((t for t in retained_titles if t.startswith(title + " [script]")), "")
+            script_block = test_block(source, script_title) if script_title else ""
+            action_lines = [line.strip() for action in parsed.actions if not action.startswith("await h.signIn(")
+                            for line in action.splitlines()]
+            if not script_block or not all(line in script_block for line in action_lines):
+                script_title = ""
+                script_block = ""
+            assertions = next((line for line in script_block.splitlines()
+                               if "h.expectTextsVisible(page," in line), "")
+            phase = ""
+            for step_index, step in enumerate(scenario.get("steps") or [], 1):
+                keyword = str(step.get("keyword") or "").strip().upper()
+                phase = keyword if keyword in {"GIVEN", "WHEN", "THEN"} else phase
+                if phase != "THEN":
+                    continue
+                for sentence in _sentences(str(step.get("content") or "")):
+                    for clause_index, clause in enumerate(re.split(
+                            r";|,\s*and\s+|\band\s+(?=\w+s\b)", sentence), 1):
+                        clause = clause.strip()
+                        if not clause:
+                            continue
+                        literals = _then_literals(clause, fixtures, _node_text(node)) if _POSITIVE.search(clause) else []
+                        if _NEGATIVE.search(clause):
+                            reason = "negative_outcome_requires_state_or_rejection_oracle"
+                        elif not literals:
+                            reason = "no_grounded_literal_or_structural_oracle"
+                        elif (not script_title or not set(literals).issubset(parsed.assertions)
+                              or any(_ts(literal) not in assertions for literal in literals)):
+                            reason = "assertion_not_emitted_in_retained_script"
+                        else:
+                            reason = ""
+                        rows.append({"node_id": node_id, "scenario_index": scenario_index,
+                                     "scenario": str(scenario.get("name") or "scenario"),
+                                     "step_index": step_index, "clause_index": clause_index,
+                                     "clause": clause, "status": "candidate" if not reason else "needs_ai",
+                                     "reason": reason, "test_title": script_title if not reason else ""})
+    return rows
 
 
 def write_suite(directory: Path, files: Mapping[str, str]) -> None:

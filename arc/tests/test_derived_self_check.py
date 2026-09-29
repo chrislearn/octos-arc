@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from main import Flow
-from derived_case_review import (CaseStatus, collect_cases, numbered_review_quotes,
+from derived_case_review import (CaseStatus, audit_generated_suite, collect_cases, numbered_review_quotes,
                                  restore_review_quote_ids, validate_review)
 from scenario_review import (authentication_invariants, behavior_test_titles, compile_reply,
                              grounded_behavior_test, review_targets, validate_proposal)
@@ -99,6 +99,34 @@ class AuthenticationInvariantTests(unittest.TestCase):
 
 @patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class AuditCorrectionTests(unittest.TestCase):
+    def test_static_audit_keeps_harness_helpers_and_isolates_shortcut_case(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, path = self.setup_flow(Path(folder))
+            source = path.read_text()
+            self.assertEqual(audit_generated_suite(flow.derived_tests_dir, [target], {'A'}), [])
+            shortcut = source.replace('await h.clickNamed(page,', 'await page.goto(')
+            self.assertNotEqual(shortcut, source)
+            path.write_text(source + '\n' + shortcut.replace(' [model]', ' [case 2] [model]'))
+            rows = collect_cases(flow.derived_tests_dir, [target], {'A'})
+            self.assertEqual([row['status'] for row in rows], ['unreviewed', 'invalid'])
+            self.assertIn('direct_page_navigation', rows[1]['static_issues'])
+            self.assertEqual(audit_generated_suite(flow.derived_tests_dir, [target], {'A'}), [{
+                'node_id': 'A', 'title': target['title'] + ' [case 2] [model]',
+                'reason': 'direct_page_navigation', 'kind': 'candidate'}])
+
+    def test_static_audit_reports_duplicate_orphan_and_missing_spec(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, path = self.setup_flow(Path(folder))
+            source = path.read_text()
+            path.write_text(source + '\n' + source + '\n' + source.replace(
+                target['title'] + ' [model]', 'A: Unmapped [model]'))
+            rows = collect_cases(flow.derived_tests_dir, [target], {'A'})
+            self.assertEqual([(row['title'], row['status']) for row in rows], [
+                (target['title'] + ' [model]', 'invalid'), ('A: Unmapped [model]', 'invalid')])
+            issues = audit_generated_suite(flow.derived_tests_dir, [target], {'A', 'B'})
+            self.assertEqual({item['reason'] for item in issues}, {
+                'duplicate_title', 'unmapped_scenario', 'missing_spec'})
+
     def test_numbered_quotes_restore_source_without_approving_an_action(self):
         row = {'outcome': 'A created record shows “Done”.',
                'case': "await h.clickNamed(page, 'Create');\nawait h.expectTextsVisible(page, ['Done']);"}
