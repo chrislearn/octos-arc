@@ -3810,7 +3810,7 @@ class Flow:
             append_worker_records(master, reply)
             if defer_metrics:
                 self.note_turn(job.label)
-                self._background_spec_metrics.put((job.label, reply.ok, reply.elapsed,
+                self._background_spec_metrics.put(('turn', job.label, reply.ok, reply.elapsed,
                                                    reply.tokens, reply.requests))
             else:
                 self.note_turn(job.label)
@@ -3839,12 +3839,29 @@ class Flow:
         refs = visual_references(getattr(self, 'requirement_contracts', {}),
                                  getattr(self, 'requirement_tree', None))
         if not refs:
+            log('[visual] no reference images found in requirement contracts')
             return
         proxy = getattr(self, 'llm_proxy', None)
         routes = getattr(proxy, 'routes', []) if isinstance(proxy, LlmProxy) else []
-        model = (os.environ.get('OCTOS_ARC_VISUAL_MODEL') or next(
-            (rule.get('model') for rule in routes if rule.get('images')
-             and 'design' in rule.get('phases', ['design'])), ''))
+        configured_model = (os.environ.get('OCTOS_ARC_VISUAL_MODEL', '').strip()
+                            or os.environ.get('VISUAL_MODEL', '').strip())
+        routed_model = next((rule.get('model') for rule in routes if rule.get('images')
+                             and 'design' in rule.get('phases', ['design'])), '')
+        model = configured_model or routed_model
+        model_source = ('OCTOS_ARC_VISUAL_MODEL' if os.environ.get('OCTOS_ARC_VISUAL_MODEL', '').strip()
+                        else 'VISUAL_MODEL' if os.environ.get('VISUAL_MODEL', '').strip()
+                        else 'image_route' if routed_model else 'unset')
+        visual_base = os.environ.get('VISUAL_BASE_URL', '').strip()
+        if visual_base:
+            from urllib.parse import urlsplit
+            endpoint = urlsplit(visual_base)
+            if (endpoint.scheme not in {'http', 'https'} or not endpoint.hostname
+                    or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment):
+                log('[visual] invalid VISUAL_BASE_URL; image requests disabled')
+                model = ''
+        log(f'[visual] references={len(refs)} model_source={model_source} '
+            f'endpoint={"VISUAL_BASE_URL" if visual_base else "OPENAI_BASE_URL"} '
+            f'model={model or "<unset>"}')
         wall_cap = max(1, int(os.environ.get('OCTOS_ARC_VISUAL_WALL_SECONDS', '120')))
         max_images = max(0, int(os.environ.get('OCTOS_ARC_VISUAL_MAX_IMAGES', '12')))
         workers = max(1, min(3, int(os.environ.get('OCTOS_ARC_VISUAL_WORKERS', '2'))))
@@ -3893,7 +3910,8 @@ class Flow:
             try:
                 request = urllib.request.Request(proxy.base_url + '/chat/completions', data=body,
                     headers={'Content-Type': 'application/json', 'Authorization':
-                             'Bearer ' + (os.environ.get('OPENAI_API_KEY') or 'local-proxy')})
+                             'Bearer ' + ((os.environ.get('VISUAL_API_KEY') if visual_base else None)
+                                           or os.environ.get('OPENAI_API_KEY') or 'local-proxy')})
                 with urllib.request.urlopen(request, timeout=max(1, min(60, deadline - time.monotonic()))) as response:
                     payload = json.loads(response.read(100_000))
                 content = payload['choices'][0]['message']['content']
@@ -3907,7 +3925,9 @@ class Flow:
 
         if selected and model and isinstance(proxy, LlmProxy) and time.monotonic() < deadline:
             saved = (proxy.no_tools, proxy.system_override, proxy.codegen_max_tokens,
-                     proxy.phase, proxy.label, proxy.dump_dir)
+                     proxy.phase, getattr(proxy, 'label', ''), proxy.dump_dir, proxy.upstream,
+                     proxy.routes, proxy._upstream_failures, proxy._provider_headers,
+                     getattr(proxy, 'turn_deadline', None))
             try:
                 proxy.begin_turn(len(selected))
                 proxy.no_tools = True
@@ -3916,6 +3936,11 @@ class Flow:
                 proxy.phase = 'design'
                 proxy.label = 'visual reference preflight'
                 proxy.dump_dir = None  # proxy debug dumps must never contain image base64
+                proxy.turn_deadline = deadline
+                if visual_base:
+                    proxy.upstream = visual_base.rstrip('/')
+                if configured_model:
+                    proxy.routes = []  # An explicit visual model must not be replaced by a text route.
                 first_sha, (first_data, first_mime, _) = selected[0]
                 outcomes[first_sha] = inspect(first_sha, first_data, first_mime)
                 if outcomes[first_sha][0] == 'inspected' and time.monotonic() < deadline:
@@ -3935,7 +3960,9 @@ class Flow:
                     outcomes.setdefault(image_sha, ('budget_deferred', []))
             finally:
                 (proxy.no_tools, proxy.system_override, proxy.codegen_max_tokens,
-                 proxy.phase, proxy.label, proxy.dump_dir) = saved
+                 proxy.phase, proxy.label, proxy.dump_dir, proxy.upstream,
+                 proxy.routes, proxy._upstream_failures, proxy._provider_headers,
+                 proxy.turn_deadline) = saved
                 proxy._last_prompt_text = ''
                 self.note_turn('visual reference preflight')
         else:
@@ -3953,6 +3980,9 @@ class Flow:
             row['status'] == 'inspected' for row in evidence), statuses={
                 status: sum(row['status'] == status for row in evidence)
                 for status in sorted({row['status'] for row in evidence})})
+        log(f'[visual] preflight images={len(evidence)} inspected='
+            f'{sum(row["status"] == "inspected" for row in evidence)} statuses='
+            f'{dict((status, sum(row["status"] == status for row in evidence)) for status in sorted({row["status"] for row in evidence}))}')
 
     def visual_summary_for_nodes(self, node_ids: set[str]) -> str:
         evidence = getattr(self, 'visual_evidence', [])
@@ -5754,7 +5784,7 @@ class Flow:
                                      artifact_dirs=[health["artifact_dir"]])
                 summary.error = "Application runtime failure: " + "\n".join(application_failures(summary))
                 return summary
-            self.note_startable_commit(git_run, health.get("status"))
+            self.note_startable_commit(git_run, health.get("status"), health.get('source_hash'))
             # A derived suite has one spec file per leaf (47 for the GitHub task);
             # a fixed 900s wall would kill the full run before its verdict.
             policy = self.generated_test_policy()
@@ -5925,12 +5955,17 @@ class Flow:
         """
         server = None
         err = None
+        measured_source_hash = None
         try:
             server = self.app_server(grader_like=True, test_hooks=False)
             err = server.build() or server.start()
             if err is None:
                 try:
+                    self._last_browser_health = None
                     err = self.rehearsal_browser_error()
+                    report = getattr(self, '_last_browser_health', None)
+                    if isinstance(report, dict) and report.get('status') == 'passed':
+                        measured_source_hash = report.get('source_hash')
                 except Exception as exc:  # noqa: BLE001
                     err = f"Browser health unknown: {type(exc).__name__}"
                 err = self.rehearsal_server_error(server) or err
@@ -5944,6 +5979,11 @@ class Flow:
                 except Exception as exc:  # noqa: BLE001
                     log(f"[rehearsal] server cleanup failed: {type(exc).__name__}")
                     err = err or f"Browser health unknown: server cleanup failed: {type(exc).__name__}"
+        if err is None:
+            runtime = getattr(self, 'runtime', None)
+            if runtime is not None:
+                self.note_startable_commit(lambda args: runtime.git.run(args, check=False),
+                                           'passed', measured_source_hash)
         return err
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
@@ -8669,6 +8709,39 @@ class Flow:
                 record_generation_seconds(prefetched_reply.elapsed)
             (review_dir / f"batch-{batch_number}.txt").write_text(
                 f"# ok={ok}\n# scenarios={[t['title'] for t in chunk]}\n{text}", encoding="utf-8")
+            if (not ok and os.environ.get('OCTOS_ARC_SCENARIO_PROPOSAL_NO_THINK', '1') == '1'
+                    and not any(name in os.environ for name in
+                                ('OCTOS_ARC_REASONING', 'OCTOS_ARC_IMPLEMENT_REASONING',
+                                 'OCTOS_ARC_RECOVERY_REASONING'))
+                    and self.derived_review_requests + (len(chunks) - index - 1) < max_requests
+                    and (phase_id not in reserved_phases or review_request_admissible(
+                        phase_id, reserved_phases, phase_counts,
+                        self.derived_review_requests + (len(chunks) - index - 1), max_requests))
+                    and self.derived_llm_seconds + 30 < wall_cap
+                    and getattr(self, 'derived_preflight_deadline', float('inf')) - time.monotonic() >= 30
+                    and self.remaining() >= self.final_phase_reserve() + 300
+                    and not self.wound_down() and not self.derived_preflight_tokens_spent()):
+                # A failed first proposal must not silently remove this
+                # scenario from coverage. Reuse the same frozen prompt once
+                # with the normal retry reasoning policy.
+                self.derived_review_requests += 1
+                if phase_id:
+                    phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
+                for admitted_id in {str(target['node_id']) for target in chunk}:
+                    self.derived_augmentation_attempts[admitted_id] = (
+                        self.derived_augmentation_attempts.get(admitted_id, 0) + 1)
+                for target in chunk:
+                    target_attempts[target['id']] = target_attempts.get(target['id'], 0) + 1
+                fallback_started = time.monotonic()
+                retry_left = getattr(self, 'derived_preflight_deadline', float('inf')) - fallback_started
+                ok, text = self.text_turn(prompt, max(1, int(min(
+                    timeout, max(1, wall_cap - self.derived_llm_seconds), retry_left))),
+                    'derived scenario review (retry)', system=REVIEW_SYSTEM, spec_chars=len(prompt))
+                record_generation_seconds(time.monotonic() - fallback_started)
+                (review_dir / f"batch-{batch_number}-unavailable-retry.txt").write_text(
+                    f"# ok={ok}\n# scenarios={[t['title'] for t in chunk]}\n{text}", encoding='utf-8')
+                self.metric('derived_scenario_reasoning_fallback', batch=batch_number,
+                            outcome='recovered' if ok else 'unavailable', targets=len(chunk))
             if not ok:
                 log(f"[derived] model review batch {batch_number}: no usable reply ({str(text)[:120]})")
                 report_nodes(chunk, batch_number, "unavailable")
@@ -9482,11 +9555,13 @@ class Flow:
         phase_of = (getattr(self, 'phase_plan', None) or {}).get('leaf_phase', {})
         self._derived_post_code_review_active = True
         try:
+            self.poll_background_specs()
             try:
                 self.preflight_derived_specs(review_order)
             except Exception as exc:
                 self.metric('derived_preflight', outcome='unavailable', reason=str(exc)[:300])
             for node in review_order:
+                self.poll_background_specs()
                 node_id = str(node.get('id'))
                 try:
                     if node_id not in getattr(self, '_derived_preflight_node_ids', set()):
@@ -9520,6 +9595,7 @@ class Flow:
             if not self.fast_test_mode():
                 self.derived_completeness_pass(review_order + deferred_order)
         finally:
+            self.poll_background_specs()
             self._derived_post_code_review_active = False
             self.write_derived_handoff()
             self.snapshot_protected()
@@ -9629,6 +9705,8 @@ class Flow:
         private.n_nodes = getattr(self, 'n_nodes', len(ordered))
         private.snapshot_protected = lambda: None
         self._background_spec_metrics = queue.Queue()
+        private.metric = lambda kind, **fields: self._background_spec_metrics.put(
+            ('metric', kind, fields))
         self._derived_background_stale = False
         self._background_specs_paused = False
         self._background_regression_windows = 0
@@ -9647,15 +9725,15 @@ class Flow:
 
         def private_turn(prompt, timeout, label, *, system=CODEGEN_SYSTEM, spec_chars=0, request_budget=None):
             pipeline = stop_holder.get('pipeline')
-            if (pipeline is not None and pipeline.stopping) or time.monotonic() >= overall_deadline:
+            if (pipeline is not None and not pipeline.wait_until_resumed(overall_deadline)) \
+                    or time.monotonic() >= overall_deadline:
                 return False, 'background spec deadline reached'
             deadline = min(overall_deadline, time.monotonic() + max(1, float(timeout)))
             job = SpecRequest(prompt, max(1, int(min(timeout, deadline - time.monotonic()))), label,
                               system, reservation_tokens(prompt), deadline)
             pool = self.isolated_spec_requests(1, force_single=True, defer_metrics=True,
                 allowed=lambda _job: time.monotonic() < overall_deadline and
-                                     not self._background_specs_paused and
-                                     (pipeline is None or not pipeline.stopping))
+                                     (pipeline is None or pipeline.wait_until_resumed(overall_deadline)))
             if pool is None:
                 return False, 'isolated spec request unavailable'
             replies = pool.ordered([job])
@@ -9672,22 +9750,48 @@ class Flow:
             ids = [str(node.get('id')) for node in batch]
             before = {node_id: case_sha((private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8'))
                       if (private_tests / f'{node_id}.spec.ts').is_file() else '' for node_id in ids}
+            review_dir = private_tests / 'review'
+            old_review_files = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                                for path in review_dir.iterdir()
+                                if path.is_file()} if review_dir.is_dir() else {}
             private.prepare_derived_spec_batch(batch)
             files = {node_id: (private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8')
                      for node_id in ids if (private_tests / f'{node_id}.spec.ts').is_file()}
-            review_dir = private_tests / 'review'
+            targets = [target for target in private.planned_derived_scenarios()
+                       if str(target.get('node_id')) in ids]
+            target_ids = {str(target.get('id')) for target in targets}
+            plan_path = review_dir / 'plan.json'
+            try:
+                plan_rows = [row for row in json.loads(plan_path.read_text(encoding='utf-8')).get('targets', [])
+                             if str(row.get('id')) in target_ids] if plan_path.is_file() else []
+            except (OSError, ValueError, TypeError):
+                plan_rows = []
             return {'node_ids': ids, 'before': before, 'files': files,
                     'requirement_sha': requirement_sha, 'helper_sha': helper_sha,
-                    'obligations': copy.deepcopy(getattr(private, 'derived_obligations', [])),
-                    'obligation_status': copy.deepcopy(getattr(private, 'derived_obligation_status', {})),
-                    'targets': copy.deepcopy(private.planned_derived_scenarios()),
+                    'obligations': copy.deepcopy([row for row in getattr(private, 'derived_obligations', [])
+                                                  if set(map(str, row.get('applies_to') or [])) & set(ids)]),
+                    'obligation_status': copy.deepcopy({key: value for key, value in
+                        getattr(private, 'derived_obligation_status', {}).items() if key in ids}),
+                    'targets': copy.deepcopy(targets), 'plan_rows': copy.deepcopy(plan_rows),
                     'case_reviews': copy.deepcopy([row for (node_id, _), row in
                         getattr(private, 'derived_case_reviews', {}).items() if node_id in ids]),
-                    'augmented_nodes': sorted(getattr(private, 'derived_augmented_nodes', set())),
-                    'augmentation_attempts': copy.deepcopy(getattr(private, 'derived_augmentation_attempts', {})),
-                    'target_attempts': copy.deepcopy(getattr(private, 'derived_target_attempts', {})),
+                    'augmented_nodes': sorted(set(ids) & getattr(private, 'derived_augmented_nodes', set())),
+                    'augmentation_attempts': copy.deepcopy({key: value for key, value in
+                        getattr(private, 'derived_augmentation_attempts', {}).items() if key in ids}),
+                    'target_attempts': copy.deepcopy({key: value for key, value in
+                        getattr(private, 'derived_target_attempts', {}).items() if key in target_ids}),
+                    'accounting': {name: copy.deepcopy(getattr(private, name, 0)) for name in (
+                        'derived_review_requests', 'derived_case_review_requests',
+                        'derived_case_correction_requests', 'derived_llm_seconds',
+                        'derived_case_review_seconds', 'derived_obligation_seconds',
+                        'derived_build_spec_seconds')},
+                    'phase_accounting': {name: copy.deepcopy(getattr(private, name, {})) for name in (
+                        'derived_model_phase_requests', 'derived_case_review_phase_requests')},
                     'review_files': {path.name: path.read_text(encoding='utf-8')
-                                     for path in review_dir.iterdir() if path.is_file()} if review_dir.is_dir() else {}}
+                                     for path in review_dir.iterdir() if path.is_file()
+                                     and path.name not in {'plan.json', 'cases.json', 'obligations.json'}
+                                     and old_review_files.get(path.name) != hashlib.sha256(path.read_bytes()).hexdigest()}
+                                    if review_dir.is_dir() else {}}
 
         self._derived_background_scratch = scratch
         self._derived_background_pipeline = DerivedSpecPipeline(batches, run_batch)
@@ -9701,16 +9805,35 @@ class Flow:
         if metrics is not None:
             while True:
                 try:
-                    label, ok, elapsed, tokens, requests = metrics.get_nowait()
+                    event = metrics.get_nowait()
                 except queue.Empty:
                     break
-                self.metric('turn', label=label, phase=phase_for_label(label), mode='isolated_text',
-                            ok=ok, elapsed_seconds=round(elapsed, 3), tokens=tokens, requests=requests)
+                if event[0] == 'metric':
+                    _, kind, fields = event
+                    self.metric(kind, **{**fields, 'source': 'background'})
+                else:
+                    _, label, ok, elapsed, tokens, requests = event
+                    self.metric('turn', label=label, phase=phase_for_label(label), mode='isolated_text',
+                                ok=ok, elapsed_seconds=round(elapsed, 3), tokens=tokens, requests=requests,
+                                source='background')
         pipeline = getattr(self, '_derived_background_pipeline', None)
         if pipeline is None or not getattr(self, 'derived_tests_dir', None):
             return
         for result in pipeline.poll_ready():
             ids = result.get('node_ids', [])
+            # A rejected/stale private batch still spent requests and wall time.
+            # The private worker is sequential, so cumulative maxima account
+            # for each batch exactly once without charging its earlier batches twice.
+            for name, value in result.get('accounting', {}).items():
+                if isinstance(value, (int, float)):
+                    setattr(self, name, max(getattr(self, name, 0), value))
+            for name, values in result.get('phase_accounting', {}).items():
+                if isinstance(values, dict):
+                    current_counts = dict(getattr(self, name, {}) or {})
+                    for phase, count in values.items():
+                        if isinstance(count, (int, float)):
+                            current_counts[phase] = max(current_counts.get(phase, 0), count)
+                    setattr(self, name, current_counts)
             if getattr(self, '_derived_background_stale', False):
                 self.metric('derived_background', outcome='discarded_after_stale_input', nodes=ids)
                 continue
@@ -9721,11 +9844,13 @@ class Flow:
             current = {node_id: case_sha((directory / f'{node_id}.spec.ts').read_text(encoding='utf-8'))
                        if (directory / f'{node_id}.spec.ts').is_file() else '' for node_id in ids}
             if (result.get('requirement_sha') != case_sha(getattr(self, 'requirement_tree', {}))
-                    or result.get('helper_sha') != helper_evidence_hash(directory)
-                    or current != result.get('before')):
-                self.metric('derived_background', outcome='stale_input', nodes=ids)
+                    or result.get('helper_sha') != helper_evidence_hash(directory)):
+                self.metric('derived_background', outcome='stale_shared_input', nodes=ids)
                 self._derived_background_stale = True
                 pipeline.close(0)
+                continue
+            if current != result.get('before'):
+                self.metric('derived_background', outcome='stale_batch_input', nodes=ids)
                 continue
             for node_id, source in result['files'].items():
                 (directory / f'{node_id}.spec.ts').write_text(source, encoding='utf-8')
@@ -9735,12 +9860,46 @@ class Flow:
             for name, source in result['review_files'].items():
                 if name != 'cases.json':
                     (review_dir / name).write_text(source, encoding='utf-8')
-            self.derived_obligations = result['obligations']
-            self.derived_obligation_status = result['obligation_status']
-            self._derived_scenario_targets = result['targets']
-            self.derived_augmented_nodes = set(result['augmented_nodes'])
-            self.derived_augmentation_attempts = result['augmentation_attempts']
-            self.derived_target_attempts = result['target_attempts']
+            if result.get('plan_rows'):
+                plan_path = review_dir / 'plan.json'
+                try:
+                    plan = json.loads(plan_path.read_text(encoding='utf-8')) if plan_path.is_file() else {}
+                except (OSError, ValueError):
+                    plan = {}
+                rows = plan.get('targets', [])
+                incoming = {row['id']: row for row in result['plan_rows']}
+                plan['targets'] = [row for row in rows if row.get('id') not in incoming] + list(incoming.values())
+                plan.setdefault('phase', 'after_implementation')
+                plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            prior_obligations = getattr(self, 'derived_obligations', [])
+            self.derived_obligations = ([row for row in prior_obligations
+                                         if not set(map(str, row.get('applies_to') or [])) & set(ids)]
+                                        + result['obligations'])
+            states = getattr(self, 'derived_obligation_status', {})
+            states.update(result['obligation_status'])
+            self.derived_obligation_status = states
+            prior_targets = getattr(self, '_derived_scenario_targets', None) or []
+            self._derived_scenario_targets = ([target for target in prior_targets
+                                               if str(target.get('node_id')) not in ids]
+                                              + result['targets'])
+            if result['obligation_status'] or result['obligations']:
+                obligation_report = json.dumps({
+                    'version': 1, 'obligations': self.derived_obligations,
+                    'nodes': self.derived_obligation_status,
+                    'seconds': getattr(self, 'derived_obligation_seconds', 0.0),
+                }, ensure_ascii=False, indent=2)
+                (review_dir / 'obligations.json').write_text(obligation_report, encoding='utf-8')
+                design_dir = self.output_dir / 'design'
+                design_dir.mkdir(exist_ok=True)
+                (design_dir / 'test-obligations.json').write_text(obligation_report, encoding='utf-8')
+            self.derived_augmented_nodes = (getattr(self, 'derived_augmented_nodes', set())
+                                            | set(result['augmented_nodes']))
+            attempts = getattr(self, 'derived_augmentation_attempts', {})
+            attempts.update(result['augmentation_attempts'])
+            self.derived_augmentation_attempts = attempts
+            target_attempts = getattr(self, 'derived_target_attempts', {})
+            target_attempts.update(result['target_attempts'])
+            self.derived_target_attempts = target_attempts
             rebuilt = collect_cases(directory, result['targets'], set(ids),
                                     ancestor_context(getattr(self, 'requirement_tree', None)))
             by_key = {(row['node_id'], row['title']): row for row in rebuilt}
@@ -9773,6 +9932,11 @@ class Flow:
             self.snapshot_protected()
             self.metric('derived_background', outcome='committed', nodes=ids,
                         runnable=sum(self.derived_has_runnable_cases(node_id) for node_id in ids))
+        if isinstance(pipeline, DerivedSpecPipeline) and pipeline.stopping and pipeline.wait(0):
+            self._derived_background_pipeline = None
+            scratch = getattr(self, '_derived_background_scratch', None)
+            if scratch is not None:
+                scratch.cleanup()
 
     def check_background_code_health(self) -> None:
         """Pause test requests on sustained code latency or cache regression.
@@ -9781,6 +9945,8 @@ class Flow:
         Without one, report observations but do not infer provider contention.
         """
         if getattr(self, '_derived_background_pipeline', None) is None:
+            return
+        if getattr(self, '_generation_active', True) is False:
             return
         proxy = getattr(self, 'llm_proxy', None)
         path = getattr(proxy, 'log_path', None)
@@ -9791,6 +9957,9 @@ class Flow:
         except (OSError, ValueError):
             return
         code = [row for row in records if row.get('phase') == 'implement'
+                and not row.get('parallel_spec_worker')
+                and not str(row.get('label') or '').lower().startswith(
+                    ('derived ', 'visual ', 'shared domain contract review', 'application design'))
                 and row.get('status') == 200 and isinstance(row.get('elapsed_ms'), (int, float))
                 and isinstance(row.get('prompt_tokens'), (int, float)) and row['prompt_tokens'] > 0]
         if len(code) < 4:
@@ -9846,19 +10015,37 @@ class Flow:
                     consecutive_windows=self._background_regression_windows)
         if self._background_regression_windows >= 2 and not getattr(self, '_background_specs_paused', False):
             self._background_specs_paused = True
-            self._derived_background_pipeline.close(0)
+            self._derived_background_pipeline.pause()
             self.metric('derived_background', outcome='paused_for_code_regression', reasons=reasons)
 
     def close_background_specs(self) -> None:
         pipeline = getattr(self, '_derived_background_pipeline', None)
         if pipeline is None:
             return
+        # Code generation is over. Let a paused or in-flight private batch
+        # finish inside the remaining review allowance before stopping it.
+        self._background_specs_paused = False
+        pipeline.resume()
+        try:
+            configured = max(0.0, float(os.environ.get('OCTOS_ARC_BACKGROUND_DRAIN_SECONDS', '90')))
+        except ValueError:
+            configured = 90.0
+        allowance = max(0.0, self.remaining() - self.derived_review_reserve() - 60)
+        deadline = time.monotonic() + min(configured, allowance)
+        while not pipeline.wait(min(1.0, max(0.0, deadline - time.monotonic()))):
+            self.poll_background_specs()
+            if time.monotonic() >= deadline:
+                self.metric('derived_background', outcome='drain_timeout')
+                break
         pipeline.close(0)
         self.poll_background_specs()
-        self._derived_background_pipeline = None
-        scratch = getattr(self, '_derived_background_scratch', None)
-        if scratch is not None and not pipeline._thread.is_alive():
-            scratch.cleanup()
+        if self._derived_background_pipeline is pipeline and pipeline.wait(0):
+            self._derived_background_pipeline = None
+            scratch = getattr(self, '_derived_background_scratch', None)
+            if scratch is not None:
+                scratch.cleanup()
+        if self._derived_background_pipeline is pipeline:
+            self.metric('derived_background', outcome='inflight_after_drain')
 
     def approved_checkpoint_specs(self, candidates: list[str], *, current_ids: set[str] | None = None) -> list[str]:
         """Only execute approved specs whose known leaf dependencies have code."""
@@ -12821,20 +13008,26 @@ class Flow:
         return (self.output_dir / "frontend" / "package.json").is_file() and \
             (self.output_dir / "backend" / "package.json").is_file()
 
-    def note_startable_commit(self, git_run, browser_status: str = "unknown") -> None:
+    def note_startable_commit(self, git_run, browser_status: str = "unknown",
+                              measured_source_hash: str | None = None) -> None:
         """Remember only a committed tree that also passed fresh-browser health.
 
         A build or browser measurement marked unknown is not a safe rollback
-        target. run_specs staged the worktree; an empty cached diff means HEAD
-        matches the measured frontend/backend tree.
+        target. Both staged and unstaged application changes must be absent;
+        measuring a dirty tree must never promote its older HEAD as safe.
         """
         if browser_status != "passed":
             return
         try:
-            same = getattr(git_run(["diff", "--cached", "--quiet", "HEAD", "--", "frontend", "backend"]),
-                           "returncode", 1) == 0
-            if same:
-                self.last_startable_sha = self.head()
+            status = git_run(["status", "--porcelain", "--", "frontend", "backend"])
+            clean = (getattr(status, 'returncode', 1) == 0
+                     and not (getattr(status, 'stdout', '') or '').strip())
+            if clean:
+                head = self.head()
+                source_hash = self.app_source_digest()
+                if head and (measured_source_hash is None or measured_source_hash == source_hash):
+                    self.last_startable_sha = head
+                    self.last_startable_source_hash = source_hash
         except Exception:  # noqa: BLE001 - bookkeeping must never fail a measurement
             pass
 
@@ -13423,6 +13616,9 @@ def main() -> int:
     print(f"[env] OPENAI_BASE_URL={os.environ.get('OPENAI_BASE_URL', '<unset>')}", flush=True)
     print(f"[env] MODEL={os.environ.get('MODEL', '<unset>')}", flush=True)
     print(f"[env] OPENAI_API_KEY={'set(len=%d)' % len(key) if key else '<unset>'}", flush=True)
+    print(f"[env] VISUAL_MODEL={os.environ.get('VISUAL_MODEL') or '<unset>'}", flush=True)
+    print(f"[env] VISUAL_BASE_URL={'set' if os.environ.get('VISUAL_BASE_URL') else '<unset>'}", flush=True)
+    print(f"[env] VISUAL_API_KEY={'set' if os.environ.get('VISUAL_API_KEY') else '<unset>'}", flush=True)
     print(f"[env] ARCBENCH_TEMPLATE_DIR={os.environ.get('ARCBENCH_TEMPLATE_DIR', '<unset>')}", flush=True)
     print(f"[env] ARCBENCH_TASK_DIR={os.environ.get('ARCBENCH_TASK_DIR', '<unset>')}", flush=True)
     print(f"[env] argv requirement_path={args.requirement_path}", flush=True)

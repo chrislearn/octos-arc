@@ -300,12 +300,33 @@ class MeasuredRepairTests(TestCase):
     def test_startable_commit_is_recorded_only_when_the_tree_equals_head(self):
         f = self.flow
         f.head = Mock(return_value='abc')
-        f.note_startable_commit(lambda args: SimpleNamespace(returncode=1), 'passed')
+        f.app_source_digest = Mock(return_value='source-abc')
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0, stdout=' M frontend/src/App.jsx'), 'passed')
         self.assertIsNone(getattr(f, 'last_startable_sha', None))
-        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0), 'unknown')
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0, stdout=''), 'unknown')
         self.assertIsNone(getattr(f, 'last_startable_sha', None))
-        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0), 'passed')
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0, stdout=''), 'passed')
         self.assertEqual(f.last_startable_sha, 'abc')
+        self.assertEqual(f.last_startable_source_hash, 'source-abc')
+        f.head.return_value = 'changed-head'
+        f.note_startable_commit(lambda args: SimpleNamespace(returncode=0, stdout=''),
+                                'passed', 'earlier-source')
+        self.assertEqual(f.last_startable_sha, 'abc')
+
+    def test_rehearsal_measurement_promotes_only_a_clean_browser_verified_head(self):
+        f = self.flow
+        f.head = Mock(return_value='verified-head')
+        f.app_source_digest = Mock(return_value='verified-source')
+        f.runtime = SimpleNamespace(git=SimpleNamespace(run=Mock(
+            return_value=SimpleNamespace(returncode=0, stdout=''))))
+        f.app_server = lambda **kw: SimpleNamespace(build=lambda: None, start=lambda: None, stop=Mock())
+        f.rehearsal_browser_error = Mock(return_value=None)
+        self.assertIsNone(f.measure_rehearsal_server())
+        self.assertEqual(f.last_startable_sha, 'verified-head')
+        f.runtime.git.run.return_value = SimpleNamespace(returncode=0, stdout=' M frontend/src/App.jsx')
+        f.head.return_value = 'dirty-head'
+        self.assertIsNone(f.measure_rehearsal_server())
+        self.assertEqual(f.last_startable_sha, 'verified-head')
 
     def test_failed_restore_candidate_returns_to_current_commit_without_committing(self):
         f = self.flow

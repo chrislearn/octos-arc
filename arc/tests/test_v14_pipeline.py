@@ -4,6 +4,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from PIL import Image
 from acceptance import RunSummary, TestOutcome
 from derived_case_review import collect_cases, sha as case_sha
 from derived_pipeline import DerivedSpecPipeline
+from llm_proxy import LlmProxy
 import main
 from main import Flow, phase_design_for_tests
 from quality_control import helper_evidence_hash
@@ -133,7 +135,45 @@ class PipelineTests(unittest.TestCase):
             usage.write_text(''.join(json.dumps(row) + '\n' for row in rows))
             flow.check_background_code_health()
             self.assertTrue(flow._background_specs_paused)
-            flow._derived_background_pipeline.close.assert_called_once_with(0)
+            flow._derived_background_pipeline.pause.assert_called_once_with()
+            flow._derived_background_pipeline.close.assert_not_called()
+
+    def test_background_health_ignores_test_worker_usage(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,
+                {'OCTOS_ARC_CODE_P90_BASELINE_MS': '1000'}):
+            root = Path(folder)
+            usage = root / 'usage.jsonl'
+            rows = [{'phase': 'implement', 'status': 200, 'model': 'same-model',
+                     'elapsed_ms': 900, 'prompt_tokens': 1000,
+                     'prompt_cache_hit_tokens': 600, 'prompt_sha256': f'code-{i}',
+                     'label': f'A{i} implement'} for i in range(5)]
+            rows.extend({'phase': 'implement', 'status': 200, 'model': 'same-model',
+                         'elapsed_ms': 10000, 'prompt_tokens': 9000,
+                         'prompt_cache_hit_tokens': 0, 'prompt_sha256': f'test-{i}',
+                         'parallel_spec_worker': True, 'label': 'derived scenario review'}
+                        for i in range(5))
+            usage.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.llm_proxy = SimpleNamespace(log_path=usage)
+            flow.metric = Mock()
+            flow._derived_background_pipeline = Mock()
+            flow.check_background_code_health()
+            self.assertEqual(flow._background_regression_windows, 0)
+            flow._derived_background_pipeline.pause.assert_not_called()
+
+    def test_private_metrics_reach_main_flow_with_source(self):
+        import queue
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.metric = Mock()
+            flow._background_spec_metrics = queue.Queue()
+            flow._background_spec_metrics.put(('metric', 'derived_model_review', {'added': 2}))
+            flow._background_spec_metrics.put(('turn', 'derived scenario review', True, 1.5, 20, 1))
+            flow.poll_background_specs()
+            flow.metric.assert_any_call('derived_model_review', added=2, source='background')
+            self.assertTrue(any(call.args == ('turn',) and call.kwargs.get('source') == 'background'
+                                for call in flow.metric.call_args_list))
 
     def test_main_thread_revalidates_private_approval_before_admission(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -164,6 +204,7 @@ class PipelineTests(unittest.TestCase):
             flow.derived_as_specs = True
             flow.derived_nodes = [node]
             flow.requirement_tree = node
+            flow._derived_scenario_targets = None  # production initialization
             flow.spec_map = {'A': ['A.spec.ts']}
             flow.metric = Mock()
             flow.verify_derived_suite = Mock()
@@ -199,6 +240,83 @@ class PipelineTests(unittest.TestCase):
         pipeline.close()
         self.assertEqual([row['node_ids'] for row in pipeline.poll_ready()], [['A'], ['B']])
 
+    def test_paused_pipeline_resumes_after_first_batch(self):
+        started, release = threading.Event(), threading.Event()
+        seen = []
+        def run(batch):
+            seen.append(batch[0]['id'])
+            if batch[0]['id'] == 'A':
+                started.set()
+                release.wait(1)
+            return {'node_ids': [batch[0]['id']]}
+        pipeline = DerivedSpecPipeline([[{'id': 'A'}], [{'id': 'B'}]], run)
+        self.assertTrue(started.wait(1))
+        pipeline.pause()
+        release.set()
+        self.assertFalse(pipeline.wait(0.05))
+        self.assertEqual(seen, ['A'])
+        pipeline.resume()
+        self.assertTrue(pipeline.wait(1))
+        self.assertEqual(seen, ['A', 'B'])
+        pipeline.close()
+
+    def test_close_drains_inflight_batch_within_review_allowance(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.remaining = Mock(return_value=1000)
+            flow.derived_review_reserve = Mock(return_value=100)
+            flow.metric = Mock()
+            collected = []
+            pipeline = DerivedSpecPipeline([[{'id': 'A'}]], lambda batch: (
+                time.sleep(0.05), {'node_ids': [batch[0]['id']]})[1])
+            flow._derived_background_pipeline = pipeline
+            flow.poll_background_specs = lambda: collected.extend(pipeline.poll_ready())
+            flow.close_background_specs()
+            self.assertEqual(collected, [{'node_ids': ['A']}])
+            self.assertIsNone(flow._derived_background_pipeline)
+
+    def test_inflight_batch_after_drain_is_collected_during_later_poll(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,
+                {'OCTOS_ARC_BACKGROUND_DRAIN_SECONDS': '0'}):
+            root = Path(folder)
+            suite = root / 'derived-tests'
+            suite.mkdir()
+            (suite / 'A.spec.ts').write_text('original\n')
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_tests_dir = flow.tests_dir = suite
+            flow.derived_nodes = [{'id': 'A'}]
+            flow.requirement_tree = {'id': 'A'}
+            flow.remaining = Mock(return_value=1000)
+            flow.derived_review_reserve = Mock(return_value=100)
+            flow.metric = Mock()
+            flow.verify_derived_suite = Mock()
+            flow.write_derived_handoff = Mock()
+            flow.snapshot_protected = Mock()
+            flow.derived_has_runnable_cases = Mock(return_value=False)
+            started, release = threading.Event(), threading.Event()
+            def finish(_batch):
+                started.set()
+                release.wait(1)
+                return {'node_ids': ['A'], 'before': {'A': case_sha('original\n')},
+                        'files': {'A': 'completed\n'},
+                        'requirement_sha': case_sha(flow.requirement_tree),
+                        'helper_sha': helper_evidence_hash(suite),
+                        'obligations': [], 'obligation_status': {}, 'targets': [],
+                        'case_reviews': [], 'augmented_nodes': [],
+                        'augmentation_attempts': {}, 'target_attempts': {},
+                        'review_files': {}}
+            pipeline = DerivedSpecPipeline([[{'id': 'A'}]], finish)
+            flow._derived_background_pipeline = pipeline
+            self.assertTrue(started.wait(1))
+            flow.close_background_specs()
+            self.assertIs(flow._derived_background_pipeline, pipeline)
+            release.set()
+            self.assertTrue(pipeline.wait(1))
+            flow.poll_background_specs()
+            self.assertEqual((suite / 'A.spec.ts').read_text(), 'completed\n')
+            self.assertIsNone(flow._derived_background_pipeline)
+
     def test_stale_private_snapshot_does_not_write_protected_spec(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -219,6 +337,87 @@ class PipelineTests(unittest.TestCase):
             flow.poll_background_specs()
             self.assertEqual((suite / 'A.spec.ts').read_text(), source)
             self.assertFalse(getattr(flow, 'derived_case_reviews', {}))
+
+    def test_stale_spec_batch_does_not_discard_independent_next_batch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            suite = root / 'derived-tests'
+            suite.mkdir()
+            (suite / 'A.spec.ts').write_text('current A\n')
+            (suite / 'B.spec.ts').write_text('old B\n')
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_tests_dir = flow.tests_dir = suite
+            flow.derived_as_specs = True
+            flow.derived_nodes = [{'id': 'A'}, {'id': 'B'}]
+            flow.requirement_tree = {'id': 'ROOT', 'children': flow.derived_nodes}
+            flow.spec_map = {'A': ['A.spec.ts'], 'B': ['B.spec.ts']}
+            flow.metric = Mock()
+            flow.verify_derived_suite = Mock()
+            flow.write_derived_handoff = Mock()
+            flow.snapshot_protected = Mock()
+            flow._derived_background_pipeline = Mock()
+            common = {'requirement_sha': case_sha(flow.requirement_tree),
+                      'helper_sha': helper_evidence_hash(suite), 'obligations': [],
+                      'obligation_status': {}, 'targets': [], 'case_reviews': [],
+                      'augmented_nodes': [], 'augmentation_attempts': {},
+                      'target_attempts': {}, 'review_files': {}}
+            flow._derived_background_pipeline.poll_ready.return_value = [
+                {**common, 'node_ids': ['A'], 'before': {'A': 'stale'},
+                 'files': {'A': 'wrong A\n'},
+                 'accounting': {'derived_review_requests': 2}},
+                {**common, 'node_ids': ['B'], 'before': {'B': case_sha('old B\n')},
+                 'files': {'B': 'new B\n'},
+                 'accounting': {'derived_review_requests': 3}}]
+            flow.poll_background_specs()
+            self.assertEqual((suite / 'A.spec.ts').read_text(), 'current A\n')
+            self.assertEqual((suite / 'B.spec.ts').read_text(), 'new B\n')
+            self.assertEqual(flow.derived_review_requests, 3)
+            flow._derived_background_pipeline.close.assert_not_called()
+
+    def test_background_batches_merge_obligation_ledger_and_phase_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            suite = root / 'derived-tests'
+            suite.mkdir()
+            for node_id in 'AB':
+                (suite / f'{node_id}.spec.ts').write_text(f'{node_id} source\n')
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_tests_dir = flow.tests_dir = suite
+            flow.derived_as_specs = True
+            flow.derived_nodes = [{'id': 'A'}, {'id': 'B'}]
+            flow.requirement_tree = {'id': 'ROOT', 'children': flow.derived_nodes}
+            flow._derived_scenario_targets = None
+            flow.metric = Mock()
+            flow.verify_derived_suite = Mock()
+            flow.write_derived_handoff = Mock()
+            flow.snapshot_protected = Mock()
+            flow.derived_has_runnable_cases = Mock(return_value=False)
+            common = {'requirement_sha': case_sha(flow.requirement_tree),
+                      'helper_sha': helper_evidence_hash(suite), 'targets': [],
+                      'case_reviews': [], 'augmented_nodes': [],
+                      'augmentation_attempts': {}, 'target_attempts': {},
+                      'review_files': {}}
+            results = []
+            for index, node_id in enumerate('AB', 1):
+                results.append({**common, 'node_ids': [node_id],
+                    'before': {node_id: case_sha(f'{node_id} source\n')},
+                    'files': {node_id: f'{node_id} source\n'},
+                    'obligations': [{'requirement_id': node_id, 'applies_to': [node_id]}],
+                    'obligation_status': {node_id: {'status': 'reviewed'}},
+                    'accounting': {'derived_review_requests': index * 2,
+                                   'derived_obligation_seconds': float(index)},
+                    'phase_accounting': {'derived_model_phase_requests':
+                                         {letter: 2 for letter in 'AB'[:index]}}})
+            flow._derived_background_pipeline = Mock()
+            flow._derived_background_pipeline.poll_ready.return_value = results
+            flow.poll_background_specs()
+            self.assertEqual(flow.derived_review_requests, 4)
+            self.assertEqual(flow.derived_model_phase_requests, {'A': 2, 'B': 2})
+            self.assertEqual(flow._derived_scenario_targets, [])
+            ledger = json.loads((suite / 'review' / 'obligations.json').read_text())
+            self.assertEqual({row['applies_to'][0] for row in ledger['obligations']}, {'A', 'B'})
+            self.assertEqual(set(ledger['nodes']), {'A', 'B'})
+            self.assertEqual(ledger, json.loads((root / 'design' / 'test-obligations.json').read_text()))
 
 
 class VisualEvidenceTests(unittest.TestCase):
@@ -255,7 +454,7 @@ class VisualEvidenceTests(unittest.TestCase):
 
     def test_no_visual_model_records_status_and_keeps_design_text_path(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,
-                {'OCTOS_ARC_VISUAL_MODEL': ''}, clear=False):
+                {'OCTOS_ARC_VISUAL_MODEL': '', 'VISUAL_MODEL': ''}, clear=False):
             root = Path(folder)
             (root / 'picture.png').write_bytes(self.png())
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
@@ -270,3 +469,39 @@ class VisualEvidenceTests(unittest.TestCase):
             self.assertEqual([row['status'] for row in flow.visual_evidence], ['unsupported', 'missing'])
             self.assertEqual(summary_for_nodes(flow.visual_evidence, {'A'}), '')
             self.assertTrue((root / '.arc' / 'visual-evidence.json').is_file())
+
+    def test_platform_visual_environment_uses_vision_endpoint_and_restores_proxy(self):
+        env = {'OCTOS_ARC_VISUAL_MODEL': '', 'VISUAL_MODEL': 'vision-model',
+               'VISUAL_BASE_URL': 'https://vision.example/v1',
+               'VISUAL_API_KEY': 'vision-key', 'OPENAI_API_KEY': 'text-key',
+               'OCTOS_ARC_MODEL_ROUTES': '[]'}
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, env, clear=False):
+            root = Path(folder)
+            (root / 'picture.png').write_bytes(self.png())
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.requirement_tree = {'id': 'A'}
+            flow.requirement_contracts = {'nodes': [
+                {'id': 'A', 'reference_images': ['picture.png']}]}
+            flow.remaining = Mock(return_value=1000)
+            flow.final_phase_reserve = Mock(return_value=100)
+            flow.metric = Mock()
+            flow.note_turn = Mock()
+            proxy = LlmProxy('https://text.example/v1', 'low').start()
+            flow.llm_proxy = proxy
+            captured = []
+
+            def respond(method, path, body, headers, request_id=None):
+                captured.append((proxy.upstream, json.loads(body)['model'], headers.get('Authorization')))
+                payload = {'choices': [{'message': {'content': json.dumps({'observations': [
+                    {'kind': 'control', 'text': 'Save button', 'region': None, 'certainty': 'clear'}]})}}]}
+                return 200, json.dumps(payload).encode(), {'Content-Type': 'application/json'}
+
+            proxy._request_upstream = Mock(side_effect=respond)
+            try:
+                flow.prepare_visual_evidence()
+            finally:
+                proxy.stop()
+            self.assertEqual(captured, [('https://vision.example/v1', 'vision-model', 'Bearer vision-key')])
+            self.assertEqual(proxy.upstream, 'https://text.example/v1')
+            self.assertEqual(flow.visual_evidence[0]['status'], 'inspected')

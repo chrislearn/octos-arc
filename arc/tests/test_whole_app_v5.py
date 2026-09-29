@@ -1661,7 +1661,10 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         statuses = {row["node_id"]: row["status"] for row in json.loads(plan_path.read_text())["targets"]}
         self.assertEqual(statuses, {"A": "attempted", "B": "attempted", "C": "pending"})
         self.assertTrue((flow.derived_tests_dir / "review" / "batch-1.txt").is_file())
-        self.assertTrue((flow.derived_tests_dir / "review" / "batch-2.txt").is_file())
+        # A failed first proposal uses request 2 for the thinking-enabled retry;
+        # the next node's first proposal is therefore request 3.
+        self.assertTrue((flow.derived_tests_dir / "review" / "batch-1-unavailable-retry.txt").is_file())
+        self.assertTrue((flow.derived_tests_dir / "review" / "batch-3.txt").is_file())
         self.assertGreaterEqual(flow.text_turn.call_count, 2)
         self.assertTrue((flow.derived_tests_dir / "review" / "cases.json").is_file())
         flow.prepare_derived_spec_batch(nodes[:1])

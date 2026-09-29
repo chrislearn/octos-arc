@@ -238,8 +238,13 @@ class QualityTests(unittest.TestCase):
         self.assertNotEqual(old, requirement_text(target))
 
     def test_low_default_and_explicit_medium_ceiling(self):
-        for label in ('application design', 'derived scenario review', 'shared domain contract review', 'A repair', 'whole application implement'):
+        for label in ('application design', 'shared domain contract review', 'A repair', 'whole application implement'):
             self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', label, {}), 'low')
+        self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', 'derived scenario review', {}), 'none')
+        self.assertEqual(turn_reasoning_for_model('glm-5.3-flash', 'derived scenario review', {}), 'low')
+        self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', 'derived scenario review (retry)', {}), 'low')
+        self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', 'derived scenario review',
+                                                  {'OCTOS_ARC_SCENARIO_PROPOSAL_NO_THINK': '0'}), 'low')
         for label in ('application design (format retry)', 'A implement (tiny)', 'protocol retry', 'small patch'):
             self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', label, {}), 'low')
         for mode in ('high', 'xhigh', 'max', 'ultra'):
@@ -285,6 +290,45 @@ class QualityTests(unittest.TestCase):
             self.assertEqual(len(seen),2)
             self.assertEqual([row['reasoning_effort'] for row in seen], ['medium','medium'])
             self.assertEqual([row['model'] for row in seen], ['missing-model','base'])
+        finally:
+            if proxy: proxy.stop()
+            server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+    def test_scenario_proposal_only_disables_thinking_on_actual_qwen_wire(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from threading import Thread
+        import urllib.request
+        from llm_proxy import LlmProxy
+        seen = []
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_): pass
+            def do_POST(self):
+                seen.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+                payload = {'choices': [{'message': {'role': 'assistant', 'content': 'ok'},
+                                         'finish_reason': 'stop'}],
+                           'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}
+                body = json.dumps(payload).encode()
+                self.send_response(200); self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = Thread(target=server.serve_forever, daemon=True); thread.start()
+        proxy = None
+        try:
+            with patch.dict(os.environ, {'OCTOS_ARC_MODEL_ROUTES': '[]'}, clear=True):
+                proxy = LlmProxy(f'http://127.0.0.1:{server.server_address[1]}/v1', 'low').start()
+                proxy.routes = [{'model': 'qwen3.7-plus', 'phases': ['implement']}]
+                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                for label in ('derived scenario review', 'derived scenario review (retry)',
+                              'derived case independent review', 'whole application implement'):
+                    proxy.label = label
+                    body = json.dumps({'model': 'base', 'messages': [{'role': 'user', 'content': 'test'}]}).encode()
+                    with opener.open(urllib.request.Request(proxy.base_url + '/chat/completions', data=body,
+                                     headers={'Content-Type': 'application/json'}), timeout=10) as response:
+                        self.assertEqual(response.status, 200)
+            self.assertEqual(len(seen), 4)
+            self.assertEqual([row['enable_thinking'] for row in seen], [False, True, True, True])
+            self.assertNotIn('reasoning_effort', seen[0])
+            self.assertEqual([row['reasoning_effort'] for row in seen[1:]], ['low'] * 3)
         finally:
             if proxy: proxy.stop()
             server.shutdown(); server.server_close(); thread.join(timeout=2)

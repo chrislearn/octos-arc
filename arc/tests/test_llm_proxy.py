@@ -99,8 +99,14 @@ class InjectTests(unittest.TestCase):
             wire = json.loads(inject_reasoning(json.dumps(routed).encode(), 'low'))
             self.assertTrue(wire['enable_thinking'])
             self.assertEqual(wire['reasoning_effort'], 'low')
-            self.assertEqual(json.loads(route_request(body, rules, 'implement', 'medium',
-                                                      'derived scenario review'))['reasoning_effort'], 'low')
+            first = json.loads(route_request(body, rules, 'implement', 'medium',
+                                             'derived scenario review'))
+            self.assertFalse(first['enable_thinking'])
+            self.assertNotIn('reasoning_effort', first)
+            correction = json.loads(route_request(body, rules, 'implement', 'low',
+                                                  'derived scenario review (retry)'))
+            self.assertTrue(correction['enable_thinking'])
+            self.assertEqual(correction['reasoning_effort'], 'low')
             self.assertEqual(json.loads(route_request(body, rules, 'implement', 'low',
                                                       'whole application implement'))['reasoning_effort'], 'low')
         with patch.dict('os.environ', {'OCTOS_ARC_REASONING': 'none'}):

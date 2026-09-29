@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from queue import Empty, Queue
 from threading import Event, Thread
+import time
 from typing import Callable, Iterable
 
 
@@ -14,6 +15,8 @@ class DerivedSpecPipeline:
     def __init__(self, batches: Iterable[list[dict]], run_batch: Callable[[list[dict]], dict]):
         self._ready: Queue[dict] = Queue()
         self._stop = Event()
+        self._resume = Event()
+        self._resume.set()
         self._batches = list(batches)
         self._run_batch = run_batch
         self._thread = Thread(target=self._run, name="arc-derived-spec-pipeline", daemon=True)
@@ -25,7 +28,7 @@ class DerivedSpecPipeline:
 
     def _run(self) -> None:
         for batch in self._batches:
-            if self.stopping:
+            if not self.wait_until_resumed(float('inf')):
                 break
             try:
                 result = self._run_batch(batch)
@@ -41,6 +44,24 @@ class DerivedSpecPipeline:
             except Empty:
                 return ready
 
+    def pause(self) -> None:
+        self._resume.clear()
+
+    def resume(self) -> None:
+        self._resume.set()
+
+    def wait_until_resumed(self, deadline: float) -> bool:
+        """Do not start another model stage while code health is degraded."""
+        while not self.stopping and time.monotonic() < deadline:
+            if self._resume.wait(min(0.25, max(0, deadline - time.monotonic()))):
+                return not self.stopping
+        return False
+
+    def wait(self, timeout: float) -> bool:
+        self._thread.join(max(0.0, timeout))
+        return not self._thread.is_alive()
+
     def close(self, timeout: float = 0.0) -> None:
         self._stop.set()
+        self._resume.set()
         self._thread.join(max(0.0, timeout))

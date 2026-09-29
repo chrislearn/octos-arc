@@ -1,4 +1,4 @@
-"""Low reasoning remains enabled across task sizes and turn phases."""
+"""Code and independent reviews retain reasoning; scenario proposals can omit it."""
 import argparse
 import json
 import os
@@ -27,13 +27,14 @@ class ThinkingDefaultTests(unittest.TestCase):
                 flow.protected_prefixes = lambda: []
                 flow.restore_protected = lambda: []
                 flow.driver = SimpleNamespace(run=Mock(return_value=(True, "done")), progress_deadline=None)
-                for label, expected in (("derived scenario review", "low"),
+                for label, expected in (("derived scenario review", "none"),
+                                        ("derived scenario review (retry)", "low"),
                                         ("derived case independent review", "low"),
                                         ("application design", "low"),
                                         ("whole application implement", "low"),
                                         ("A repair", "low")):
                     flow.turn("prompt", 60, label, expect_verification=False)
-                    self.assertEqual(proxy.mode, expected, label)
+                    self.assertEqual(proxy.mode, expected if model == 'qwen3.7-plus' else 'low', label)
         with patch.dict(os.environ, {"MODEL": "qwen3.7-plus", "OCTOS_ARC_REASONING": "medium"}, clear=True):
             self.assertEqual(m.turn_reasoning_for_model("qwen3.7-plus", "A implement"), "medium")
 

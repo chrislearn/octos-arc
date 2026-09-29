@@ -288,7 +288,7 @@ def default_reasoning_for_model(model: str, env=None) -> str:
 
 
 def turn_reasoning_for_model(model: str, label: str, env=None) -> str:
-    """Low for every default stage; explicit task settings retain their meaning.
+    """Use no thinking for the first scenario proposal, then normal review effort.
 
     The existing explicit-high ceiling remains medium.
     """
@@ -298,6 +298,10 @@ def turn_reasoning_for_model(model: str, label: str, env=None) -> str:
                                     "OCTOS_ARC_RECOVERY_REASONING")):
         return 'medium' if mode in {'high', 'xhigh', 'max'} else mode
     label = label.lower()
+    if (label.strip() == 'derived scenario review'
+            and re.search(r'(?:^|/)qwen3\.7-plus(?:-|$)', model.lower())
+            and env.get('OCTOS_ARC_SCENARIO_PROPOSAL_NO_THINK', '1') == '1'):
+        return 'none'
     if mode == "medium":
         if any(word in label for word in ('format retry', 'protocol retry', '(tiny)', 'noise cleanup', 'small patch')):
             return 'low'

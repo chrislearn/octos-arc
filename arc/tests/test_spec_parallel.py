@@ -140,12 +140,16 @@ class ScenarioCommitTests(unittest.TestCase):
             flow.final_phase_reserve = Mock(return_value=0)
             flow.text_turn = Mock(return_value=(False, "provider unavailable"))
             flow.augment_derived_tests(nodes)
-            self.assertEqual(flow.text_turn.call_count, 2)
+            self.assertEqual(flow.text_turn.call_count, 4)
             prompts = [call.args[0] for call in flow.text_turn.call_args_list]
             self.assertIn("A: Scenario 1", prompts[0])
+            self.assertIn("A: Scenario 1", prompts[1])
             self.assertNotIn("B: Scenario 1", prompts[0])
-            self.assertIn("B: Scenario 1", prompts[1])
-            self.assertNotIn("A: Scenario 1", prompts[1])
+            self.assertIn("B: Scenario 1", prompts[2])
+            self.assertIn("B: Scenario 1", prompts[3])
+            self.assertNotIn("A: Scenario 1", prompts[2])
+            self.assertEqual([call.args[2] for call in flow.text_turn.call_args_list],
+                             ['derived scenario review', 'derived scenario review (retry)'] * 2)
 
     def test_one_leaf_uses_at_most_two_proposal_requests_including_retry(self):
         with tempfile.TemporaryDirectory() as directory:
