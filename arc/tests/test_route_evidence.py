@@ -1,6 +1,11 @@
 """Literal positives, real omissions and unsupported routing must differ."""
 import unittest
-from route_evidence import frontend_route_index, frontend_route_evidence, backend_route_evidence
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
+from route_evidence import (frontend_route_index, frontend_route_evidence,
+                            backend_route_evidence, runtime_backend_routes)
 
 
 class RouteEvidenceTests(unittest.TestCase):
@@ -76,3 +81,35 @@ class RouteEvidenceTests(unittest.TestCase):
         self.assertEqual(self.evidence('<Routes><Route path="/Users" /></Routes>', '/users')['status'], 'unknown')
         sources['backend/server.js'] = "app.use('/prefix', router);"
         self.assertEqual(backend_route_evidence(sources, 'POST', '/prefix/api/users/:user')['status'], 'unknown')
+
+    def test_runtime_registry_uses_only_trusted_unmounted_server(self):
+        blueprint = Path(__file__).parents[1] / 'blueprints'
+        server = (blueprint / 'server.js').read_text().replace('__ARC_DEFAULT_PORT__', '43100').replace(
+            '__ARC_EXTRA_PORTS__', '[]')
+        sources = {'backend/server.js': server,
+                   'backend/lib/arc.js': (blueprint / 'arc-runtime.js').read_text(),
+                   'backend/routes/workbooks.js': "module.exports = app => { app.get('/api/workbooks', list); };"}
+        with TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / 'backend/node_modules/express').mkdir(parents=True)
+
+            def write_dump(_cmd, **kwargs):
+                Path(kwargs['env']['ARC_ROUTE_DUMP']).write_text(
+                    '{"routes":[{"method":"GET","path":"/api/workbooks"}],"conflicts":[]}')
+                return SimpleNamespace(returncode=0)
+
+            with patch('route_evidence.shutil.which', return_value='/bin/node'), \
+                    patch('route_evidence.subprocess.run', side_effect=write_dump) as run:
+                result = runtime_backend_routes(project, sources)
+                self.assertEqual(result['status'], 'complete')
+                self.assertEqual(result['routes'][0]['path'], '/api/workbooks')
+                run.assert_called_once()
+                mounted = {**sources, 'backend/routes/workbooks.js':
+                           "module.exports = app => { app.use('/api', router); };"}
+                self.assertEqual(runtime_backend_routes(project, mounted)['status'], 'unknown')
+                delayed = {**sources, 'backend/routes/workbooks.js':
+                           "module.exports = app => { setTimeout(() => app.post('/late', save), 10); };"}
+                self.assertEqual(runtime_backend_routes(project, delayed)['status'], 'unknown')
+                untrusted = {**sources, 'backend/server.js': server + '\napp.use(router);'}
+                self.assertEqual(runtime_backend_routes(project, untrusted)['status'], 'unknown')
+                run.assert_called_once()

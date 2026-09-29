@@ -1,11 +1,17 @@
-"""Bounded source registration evidence, never proof of runtime reachability.
+"""Bounded source and trusted runtime registration evidence.
 
-A missing registration is blocking only in a closed, supported literal table.
-Dynamic routers and mounts require runtime evidence. No application code is run.
+A missing registration blocks only in a closed literal table or a complete
+route dump from the bundled server. Neither proves handler behavior.
 """
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 
 
 def _quoted_end(source, start):
@@ -244,3 +250,53 @@ def backend_route_evidence(sources, method, path):
             'path': path, 'method': method.upper(), 'normalized_path': route_shape(path), 'sources': rows,
             'scope': 'direct literal app registration; mounts/control flow and runtime reachability unverified',
             'reasons': [] if seen and complete else ['backend registration graph is not a closed literal table']}
+
+
+def runtime_backend_routes(project: Path, sources: dict[str, str], *, timeout: int = 4) -> dict:
+    """Ask the trusted generic server for its registered routes without binding a port.
+
+    A missing route is useful negative evidence only when the server and route
+    tracker are still the bundled versions and business routers are not mounted
+    through an untracked app.use/router.route chain. Startup failures stay
+    unknown; this probe never declares a generated application healthy.
+    """
+    blueprints = Path(__file__).with_name('blueprints')
+    server = sources.get('backend/server.js', '')
+    server = re.sub(r'Number\(process\.env\.PORT \|\| \d+\)',
+                    'Number(process.env.PORT || __ARC_DEFAULT_PORT__)', server)
+    server = re.sub(r'ports\.push\(\.\.\.\[[\d,\s]*\]\)',
+                    'ports.push(...__ARC_EXTRA_PORTS__)', server)
+    if (server != (blueprints / 'server.js').read_text(encoding='utf-8')
+            or sources.get('backend/lib/arc.js') !=
+            (blueprints / 'arc-runtime.js').read_text(encoding='utf-8')):
+        return {'status': 'unknown', 'reason': 'route dump requires the bundled server and tracker'}
+    route_sources = {name: source for name, source in sources.items()
+                     if name.startswith('backend/routes/') and name.endswith(('.js', '.cjs'))}
+    if any(re.search(r'''\b(?:app|router)\s*(?:\.\s*(?:use|route)|\[\s*['"](?:use|route)['"]\s*\])\s*\(|\bRouter\s*\(''', source)
+           or re.search(r'\b(?:setTimeout|setImmediate|queueMicrotask|import)\s*\(|\bprocess\.nextTick\s*\('
+                        r'|\.then\s*\(|\bmodule\.exports\s*=\s*async\b'
+                        r'|\b(?:const|let|var)\s+\w+\s*=\s*app\b', source)
+           for source in route_sources.values()):
+        return {'status': 'unknown', 'reason': 'mounted or chained routes need live request evidence'}
+    node = shutil.which('node')
+    if not node or not (project / 'backend/node_modules/express').exists():
+        return {'status': 'unknown', 'reason': 'node or express unavailable'}
+    try:
+        with tempfile.TemporaryDirectory(prefix='arc-route-dump-') as scratch:
+            target = Path(scratch) / 'routes.json'
+            env = dict(os.environ, ARC_ROUTE_DUMP=str(target), ARC_DATA_DIR=str(Path(scratch) / 'data'),
+                       ARC_TEST_HOOKS='0', ARC_EXTRA_PORTS='0', PORT='0')
+            run = subprocess.run([node, 'server.js'], cwd=project / 'backend', env=env,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 timeout=timeout, check=False)
+            if run.returncode != 0 or not target.is_file():
+                return {'status': 'unknown', 'reason': 'route dump failed or application did not load'}
+            report = json.loads(target.read_text(encoding='utf-8'))
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return {'status': 'unknown', 'reason': 'route dump unavailable'}
+    routes = report.get('routes') if isinstance(report, dict) else None
+    if not isinstance(routes, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get('method'), str)
+            or not isinstance(row.get('path'), str) for row in routes):
+        return {'status': 'unknown', 'reason': 'invalid route dump'}
+    return {'status': 'complete', 'routes': routes}

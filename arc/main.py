@@ -3339,6 +3339,10 @@ class Flow:
             if node.get("scenarios") or node.get("dependencies")
             else str(node.get("description") or "").strip(), spec=spec,
             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
+        if re.search(r'\b(?:spreadsheet\s+grid|worksheet\s+grid|gridcell)\b', task, re.I):
+            task += ("\nGrid accessibility: expose the required grid role and name. "
+                     "Coordinate-named cells need role gridcell and that coordinate as their accessible name; "
+                     "table/td markup or visible value text alone does not supply these semantics.\n")
         # A wave uses a synthetic node id; its active requirement ids are
         # explicitly listed in the description. Single-node turns use their id.
         node_id = str(node.get("id"))
@@ -7175,8 +7179,9 @@ class Flow:
                     self.metric("seed_source_hint", node_ids=ids, advisory=True, hints=hints[:8])
             artifacts = self.whole_app_wave_design_items(ids)
             from route_evidence import (backend_route_evidence, frontend_route_evidence,
-                                        frontend_route_index)
+                                        frontend_route_index, route_shape, runtime_backend_routes)
             index = frontend_route_index(sources)
+            runtime_routes = None
             for route in artifacts["routes"]:
                 method, path = str(route.get("method") or ""), str(route.get("path") or "")
                 if not method or not path:
@@ -7185,6 +7190,33 @@ class Flow:
                 self.metric("design_route_evidence", node_ids=ids, surface="backend", **evidence)
                 if evidence["status"] == "proven_missing":
                     gaps.append(f"design route missing: {method.upper()} {path}")
+                elif evidence["status"] == "unknown":
+                    if runtime_routes is None:
+                        backend = {name: source for name, source in sources.items()
+                                   if name.startswith('backend/')}
+                        digest = hashlib.sha256(json.dumps(backend, sort_keys=True).encode()).hexdigest()
+                        cached = getattr(self, '_runtime_route_dump_cache', None)
+                        runtime_routes = cached[1] if cached and cached[0] == digest else \
+                            runtime_backend_routes(self.output_dir, sources)
+                        self._runtime_route_dump_cache = (digest, runtime_routes)
+                    if runtime_routes['status'] == 'complete':
+                        registered = runtime_routes['routes']
+                        # Express wildcard/optional registrations can cover a
+                        # literal design path; do not infer a negative then.
+                        open_routes = any(any(mark in row['path'] for mark in ('*', '?', '{', '}'))
+                                          for row in registered)
+                        accepted_methods = {method.upper(), 'ALL'}
+                        if method.upper() == 'HEAD':
+                            accepted_methods.add('GET')  # Express serves HEAD through GET.
+                        present = any(row['method'].upper() in accepted_methods
+                                      and route_shape(row['path']).lower() == route_shape(path).lower()
+                                      for row in registered)
+                        status = ('present' if present else 'unknown'
+                                  if open_routes or method.upper() == 'OPTIONS' else 'proven_missing')
+                        self.metric('design_route_evidence', node_ids=ids, surface='backend_runtime',
+                                    status=status, method=method.upper(), path=path)
+                        if status == 'proven_missing':
+                            gaps.append(f"design route missing: {method.upper()} {path}")
             for page in artifacts["pages"]:
                 path = str(page.get("path") or "")
                 if not path:

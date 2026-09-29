@@ -809,6 +809,36 @@ class WholeAppTests(unittest.TestCase):
         app.write_text('<Routes><Route path="/:owner/:repo/settings/access" element={<Access />} /></Routes>')
         self.assertEqual(flow.whole_app_wave_gaps(["REQ-2-3"]), [])
 
+    def test_wave_guard_uses_complete_runtime_registry_for_missing_route(self):
+        flow = self.flow
+        route = self.root / 'backend/routes/workbooks.js'
+        route.parent.mkdir(parents=True, exist_ok=True)
+        route.write_text("module.exports = app => { app.get('/api/workbooks', (req, res) => res.json([])); };")
+        flow.app_design_doc = {'data_model': {}, 'pages': [], 'routes': [
+            {'method': 'POST', 'path': '/api/workbooks/import', 'requirements': ['REQ-CSV']},
+            {'method': 'HEAD', 'path': '/api/workbooks', 'requirements': ['REQ-CSV']},
+            {'method': 'OPTIONS', 'path': '/api/workbooks', 'requirements': ['REQ-CSV']} ]}
+        flow.last_codegen_refused = set()
+        flow._generation_gate_result = None
+        report = {'status': 'complete', 'routes': [{'method': 'GET', 'path': '/api/workbooks'}]}
+        with patch('route_evidence.runtime_backend_routes', return_value=report) as dump:
+            self.assertEqual(flow.whole_app_wave_gaps(['REQ-CSV']),
+                             ['design route missing: POST /api/workbooks/import'])
+            flow.whole_app_wave_gaps(['REQ-CSV'])
+            dump.assert_called_once()  # unchanged backend uses the cached registry
+
+    def test_wave_guard_does_not_infer_missing_route_from_unavailable_dump(self):
+        flow = self.flow
+        route = self.root / 'backend/routes/workbooks.js'
+        route.parent.mkdir(parents=True, exist_ok=True)
+        route.write_text("module.exports = app => { app.get('/api/workbooks', (req, res) => res.json([])); };")
+        flow.app_design_doc = {'data_model': {}, 'pages': [], 'routes': [
+            {'method': 'POST', 'path': '/api/workbooks/import', 'requirements': ['REQ-CSV']} ]}
+        flow.last_codegen_refused = set()
+        flow._generation_gate_result = None
+        with patch('route_evidence.runtime_backend_routes', return_value={'status': 'unknown'}):
+            self.assertEqual(flow.whole_app_wave_gaps(['REQ-CSV']), [])
+
     def test_seed_source_literals_are_advisory(self):
         from requirement_contracts import compile_contracts
         flow = self.flow
