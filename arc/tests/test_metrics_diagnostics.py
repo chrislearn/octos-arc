@@ -30,6 +30,7 @@ class MetricsDiagnosticTests(unittest.TestCase):
             self.assertEqual(data['diagnostics']['first_whole_app_measurement']['passed'], 2)
             self.assertEqual(data['diagnostics']['repair_seconds'], 4.5)
             self.assertEqual(data['diagnostics']['codegen_outcomes'], {'anchor_failed': 1})
+            self.assertEqual(data['attempt_outcomes'], {'unknown': 2})
 
     def test_missing_first_pass_data_is_unknown_not_zero_or_final_score(self):
         with tempfile.TemporaryDirectory() as folder:

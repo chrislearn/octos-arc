@@ -377,6 +377,36 @@ class PipelineRecovery(unittest.TestCase):
         self.assertIn('/routes/1/path', correction_prompt)
         self.assertIn('ACCEPTED DESIGN', correction_prompt)
 
+    def test_category_recovery_accepts_additions_without_repeating_prior_contracts(self):
+        tree = {'id': 'ROOT', 'children': [
+            {'id': 'A', 'description': 'Read existing items.'},
+            {'id': 'B', 'description': 'Create new items.'}]}
+        accepted = {'data_model': {}, 'routes': [
+            {'method': 'GET', 'path': '/api/items', 'requirements': ['A']}],
+            'pages': [], 'modules': [], 'contracts': [], 'domain_contracts': [],
+            'commands': [], 'notes': ''}
+        addition = {'routes': [{'method': 'POST', 'path': '/api/items', 'requirements': ['B']}]}
+        self.flow.text_turn = Mock(return_value=(True, json.dumps(addition)))
+        result = self.flow.recover_category_design(tree, tree['children'], accepted=accepted)
+        self.assertEqual(len(result['routes']), 2)
+        self.assertEqual(accepted['routes'], [{'method': 'GET', 'path': '/api/items', 'requirements': ['A']}])
+        self.flow.text_turn.assert_called_once()
+        self.assertIn('only additions', self.flow.text_turn.call_args.args[0])
+
+    def test_category_recovery_accepts_contract_only_delta(self):
+        tree = {'id': 'ROOT', 'children': [
+            {'id': 'A', 'description': 'Read existing items.'},
+            {'id': 'B', 'description': 'Keep writes atomic.'}]}
+        accepted = {'data_model': {}, 'routes': [
+            {'method': 'GET', 'path': '/api/items', 'requirements': ['A']}],
+            'pages': [], 'modules': [], 'contracts': [], 'domain_contracts': [],
+            'commands': [], 'notes': ''}
+        addition = {'contracts': [{'requirements': ['B'], 'invariants': ['Writes commit atomically.']}]}
+        self.flow.text_turn = Mock(return_value=(True, json.dumps(addition)))
+        result = self.flow.recover_category_design(tree, tree['children'], accepted=accepted)
+        self.assertEqual(result['contracts'], addition['contracts'])
+        self.flow.text_turn.assert_called_once()
+
     def test_recovery_restores_cumulative_obligation_budget(self):
         self.flow.derived_obligation_seconds = 2400
         with recovery_budget(self.flow):

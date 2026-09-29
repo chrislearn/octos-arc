@@ -1174,6 +1174,59 @@ class WholeAppTests(unittest.TestCase):
         flow.implement_sequential(self.tree, self.nodes, set())
         self.assertEqual(order, [("code", ["A"]), ("code", ["B"]), ("code", ["C"])])
 
+    def test_short_remaining_budget_leaves_unstarted_nodes_pending(self):
+        flow = self.flow
+        flow.remaining = Mock(return_value=90)
+        flow.final_phase_due = Mock(return_value=False)
+        flow.node_cycle = Mock()
+        flow.mark = Mock()
+        flow.metric = Mock()
+        flow.driver = Mock()
+        flow.implement_sequential(self.tree, self.nodes, set())
+        flow.node_cycle.assert_not_called()
+        flow.mark.assert_not_called()
+        self.assertEqual([call.kwargs["node_id"] for call in flow.metric.call_args_list
+                          if call.args[0] == "budget_deferred"], ["A", "B", "C"])
+
+    def test_node_allocation_below_minimum_is_not_dispatched(self):
+        flow = self.flow
+        flow.node_timeout = 500
+        flow.mark = Mock()
+        flow.metric = Mock()
+        with patch("main.node_seconds", return_value=45):
+            flow.node_cycle(self.nodes[0], self.nodes, 1, len(self.nodes))
+        flow.mark.assert_not_called()
+        self.assertTrue(any(call.args[0] == "budget_deferred" for call in flow.metric.call_args_list))
+
+    def test_whole_app_unreached_leaf_remains_pending_when_budget_is_short(self):
+        flow = self.flow
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_generated_ids = {"A", "B"}
+        flow.whole_app_first_suite = Mock(return_value=None)
+        flow.remaining = Mock(return_value=90)
+        flow.node_cycle = Mock()
+        flow.mark = Mock()
+        flow.driver = Mock()
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        flow.node_cycle.assert_not_called()
+        self.assertFalse(any(call.args[0] == "implementation_failed" for call in flow.mark.call_args_list))
+        self.assertNotIn("C", flow.impl_failed)
+        self.assertNotIn("C", flow.generation_state)
+
+    def test_short_budget_still_admits_a_written_leaf_for_its_tests(self):
+        flow = self.flow
+        flow.whole_app_codegen = Mock(return_value=True)
+        flow.whole_app_generated_ids = {"A", "B"}
+        flow.whole_app_partial_ids = {"C"}
+        flow.whole_app_first_suite = Mock(return_value=None)
+        flow.remaining = Mock(return_value=30)
+        flow.node_cycle = Mock()
+        flow.mark = Mock()
+        flow.driver = Mock()
+        self.assertTrue(flow.whole_app_experiment(self.tree, self.nodes))
+        flow.node_cycle.assert_called_once_with(self.nodes[2], self.nodes, 3, 3,
+                                                preimplemented=True)
+
     def test_unfittable_split_defers_leaf_and_preserves_later_generation(self):
         flow = self.flow
         big = self.root / "frontend/src/Big.jsx"

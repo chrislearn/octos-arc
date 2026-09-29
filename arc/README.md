@@ -141,6 +141,7 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_ARC_IMPLEMENT_REASONING_ALL` / `OCTOS_ARC_IMPLEMENT_REASONING` | 0 / 空 | A/B 实验开关：同时设置为 `1` 和 `none` 时，仅实现轮关闭推理，设计与修复维持基础设置；默认行为不变 |
 | `OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS` | 16 | 新需求失败且改动共享源码时，即时复测此前已通过用例的上限；超出部分轮换并由检查点覆盖 |
 | `OCTOS_ARC_RECOVERY_REASONING` | none | 检出上述生成退化后，可显式选择 low/medium/high；默认仍关闭 thinking，不自动开启 |
+| `OCTOS_ARC_MIN_NODE_START_SECONDS` | 120 s | 新代码请求的最短可用时间；短预算运行按总预算的 20% 下调，已有代码的验收可用 15 s 窗口。时间不足的节点保留待处理并记 `budget_deferred`，不伪报实现失败 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |
 | `OCTOS_DESIGN_TURN` / `OCTOS_DESIGN_MODE` | 1 / separate | 0 = 跳过设计轮；`inline` = 设计 JSON 在实现轮开头写出，不单开一轮（TB 上更省钱但更慢，见 CHANGELOG R7/R8） |
 | `OCTOS_SESSION_SCOPE` | turn | 新 session 的粒度：`turn`（每轮新，spec 已内嵌所以修复轮自足）、`node`（设计/实现/修复共用）、`run`（全程一个） |
@@ -170,7 +171,7 @@ Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Be
 
 ### 同题内按步骤选择模型
 
-当前代码默认使用 `OCTOS_ARC_REASONING=low`；设置 `none` 可关闭 thinking，或设置 `medium`/`high` 调整强度。
+当前代码所有模型和设计、生成、审核、修复阶段默认使用 `OCTOS_ARC_REASONING=low`；设置 `none` 可关闭 thinking，或显式设置 `medium`/`high` 调整强度。代理的既有高档位上限仍为 medium。
 规划、生成和修复通常沿用这一基础设置；实现轮单独关闭可用上表的 A/B 开关，默认不启用。
 `auto` 可恢复原先按任务大小选择的规则。显式的阶段覆盖或模型路由参数仍优先；不同供应商是否支持关闭取决于其 API。
 

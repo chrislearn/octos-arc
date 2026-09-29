@@ -237,9 +237,9 @@ class QualityTests(unittest.TestCase):
         target['obligations'][0]['branch'] = 'rejection'
         self.assertNotEqual(old, requirement_text(target))
 
-    def test_user_medium_ceiling_and_stage_selection(self):
+    def test_low_default_and_explicit_medium_ceiling(self):
         for label in ('application design', 'derived scenario review', 'shared domain contract review', 'A repair', 'whole application implement'):
-            self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', label, {}), 'medium')
+            self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', label, {}), 'low')
         for label in ('application design (format retry)', 'A implement (tiny)', 'protocol retry', 'small patch'):
             self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', label, {}), 'low')
         for mode in ('high', 'xhigh', 'max', 'ultra'):
@@ -249,6 +249,8 @@ class QualityTests(unittest.TestCase):
         for mode in ('low', 'medium'):
             body = json.dumps({'reasoning_effort': mode}).encode()
             self.assertEqual(cap_reasoning_effort(body), body)
+        self.assertEqual(turn_reasoning_for_model('qwen3.7-plus', 'application design',
+                                                  {'OCTOS_ARC_REASONING': 'medium'}), 'medium')
 
     def test_wire_effort_ceiling_applies_to_routed_request_and_model_fallback(self):
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

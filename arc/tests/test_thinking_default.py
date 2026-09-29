@@ -13,25 +13,25 @@ import main as m
 
 
 class ThinkingDefaultTests(unittest.TestCase):
-    def test_medium_default_is_reserved_for_generated_tests_and_design(self):
+    def test_low_default_covers_generated_tests_design_generation_and_repair(self):
         for model in ("qwen3.7-plus", "glm-5.3-flash"):
             with self.subTest(model=model), tempfile.TemporaryDirectory() as tmp, patch.dict(
                     os.environ, {"MODEL": model}, clear=True):
                 root = Path(tmp)
                 flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
-                proxy = Mock(mode="medium", no_tools=False, extra_drop_tools=set(),
+                proxy = Mock(mode="low", no_tools=False, extra_drop_tools=set(),
                              turn_budget=8, turn_requests=0, no_action_exhausted=False,
                              hard_budget_exhausted=False, base_url="http://127.0.0.1:9999/v1")
                 flow.llm_proxy = proxy
-                flow.base_reasoning_mode = "medium"
+                flow.base_reasoning_mode = "low"
                 flow.protected_prefixes = lambda: []
                 flow.restore_protected = lambda: []
                 flow.driver = SimpleNamespace(run=Mock(return_value=(True, "done")), progress_deadline=None)
-                for label, expected in (("derived scenario review", "medium"),
-                                        ("derived case independent review", "medium"),
-                                        ("application design", "medium"),
-                                        ("whole application implement", "medium"),
-                                        ("A repair", "medium")):
+                for label, expected in (("derived scenario review", "low"),
+                                        ("derived case independent review", "low"),
+                                        ("application design", "low"),
+                                        ("whole application implement", "low"),
+                                        ("A repair", "low")):
                     flow.turn("prompt", 60, label, expect_verification=False)
                     self.assertEqual(proxy.mode, expected, label)
         with patch.dict(os.environ, {"MODEL": "qwen3.7-plus", "OCTOS_ARC_REASONING": "medium"}, clear=True):
@@ -98,9 +98,9 @@ class ThinkingDefaultTests(unittest.TestCase):
                         flow.start_llm_proxy()
                     self.assertEqual(factory.call_args.args[1], expected)
 
-    def test_bundled_quality_policy_is_medium_and_gateway_fallback_stays_explicit(self):
+    def test_bundled_quality_policy_is_low_and_gateway_fallback_stays_explicit(self):
         policy = tomllib.loads((m.BUNDLE_DIR / "arc-policy.toml").read_text())
-        self.assertEqual(policy["reasoning"]["mode"], "medium")
+        self.assertEqual(policy["reasoning"]["mode"], "low")
         for provider in ("openai", "deepseek"):
             with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
                     "OCTOS_PROVIDER": provider, "OPENAI_BASE_URL": "http://localhost/v1"}, clear=True):
@@ -108,8 +108,8 @@ class ThinkingDefaultTests(unittest.TestCase):
                 config = json.loads((Path(tmp) / "config.json").read_text())
                 self.assertEqual(config["gateway"]["reasoning_effort"], "low")
 
-    def test_glm53_flash_defaults_medium_and_explicit_low_wins(self):
-        for override, expected in ((None, "medium"), ("low", "low"), ("medium", "medium")):
+    def test_glm53_flash_defaults_low_and_explicit_setting_wins(self):
+        for override, expected in ((None, "low"), ("low", "low"), ("medium", "medium")):
             environment = {"MODEL": "glm-5.3-flash", "OPENAI_BASE_URL": "http://localhost/v1"}
             if override is not None:
                 environment["OCTOS_ARC_REASONING"] = override
@@ -125,9 +125,9 @@ class ThinkingDefaultTests(unittest.TestCase):
                     flow.start_llm_proxy()
                 self.assertEqual(factory.call_args.args[1], expected)
 
-    def test_qwen37_plus_defaults_medium_and_explicit_setting_wins(self):
+    def test_qwen37_plus_defaults_low_and_explicit_setting_wins(self):
         for model in ("qwen3.7-plus", "provider/qwen3.7-plus-2026-05-26"):
-            for override, expected in ((None, "medium"), ("low", "low"), ("none", "none")):
+            for override, expected in ((None, "low"), ("low", "low"), ("none", "none")):
                 environment = {"MODEL": model, "OPENAI_BASE_URL": "http://localhost/v1"}
                 if override is not None:
                     environment["OCTOS_ARC_REASONING"] = override

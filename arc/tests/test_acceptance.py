@@ -544,14 +544,44 @@ assert.equal(errors.length,8); assert(errors.every(x=>x.length<=2000));
 
 
 class PortOwnershipBoundaryTests(unittest.TestCase):
+    def test_should_not_kill_an_owned_outbound_connection_with_matching_local_port(self):
+        import socket, subprocess, tempfile, time
+        from acceptance import free_owned_ports
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'backend').mkdir()
+            with socket.socket() as listener:
+                listener.bind(('127.0.0.1', 0))
+                listener.listen(1)
+                listener.settimeout(5)
+                script = ("import socket,signal; s=socket.socket(); "
+                          "s.connect(('127.0.0.1', %d)); "
+                          "print(s.getsockname()[1], flush=True); signal.pause()") % listener.getsockname()[1]
+                client = subprocess.Popen(['python3', '-u', '-c', script], cwd=root / 'backend',
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                try:
+                    connection, _ = listener.accept()
+                    with connection:
+                        local_port = int(client.stdout.readline())
+                        free_owned_ports([local_port], root)
+                        time.sleep(0.2)
+                        self.assertIsNone(client.poll(), 'an outbound connection was mistaken for a listener')
+                finally:
+                    if client.poll() is None:
+                        client.terminate()
+                    client.communicate(timeout=5)
+
     def test_should_not_signal_a_listener_in_a_similarly_named_workspace(self):
         import acceptance as module
         from types import SimpleNamespace
         from unittest.mock import patch
-        with patch.object(module.subprocess, 'run', return_value=SimpleNamespace(stdout='123\n')), \
+        with patch.object(module.subprocess, 'run', return_value=SimpleNamespace(stdout='123\n')) as run, \
              patch.object(module.os, 'readlink', return_value='/private/tmp/app-other/backend'), \
              patch.object(module.os, 'kill') as kill:
             module.free_owned_ports([3000], Path('/private/tmp/app'))
+        self.assertEqual(run.call_args.args[0],
+                         ['lsof', '-nP', '-t', '-iTCP:3000', '-sTCP:LISTEN'])
         kill.assert_not_called()
 
 

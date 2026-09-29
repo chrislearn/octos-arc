@@ -1,5 +1,8 @@
 import json
+import tempfile
+import time
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from llm_proxy import BUDGET_NOTICE, WRITE_DECISION_NOTICE, LlmProxy, completed_without_action, destream_request, enforce_turn_budget, ensure_max_tokens, force_write_decision, inject_reasoning, lower_stalled_tool_reasoning, request_shape, route_request, to_sse, trim_request, trim_system_prompt, usage_record
@@ -86,20 +89,20 @@ class InjectTests(unittest.TestCase):
                               'enable_thinking': False}).encode()
         self.assertEqual(lower_stalled_tool_reasoning(request), request)
 
-    def test_qwen37_route_default_and_wire_both_use_medium(self):
+    def test_qwen37_route_default_and_wire_both_use_low(self):
         body = json.dumps({'model': 'base', 'messages': []}).encode()
         rules = [{'model': 'qwen3.7-plus', 'phases': ['implement']}]
         with patch.dict('os.environ', {}, clear=True):
             routed = json.loads(route_request(body, rules, 'implement'))
             self.assertTrue(routed['enable_thinking'])
-            self.assertEqual(routed['reasoning_effort'], 'medium')
-            wire = json.loads(inject_reasoning(json.dumps(routed).encode(), 'medium'))
+            self.assertEqual(routed['reasoning_effort'], 'low')
+            wire = json.loads(inject_reasoning(json.dumps(routed).encode(), 'low'))
             self.assertTrue(wire['enable_thinking'])
-            self.assertEqual(wire['reasoning_effort'], 'medium')
+            self.assertEqual(wire['reasoning_effort'], 'low')
             self.assertEqual(json.loads(route_request(body, rules, 'implement', 'medium',
-                                                      'derived scenario review'))['reasoning_effort'], 'medium')
+                                                      'derived scenario review'))['reasoning_effort'], 'low')
             self.assertEqual(json.loads(route_request(body, rules, 'implement', 'low',
-                                                      'whole application implement'))['reasoning_effort'], 'medium')
+                                                      'whole application implement'))['reasoning_effort'], 'low')
         with patch.dict('os.environ', {'OCTOS_ARC_REASONING': 'none'}):
             routed = json.loads(route_request(body, rules, 'implement'))
             self.assertFalse(routed['enable_thinking'])
@@ -329,3 +332,34 @@ class GuardedStreamUsageTests(unittest.TestCase):
         self.assertTrue(data.get("arc_usage_estimated"))
         # Accounting still treats it as a request without provider usage.
         self.assertIsNone(usage_record(payload, 1, "low"))
+
+    def test_stream_records_first_output_and_interrupted_outcome_separately(self):
+        from llm_proxy import collect_codegen_stream
+        events = [
+            b'data: {"choices":[{"index":0,"delta":{"reasoning_content":"working"}}]}\n',
+            b'data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n',
+            b'data: {"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}\n',
+            b'data: [DONE]\n',
+        ]
+        timings = {'attempt_started': time.monotonic()}
+        payload, stopped = collect_codegen_stream(iter(events), timings=timings)
+        self.assertIsNone(stopped)
+        self.assertGreaterEqual(timings['first_output_ms'], 0)
+        self.assertEqual(json.loads(payload)['arc_stream_integrity'], 'complete')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            proxy = LlmProxy('http://127.0.0.1:1/v1', 'low', root / 'llm-usage.jsonl')
+            try:
+                proxy._log(payload, 30, status=200, meta={'stream_integrity': 'complete',
+                           'first_output_ms': timings['first_output_ms'], 'response_headers_ms': 4})
+                interrupted = json.loads(payload)
+                interrupted['arc_stream_integrity'] = 'locally_interrupted'
+                interrupted['arc_usage_estimated'] = True
+                proxy._log(json.dumps(interrupted).encode(), 40, status=200,
+                           meta={'stream_integrity': 'locally_interrupted', 'stream_guard': 'turn_deadline'})
+                rows = [json.loads(line) for line in (root / 'llm-usage.jsonl').read_text().splitlines()]
+                self.assertEqual([row['attempt_outcome'] for row in rows], ['complete', 'locally_interrupted'])
+                self.assertTrue(rows[1]['no_usage'])
+                self.assertEqual(rows[0]['response_headers_ms'], 4)
+            finally:
+                proxy.server.server_close()

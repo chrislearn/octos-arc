@@ -647,9 +647,9 @@ class ModuleAndStreamTests(unittest.TestCase):
         rules = [{'model': 'glm-5.3-flash', 'phases': ['implement']}]
         with patch.dict('os.environ', {}, clear=True):
             routed = json.loads(route_request(body, rules, 'implement'))
-            self.assertEqual(routed['reasoning_effort'], 'medium')
+            self.assertEqual(routed['reasoning_effort'], 'low')
             self.assertEqual(json.loads(route_request(body, rules, 'implement', 'low',
-                                                      'whole application implement'))['reasoning_effort'], 'medium')
+                                                      'whole application implement'))['reasoning_effort'], 'low')
             self.assertEqual(json.loads(inject_reasoning(body.replace(b'base', b'glm-5.3-flash'), 'medium'))
                              ['reasoning_effort'], 'medium')
             for model in ('glm-5.3-flash', 'qwen3.7-plus'):

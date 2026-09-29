@@ -798,7 +798,8 @@ def free_owned_ports(ports: list[int], root: Path) -> None:
     leftovers), leaving foreign processes alone. Works on macOS and Linux."""
     for port in ports:
         try:
-            pids = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True, timeout=15).stdout.split()
+            pids = subprocess.run(["lsof", "-nP", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
+                                  capture_output=True, text=True, timeout=15).stdout.split()
         except (OSError, subprocess.TimeoutExpired):
             continue
         for pid in pids:

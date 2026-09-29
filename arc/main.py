@@ -44,7 +44,7 @@ Environment (all optional):
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
-    OCTOS_ARC_REASONING       low (default; medium for glm-5.3-flash) | none | auto | medium | high | passthrough
+    OCTOS_ARC_REASONING       low (default for all models/stages) | none | auto | medium | high | passthrough
     OCTOS_ARC_IMPLEMENT_REASONING  optional override for first implement turns of small tasks (default: base mode)
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
@@ -288,7 +288,8 @@ def _port_watchdog(web_port: int, output_dir: Path, stop: threading.Event) -> No
     listeners are left alone: the runner host is shared."""
     while not stop.is_set():
         try:
-            pids = subprocess.run(["lsof", "-ti", f":{web_port}"], capture_output=True, text=True, timeout=10).stdout.split()
+            pids = subprocess.run(["lsof", "-nP", "-t", f"-iTCP:{web_port}", "-sTCP:LISTEN"],
+                                  capture_output=True, text=True, timeout=10).stdout.split()
         except (OSError, subprocess.TimeoutExpired):
             pids = []
         for pid in pids:
@@ -1892,7 +1893,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "23-obligation-ledger"
+APP_DESIGN_PROMPT_VERSION = "24-category-delta"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate, onReset, reset; "
@@ -1935,6 +1936,10 @@ Give every expanded editor a visible completion action: Save for explicit commit
 In requirement-linked contracts, preserve all hard constraints, official formats, required entry gestures and action placement (record click, direct action, menu action). Notes are only optional implementation hints. Distinguish available catalogue choices from initially selected values; optional actions must follow user intent, not unconditional fixture-derived defaults.
 Identify shared layout and component owners: routes with the same navigation/header reuse one layout; repeated record editors and actions reuse one implementation. Put those owners in modules. Every atomic requirement ID must appear in at least one route, page or contract requirements list. Give every API resource prefix exactly one backend route module (for example all /api/<resource>/... handlers in backend/routes/<resource>.js, listed in modules) and never register the same method and path in two modules; a feature extends its owner module instead of appending handlers to an unrelated one. App.jsx owns routing/composition; normally keep each application module below 12000 characters by extracting cohesive pages, reusable record views/editors and API/state modules before they become a monolith. Split layouts only when requirements differ; do not create pass-through modules merely to meet a number. Keep this concrete and minimal, not a configurable application framework.
 """
+
+APP_DESIGN_CATEGORY_PROMPT = APP_DESIGN_PROMPT.replace(
+    "Reply with ONE complete, compact JSON object (no prose) that every requirement will be implemented against. Preserve all shared contracts; do not omit fields to meet an arbitrary line count:",
+    "Reply with ONE compact JSON object (no prose) containing only additions for the category requirements. Use the same schema; omit unchanged accepted entries:")
 
 CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply with FILE creation/replacement blocks, exact anchored EDIT blocks, one NEEDS_CONTEXT request, or exactly <<<NO CHANGE>>> when already satisfied. Follow the supplied protocol delimiters; do not mix context requests with changes.
 Create new files with complete FILE blocks; prefer exact anchored EDIT blocks for localized changes to existing quoted source. Never use FILE and EDIT for the same path or emit unchanged files. No diffs or iterative self-review. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Preserve existing behavior. Stop immediately when complete."""
@@ -2832,6 +2837,27 @@ class Flow:
     def time_up(self) -> bool:
         return self.remaining() <= 0
 
+    def node_start_budget_available(self, node_id: str, allocated_seconds: float | None = None,
+                                    *, measurement_only: bool = False) -> bool:
+        """Keep short codegen turns out while admitting already-written code to tests."""
+        configured = max(1.0, float(os.environ.get("OCTOS_ARC_MIN_NODE_START_SECONDS", "120")))
+        minimum = min(configured, max(1.0, float(self.budget) * 0.2))
+        if measurement_only:
+            minimum = min(minimum, 15.0)
+        remaining = self.remaining()
+        available = remaining if allocated_seconds is None else min(remaining, allocated_seconds)
+        if available >= minimum:
+            return True
+        deferred = getattr(self, "_budget_deferred_ids", set())
+        if node_id not in deferred:
+            deferred.add(node_id)
+            self._budget_deferred_ids = deferred
+            self.metric("budget_deferred", node_id=node_id,
+                        remaining_seconds=round(remaining, 3), allocated_seconds=allocated_seconds,
+                        minimum_seconds=minimum)
+            log(f"[flow] {node_id}: {available:.1f}s available, below {minimum:.1f}s minimum; leaving node pending")
+        return False
+
     def mark(self, kind: str, node_id: str, message: str | None = None) -> None:
         # Late spec recovery must not rewind an implementation/test lifecycle.
         if kind in {"design_started", "design_done"} and node_id in getattr(self, "_implementation_started_ids", set()):
@@ -3290,6 +3316,10 @@ class Flow:
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         if getattr(self, "generic_template_installed", False):
             rules += GENERIC_TEMPLATE_NOTE + route_table_note(self.output_dir)
+            rules += ("Keep frontend/build.mjs and frontend/vite.config.mjs unchanged for feature work. "
+                      "If an active requirement truly needs a build configuration change, edit only when "
+                      "the complete current file is quoted here; otherwise request it through NEEDS_CONTEXT. "
+                      "The existing-file write guard still applies.\n")
         rules += stack_note(self.output_dir) + seed_contract_text(self)
         # The harness has already written package.json, which is enough for
         # has_app() but not for a runnable backend. Keep existing sources while
@@ -3951,9 +3981,11 @@ class Flow:
             if left < 60 or self.wound_down():
                 break
             requirements = [by_id[x] for x in phase["leaves"] if x in by_id]
-            prompt = (APP_DESIGN_PROMPT.format(outline=json.dumps(requirements, ensure_ascii=False))
+            prompt = (APP_DESIGN_CATEGORY_PROMPT.format(outline=json.dumps(requirements, ensure_ascii=False))
                       + DOMAIN_GUIDANCE + BUSINESS_QUALITY_GUIDANCE
-                      + "\nExtend this accepted design without changing existing contracts; return the complete object:\n"
+                      + "\nReturn a JSON design containing only additions for this category. "
+                        "Do not repeat or change accepted entries. Use the same schema and cite original "
+                        "requirement IDs on each addition. The accepted design is context, not output:\n"
                       + json.dumps(aggregate, ensure_ascii=False))
             if len(prompt) > self.codegen_context_chars():
                 self.metric("design_recovery", phase=phase["id"], outcome="insufficient_context")
@@ -3968,24 +4000,36 @@ class Flow:
                     system=APP_DESIGN_SYSTEM, spec_chars=len(prompt))
                 parsed = parse_app_design_reply(reply, validate=False) if ok else None
                 errors = app_design_errors(parsed, requirement_sources)
+                if valid_app_design(aggregate, requirement_sources):
+                    # An additions-only reply may contain just contracts. The
+                    # existing accepted design already satisfies the root's
+                    # nonempty route/page/model requirement.
+                    errors = [error for error in errors if not (
+                        error["path"] == "/" and error["expected"] ==
+                        "at least one nonempty data_model, routes or pages")]
                 candidate = valid_app_design(parsed, requirement_sources) if parsed else None
                 if candidate and preserves_design(aggregate, candidate):
                     aggregate = candidate
                     self.metric("design_recovery", phase=phase["id"], outcome="schema_valid",
                                 covered=sorted(app_design_coverage(candidate)))
                     break
-                if candidate and not preserves_design(aggregate, candidate):
-                    errors.append({"path": "/", "expected": "preserve all accepted contracts",
-                                   "actual": "candidate removed or changed accepted fields"})
                 before = len(app_design_coverage(aggregate))
                 aggregate = salvage_app_design(aggregate, parsed, requirement_sources)
+                if (parsed and not errors and valid_app_design(aggregate, requirement_sources)
+                        and set(phase['leaves']) <= app_design_coverage(aggregate)):
+                    self.metric("design_recovery", phase=phase["id"], outcome="additions_merged",
+                                covered_before=before, covered_after=len(app_design_coverage(aggregate)))
+                    break
+                if parsed and not errors:
+                    errors.append({"path": "/requirements", "expected": "cover category leaves",
+                                   "actual": sorted(set(phase['leaves']) - app_design_coverage(aggregate))})
                 self.metric("design_recovery", phase=phase["id"], outcome="partial" if parsed else "invalid_json" if ok else "unavailable",
                             attempt=attempt + 1, schema_errors=errors[:20],
                             covered_before=before, covered_after=len(app_design_coverage(aggregate)))
                 self.save_rejected_reply("design category " + phase["id"], "invalid_contract" if ok else "failed", reply or "")
                 if attempt == 0 and parsed:
                     correction = ('\nRepair the invalid design fields listed below. Preserve every accepted '
-                                  'contract. Return the complete JSON design, including the accepted object. '
+                                  'contract. Return only corrected additions in the JSON design schema. '
                                   'If a requirement is unresolved, record it in notes and continue.\n'
                                   'SCHEMA ERRORS:\n' + json.dumps(errors[:20], ensure_ascii=False)
                                   + '\nACCEPTED DESIGN:\n' + json.dumps(aggregate, ensure_ascii=False))
@@ -9603,11 +9647,7 @@ class Flow:
                 self.metric("final_phase_reserve_reassigned", node_id=node_id,
                             remaining_seconds=round(self.remaining(), 3),
                             decision="continue_generation")
-            if self.time_up():
-                log(f"[flow] time budget exhausted; skipping {node_id}")
-                self.mark("implementation_started", node_id)
-                self.mark("implementation_failed", node_id, "skipped: time budget exhausted")
-                self.impl_failed.append(node_id)
+            if not self.node_start_budget_available(node_id, measurement_only=node_id in unchanged):
                 continue
             if not self.admit_node(node):
                 continue
@@ -9914,7 +9954,9 @@ class Flow:
         # pay for a broad suite while those leaves have never been attempted.
         for index, node in enumerate(ordered, 1):
             node_id = str(node.get("id"))
-            if node_id in generated or self.time_up():
+            preimplemented = node_id in getattr(self, "whole_app_partial_ids", ()) and bool(self.tests_dir)
+            if node_id in generated or not self.node_start_budget_available(node_id,
+                                                                             measurement_only=preimplemented):
                 continue
             if not self.admit_node(node):
                 continue
@@ -9949,9 +9991,9 @@ class Flow:
             for index, node in enumerate(ordered, 1):
                 node_id = str(node.get("id"))
                 if node_id not in generated and node_id not in attempted_fallback_ids:
-                    if self.time_up():
-                        self.mark("implementation_failed", node_id, "wave did not reach this node: time budget exhausted")
-                        self.impl_failed.append(node_id)
+                    preimplemented = node_id in getattr(self, "whole_app_partial_ids", ()) and bool(self.tests_dir)
+                    if not self.node_start_budget_available(node_id, measurement_only=preimplemented):
+                        continue
                     elif not self.admit_node(node):
                         continue
                     else:
@@ -10001,10 +10043,8 @@ class Flow:
                     except Exception:  # noqa: BLE001
                         pass
                 continue
-            if self.time_up():
-                self.mark("implementation_started", node_id)
-                self.mark("implementation_failed", node_id, "skipped repair: time budget exhausted")
-                self.impl_failed.append(node_id)
+            preimplemented = node_id in generated or node_id in getattr(self, "whole_app_partial_ids", ())
+            if not self.node_start_budget_available(node_id, measurement_only=preimplemented):
                 continue
             if not self.admit_node(node):
                 continue
@@ -10048,6 +10088,8 @@ class Flow:
                                    phase_budget=phase_budget, total_jobs=jobs, completed=completed,
                                    reserve=reserve,
                                    burst_cap=None if "OCTOS_NODE_TIME_BUDGET" in os.environ else 3000)
+        if not self.node_start_budget_available(node_id, node_budget, measurement_only=preimplemented):
+            return
         deadline = time.time() + node_budget
         log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
 

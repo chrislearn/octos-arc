@@ -1297,10 +1297,12 @@ class PostflightOwnershipTests(unittest.TestCase):
         from unittest.mock import Mock, patch
         stop = Mock()
         stop.is_set.side_effect = [False, True]
-        with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(stdout='123\n')), \
+        with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(stdout='123\n')) as run, \
              patch.object(m.os, 'readlink', return_value='/private/tmp/app-other/backend'), \
              patch.object(m.os, 'kill') as kill, patch.object(m, 'log'):
             m._port_watchdog(3000, Path('/private/tmp/app'), stop)
+        self.assertEqual(run.call_args.args[0],
+                         ['lsof', '-nP', '-t', '-iTCP:3000', '-sTCP:LISTEN'])
         kill.assert_not_called()
 
 

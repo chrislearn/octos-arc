@@ -82,6 +82,7 @@ def summarize(output_dir: Path) -> dict:
     billed = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "cache_hit": 0,
               "reasoning_tokens": 0, "missing_usage_requests": 0, "guard_token_estimate": 0}
     by_phase = {}
+    attempt_outcomes: dict[str, int] = {}
     for rec in _iter_jsonl(arc / "llm-usage.jsonl"):
         billed["requests"] += int(rec.get("requests") or 1)  # kernel-session turns carry their LLM-call count
         billed["prompt_tokens"] += int(rec.get("prompt_tokens") or 0)
@@ -90,6 +91,8 @@ def summarize(output_dir: Path) -> dict:
         billed["reasoning_tokens"] += int(rec.get("reasoning_tokens") or 0)
         billed["missing_usage_requests"] += int(bool(rec.get("no_usage")))
         billed["guard_token_estimate"] += int(rec.get("guard_token_estimate") or 0)
+        outcome = rec.get("attempt_outcome") or "unknown"
+        attempt_outcomes[outcome] = attempt_outcomes.get(outcome, 0) + 1
         phase = by_phase.setdefault(rec.get("phase") or "unknown", {
             "requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "elapsed_ms": 0})
         phase["requests"] += 1
@@ -121,7 +124,7 @@ def summarize(output_dir: Path) -> dict:
         "tokens_in_all": sum(in_by_session.values()), "tokens_out_all": sum(out_by_session.values()),
         "cost": round(sum(cost_by_session.values()), 6), "duration_s": duration,
         "node_states": node_states, "last_events": states, "grade": grade, "billed": billed,
-        "by_phase": by_phase,
+        "by_phase": by_phase, "attempt_outcomes": attempt_outcomes,
         "diagnostics": {"first_whole_app_measurement": whole_app[0] if whole_app else None,
                         "acceptance_progress": acceptance, "codegen_outcomes": codegen_outcomes,
                         "repair_turns": len(repairs),

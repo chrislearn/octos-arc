@@ -110,7 +110,8 @@ def _collect_codegen_stream(response, deadline: float | None = None, progress=No
     return json.dumps(result, ensure_ascii=False).encode(), aborted
 
 
-def collect_codegen_stream(response, deadline: float | None = None, lease=None) -> tuple[bytes, str | None]:
+def collect_codegen_stream(response, deadline: float | None = None, lease=None,
+                           timings: dict | None = None) -> tuple[bytes, str | None]:
     """Bound both silent socket reads and heartbeats without extending on them.
 
     urllib's socket timeout alone cannot stop an endless heartbeat stream. A
@@ -138,6 +139,8 @@ def collect_codegen_stream(response, deadline: float | None = None, lease=None) 
 
     def progress():
         last[0] = time.monotonic()
+        if timings is not None and "first_output_ms" not in timings:
+            timings["first_output_ms"] = int((time.monotonic() - timings["attempt_started"]) * 1000)
         if lease is not None:
             lease.progress()
 
@@ -277,17 +280,17 @@ def configured_model_routes(env=None, bundle_dir: Path | None = None) -> str:
 
 
 def default_reasoning_for_model(model: str, env=None) -> str:
-    """An explicit task setting wins; GLM 5.3 Flash and Qwen3.7 Plus default to medium."""
+    """Use low across models unless the task explicitly chooses another effort."""
     env = os.environ if env is None else env
     if "OCTOS_ARC_REASONING" in env:
         return env["OCTOS_ARC_REASONING"]
-    return "medium" if re.search(r"(?:^|/)(?:glm-5\.3-flash|qwen3\.7-plus)(?:-|$)", str(model).lower()) else "low"
+    return "low"
 
 
 def turn_reasoning_for_model(model: str, label: str, env=None) -> str:
-    """Medium for business reasoning; low for bounded formatting/tiny turns.
+    """Low for every default stage; explicit task settings retain their meaning.
 
-    v11.7 user policy caps effort at medium, including explicit high settings.
+    The existing explicit-high ceiling remains medium.
     """
     env = os.environ if env is None else env
     mode = default_reasoning_for_model(model, env)
@@ -1266,7 +1269,6 @@ class LlmProxy:
                 headers["Content-Length"] = str(len(body))
             req = urllib.request.Request(self.upstream + path, data=body if body else None,
                                          headers=headers, method=method)
-            t0 = time.time()
             meta = self.request_meta(body)   # attribution fixed at issue time, not at response time
             from context_ledger import context_metrics
             meta["request_id"] = request_id
@@ -1277,7 +1279,10 @@ class LlmProxy:
                     self.ledger({"event": "request_interrupted", "request_id": request_id, "usage_status": "unknown"})
                     future.set_result(result)
                     return result
-                attempt_started = time.time()
+                attempt_started = time.monotonic()
+                for timing_key in ("response_headers_ms", "first_output_ms", "stream_guard",
+                                   "stream_integrity", "stream_events", "provider_usage_known"):
+                    meta.pop(timing_key, None)
                 meta["attempt_id"] = f"{request_id}:{upstream_attempt + 1}"
                 self.ledger({"event": "attempt_started", **meta, "usage_status": "unknown"})
                 may_have_generated = False
@@ -1286,9 +1291,12 @@ class LlmProxy:
                     lease = getattr(self, "progress_deadline", None)
                     request_timeout = min(600, max(1, deadline - time.monotonic())) if deadline else 600
                     with open_upstream(req, timeout=min(300, max(request_timeout, 120)) if guarded_stream and lease is not None else request_timeout) as resp:
+                        meta["response_headers_ms"] = int((time.monotonic() - attempt_started) * 1000)
                         may_have_generated = resp.status == 200
                         if guarded_stream and "text/event-stream" in resp.headers.get("Content-Type", ""):
-                            payload, stopped = collect_codegen_stream(resp, deadline, lease)
+                            timings = {"attempt_started": attempt_started}
+                            payload, stopped = collect_codegen_stream(resp, deadline, lease, timings)
+                            meta.update({key: timings[key] for key in ("first_output_ms",) if key in timings})
                             meta["stream_guard"] = stopped or "completed"
                             stream_result = json.loads(payload)
                             meta["stream_integrity"] = stream_result.get("arc_stream_integrity")
@@ -1312,7 +1320,7 @@ class LlmProxy:
                                                                    'openai-organization', 'openai-project'}}
                 if not failure or upstream_attempt or (deadline and deadline - time.monotonic() < 5):
                     break
-                self._log(result[1], int((time.time() - attempt_started) * 1000), body, len(body), len(result[1]),
+                self._log(result[1], int((time.monotonic() - attempt_started) * 1000), body, len(body), len(result[1]),
                           status=result[0], meta=dict(meta))
                 time.sleep(1)
             status, payload, _ = result
@@ -1358,7 +1366,7 @@ class LlmProxy:
                         except (ValueError, TypeError, AttributeError):
                             pass
                 self.capture_truncated_reply(payload, meta)
-            self._log(payload, int((time.time() - attempt_started) * 1000), body, len(body), len(payload), status=status, meta=meta)
+            self._log(payload, int((time.monotonic() - attempt_started) * 1000), body, len(body), len(payload), status=status, meta=meta)
             future.set_result(result)
             return result
         except BaseException as exc:
@@ -1583,9 +1591,16 @@ class LlmProxy:
             rec["status"] = status
         rec["request_bytes"], rec["response_bytes"] = req_bytes, resp_bytes
         rec.update(meta if meta is not None else self.request_meta(request_body))
+        integrity = rec.get("stream_integrity")
+        rec["attempt_outcome"] = (integrity if integrity in {"complete", "locally_interrupted", "upstream_incomplete"}
+                                  else "http_success" if status == 200 else "http_error" if status is not None
+                                  else "unknown")
         self.ledger({"event": "attempt_finished", "request_id": rec.get("request_id"),
                      "attempt_id": rec.get("attempt_id"), "status": status,
-                     "usage_status": "unknown" if rec.get("no_usage") else "reported"})
+                     "usage_status": "unknown" if rec.get("no_usage") else "reported",
+                     "attempt_outcome": rec["attempt_outcome"], "elapsed_ms": elapsed_ms,
+                     "response_headers_ms": rec.get("response_headers_ms"),
+                     "first_output_ms": rec.get("first_output_ms")})
         exact = int(rec.get("prompt_tokens") or 0) + int(rec.get("completion_tokens") or 0)
         estimated = 0
         if rec.get("no_usage"):
