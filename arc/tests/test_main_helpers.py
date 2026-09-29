@@ -71,6 +71,13 @@ class EvolutionDiffTests(unittest.TestCase):
     def test_should_treat_everything_as_changed_without_previous_table(self):
         self.assertEqual(unchanged_node_ids([node("REQ-1", "a")], {}), set())
 
+    def test_saved_requirement_text_ignores_storage_whitespace_only(self):
+        current = node("REQ-1", "same description\n")
+        previous = {"REQ-1": {**current, "description": "same description"}}
+        self.assertEqual(unchanged_node_ids([current], previous), {"REQ-1"})
+        changed = {**current, "description": "different description\n"}
+        self.assertEqual(unchanged_node_ids([changed], previous), set())
+
 
 class DescribeNodeTests(unittest.TestCase):
     def test_should_render_scenarios_and_dependencies(self):

@@ -864,7 +864,13 @@ def unchanged_node_ids(nodes: list[dict], previous: dict[str, dict]) -> set[str]
     out = set()
     for node in nodes:
         prev = previous.get(str(node.get("id")))
-        if prev and node_fingerprint(prev) == node_fingerprint(node):
+        # Traceability persists stripped names/descriptions. Compare that same
+        # representation so a YAML trailing newline does not make every node
+        # appear changed on an evolution run.
+        comparable = dict(node)
+        comparable["name"] = str(node.get("name") or "").strip()
+        comparable["description"] = str(node.get("description") or "").strip()
+        if prev and node_fingerprint(prev) == node_fingerprint(comparable):
             out.add(str(node.get("id")))
     return out
 
@@ -12006,6 +12012,10 @@ class Flow:
             previous = previous_requirement_records(self.output_dir)
             tree = load_requirement_tree(self.req_dir)
             self.runtime.traceability.store_requirement_tree(tree)
+            # The saved requirement table contains the original task text.
+            # Seed reconciliation may rewrite scenario steps for generation,
+            # so compute evolution identity before that transformation.
+            unchanged_original = unchanged_node_ids(topo_order(tree), previous)
             # Generation reads one consistent seed; the platform keeps the original tree.
             tree = self.resolve_seed_conflicts(tree)
             self.requirement_tree = tree
@@ -12024,7 +12034,7 @@ class Flow:
             self.evolution = self.has_app()
             unchanged: set[str] = set()
             if self.evolution:
-                unchanged = unchanged_node_ids(ordered, previous)
+                unchanged = unchanged_original
                 log(f"[flow] evolution mode: existing app detected; unchanged nodes {sorted(unchanged)}, "
                     f"to implement {[i for i in node_ids if i not in unchanged]}")
             self.nodes_to_implement = len([n for n in node_ids if n not in unchanged])
