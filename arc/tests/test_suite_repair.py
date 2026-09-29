@@ -170,6 +170,34 @@ class ProxyLogsEveryExchangeTests(unittest.TestCase):
             self.assertIn("not counted as zero-cost", "\n".join(messages))
             self.assertIn("full-suite repair 3/3", "\n".join(messages))
 
+    def test_usage_checkpoint_reports_only_new_requests_and_cache_reporting(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / ".arc").mkdir()
+            path = root / ".arc" / "llm-usage.jsonl"
+            path.write_text(json.dumps({"prompt_tokens": 100, "prompt_cache_hit_tokens": 80}) + "\n")
+            flow = object.__new__(m.Flow); flow.output_dir = root; flow.metric = Mock()
+            with patch.object(m, "log"):
+                flow.log_usage_checkpoint("after_implementation")
+                with path.open("a") as stream:
+                    stream.write(json.dumps({"no_usage": True}) + "\n")
+                flow.log_usage_checkpoint("after_spec_batch", nodes=["A"])
+            first = flow.metric.call_args_list[0].kwargs
+            second = flow.metric.call_args_list[1].kwargs
+            self.assertEqual((first["requests"], first["cache_hit_tokens"],
+                              first["cache_reported_requests"]), (1, 80, 1))
+            self.assertEqual((second["requests"], second["missing_usage_requests"],
+                              second["cache_reported_requests"], second["nodes"]), (1, 1, 0, ["A"]))
+
+    def test_usage_checkpoint_damaged_record_does_not_abort_run(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); (root / ".arc").mkdir()
+            (root / ".arc" / "llm-usage.jsonl").write_text('{"prompt_tokens": "broken"}\n')
+            flow = object.__new__(m.Flow); flow.output_dir = root; flow.metric = Mock()
+            with patch.object(m, "log") as logged:
+                flow.log_usage_checkpoint("after_implementation")
+            flow.metric.assert_not_called()
+            self.assertIn("checkpoint unavailable", logged.call_args.args[0])
+
 
 if __name__ == "__main__":
     unittest.main()

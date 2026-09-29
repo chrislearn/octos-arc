@@ -1047,6 +1047,22 @@ class SuiteControlTests(unittest.TestCase):
         self.assertTrue(any("Pull requests" in p for p in problems), problems)
         self.assertIn("CONTROLS", build_prompt([target], fixtures))
 
+    def test_batched_prompt_includes_each_nodes_controls_and_dependencies(self):
+        targets, fixtures = self._targets()
+        first = next(iter(targets.values()))
+        second = dict(first, id=first["id"] + "-second", node_id="REQ-second")
+        first["source_contracts"] = [{"quote": "first dependency contract"}]
+        second["source_contracts"] = [{"quote": "second dependency contract"}]
+        first["controls"] = ["First control"]
+        second["controls"] = ["Second control"]
+        prompt = build_prompt([first, second], fixtures)
+        for target, control, quote in ((first, "First control", "first dependency contract"),
+                                       (second, "Second control", "second dependency contract")):
+            self.assertIn(f"CONTROLS for [{target['id']}]", prompt)
+            self.assertIn(control, prompt)
+            self.assertIn(f"SOURCE CONTRACTS for [{target['id']}]", prompt)
+            self.assertIn(quote, prompt)
+
 
 class CellValueTests(unittest.TestCase):
     def _target(self):

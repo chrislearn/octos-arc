@@ -102,6 +102,7 @@ Environment (all optional):
 from __future__ import annotations
 
 import argparse
+import copy
 from contextlib import contextmanager
 import hashlib
 import json
@@ -3612,6 +3613,12 @@ class Flow:
             return None
         config_text = original_config.read_text(encoding="utf-8")
         upstream = master.upstream
+        # The main proxy may have removed an unusable route after a provider
+        # error. Workers must inherit that decision instead of rebuilding the
+        # original route list from environment configuration.
+        with master._lock:
+            worker_routes = copy.deepcopy(master.routes)
+            worker_contexts = dict(master.model_contexts)
         model_mode = getattr(self, "base_reasoning_mode", master.mode)
         destream, trim = master.destream, master.trim
         min_tokens = master.min_max_tokens
@@ -3634,6 +3641,8 @@ class Flow:
                 proxy = LlmProxy(upstream, worker_mode,
                                  root / "llm-usage.jsonl", destream=destream, trim=trim,
                                  min_max_tokens=min_tokens)
+                proxy.routes = copy.deepcopy(worker_routes)
+                proxy.model_contexts = dict(worker_contexts)
                 proxy.no_tools = True
                 proxy.system_override = job.system
                 proxy.codegen_max_tokens = 32768
@@ -5262,6 +5271,47 @@ class Flow:
             if blocked:
                 log(f'[usage] terminal account guard blocked {blocked} local retries; no upstream requests sent')
         self.log_usage_summary()
+
+    def log_usage_checkpoint(self, label: str, *, nodes: list[str] | None = None) -> None:
+        """Expose cache and token deltas before a long run reaches postflight."""
+        try:
+            self._log_usage_checkpoint(label, nodes=nodes)
+        except (OSError, ValueError, TypeError) as exc:
+            # Usage is diagnostic data. A damaged record or disappearing log
+            # must not stop code generation or the final acceptance run.
+            log(f"[usage] checkpoint unavailable: {type(exc).__name__}: {str(exc)[:200]}")
+
+    def _log_usage_checkpoint(self, label: str, *, nodes: list[str] | None = None) -> None:
+        path = self.output_dir / ".arc" / "llm-usage.jsonl"
+        if not path.is_file():
+            return
+        offset = getattr(self, "_usage_checkpoint_offset", 0)
+        with path.open("r", encoding="utf-8", errors="replace") as stream:
+            if path.stat().st_size < offset:
+                offset = 0
+            stream.seek(offset)
+            lines = stream.readlines()
+            self._usage_checkpoint_offset = stream.tell()
+        rows = []
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+        if not rows:
+            return
+        total = lambda key: sum(int(row.get(key) or 0) for row in rows)
+        prompt = total("prompt_tokens")
+        hits = total("prompt_cache_hit_tokens")
+        reported = sum("prompt_cache_hit_tokens" in row for row in rows)
+        payload = {"label": label, "nodes": nodes or [], "requests": len(rows),
+                   "prompt_tokens": prompt, "completion_tokens": total("completion_tokens"),
+                   "cache_hit_tokens": hits, "cache_reported_requests": reported,
+                   "missing_usage_requests": sum(bool(row.get("no_usage")) for row in rows)}
+        self.metric("usage_checkpoint", **payload)
+        log(f"[usage] {label}: {json.dumps(payload, ensure_ascii=False)}")
 
     def log_usage_summary(self) -> None:
         """Print proxy-observed usage and missing-usage requests for reconciliation.
@@ -7811,6 +7861,8 @@ class Flow:
                                                   or target["id"] in missing_ids
                                                   or self.derived_review_needed(target["node_id"]))])
         batch = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_BATCH", "3")))
+        phase_plan = getattr(self, "phase_plan", None) or {}
+        leaf_phase = phase_plan.get("leaf_phase", {}) or {}
         # A node gets at most two model requests for scenario proposals,
         # including a rejected-script retry. Keep each node in at most two
         # initial chunks, even when requests for separate nodes are batched.
@@ -7825,7 +7877,9 @@ class Flow:
         chunks: list[list[dict]] = []
         for round_parts in parts_by_round:
             for part in round_parts:
-                if chunks and len(chunks[-1]) + len(part) <= batch:
+                if (chunks and len(chunks[-1]) + len(part) <= batch
+                        and leaf_phase.get(str(chunks[-1][0]["node_id"])) ==
+                        leaf_phase.get(str(part[0]["node_id"]))):
                     chunks[-1].extend(part)
                 else:
                     chunks.append(part)
@@ -7837,7 +7891,6 @@ class Flow:
                       if self.derived_augmentation_attempts.get(node_id, 0) + count < 2}
         # Node batches may be smaller than the scenario batch (including one
         # leaf at a time), so the default must not exhaust before later nodes.
-        phase_plan = getattr(self, "phase_plan", None) or {}
         phase_order = [phase["id"] for phase in phase_plan.get("phases", [])]
         # Complex requirements need one initial batch per category plus room
         # for rejected-script retries and a second pass over uncovered leaves.
@@ -8444,8 +8497,7 @@ class Flow:
         chosen, feedback = [], []
         attempted = getattr(self, "derived_case_correction_attempted", set())
         for target in self.planned_derived_scenarios():
-            version = case_sha((self.derived_tests_dir / (target["node_id"] + ".spec.ts")).read_text()) if (self.derived_tests_dir / (target["node_id"] + ".spec.ts")).is_file() else "absent"
-            if (target["node_id"], target["id"], version) in attempted:
+            if (target["node_id"], target["id"]) in attempted:
                 continue
             bad = [row for row in getattr(self, "derived_case_reviews", {}).values()
                    if row["node_id"] in node_ids and row.get("scenario_id") == target["id"]
@@ -8470,7 +8522,8 @@ class Flow:
             self.metric("derived_case_correction", outcome="insufficient_context")
             return set()
         self.snapshot_protected()
-        self.derived_case_correction_attempted = attempted | {(target["node_id"], target["id"], case_sha((self.derived_tests_dir / (target["node_id"] + ".spec.ts")).read_text())) for target in chosen}
+        self.derived_case_correction_attempted = attempted | {
+            (target["node_id"], target["id"]) for target in chosen}
         self.derived_case_correction_requests = spent + 1
         Flow.start_derived_designs(self, [str(target["node_id"]) for target in chosen], "correcting business test specs")
         ok, reply = self.text_turn(prompt, max(1, int(min(600, left, self.remaining() - self.final_phase_reserve() - 180))),
@@ -8803,17 +8856,16 @@ class Flow:
         pending = []
         for node in ordered:
             node_id = str(node.get("id"))
-            if getattr(self, "derived_augmentation_attempts", {}).get(node_id, 0) >= 2:
-                continue
             if node_id not in getattr(self, "derived_augmented_nodes", set()):
                 pending.append(node)
                 continue
-            coverage = self.derived_scenario_coverage(node_id)
             if self.derived_review_needed(node_id):
                 pending.append(node)
         if not pending:
             return
         ids = [str(node.get("id")) for node in pending]
+        proposal_pending = [node for node in pending
+                            if getattr(self, "derived_augmentation_attempts", {}).get(str(node.get("id")), 0) < 2]
         log(f"[derived] preparing spec batch for nodes {ids}")
         self.start_derived_designs(ids, 'generating and reviewing business test specs')
         for node_id in ids:
@@ -8841,7 +8893,8 @@ class Flow:
                 left = max(0.0, phase_deadline - time.monotonic())
                 self.derived_preflight_deadline = min(phase_deadline, time.monotonic() + left * .6)
             try:
-                self.augment_derived_tests(pending)
+                if proposal_pending:
+                    self.augment_derived_tests(proposal_pending)
             except Exception as exc:  # missing AI tests never block application generation
                 self.metric("derived_spec_generation", outcome="unavailable", reason=str(exc)[:300])
             finally:
@@ -8892,6 +8945,7 @@ class Flow:
             log(f"[derived] spec batch {node_id}: {status}, covered={coverage['covered']}/{coverage['total']}")
             self.metric("derived_spec_node", node_id=node_id, phase="batch", status=status,
                         covered=coverage["covered"], total=coverage["total"])
+        self.log_usage_checkpoint("after_spec_batch", nodes=ids)
 
     @staticmethod
     def final_check_verdict(ok: bool, text: str):
@@ -11966,6 +12020,7 @@ class Flow:
                     self.implement_sequential(tree, ordered, unchanged)
 
                 self._generation_active = False
+                self.log_usage_checkpoint("after_implementation", nodes=node_ids)
                 try:
                     self.repair_overwritten_route_exports()
                 except Exception as exc:  # source advice cannot abort the run

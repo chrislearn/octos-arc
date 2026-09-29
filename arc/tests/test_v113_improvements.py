@@ -522,6 +522,30 @@ class DerivedPreflightTests(unittest.TestCase):
                 flow.prepare_derived_spec_batch(flow.derived_nodes)
             flow.augment_derived_tests.assert_called_once_with(flow.derived_nodes)
 
+    def test_proposal_limit_does_not_skip_independent_case_review(self):
+        from unittest.mock import Mock, patch
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            flow.derived_as_specs = True
+            flow.derived_tests_dir = root
+            flow.derived_nodes = [{'id': 'a'}]
+            flow.derived_augmented_nodes = {'a'}
+            flow.derived_augmentation_attempts = {'a': 2}
+            flow.derived_review_needed = Mock(return_value=True)
+            flow.derived_scenario_coverage = Mock(return_value={'covered': 1, 'total': 1})
+            flow.augment_derived_tests = Mock()
+            flow.review_derived_cases = Mock()
+            flow.correct_derived_cases = Mock(return_value=set())
+            flow.adopt_derived_specs = Mock()
+            flow.snapshot_protected = Mock()
+            flow.write_derived_handoff = Mock()
+            flow.metric = Mock()
+            with patch('main.prepare_obligations'):
+                flow.prepare_derived_spec_batch(flow.derived_nodes)
+            flow.augment_derived_tests.assert_not_called()
+            flow.review_derived_cases.assert_called_once_with({'a'}, reserve_requests=1)
+
     def test_no_preflight_time_never_blocks_code(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -1058,13 +1058,7 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
     parts.append('\nFor a prerequisite enum/limit from another requirement, add source_values '
                  '[{value,requirement_id,quote}] with an exact quote containing the value from SOURCE CONTRACTS. '
                  'Do not invent controls, enum options or error messages. For arbitrary inputs use test_data instead.')
-    if targets and targets[0].get('source_contracts'):
-        parts.append('\nSOURCE CONTRACTS (authoritative dependency descriptions): ' + json.dumps(targets[0]['source_contracts'], ensure_ascii=False))
     parts.append(f"\nFixture account: `{fixtures.account}` / `{fixtures.password}` (email `{fixtures.email}`).")
-    controls = [c for c in (targets[0].get("controls") or []) if len(c) <= 60][:160] if targets else []
-    if controls:
-        parts.append("\nCONTROLS (named anywhere in the requirement; usable as open/click/check/fill targets): "
-                     + json.dumps(controls, ensure_ascii=False))
     if phase_context:
         parts.append("\nTOP-LEVEL CATEGORY CONTRACT (shared context for these scenarios; "
                      "each assertion must still be grounded in its own scenario): " + phase_context)
@@ -1076,6 +1070,14 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                  'expect_response {target:path,status:integer,json:optional-object-subset} afterward supplement UI assertions. '
                  'Only declared API paths are allowed; expected status/body must follow the branch requirement.')
     for target in targets:
+        if target.get('source_contracts'):
+            parts.append(f"\nSOURCE CONTRACTS for [{target['id']}] (authoritative dependency descriptions): "
+                         + json.dumps(target['source_contracts'], ensure_ascii=False))
+        controls = [c for c in (target.get("controls") or []) if len(c) <= 60][:160]
+        if controls:
+            parts.append(f"\nCONTROLS for [{target['id']}] (named in this requirement; "
+                         "usable as open/click/check/fill targets): "
+                         + json.dumps(controls, ensure_ascii=False))
         if target.get('obligations'):
             parts.append("\nSOURCE-GROUNDED OBLIGATIONS (cover independent branches in separate cases): "
                          + json.dumps(target['obligations'], ensure_ascii=False))

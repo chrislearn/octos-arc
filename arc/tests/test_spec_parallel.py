@@ -28,6 +28,7 @@ class OrderedRequestsTests(unittest.TestCase):
             (config / "config.json").write_text('{"provider":"openai","model":"test-model"}')
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
             flow.llm_proxy = LlmProxy("http://localhost:1/v1", "low")
+            flow.llm_proxy.routes = [{"model": "surviving-route", "phases": ["verify"]}]
             flow.driver = OctosDriver("octos", root,
                                       {"OCTOS_CONFIG_DIR": str(config), "_ARC_MODEL": "test-model"},
                                       root / "data", 1, root / "events.jsonl")
@@ -38,7 +39,12 @@ class OrderedRequestsTests(unittest.TestCase):
             workspaces = []
             proxy_urls = []
             seen_reservations = []
+            seen_routes = []
             barrier = threading.Barrier(2, timeout=3)
+            start_proxy = LlmProxy.start
+            def capture_start(proxy):
+                seen_routes.append(proxy.routes)
+                return start_proxy(proxy)
             def fake_run(driver, prompt, _timeout, monitor=None):
                 self.assertTrue(driver.tools_disabled)
                 self.assertNotEqual(driver.cwd, root)
@@ -50,13 +56,15 @@ class OrderedRequestsTests(unittest.TestCase):
                     barrier.wait()
                 return True, prompt
             with patch.dict(os.environ, {"OCTOS_ARC_SPEC_PARALLEL_WORKERS": "2"}), \
-                    patch.object(OctosDriver, "run", fake_run):
+                    patch.object(OctosDriver, "run", fake_run), \
+                    patch.object(LlmProxy, "start", capture_start):
                 pool = flow.isolated_spec_requests(3)
                 self.assertIsNotNone(pool)
                 self.assertEqual([reply.text for reply in pool.ordered(map(job, "ABC"))], list("ABC"))
             self.assertEqual(len(set(workspaces)), 3)
             self.assertEqual(len(set(proxy_urls)), 3)
             self.assertTrue(all(amount > 0 for amount in seen_reservations))
+            self.assertEqual(seen_routes, [flow.llm_proxy.routes] * 3)
             self.assertEqual(flow.llm_proxy.external_reserved_tokens, 0)
             self.assertEqual(flow.llm_proxy.external_reserved_turns, 0)
             self.assertEqual(flow.review_turn_count, 3)
@@ -113,6 +121,31 @@ class OrderedRequestsTests(unittest.TestCase):
 
 
 class ScenarioCommitTests(unittest.TestCase):
+    def test_proposal_batch_never_mixes_category_contexts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            flow = Flow(argparse.Namespace(web_port=3000), root, root)
+            nodes = [{"id": name, "name": name, "type": "ATOMIC",
+                      "description": f"Feature {name} shows Done {name}.",
+                      "scenarios": [{"name": f"{name}: Scenario 1", "steps": [
+                          {"keyword": "WHEN", "content": f"The visitor clicks “Open {name}”."},
+                          {"keyword": "THEN", "content": f"The page shows “Done {name}”."}]}]}
+                     for name in "AB"]
+            flow.requirement_tree = {"id": "ROOT", "children": nodes}
+            flow.prepare_derived_tests(nodes)
+            flow.phase_plan = {"phases": [{"id": name, "leaves": [name]} for name in "AB"],
+                               "leaf_phase": {name: name for name in "AB"}}
+            flow.remaining = Mock(return_value=10000)
+            flow.final_phase_reserve = Mock(return_value=0)
+            flow.text_turn = Mock(return_value=(False, "provider unavailable"))
+            flow.augment_derived_tests(nodes)
+            self.assertEqual(flow.text_turn.call_count, 2)
+            prompts = [call.args[0] for call in flow.text_turn.call_args_list]
+            self.assertIn("A: Scenario 1", prompts[0])
+            self.assertNotIn("B: Scenario 1", prompts[0])
+            self.assertIn("B: Scenario 1", prompts[1])
+            self.assertNotIn("A: Scenario 1", prompts[1])
+
     def test_one_leaf_uses_at_most_two_proposal_requests_including_retry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

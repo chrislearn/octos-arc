@@ -170,6 +170,9 @@ class AuditCorrectionTests(unittest.TestCase):
             flow.text_turn.reset_mock()
             self.assertEqual(flow.correct_derived_cases({"A"}), set())
             flow.text_turn.assert_not_called()  # one correction round per scenario
+            path.write_text(path.read_text() + "// sibling spec changed\n")
+            self.assertEqual(flow.correct_derived_cases({"A"}), set())
+            flow.text_turn.assert_not_called()  # a file version change does not reset the limit
             flow.derived_case_review_requests = 6
             flow.text_turn.reset_mock()
             self.assertEqual(flow.correct_derived_cases({"A"}), set())
