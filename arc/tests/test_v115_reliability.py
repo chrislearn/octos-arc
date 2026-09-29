@@ -128,6 +128,59 @@ class TrustTests(unittest.TestCase):
             self.assertEqual(flow.review_domain_design({'id':'R','description':'Save documents.'},design),design)
             self.assertEqual(json.loads((Path(directory)/'.arc/design/domain-review.json').read_text())['status'],'reviewed_unverified')
 
+    def test_domain_review_compacts_design_before_skipping_large_prompt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            flow=Flow(argparse.Namespace(web_port=3000),Path(directory),Path(directory))
+            flow.remaining=Mock(return_value=4000); flow.wound_down=Mock(return_value=False)
+            flow.codegen_context_chars=Mock(return_value=5000)
+            design={'data_model':{'docs':{'id':'string'}},
+                    'routes':[{'method':'GET','path':'/docs','requirements':['R']}],
+                    'commands':[{'name':'save','requirements':['R'],'preconditions':[],
+                                 'effects':['save'],'rejected_effects':['unchanged'],
+                                 'state_transitions':[],'permissions':[],'persistence':['reload']}],
+                    'notes':'Do not alter route ownership. ' * 150}
+            reviewed={key:design[key] for key in ('data_model','commands')}
+            flow.text_turn=Mock(return_value=(True,json.dumps({'data_model':design['data_model']})))
+            self.assertEqual(flow.review_domain_design({'id':'R','description':'Save documents.'},design),design)
+            report=json.loads((Path(directory)/'.arc/design/domain-review.json').read_text())
+            self.assertEqual(report['status'],'unverified')
+            flow.text_turn=Mock(return_value=(True,json.dumps(reviewed)))
+            result=flow.review_domain_design({'id':'R','description':'Save documents.'},design)
+            self.assertEqual(result,design)
+            prompt=flow.text_turn.call_args.args[0]
+            self.assertIn('PROPOSED DOMAIN CONTRACT:',prompt)
+            self.assertIn('Save documents.',prompt)
+            self.assertNotIn(design['notes'],prompt)
+            report=json.loads((Path(directory)/'.arc/design/domain-review.json').read_text())
+            self.assertEqual(report['status'],'reviewed_unverified')
+            self.assertEqual(report['scope'],'domain_fields')
+
+    def test_explicit_parent_grid_role_is_checked_for_its_leaf(self):
+        tree={'id':'ROOT','description':'Application', 'children':[
+            {'id':'R-1','description':'The active worksheet grid uses the ARIA grid role named Worksheet grid.',
+             'children':[{'id':'R-1-1','description':'Open a workbook.'}]},
+            {'id':'R-2','description':'Export data.'}]}
+        sources={'frontend/src/Editor.jsx':'export default function Editor(){return <table><td>A1</td></table>}' }
+        self.assertIn('grid role',Flow.required_grid_role_gap(tree,['R-1-1'],sources))
+        self.assertIsNone(Flow.required_grid_role_gap(tree,['R-2'],sources))
+        sources['frontend/src/Editor.jsx']='export default function Editor(){return <table role="grid" aria-label="Worksheet grid"/>}'
+        self.assertIsNone(Flow.required_grid_role_gap(tree,['R-1-1'],sources))
+        sources['frontend/src/Editor.jsx']='export default function Editor(){return <table role={gridRole}/> }'
+        self.assertIsNone(Flow.required_grid_role_gap(tree,['R-1-1'],sources))
+        sources={'frontend/src/Editor.jsx':'import Grid from "./Grid"; export default () => <Grid/>',
+                 'frontend/src/Grid.jsx':'export default () => <table><td>A1</td></table>'}
+        self.assertIn('grid role',Flow.required_grid_role_gap(tree,['R-1-1'],sources))
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            editor=root/'frontend/src/Editor.jsx'; editor.parent.mkdir(parents=True)
+            editor.write_text('export default function Editor(){return <table><td>A1</td></table>}')
+            flow=Flow(argparse.Namespace(web_port=3000),root,root)
+            flow.requirement_tree=tree
+            flow.whole_app_generated_ids={'R-1-1'}
+            flow.last_codegen_written=['frontend/src/Editor.jsx']
+            flow.whole_app_wave_design_items=Mock(return_value={'routes':[],'pages':[]})
+            self.assertTrue(any('grid role' in gap for gap in flow.whole_app_wave_gaps(['R-2'])))
+
     def test_final_generated_repair_uses_correct_node_and_retests_new_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); (root/'A.spec.ts').write_text("test('A: approved', async () => {});\n")

@@ -4055,10 +4055,12 @@ class Flow:
         manifest = contract_manifest(tree, design)
         status = "unverified"
         errors = list(manifest["gaps"])
+        review_scope = "not_attempted"
         # Old cached/compact schemas are kept explicitly unverified. Avoid a
         # global generation gate when the model cannot complete this review.
         available = min(600, max(0, self.remaining() - self.final_phase_reserve() - self.repair_minimum()))
         if (design.get("data_model") or design.get("domain_contracts") or design.get("commands")) and available >= 30 and not self.wound_down():
+            review_scope = "full"
             prompt = ("Independently review this proposed shared data/command contract before implementation. "
                       "Only the supplied original requirements are authoritative. Check identity types, one authoritative "
                       "store and its producers/consumers, seed references, success and rejected transitions, persistence, "
@@ -4068,21 +4070,58 @@ class Flow:
                       "Do not access or modify source/tests. Preserve every requirement owner.\n"
                       + DOMAIN_GUIDANCE + "\nREQUIREMENTS:\n" + json.dumps(manifest["requirements"], ensure_ascii=False)
                       + "\nPROPOSED DESIGN:\n" + json.dumps(design, ensure_ascii=False))
+            compact_fields = ("data_model", "contracts", "domain_contracts", "commands", "obligations")
+            compact_review = False
+            if len(prompt) > self.codegen_context_chars():
+                # Large trees can exceed the context limit by only a few KB.
+                # Keep every original requirement and review the shared domain
+                # fields, while retaining the already accepted page/module/route
+                # ownership from the design verbatim after the review.
+                compact_review = True
+                review_scope = "domain_fields"
+                proposal = {key: design[key] for key in compact_fields if key in design}
+                proposal["route_surfaces"] = [
+                    {"method": route.get("method"), "path": route.get("path")}
+                    for route in design.get("routes") or [] if isinstance(route, dict)
+                ]
+                prompt = (
+                    "Independently review the shared data/command contract before implementation. "
+                    "Only the supplied original requirements are authoritative. Check identity, one "
+                    "authoritative store and its producers/consumers, seed references, success and "
+                    "rejected transitions, persistence, all input surfaces, authorization and exact "
+                    "required wire/file formats. Remove invented rules; keep contradictions explicit. "
+                    "Return JSON containing corrected data_model, contracts, domain_contracts, "
+                    "commands and obligations fields present in the proposal. Preserve every "
+                    "requirement owner. Routes, pages, modules and notes are retained verbatim "
+                    "from the original design. Do not access or modify source/tests.\n"
+                    + DOMAIN_GUIDANCE + "\nREQUIREMENTS:\n"
+                    + json.dumps(manifest["requirements"], ensure_ascii=False)
+                    + "\nPROPOSED DOMAIN CONTRACT:\n"
+                    + json.dumps(proposal, ensure_ascii=False)
+                )
             if len(prompt) <= self.codegen_context_chars():
                 ok, reply = self.text_turn(prompt, available, "shared domain contract review",
                                            system=APP_DESIGN_SYSTEM, spec_chars=len(prompt))
-                candidate = valid_app_design(parse_app_design_reply(reply, validate=False), manifest["requirements"]) if ok else None
+                parsed = parse_app_design_reply(reply, validate=False) if ok else None
+                if compact_review and isinstance(parsed, dict):
+                    required = [key for key in compact_fields if key in design]
+                    parsed = ({**design, **{key: parsed[key] for key in required}}
+                              if all(key in parsed for key in required) else None)
+                candidate = valid_app_design(parsed, manifest["requirements"]) if parsed else None
                 if candidate and app_design_coverage(candidate) >= app_design_coverage(design):
                     design = candidate
                     errors = contract_manifest(tree, design)["gaps"]
                     status = "reviewed_unverified"  # runtime consumers must still be measured
                 else:
                     errors.append("independent review unavailable or invalid; original proposal retained")
+            else:
+                review_scope = "over_limit"
+                errors.append("independent review prompt exceeds context limit; original proposal retained")
         path = self.output_dir / ".arc" / "design" / "domain-review.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"status": status, "gaps": errors,
+        path.write_text(json.dumps({"status": status, "scope": review_scope, "gaps": errors,
                                    "contract_sha256": contract_manifest(tree, design)["sha256"]}, ensure_ascii=False, indent=2))
-        self.metric("domain_contract_review", status=status, gaps=errors)
+        self.metric("domain_contract_review", status=status, scope=review_scope, gaps=errors)
         self._design_semantics_reviewed = status == 'reviewed_unverified'
         return design
 
@@ -7132,6 +7171,39 @@ class Flow:
             return bool(owners) and not owners & settled
         return False
 
+    @staticmethod
+    def required_grid_role_gap(tree: dict | None, ids: list[str], sources: dict[str, str]) -> str | None:
+        """Catch a missing literal grid role when an ancestor requires one.
+
+        Dynamic roles and grid components remain unknown to this source check;
+        browser acceptance checks the accessible name and coordinate-labelled cells.
+        """
+        wanted = set(map(str, ids))
+
+        def visit(node: dict, inherited: bool = False) -> bool:
+            if not isinstance(node, dict):
+                return False
+            description = str(node.get("description") or "").lower()
+            required = inherited or ("aria grid role" in description and "worksheet grid" in description)
+            if str(node.get("id")) in wanted and required:
+                return True
+            return any(visit(child, required) for child in node.get("children") or [])
+
+        if not tree or not visit(tree):
+            return None
+        frontend = "\n".join(source for path, source in sources.items()
+                             if path.startswith("frontend/") and path.endswith((".jsx", ".tsx", ".js", ".ts")))
+        if not frontend:
+            return None
+        if re.search(r"\brole\s*=\s*['\"]grid['\"]", frontend, re.I):
+            return None
+        if re.search(r"\brole\s*=\s*\{", frontend):
+            return None
+        local_grid = any(Path(path).stem == "Grid" for path in sources if path.startswith("frontend/"))
+        if not local_grid and re.search(r"<Grid\b", frontend):
+            return None
+        return "required worksheet ARIA grid role is absent from frontend JSX; verify the grid element and coordinate-labelled cells"
+
     def whole_app_wave_gaps(self, ids: list[str]) -> list[str]:
         """Deterministic reasons a wave cannot yet be declared complete.
 
@@ -7169,6 +7241,14 @@ class Flow:
                    path.read_text(encoding="utf-8", errors="replace")
                    for path in app_source_files(self.output_dir)}
         if sources:
+            grid_ids = list(ids)
+            if any(str(path).startswith("frontend/") for path in getattr(self, "last_codegen_written", ())):
+                # A later frontend edit can regress a role promised by an
+                # already generated requirement; recheck that explicit owner.
+                grid_ids += list(getattr(self, "whole_app_generated_ids", ()) or ())
+            grid_gap = self.required_grid_role_gap(getattr(self, "requirement_tree", None), grid_ids, sources)
+            if grid_gap:
+                gaps.append(grid_gap)
             contracts = getattr(self, "requirement_contracts", None)
             if (not self.tests_dir or any(self.derived_review_needed(node_id) for node_id in ids)) \
                     and isinstance(contracts, dict):
