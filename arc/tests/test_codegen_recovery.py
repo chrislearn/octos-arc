@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock
 
 from codegen import parse_context_request
-from main import app_design_blocks, quoted_paths
+from main import BUNDLE_DIR, app_design_blocks, quoted_paths
 from source_index import SourceIndex
 import test_diagnostic_repairs as flow_fixtures
 import test_app_design as design_fixtures
@@ -135,6 +135,39 @@ class RecoveryWorkflows(unittest.TestCase):
         self.flow._codegen_attempt = Mock(side_effect=generate)
         self.assertFalse(self.flow.codegen_turn('implement', 600, 'REQ-1 implement')[0])
         self.flow._codegen_attempt.assert_called_once()
+
+    def test_atomic_scaffold_refusal_quotes_small_siblings_before_retry(self):
+        helpers = {
+            'frontend/build.mjs': 'frontend-build.mjs',
+            'frontend/vite.config.mjs': 'vite.config.mjs',
+            'frontend/src/shared/interactions.jsx': 'react-interactions.jsx',
+        }
+        for rel, asset in helpers.items():
+            self.source(rel, (BUNDLE_DIR / 'blueprints' / asset).read_text())
+        self.flow.generic_template_installed = True
+        self.flow._atomic_codegen_response = True
+        self.flow._whole_app_prompt_cap = 96000
+        reply = (file_block('frontend/build.mjs', '// blind rewrite') + '\n'
+                 + file_block('frontend/src/shared/interactions.jsx', '// blind rewrite') + '\n'
+                 + file_block('frontend/src/pages/Editor.jsx', 'export default function Editor() {}'))
+
+        def respond(prompt, *args, **kwargs):
+            if self.flow.text_turn.call_count == 1:
+                return True, reply
+            for rel in helpers:
+                self.assertIn(rel, quoted_paths(prompt))
+            self.assertIn('Existing files allowed in this response', prompt)
+            self.assertFalse((self.root / 'frontend/src/pages/Editor.jsx').exists())
+            return True, file_block('frontend/src/pages/Editor.jsx', 'export default function Editor() { return null; }')
+
+        self.flow.text_turn = Mock(side_effect=respond)
+        ok, reason = self.flow.codegen_turn('implement', 600, 'whole application wave 1')
+        self.assertTrue(ok, reason)
+        self.assertEqual(self.flow.text_turn.call_count, 2)
+        self.assertEqual((self.root / 'frontend/src/pages/Editor.jsx').read_text().strip(),
+                         'export default function Editor() { return null; }')
+        for rel, asset in helpers.items():
+            self.assertEqual((self.root / rel).read_text(), (BUNDLE_DIR / 'blueprints' / asset).read_text())
 
 
 class ContextContracts(unittest.TestCase):

@@ -175,6 +175,55 @@ class AuditCorrectionTests(unittest.TestCase):
             self.assertEqual(flow.correct_derived_cases({"A"}), set())
             flow.text_turn.assert_not_called()
 
+    def test_case_audit_batches_same_phase_and_retries_only_missing_ids(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, _, _ = self.setup_flow(Path(folder))
+            rows = [{"id": f"case-{index}", "node_id": "A", "title": f"Case {index}",
+                     "status": "unreviewed", "requirement": "A created record shows Done.",
+                     "case": "await page.click('Create');", "outcome": "A created record shows Done."}
+                    for index in range(3)]
+            flow.codegen_context_chars = Mock(return_value=1000000)
+            shown_batches = []
+
+            def audit(prompt, *_args, **_kwargs):
+                shown = json.loads(prompt.split("\nCases: ")[1])
+                shown_batches.append([item["id"] for item in shown])
+                if len(shown_batches) == 1:
+                    shown = shown[:2]  # model omitted one case in a valid batch
+                return True, json.dumps([{"id": item["id"], "status": "needs_correction",
+                                          "reason": "Missing state assertion"} for item in shown])
+
+            flow.text_turn = Mock(side_effect=audit)
+            with patch("main.collect_cases", return_value=rows), \
+                    patch.dict("os.environ", {"OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH": "3"}):
+                flow.review_derived_cases({"A"})
+            self.assertEqual(shown_batches, [["case-0", "case-1", "case-2"], ["case-2"]])
+            self.assertEqual(flow.derived_case_review_requests, 2)
+            self.assertTrue(all(row["status"] == "needs_correction" for row in rows))
+
+    def test_case_audit_splits_oversized_batch_before_model_call(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, _, _ = self.setup_flow(Path(folder))
+            rows = [{"id": f"case-{index}", "node_id": "A", "title": f"Case {index}",
+                     "status": "unreviewed", "requirement": "A created record shows Done.",
+                     "case": "await page.click('Create');", "outcome": "A created record shows Done."}
+                    for index in range(3)]
+            flow.codegen_context_chars = Mock(side_effect=[1, 1000000, 1000000])
+            shown_batches = []
+
+            def audit(prompt, *_args, **_kwargs):
+                shown = json.loads(prompt.split("\nCases: ")[1])
+                shown_batches.append([item["id"] for item in shown])
+                return True, json.dumps([{"id": item["id"], "status": "needs_correction",
+                                          "reason": "Missing state assertion"} for item in shown])
+
+            flow.text_turn = Mock(side_effect=audit)
+            with patch("main.collect_cases", return_value=rows), \
+                    patch.dict("os.environ", {"OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH": "3"}):
+                flow.review_derived_cases({"A"})
+            self.assertEqual(shown_batches, [["case-0"], ["case-1", "case-2"]])
+            self.assertEqual(flow.derived_case_review_requests, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

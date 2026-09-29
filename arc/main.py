@@ -81,6 +81,7 @@ Environment (all optional):
     OCTOS_ARC_DERIVED_LLM_REQUESTS  cap on AI spec-plan batches (default 60..90, task-sized)
     OCTOS_ARC_DERIVED_LLM_WALL_SECONDS  total AI spec-planning wall cap (default max(7200, 180 x scenarios))
     OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS / OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS  independent case-review caps
+    OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH  same-phase cases per audit request (default 3; max 6)
     OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS  cap on audit correction batches (default 60; 0 disables)
     OCTOS_ARC_OBLIGATION_BATCH_LEAVES  leaves per source-grounded obligation review batch (default 3)
     OCTOS_ARC_DERIVED_FAILURE_REVIEW  "0" disables independent review of failing generated behaviour specs
@@ -4261,18 +4262,49 @@ class Flow:
                                'Repeated reads of unchanged files add no evidence.\n'
                                'Available source paths (possibly abbreviated):\n'
                                + "\n".join(sorted(available))[:8000] + "\n")
-            targets = set(getattr(self, "last_codegen_refused", ()))
-            targets.update(re.findall(r"(?:frontend|backend)/[\w./-]+\.(?:jsx?|tsx?|mjs)", reason))
-            targets = (targets & available) - quoted_paths(prompt)
-            for rel in sorted(targets):
+            refused_targets = set(getattr(self, "last_codegen_refused", ()))
+            refused_targets.update(re.findall(r"(?:frontend|backend)/[\w./-]+\.(?:jsx?|tsx?|mjs)", reason))
+            refused_targets = (refused_targets & available) - quoted_paths(prompt)
+            targets = set(refused_targets)
+            # A first wave often tries to rewrite one pristine scaffold helper,
+            # then switches to another on correction. Show the small siblings in
+            # the same layer once a helper was refused, rather than paying for
+            # another full multi-file reply. This grants context only; the
+            # existing-file write guard below remains unchanged.
+            if (outcome == "guard_refused" and getattr(self, "generic_template_installed", False)
+                    and refused_targets & TASK_NEUTRAL_HELPERS.keys()):
+                layers = {rel.split("/", 1)[0] for rel in refused_targets & TASK_NEUTRAL_HELPERS.keys()}
+                for rel in TASK_NEUTRAL_HELPERS:
+                    path = self.output_dir / rel
+                    if rel not in available or rel.split("/", 1)[0] not in layers:
+                        continue
+                    try:
+                        small = path.stat().st_size <= 3000
+                    except OSError:
+                        continue
+                    if small and unchanged_task_neutral_helpers(self.output_dir, {rel}):
+                        targets.add(rel)
+            added = set()
+            recovery_cap = self.codegen_context_chars()
+            if outcome == "guard_refused" and label.startswith("whole application"):
+                recovery_cap = min(recovery_cap, getattr(self, "_whole_app_prompt_cap", recovery_cap))
+            for rel in sorted(targets, key=lambda path: (path not in refused_targets, path)):
                 try:
                     snapshot, _ = context_evidence(self.output_dir, {"paths": [rel]}, available, {})
                 except (OSError, ValueError):
                     continue  # A vanished or changed path must be requested again.
-                if len(prompt + correction + snapshot + format_instructions) <= self.codegen_context_chars():
+                if len(prompt + correction + snapshot + format_instructions) <= recovery_cap:
                     correction += snapshot
+                    added.add(rel)
+            if outcome == "guard_refused":
+                allowed = sorted(quoted_paths(prompt) | added)
+                instruction = ("\nExisting files allowed in this response (all shown whole): "
+                               + ", ".join(allowed) + ". For any other existing file, return only "
+                               "NEEDS_CONTEXT; do not replace it or move the change into another scaffold file.\n")
+                if len(prompt + correction + instruction + format_instructions) <= recovery_cap:
+                    correction += instruction
             enriched = prompt + correction
-            if len(enriched + format_instructions) + 1 > self.codegen_context_chars():
+            if len(enriched + format_instructions) + 1 > recovery_cap:
                 self.metric("protocol_recovery", label=label, outcome="context_budget_blocked", reason=outcome)
                 return ok, reason
             self.metric("protocol_recovery", label=label, outcome="retry", reason=outcome,
@@ -7929,7 +7961,10 @@ class Flow:
                                          row["node_id"], row["title"]))
         spent = getattr(self, "derived_case_review_requests", 0)
         cap = max(0, self.case_review_cap() - reserve_requests)
-        batch_size = max(1, min(6, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH", "1"))))
+        # The auditor can decide several independent cases in one reply. Keep
+        # the large shared instructions, fixtures and helper as one cacheable
+        # prefix instead of paying for them once per case.
+        batch_size = max(1, min(6, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH", "3"))))
         wall_cap = self.case_review_seconds()
         review_seconds = getattr(self, "derived_case_review_seconds", 0)
         review_started = time.monotonic()
@@ -7938,7 +7973,10 @@ class Flow:
             if not chunks or len(chunks[-1]) >= batch_size or phase_of(chunks[-1][0]) != phase_of(row):
                 chunks.append([])
             chunks[-1].append(row)
-        for chunk in chunks:
+        chunk_index = 0
+        while chunk_index < len(chunks):
+            chunk = chunks[chunk_index]
+            chunk_index += 1
             preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
             if (spent >= cap or review_seconds + time.monotonic() - review_started >= wall_cap
                     or self.wound_down() or self.review_budget_spent()
@@ -7989,6 +8027,12 @@ class Flow:
                       + "\nShared test helper: " + review_evidence(directory)
                       + "\nCases: " + json.dumps(shown, ensure_ascii=False))
             if len(prompt) > self.codegen_context_chars():
+                if len(chunk) > 1:
+                    midpoint = len(chunk) // 2
+                    chunks[chunk_index:chunk_index] = [chunk[:midpoint], chunk[midpoint:]]
+                    self.metric("derived_case_review", outcome="split_context",
+                                cases=[row["id"] for row in chunk])
+                    continue
                 self.metric("derived_case_review", outcome="insufficient_context", cases=[r["id"] for r in chunk])
                 continue
             decisions = []
@@ -8023,7 +8067,20 @@ class Flow:
                 if parse_error != "format_invalid":
                     break
             by_id = {item.get("id"): item for item in decisions if isinstance(item, dict)} if isinstance(decisions, list) else {}
+            missing = [row for row in chunk if row["id"] not in by_id]
+            if missing and len(chunk) > 1:
+                # A batched response can omit an ID or fail its envelope.
+                # Retry only the unanswered cases in smaller requests; never
+                # treat a missing decision as an approval.
+                midpoint = max(1, len(missing) // 2)
+                retry_chunks = ([missing] if len(missing) == 1 else
+                                [missing[:midpoint], missing[midpoint:]])
+                chunks[chunk_index:chunk_index] = retry_chunks
+                self.metric("derived_case_review", outcome="split_incomplete",
+                            cases=[row["id"] for row in missing], request=spent)
             for row in chunk:
+                if row["id"] not in by_id and len(chunk) > 1:
+                    continue
                 decision = by_id.get(row["id"], {})
                 validation_errors = review_validation_errors(row, decision)
                 if not validation_errors:
