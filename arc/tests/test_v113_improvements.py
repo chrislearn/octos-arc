@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -60,6 +61,7 @@ class ReviewBoundaryTests(unittest.TestCase):
         self.assertTrue(validate_review(row, verdict))
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class DerivedPreflightTests(unittest.TestCase):
     def test_review_queue_reserves_a_cross_leaf_final_measurement(self):
         from types import SimpleNamespace

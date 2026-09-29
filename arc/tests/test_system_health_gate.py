@@ -18,6 +18,41 @@ from runtime_diagnostics import (binding_failure_observation, browser_failure_su
 
 
 class HealthGateTests(unittest.TestCase):
+    def test_document_500_is_confirmed_application_failure(self):
+        playwright_root = Path(__file__).parents[1] / 'local-grader'
+        if not (playwright_root / 'node_modules' / '@playwright' / 'test').exists():
+            self.skipTest('Playwright is not installed')
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'{"error":"internal error"}'
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                report = browser_health(playwright_root,
+                    f'http://127.0.0.1:{server.server_port}', Path(tmp), paths=['/'], timeout=25)
+            if report['status'] == 'unknown' and any(
+                    row['kind'] == 'browser_unavailable' for row in report['observations']):
+                self.skipTest('Chromium is not available')
+            self.assertEqual(report['status'], 'failed', report)
+            self.assertTrue(any(row['kind'] == 'document_http_error' and row['confirmed']
+                                for row in report['observations']), report)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_repair_summary_leads_with_specific_error_not_repeated_fallback(self):
         report = {'status': 'failed', 'artifact_dir': '/tmp/health', 'observations': [
             {'kind': 'runtime_fallback', 'path': '/a', 'message': 'Application error fallback rendered at /a'},

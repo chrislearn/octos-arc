@@ -1918,6 +1918,7 @@ class RollbackAttributionTests(WholeAppTests):
             "A", "restored source before-node: 1/1 measured")
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class CompletenessPassTests(WholeAppTests):
     """hackathon--sheet run ef2ab916a57d: 24 reach checks passed, the run ended after
     91 of 1175 available minutes, the grader passed 0/100. Leaves whose derived spec

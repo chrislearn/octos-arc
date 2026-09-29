@@ -23,6 +23,8 @@ skip the skeleton, diff the requirement tree against the previous run's
 regression-test the unchanged ones.
 
 Environment (all optional):
+    OCTOS_ARC_TEST_MODE       fast (default: skip pre-run model review; audit failed cases once,
+                              then at most one code repair) | full (v13 review workflow)
     OPENAI_API_KEY / OPENAI_BASE_URL / MODEL   OpenAI-compatible endpoint
     OCTOS_BIN                 octos binary (default: ./bin/octos, PATH, download)
     OCTOS_NODE_TIMEOUT        seconds per model turn (default 1200)
@@ -5931,6 +5933,11 @@ class Flow:
         specs = getattr(self, "spec_map", {}).get(node_id, [])
         return bool(specs and self.derived_case_selection(specs)[0])
 
+    @staticmethod
+    def fast_test_mode() -> bool:
+        """Default fast path; set OCTOS_ARC_TEST_MODE=full for the v13 review flow."""
+        return os.environ.get("OCTOS_ARC_TEST_MODE", "fast").strip().lower() != "full"
+
     def disputed_generated_failures(self, summary: RunSummary) -> list[tuple[str, str]]:
         """Failed generated tests whose oracle is not safe for application repair."""
         disputes = getattr(self, "derived_spec_disputes", {})
@@ -5952,7 +5959,10 @@ class Flow:
         if reviews is None:  # older or official-spec flows do not have this ledger
             return True
         row = reviews.get((node_id, title))
-        if not row or row.get("status") != "approved_behavior":
+        allowed = {"approved_behavior"}
+        if self.fast_test_mode():
+            allowed.add("skip_review")
+        if not row or row.get("status") not in allowed:
             return False
         path = (getattr(self, "derived_tests_dir", None) or self.tests_dir) / f"{node_id}.spec.ts"
         try:
@@ -6196,6 +6206,8 @@ class Flow:
     def audit_related_derived_specs(self, specs: list[str], summary: RunSummary,
                                     owner_specs: dict[str, list[str]] | None = None) -> RunSummary:
         """Adjudicate failed reviewed cases before using them for app repair."""
+        if self.fast_test_mode() and getattr(self, "derived_as_specs", False):
+            return summary  # The fast node path owns its single post-failure review.
         if (getattr(self, "derived_as_specs", False) is not True or summary.all_passed
                 or not self.suite_is_measured(summary, specs)):
             return summary
@@ -6264,6 +6276,187 @@ class Flow:
                 break
         return summary
 
+    def fast_derived_acceptance(self, node_id: str, specs: list[str], deadline: float,
+                                initial_summary: RunSummary | None = None) -> bool | None:
+        """One measured run, one post-failure audit, and at most one code repair.
+
+        A bad or uncertain case is quarantined individually. A repair that
+        breaks build/start/runtime is rolled back; a buildable partial repair
+        remains in the tree even when its failing cases are quarantined.
+        """
+        if not self.derived_has_runnable_cases(node_id):
+            self.metric('derived_test_wait', node_id=node_id, decision='no_fast_candidates')
+            return None
+        summary = initial_summary or self.run_specs(specs)
+        if not self.suite_is_measured(summary, specs):
+            self.metric('fast_acceptance', node_id=node_id, outcome='measurement_unavailable',
+                        error=summary.error or '\n'.join(summary.load_errors))
+            return None
+        self.record_tests(node_id, specs, summary)
+        if summary.all_passed:
+            self.commit(f"{node_id} (fast accepted): {summary.passed}/{summary.total}")
+            return None if self.derived_review_needed(node_id) else True
+
+        from test_policy import digest, grounded_verdict, test_block
+        policy = self.generated_test_policy()
+        node = getattr(self, 'requirement_nodes', {}).get(node_id, {})
+        requirement = (json.dumps(node, ensure_ascii=False, sort_keys=True) + '\n'
+                       + ancestor_context(getattr(self, 'requirement_tree', None)).get(node_id, ''))
+        code = (self.repair_requirements(node_id) + self.sources_text())[:max(3000, self.codegen_context_chars() // 2)]
+        app_errors = []
+        failure_hash = digest(sorted(map(str, failure_signature(summary))))
+        def dispute(failed, reason, reviews=()):
+            rel = Path(failed.file or '').name
+            path = self.tests_dir / rel
+            try:
+                source = path.read_text(encoding='utf-8') if path.is_file() else ''
+            except OSError:
+                source = ''
+            if policy and test_block(source, failed.title):
+                try:
+                    policy.decide(rel, failed.title, source, 'disputed', reason,
+                                  reviews, failure_hash=failure_hash)
+                except (OSError, ValueError) as exc:
+                    self.metric('fast_test_policy', node_id=node_id, title=failed.title,
+                                outcome='write_unavailable', reason=str(exc)[:200])
+            record = getattr(self, 'derived_case_reviews', {}).get((node_id, failed.title))
+            if record is not None:
+                record['status'] = 'disputed'
+                record['reason'] = reason
+            try:
+                self.flag_derived_spec_dispute(node_id, failed.title, reason)
+            except (OSError, ValueError) as exc:
+                disputes = getattr(self, 'derived_spec_disputes', {})
+                disputes[(node_id, failed.title)] = reason
+                self.derived_spec_disputes = disputes
+                self.metric('fast_test_policy', node_id=node_id, title=failed.title,
+                            outcome='report_unavailable', reason=str(exc)[:200])
+        def persist_case_states():
+            directory = getattr(self, 'derived_tests_dir', None)
+            if directory is not None:
+                try:
+                    review_dir = directory / 'review'
+                    review_dir.mkdir(parents=True, exist_ok=True)
+                    (review_dir / 'cases.json').write_text(json.dumps({
+                        'version': 1, 'cases': safe_records(list(self.derived_case_reviews.values()))
+                    }, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+                except OSError as exc:
+                    self.metric('fast_test_policy', node_id=node_id, outcome='ledger_unavailable',
+                                reason=str(exc)[:200])
+        def quarantine(rows, reason):
+            for failed in rows:
+                dispute(failed, reason)
+            persist_case_states()
+            self.snapshot_protected()
+        for row in (item for item in summary.results if not item.ok and item.status != 'quarantined'):
+            rel = Path(row.file or '').name
+            path = self.tests_dir / rel
+            try:
+                source = path.read_text(encoding='utf-8') if path.is_file() else ''
+            except OSError:
+                source = ''
+            block = test_block(source, row.title)
+            if not block or not self.trusted_derived_case(node_id, row.title):
+                continue
+            failure = failure_summaries(RunSummary(results=[row], total=1, passed=0),
+                                        max_observation=2400, max_snapshots=3000)
+            prompt = ("Review this measured failure against the requirement, application code and test exactly once. "
+                      "Return one JSON object: {\"verdict\":\"app_error|spec_error|oracle_dispute|uncertain\","
+                      "\"evidence\":\"concrete cause\",\"reason_code\":null,"
+                      "\"requirement_quote\":\"\",\"test_quote\":\"\",\"scenarios\":[]}. "
+                      "For spec_error/oracle_dispute, set reason_code and copy verbatim requirement and offending "
+                      "test quotes. A missing feature or timeout alone is not a bad test. Do not edit files.\n"
+                      f"REQUIREMENT:\n{requirement}\nTEST:\n{block}\nFAILURE:\n{failure}\n"
+                      f"APPLICATION CODE:\n{code}")
+            review = None
+            if len(prompt) <= self.codegen_context_chars() and deadline - time.time() >= 30:
+                self.snapshot_protected()
+                ok, reply = self.oracle_review_turn(prompt, f"{node_id} fast failure review")
+                review = parse_failure_review(reply) if ok else None
+            if review and review['verdict'] == 'app_error' and len(review.get('evidence', '').strip()) >= 20:
+                app_errors.append((row, review['evidence']))
+                self.metric('fast_failure_review', node_id=node_id, title=row.title, verdict='app_error')
+                continue
+            grounded = grounded_verdict(review, requirement, block)
+            reason = (review.get('evidence', '') if review else 'Post-failure review unavailable')[:600]
+            # One fast review cannot satisfy the full mode's two-independent-
+            # review rule for an invalid verdict. Quarantine it as disputed.
+            state = 'disputed'
+            if grounded and review['verdict'] == 'spec_error':
+                reason = ('One grounded review suspects a test error; independent confirmation skipped '
+                          'in fast mode. ' + reason)[:600]
+            dispute(row, reason or 'Post-failure review inconclusive', [review] if review else [])
+            self.metric('fast_failure_review', node_id=node_id, title=row.title, verdict=state)
+        persist_case_states()
+        self.snapshot_protected()
+        if not app_errors:
+            return None
+        left = min(self.node_timeout, deadline - time.time(),
+                   self.remaining() - self.final_phase_reserve())
+        if left < self.repair_minimum() or self.wound_down():
+            self.metric('fast_acceptance', node_id=node_id, outcome='repair_budget_unavailable')
+            quarantine([row for row, _ in app_errors], 'One fast review found an application error, but the single repair window was unavailable')
+            return None
+        before_sha = self.head()
+        before_source = self.app_source_digest()
+        failures = failure_summaries(RunSummary(results=[row for row, _ in app_errors],
+                                                total=len(app_errors), passed=0))
+        findings = '\n'.join(f"- {row.title}: {evidence}" for row, evidence in app_errors)
+        def repair_prompt():
+            return self.app_repair_prompt(node_id=node_id, passed=summary.passed, total=summary.total,
+                                          failures=failures + '\nFailure audit:\n' + findings,
+                                          test_location=self.repair_test_location(specs),
+                                          corrections=self.corrections_text(), slow='', smoke=self.smoke_port,
+                                          port=self.web_port,
+                                          sources=self.repair_requirements(node_id) + self.sources_text())
+        try:
+            changed = self.node_repair_turn(node_id, failures, left,
+                                            f"{node_id} fast repair 1/1", repair_prompt)
+        except Exception as exc:  # a partial edit must never escape unmeasured
+            if before_sha:
+                self.restore_app(before_sha)
+            self.metric('fast_acceptance', node_id=node_id, outcome='repair_exception_rolled_back',
+                        reason=str(exc)[:300])
+            quarantine([row for row, _ in app_errors],
+                       'Fast repair interrupted after a possible partial edit; measured source restored')
+            return None
+        if not changed and self.app_source_digest() == before_source:
+            self.metric('fast_acceptance', node_id=node_id, outcome='repair_not_applied')
+            quarantine([row for row, _ in app_errors], 'One fast repair attempt made no code change; case excluded from later runs')
+            return None
+        try:
+            repaired = self.run_specs(specs)
+        except Exception as exc:
+            if before_sha:
+                self.restore_app(before_sha)
+            self.metric('fast_acceptance', node_id=node_id, outcome='measurement_exception_rolled_back',
+                        reason=str(exc)[:300])
+            quarantine([row for row, _ in app_errors],
+                       'Fast repair could not be measured; measured source restored')
+            return None
+        systemic = (not self.suite_is_measured(repaired, specs)
+                    or bool(application_failures(repaired)))
+        if systemic:
+            if before_sha:
+                self.restore_app(before_sha)
+            self.metric('fast_acceptance', node_id=node_id, outcome='systemic_repair_rolled_back',
+                        error=repaired.error or '\n'.join(repaired.load_errors))
+            self.pending_corrections.append(
+                f"{node_id}: fast repair broke application build/start/runtime; restored the measured source.")
+            quarantine([row for row, _ in app_errors],
+                       'The single fast repair broke build/start/runtime and was rolled back; case excluded')
+            return None
+        self.commit(f"{node_id} fast repair: buildable source retained")
+        self.record_tests(node_id, specs, repaired)
+        if repaired.all_passed:
+            self.metric('fast_acceptance', node_id=node_id, outcome='repaired_pass')
+            return None if self.derived_review_needed(node_id) else True
+        quarantine([row for row in repaired.results if not row.ok and row.status != 'quarantined'],
+                   'One fast code repair was buildable but this test still failed; no further code edits')
+        self.metric('fast_acceptance', node_id=node_id, outcome='buildable_repair_retained',
+                    passed=repaired.passed, total=repaired.total)
+        return None
+
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
                         rebuild_prompt=None, initial_summary: RunSummary | None = None,
                         source_versions: dict | None = None) -> bool | None:
@@ -6273,6 +6466,8 @@ class Flow:
         A failing extension is repaired without replacing working features."""
         if self.runner is None or not specs:
             return None
+        if getattr(self, 'derived_as_specs', False) and self.fast_test_mode():
+            return self.fast_derived_acceptance(node_id, specs, deadline, initial_summary)
         if getattr(self, 'derived_as_specs', False) is True and not self.derived_has_runnable_cases(node_id):
             self.last_node_own_pass = False
             self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases',
@@ -7803,6 +7998,11 @@ class Flow:
         """Every scenario needs an action-then-assertion test for verification."""
         if not getattr(self, "derived_as_specs", False):
             return False
+        if self.fast_test_mode():
+            coverage = self.derived_scenario_coverage(node_id)
+            return (not self.derived_has_runnable_cases(node_id)
+                    or coverage['total'] == 0 or coverage['covered'] < coverage['total']
+                    or any(owner == node_id for owner, _ in getattr(self, 'derived_spec_disputes', {})))
         coverage = self.derived_scenario_coverage(node_id)
         reviews = getattr(self, "derived_case_reviews", None)
         targets = {str(target.get("id")) for target in self.planned_derived_scenarios()
@@ -7839,7 +8039,7 @@ class Flow:
         for node in getattr(self, "derived_nodes", []):
             node_id = str(node.get("id"))
             coverage = self.derived_scenario_coverage(node_id)
-            reviewed = not self.derived_review_needed(node_id)
+            reviewed = not self.fast_test_mode() and not self.derived_review_needed(node_id)
             runnable = self.derived_has_runnable_cases(node_id)
             case_states = {status.value: sum(row.get("node_id") == node_id and row.get("status") == status
                                              for row in getattr(self, "derived_case_reviews", {}).values())
@@ -7847,10 +8047,11 @@ class Flow:
             path = directory / f"{node_id}.spec.ts"
             obligation_state = getattr(self, "derived_obligation_status", {}).get(node_id, {})
             rows.append({"node_id": node_id,
-                         "status": ("reviewed" if reviewed else "review_pending" if node_id in attempted
+                         "status": ("skip_review" if self.fast_test_mode() and runnable else
+                                    "reviewed" if reviewed else "review_pending" if node_id in attempted
                                     else "candidate" if path.is_file() else "not_generated"),
                          "implementation_admission": "allowed",
-                         "test_admission": "allowed" if reviewed and runnable else
+                         "test_admission": "allowed" if (reviewed or self.fast_test_mode()) and runnable else
                                            "allowed_partial" if runnable else "waiting_for_review",
                          "case_states": case_states,
                          "runtime_decisions": {state: sum(Path(decision["file"]).name.removesuffix(".spec.ts") == node_id
@@ -7967,6 +8168,10 @@ class Flow:
         self.aliases = {}
         self.tests_dir = directory
         self.derived_as_specs = True
+        if self.fast_test_mode():
+            # Static candidates become runnable immediately, even when the
+            # later augmentation window is skipped for lack of time.
+            self.review_derived_cases(set(node_ids))
         self.write_derived_coverage()
         log(f"[tests] {len(specs)} derived spec files at {directory} are internal diagnostics; mapping "
             f"{ {k: v for k, v in self.spec_map.items() if v} }")
@@ -8377,11 +8582,27 @@ class Flow:
         # unchanged case, requirement, helper and fixture versions.
         for row in rows:
             previous = getattr(self, "derived_case_reviews", {}).get((row["node_id"], row["title"]))
-            if previous and previous.get("status") in {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only", "invalid"} and all(
+            if previous and previous.get("status") in {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only", "invalid", "skip_review"} and all(
                     previous.get(key) == row.get(key) for key in
                     ("case_hash", "requirements_hash", "helper_hash", "fixture_hash")):
                 row.update({key: previous[key] for key in
                             ("status", "outcome_quote", "assertion_quote", "reason", "review_request", "review_completed", "review_error_confirmed", "branch", "obligation_ids", "obligation_evidence", "review_validation") if key in previous})
+        if self.fast_test_mode():
+            # Structural grounding and file/helper/requirement hashes remain
+            # mandatory, but no pre-execution model review is purchased.
+            for row in rows:
+                if row["status"] == "unreviewed":
+                    row["status"] = "skip_review"
+                    row["reason"] = "fast mode: review deferred until a measured failure"
+            present = {(row["node_id"], row["title"]) for row in rows}
+            self.derived_case_reviews = {key: value for key, value in self.derived_case_reviews.items()
+                                         if key[0] not in node_ids or key in present}
+            self.derived_case_reviews.update({(row["node_id"], row["title"]): row for row in rows})
+            (review_dir / "cases.json").write_text(json.dumps({"version": 1, "cases": safe_records(
+                list(self.derived_case_reviews.values()))}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            self.metric("derived_case_review", mode="fast", cases=len(rows),
+                        admitted=sum(row["status"] == "skip_review" for row in rows), requests=0)
+            return
         corrected_scenarios = getattr(self, "derived_case_correction_attempted", set())
         candidates = [row for row in rows if row["status"] in {"unreviewed", "skipped_unreviewed"}
                       or (row["status"] == "needs_correction"
@@ -8987,7 +9208,8 @@ class Flow:
                         self.driver.end_scope('node')
             # Failed implementation leaves may still have useful partial code,
             # but scarce review time goes to delivered leaves first.
-            self.derived_completeness_pass(review_order + deferred_order)
+            if not self.fast_test_mode():
+                self.derived_completeness_pass(review_order + deferred_order)
         finally:
             self._derived_post_code_review_active = False
             self.write_derived_handoff()
@@ -9050,7 +9272,10 @@ class Flow:
                 continue
             if not self.derived_review_needed(node_id):
                 self._derived_design_ready = getattr(self, "_derived_design_ready", set()) | {node_id}
-                self.mark("design_done", node_id, "business test specs generated, validated and independently reviewed")
+                detail = ("business test specs generated; structural candidates in skip_review state"
+                          if self.fast_test_mode() else
+                          "business test specs generated, validated and independently reviewed")
+                self.mark("design_done", node_id, detail)
 
     def prepare_derived_spec_batch(self, ordered: list[dict]) -> None:
         """Generate and review a bounded set of leaves in the test queue."""
@@ -9072,10 +9297,11 @@ class Flow:
         proposal_pending = [node for node in pending
                             if getattr(self, "derived_augmentation_attempts", {}).get(str(node.get("id")), 0) < 2]
         log(f"[derived] preparing spec batch for nodes {ids}")
-        self.start_derived_designs(ids, 'generating and reviewing business test specs')
+        self.start_derived_designs(ids, 'generating business test specs' if self.fast_test_mode()
+                                   else 'generating and reviewing business test specs')
         for node_id in ids:
             self.metric("derived_spec_node", node_id=node_id, phase="batch", status="preparing")
-        if (os.environ.get("OCTOS_ARC_DRYRUN") != "1"
+        if (not self.fast_test_mode() and os.environ.get("OCTOS_ARC_DRYRUN") != "1"
                 and os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") != "0"):
             try:
                 prepare_obligations(self, pending)
@@ -9111,7 +9337,7 @@ class Flow:
         # trees; it must see the accepted suite as the new protected baseline.
         self.snapshot_protected()
         try:
-            correction_enabled = (os.environ.get("OCTOS_ARC_DRYRUN") != "1"
+            correction_enabled = (not self.fast_test_mode() and os.environ.get("OCTOS_ARC_DRYRUN") != "1"
                                   and os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") != "0"
                                   and int(os.environ.get("OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS", "60")) >
                                   getattr(self, "derived_case_correction_requests", 0))
@@ -9131,7 +9357,8 @@ class Flow:
             if corrected:
                 self.snapshot_protected()
                 self.review_derived_cases(corrected)
-            self.finalize_rejected_derived_cases(set(ids))
+            if not self.fast_test_mode():
+                self.finalize_rejected_derived_cases(set(ids))
         except Exception as exc:  # review failures remain unreviewed, never a gate
             self.metric("derived_case_review", outcome="unavailable", reason=str(exc)[:300])
         node_ids = [str(node.get("id")) for node in getattr(self, "derived_nodes", ordered)]
@@ -11041,6 +11268,8 @@ class Flow:
         def review_invalidated(decision: str) -> bool:
             if getattr(self, 'derived_as_specs', False) is not True:
                 return False
+            if self.fast_test_mode():
+                return False  # Coverage gaps stay unverified; runnable siblings continue.
             invalidated = sorted({Path(spec).name.removesuffix('.spec.ts') for spec in all_specs
                                   if self.derived_review_needed(Path(spec).name.removesuffix('.spec.ts'))})
             if not invalidated:
@@ -12024,6 +12253,49 @@ class Flow:
                 self.restore_app(original_sha)
 
     # -- final ------------------------------------------------------------
+    def repair_spa_entry_from_blueprint(self, error: str) -> bool:
+        """Restore the task-neutral builder only for the known nested-entry defect.
+
+        The Vite config must still be byte-identical to the blueprint. An app
+        that intentionally customized its config stays on the ordinary repair
+        path. A failed trial build restores the original builder immediately.
+        """
+        if "SPA entry frontend/dist/index.html is missing" not in error:
+            return False
+        frontend = self.output_dir / 'frontend'
+        build = frontend / 'build.mjs'
+        config = frontend / 'vite.config.mjs'
+        blueprint = Path(__file__).parent / 'blueprints'
+        try:
+            if (build.is_symlink() or config.is_symlink()
+                    or config.read_bytes() != (blueprint / 'vite.config.mjs').read_bytes()):
+                return False
+            old = build.read_bytes()
+            replacement = (blueprint / 'frontend-build.mjs').read_bytes()
+            if old == replacement:
+                return False
+            build.write_bytes(replacement)
+            trial = self.app_server(grader_like=True, test_hooks=False).build()
+            if trial is not None:
+                build.write_bytes(old)
+                self.metric('spa_entry_blueprint_repair', outcome='trial_failed', error=trial[:300])
+                return False
+        except Exception as exc:  # trial failures must not interrupt finalization
+            try:
+                if 'old' in locals():
+                    build.write_bytes(old)
+            except OSError:
+                pass
+            self.metric('spa_entry_blueprint_repair', outcome='unavailable', reason=str(exc)[:200])
+            return False
+        try:
+            self.commit('fix: restore blueprint SPA build entry')
+            self.metric('spa_entry_blueprint_repair', outcome='restored')
+        except Exception as exc:  # a verified app must remain usable if bookkeeping fails
+            log(f'[rehearsal] blueprint build repaired; commit/metric unavailable: {type(exc).__name__}')
+        log('[rehearsal] restored blueprint frontend builder; root SPA entry now builds')
+        return True
+
     def rehearsal(self, *, preserve_seconds: float = 0.0,
                   restore_on_failure: bool = True, repair_on_failure: bool = True) -> bool:
         self._last_rehearsal_system_failure = False
@@ -12035,6 +12307,8 @@ class Flow:
                 self._last_rehearsal_system_failure = False
                 log("[rehearsal] app builds, starts and renders in the browser")
                 return True
+            if repair_on_failure and self.repair_spa_entry_from_blueprint(err):
+                continue
             failure_line = startup_error_digest(err, 320).replace('\n', ' | ')
             log(f"[rehearsal] FAILED: {failure_line}")
             if err.startswith(("Browser health unknown", "Rehearsal measurement unknown")):

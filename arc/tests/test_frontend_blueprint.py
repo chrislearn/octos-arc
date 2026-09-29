@@ -60,6 +60,18 @@ class FrontendBlueprintTests(unittest.TestCase):
         self.assertTrue((self.frontend / "dist/assets/style.css").is_file())
         self.assertFalse((self.frontend / "dist/stale.html").exists())
 
+    def test_spa_blueprint_rejects_nested_index_without_root_document(self):
+        manifest = json.loads((self.frontend / 'package.json').read_text())
+        manifest['arc'] = {'spa': True}
+        (self.frontend / 'package.json').write_text(json.dumps(manifest))
+        (self.frontend / 'src/index.html').unlink()
+        (self.frontend / 'src/nested').mkdir()
+        (self.frontend / 'src/nested/index.html').write_text('nested')
+        built = subprocess.run(['node', 'build.mjs'], cwd=self.frontend,
+                               capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(built.returncode, 0)
+        self.assertIn('SPA entry dist/index.html is missing', built.stderr)
+
     def test_plain_build_copies_public_assets_to_dist_root(self):
         (self.frontend / "public").mkdir()
         (self.frontend / "public/icon.svg").write_text('<svg />')

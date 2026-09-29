@@ -27,6 +27,7 @@ def case():
                                       {'op': 'expect_visible', 'target': 'Completed result'}]}
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class PipelineRecovery(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)

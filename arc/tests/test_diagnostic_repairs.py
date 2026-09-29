@@ -149,6 +149,7 @@ class OracleSemantics(unittest.TestCase):
         self.assertEqual(sources, {}); self.assertIn('unresolved, not quarantined', dropped[0]); self.assertFalse(retryable)
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class FlowRegression(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)

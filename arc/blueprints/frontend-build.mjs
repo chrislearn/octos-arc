@@ -57,3 +57,13 @@ if (has('htmx.org')) {
   mkdirSync(dirname(target), {recursive: true});
   cpSync(vendored, target);
 }
+
+// Express's SPA fallback always reads dist/index.html. Vite can report a
+// successful build while a changed root/input emits dist/src/index.html.
+// Fail the build here, before a browser probe or the platform grader starts.
+if (manifest.arc?.spa === true && !existsSync(join(output, 'index.html'))) {
+  const emitted = filesBelow(output).filter(file => file.endsWith('.html'))
+    .map(file => relative(output, file)).slice(0, 8);
+  throw new Error(`SPA entry dist/index.html is missing (emitted HTML: ${JSON.stringify(emitted)}). ` +
+    'Keep Vite root at frontend/src and emit the root document to frontend/dist/index.html.');
+}

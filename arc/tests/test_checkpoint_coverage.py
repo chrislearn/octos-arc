@@ -1,5 +1,6 @@
 """Generic checkpoint coverage, bounded repairs and diagnostic evidence."""
 import unittest
+import os
 from unittest.mock import Mock, patch
 from acceptance import RunSummary, TestOutcome, startup_error_digest
 from generation_checks import contract_warnings
@@ -12,6 +13,7 @@ def observed(specs, failing=()):
     return RunSummary(passed=sum(r.ok for r in rows), total=len(rows), results=rows)
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class CoverageTests(unittest.TestCase):
     def flow(self):
         f = helpers.CheckpointRepairTests()._flow([])

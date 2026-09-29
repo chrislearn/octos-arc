@@ -1,6 +1,7 @@
 """No-spec baseline oracles and the pre-code audit/correction lifecycle."""
 import argparse
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -95,11 +96,12 @@ class AuthenticationInvariantTests(unittest.TestCase):
             self.assertTrue(all(not flow.trusted_derived_case("AUTH", t) for t in titles))
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class AuditCorrectionTests(unittest.TestCase):
     def test_case_status_enum_separates_approval_repair_invalid_and_dispute(self):
         self.assertEqual({status.value for status in CaseStatus}, {
             'unreviewed', 'needs_correction', 'approved_behavior', 'approved_smoke_only',
-            'invalid', 'disputed', 'skipped_unreviewed', 'skipped_with_reason', 'unverified_gap'})
+        'invalid', 'disputed', 'skip_review', 'skipped_unreviewed', 'skipped_with_reason', 'unverified_gap'})
 
     def test_approved_case_with_improvement_suggestion_remains_runnable(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -1017,6 +1017,24 @@ class BuildFailureEvidenceTests(unittest.TestCase):
             self.assertIsNone(server.build())
             self.assertEqual(calls, [['npm', 'run', 'build']])
 
+    def test_successful_bundle_with_nested_spa_entry_is_a_build_failure(self):
+        from acceptance import AppServer
+        with tempfile.TemporaryDirectory(prefix='nested-spa-entry-') as folder:
+            root = Path(folder)
+            (root / 'frontend/dist/src').mkdir(parents=True)
+            (root / 'backend').mkdir()
+            (root / 'frontend/package.json').write_text(
+                '{"name":"f","private":true,"arc":{"spa":true},"scripts":{"build":"mock"}}')
+            (root / 'backend/package.json').write_text(
+                '{"name":"b","private":true,"scripts":{"start":"node server.js"}}')
+            (root / 'backend/server.js').write_text('')
+            (root / 'frontend/dist/src/index.html').write_text('<main>built</main>')
+            server = AppServer(root, 3999, lambda _: None)
+            server._run = lambda *_args: (0, 'build completed')
+            error = server.build()
+            self.assertIn('frontend/dist/index.html is missing', error)
+            self.assertIn('dist/src/index.html', error)
+
     def test_should_report_the_cause_of_a_real_failed_build(self):
         from acceptance import AppServer
         with tempfile.TemporaryDirectory(prefix='build-failure-') as folder:

@@ -1082,6 +1082,7 @@ class AppServer:
         # platform install still follows package.json; locally, install on the
         # first build that actually needs the changed dependency set.
         frontend_built = False
+        frontend_config: dict = {}
         try:
             (frontend / "dist").mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -1095,6 +1096,8 @@ class AppServer:
                 return f"{part.name}/package.json invalid: {exc}"
             if not isinstance(config, dict):
                 return f"{part.name}/package.json must contain a JSON object"
+            if part == frontend:
+                frontend_config = config
             deps = any(config.get(key) for key in ("dependencies", "devDependencies", "optionalDependencies"))
             modules = part / "node_modules"
             stamp = modules / ".arc-manifest-sha256"
@@ -1136,6 +1139,15 @@ class AppServer:
             rc, out = self._run(["npm", "run", "build"], frontend, 600)
             if rc != 0:
                 return f"frontend `npm run build` failed:\n{out}"
+        # A successful bundler exit is not proof that Express can serve the
+        # application. A generated Vite config can emit dist/src/index.html
+        # while the SPA fallback reads dist/index.html (cloud 9ddcec8029b7).
+        spa = isinstance(frontend_config.get("arc"), dict) and frontend_config["arc"].get("spa") is True
+        if spa and not (frontend / "dist" / "index.html").is_file():
+            emitted = sorted(str(path.relative_to(frontend)) for path in (frontend / "dist").rglob("index.html"))[:8]
+            return ("frontend `npm run build` succeeded but the SPA entry frontend/dist/index.html is missing; "
+                    f"emitted HTML: {emitted}. Fix frontend/build.mjs or vite.config.mjs so the root document "
+                    "is written to frontend/dist/index.html.")
         remote = external_browser_assets(frontend, built=True)
         if remote:
             return "built frontend uses external browser assets; bundle them locally instead:\n" + "\n".join(remote[:8])

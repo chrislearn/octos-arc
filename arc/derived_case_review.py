@@ -19,6 +19,7 @@ class CaseStatus(str, Enum):
     APPROVED_SMOKE_ONLY = "approved_smoke_only"
     INVALID = "invalid"
     DISPUTED = "disputed"
+    SKIP_REVIEW = "skip_review"
     SKIPPED_UNREVIEWED = "skipped_unreviewed"
     SKIPPED_WITH_REASON = "skipped_with_reason"
     UNVERIFIED_GAP = "unverified_gap"

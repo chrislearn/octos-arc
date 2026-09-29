@@ -1,6 +1,7 @@
 """Generated-spec corrections must precede application repairs and stay scoped."""
 import argparse
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -110,6 +111,7 @@ class GeneratedSpecRepairTests(unittest.TestCase):
         self.assertEqual(fixed.source, source)
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class FlowAuditTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()

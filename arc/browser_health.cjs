@@ -34,7 +34,8 @@ const path = require('path');
       try {
         const response = await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 10000 });
         if (response && response.status() >= 400) report.observations.push({
-          kind: 'document_http_error', confirmed: false, path: url.pathname,
+          kind: 'document_http_error', confirmed: response.status() >= 500 ||
+            (url.pathname === '/' && response.status() === 404), path: url.pathname,
           message: `Document returned ${response.status()} at ${url.pathname}; verify route/auth preconditions`
         });
         await page.waitForFunction(() => document.body && (

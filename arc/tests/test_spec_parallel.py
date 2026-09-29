@@ -120,6 +120,7 @@ class OrderedRequestsTests(unittest.TestCase):
         self.assertEqual([reply.text if reply else None for reply in pool.ordered(map(job, "AB"))], ["A", None])
 
 
+@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class ScenarioCommitTests(unittest.TestCase):
     def test_proposal_batch_never_mixes_category_contexts(self):
         with tempfile.TemporaryDirectory() as directory:
