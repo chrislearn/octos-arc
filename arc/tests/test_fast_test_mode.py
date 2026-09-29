@@ -25,9 +25,11 @@ def result(ok=False, *, error=None):
 class FastModeTests(unittest.TestCase):
     def test_default_and_full_switch(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertTrue(Flow.fast_test_mode())
+            self.assertFalse(Flow.fast_test_mode())
         with patch.dict(os.environ, {'OCTOS_ARC_TEST_MODE': 'full'}):
             self.assertFalse(Flow.fast_test_mode())
+        with patch.dict(os.environ, {'OCTOS_ARC_TEST_MODE': 'fast'}):
+            self.assertTrue(Flow.fast_test_mode())
 
     def test_structural_case_enters_skip_review_without_model_request(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'OCTOS_ARC_TEST_MODE': 'fast'}):

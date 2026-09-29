@@ -7,7 +7,7 @@
 
 生成项目的 `.arc/design/` 保存共享模型、命令契约和独立审核结果；`.arc/browser-health/` 保存独立浏览器诊断；`.arc/acceptance-evidence/` 保存每次测试原始证据。`.arc/quality-summary.json` 分开显示执行、交付就绪与业务验证状态。
 
-生成测试默认使用 `OCTOS_ARC_TEST_MODE=fast`：通过结构校验的用例标为 `skip_review` 并直接执行；失败后对需求、代码和该用例审核一次，最多做一轮代码修复。修复引入构建、启动或运行时系统错误时回退；可启动但仍失败的修复保留，失败用例单独隔离。设置 `OCTOS_ARC_TEST_MODE=full` 可恢复原来的生成后独立审核、修正与复审流程。
+生成测试默认使用 `OCTOS_ARC_TEST_MODE=full`：生成后进行独立审核，合格的行为用例才进入验收与修复。显式设置 `OCTOS_ARC_TEST_MODE=fast` 可使用快速模式：通过结构校验的用例标为 `skip_review` 并直接执行；失败后对需求、代码和该用例审核一次，最多做一轮代码修复。修复引入构建、启动或运行时系统错误时回退；可启动但仍失败的修复保留，失败用例单独隔离。
 
 `.arc/request-ledger.jsonl` 关联请求、重试和用量，`.arc/context-reads/` 保留压缩前原始读取，`.arc/terminal-state.json` 记录正常或中断终态。unknown 不表示零费用，也不表示通过。
 

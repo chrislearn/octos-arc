@@ -23,8 +23,9 @@ skip the skeleton, diff the requirement tree against the previous run's
 regression-test the unchanged ones.
 
 Environment (all optional):
-    OCTOS_ARC_TEST_MODE       fast (default: skip pre-run model review; audit failed cases once,
-                              then at most one code repair) | full (v13 review workflow)
+    OCTOS_ARC_TEST_MODE       full (default: independently review generated behavior tests before
+                              admission) | fast (skip pre-run review; audit failed cases once,
+                              then at most one code repair)
     OPENAI_API_KEY / OPENAI_BASE_URL / MODEL   OpenAI-compatible endpoint
     OCTOS_BIN                 octos binary (default: ./bin/octos, PATH, download)
     OCTOS_NODE_TIMEOUT        seconds per model turn (default 1200)
@@ -5949,8 +5950,8 @@ class Flow:
 
     @staticmethod
     def fast_test_mode() -> bool:
-        """Default fast path; set OCTOS_ARC_TEST_MODE=full for the v13 review flow."""
-        return os.environ.get("OCTOS_ARC_TEST_MODE", "fast").strip().lower() != "full"
+        """Only an explicit fast opt-in bypasses independent pre-run review."""
+        return os.environ.get("OCTOS_ARC_TEST_MODE", "full").strip().lower() == "fast"
 
     def disputed_generated_failures(self, summary: RunSummary) -> list[tuple[str, str]]:
         """Failed generated tests whose oracle is not safe for application repair."""
