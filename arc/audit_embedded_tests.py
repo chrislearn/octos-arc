@@ -168,7 +168,7 @@ def audit(freeze=False):
             reviews=[]
             for row in plan:
                 node=nodes[row['node_id']]
-                reviews.append({**row,'status':'reviewed','frozen':True,'reviewer':'Codex source review','review_date':'2026-09-30',
+                reviews.append({**row,'status':'reviewed','frozen':True,'reviewer':'Codex source review','review_date':'2026-10-01',
                                 'basis':'Atomic description + inherited role, scope, state and entry contracts; source review only',
                                 'requirement_quote':node['description'],'file_sha256':sha(directory/row['file']),
                                 'requirement_quotes':{rid:nodes[rid]['description'] for rid in row['requires']},
@@ -176,8 +176,8 @@ def audit(freeze=False):
             write(directory/'review.json',{'schema_version':1,'review_status':'reviewed','frozen':True,'cases':reviews})
             paths=sorted(p for p in directory.rglob('*') if p.is_file() and p.name!='suite-origin.json')
             manifest={'schema_version':1,'name':task,'root_name':tree['name'],'official':False,'review_status':'reviewed','frozen':True,'trusted':True,
-                      'review_date':'2026-09-30','review_kind':'source_review','runtime_status':'not_run_against_product',
-                      'requirements_sha256':requirements_digest(tree),'spec_revision':2,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
+                      'review_date':'2026-10-01','review_kind':'source_review','runtime_status':'not_run_against_product',
+                      'requirements_sha256':requirements_digest(tree),'spec_revision':3,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
                       'node_spec_count':len(nodes),'integration_spec_count':len(specs)-len(nodes),
                       'node_case_count':sum(r['phase']=='node' for r in plan),'integration_case_count':sum(r['phase']=='integration' for r in plan),
                       'files':{p.relative_to(directory).as_posix():sha(p) for p in paths}}

@@ -24,19 +24,29 @@ def register(s):
     ''')
     s('REQ-2-2-1', 'seeded row insertion and deletion move complete records without editing prerequisites', r'''
     await page.goto('/'); await page.getByRole('link',{name:'Row operations seed',exact:true}).click();
+    const address=page.url();
     await h.values(page,{A1:'Label',B1:'Value',A2:'first',B2:'10',A3:'second',B3:'20'});
     await h.structure(page,'row','2','Insert 1 row above');
     await h.persisted(page,()=>h.values(page,{A1:'Label',B1:'Value',A2:'',B2:'',A3:'first',B3:'10',A4:'second',B4:'20'}));
     await h.structure(page,'row','3','Delete row');
     await h.persisted(page,()=>h.values(page,{A1:'Label',B1:'Value',A2:'',B2:'',A3:'second',B3:'20',A4:'',B4:''}));
+    await test.step('Reopen the same saved workbook from its home entry',async()=>{
+      await h.reopen(page,'Row operations seed'); await expect(page).toHaveURL(address);
+      await h.values(page,{A1:'Label',B1:'Value',A2:'',B2:'',A3:'second',B3:'20',A4:'',B4:''});
+    });
     ''', fixture='row-node', requires=['REQ-2-2-1','REQ-1-1-1'])
     s('REQ-2-2-2', 'seeded column insertion and deletion move complete records without editing prerequisites', r'''
     await page.goto('/'); await page.getByRole('link',{name:'Column operations seed',exact:true}).click();
+    const address=page.url();
     await h.values(page,{A1:'first',A2:'alpha',B1:'second',B2:'beta',C1:'third',C2:'gamma'});
     await h.structure(page,'column','B','Insert 1 column left');
     await h.persisted(page,()=>h.values(page,{A1:'first',A2:'alpha',B1:'',B2:'',C1:'second',C2:'beta',D1:'third',D2:'gamma'}));
     await h.structure(page,'column','C','Delete column');
     await h.persisted(page,()=>h.values(page,{A1:'first',A2:'alpha',B1:'',B2:'',C1:'third',C2:'gamma',D1:'',D2:''}));
+    await test.step('Reopen the same saved workbook from its home entry',async()=>{
+      await h.reopen(page,'Column operations seed'); await expect(page).toHaveURL(address);
+      await h.values(page,{A1:'first',A2:'alpha',B1:'',B2:'',C1:'third',C2:'gamma',D1:'',D2:''});
+    });
     ''', fixture='column-node', requires=['REQ-2-2-2','REQ-1-1-1'])
     s('REQ-3-1-2', 'plain paste clears middle and trailing empty fields and preserves outside cells', r'''
     await h.blank(page); await h.edit(page,'C2','replace'); await h.edit(page,'D3','tail'); await h.edit(page,'E5','outside');

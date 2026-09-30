@@ -181,14 +181,14 @@ def register(s):
     s('REQ-5-1-2', 'value filter hides rather than deletes, persists and export includes hidden records', r'''
     await h.sourceData(page); await h.range(page,'A1','C4'); await h.data(page,'Create filter'); await h.button(page,'Filter Region').click();
     const dialog=page.getByRole('dialog',{name:'Filter Region',exact:true}); await h.button(dialog,'Clear selection').click(); await dialog.getByRole('checkbox',{name:'East',exact:true}).check(); await h.button(dialog,'Apply').click();
-    await h.persisted(page, async () => { await expect(h.cell(page,'A2')).toBeVisible(); await expect(h.cell(page,'A3')).toBeHidden(); await expect(h.cell(page,'A4')).toBeVisible(); });
+    await h.persisted(page, async () => { await h.filterHeaders(page,{A1:'Region',B1:'Sales',C1:'Status'}); await expect(h.cell(page,'A2')).toBeVisible(); await expect(h.cell(page,'A3')).toBeHidden(); await expect(h.cell(page,'A4')).toBeVisible(); });
     expect(h.parseCSV(await h.csv(page))).toEqual([['Region','Sales','Status'],['East','10','Open'],['North','20','Closed'],['East','30','Closed']]);
     await h.data(page,'Clear filter'); await h.persisted(page, async () => { await expect(h.cell(page,'A3')).toBeVisible(); await h.values(page,{A2:'East',A3:'North',A4:'East'}); });
     ''')
     s('REQ-5-1-2', 'conditions combine with AND and clearing preserves original data', r'''
     await h.sourceData(page); await h.range(page,'A1','C4'); await h.data(page,'Create filter');
     for(const [header,condition,value] of [['Region','Text contains','East'],['Sales','Greater than','15']]) { await h.button(page,`Filter ${header}`).click(); const dialog=page.getByRole('dialog',{name:`Filter ${header}`,exact:true}); await h.choose(dialog,'Condition',condition); await h.field(dialog,'Value').fill(value); await h.button(dialog,'Apply').click(); }
-    await h.persisted(page, async () => { await expect(h.cell(page,'A2')).toBeHidden(); await expect(h.cell(page,'A3')).toBeHidden(); await expect(h.cell(page,'A4')).toBeVisible(); });
+    await h.persisted(page, async () => { await h.filterHeaders(page,{A1:'Region',B1:'Sales',C1:'Status'}); await expect(h.cell(page,'A2')).toBeHidden(); await expect(h.cell(page,'A3')).toBeHidden(); await expect(h.cell(page,'A4')).toBeVisible(); });
     ''')
     s('REQ-5-2-1', 'dropdown trims options and rejects invalid edits without changing saved value', r'''
     await h.blank(page); await h.edit(page,'A1','Open'); await h.validation(page,'A1','A2','Dropdown'); await h.button(page,'Open dropdown for A1').click();
@@ -462,7 +462,7 @@ def register(s):
         ('Is not empty',None,['A2','A3'],['A4'])]:
         s('REQ-5-1-2','condition '+condition+' persists exactly the matching rows and clearing restores originals',f'''
         await h.blank(page); await h.paste(page,'A1','Date\\tRecord\\n2026-01-01\\tearly\\n2026-06-01\\tlate\\n\\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
-        await h.condition(page,'Date',{json.dumps(condition)},{json.dumps(value) if value is not None else 'undefined'}); await h.persisted(page,()=>h.visibleRows(page,{json.dumps(visible)},{json.dumps(hidden)}));
+        await h.condition(page,'Date',{json.dumps(condition)},{json.dumps(value) if value is not None else 'undefined'}); await h.persisted(page,async()=>{{await h.filterHeaders(page,{{A1:'Date',B1:'Record'}});await h.visibleRows(page,{json.dumps(visible)},{json.dumps(hidden)});}});
         await h.data(page,'Clear filter'); await h.persisted(page,async()=>{{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{{A1:'Date',B1:'Record',A2:'2026-01-01',B2:'early',A3:'2026-06-01',B3:'late',A4:'',B4:'empty'}});}});
         ''')
     s('REQ-5-1-2','value filtering is scoped to the selected region and clearing preserves formula and validation behavior',r'''
@@ -493,6 +493,11 @@ def register(s):
     const dialog=page.getByRole('dialog',{name:'Data validation',exact:true}); await h.chosen(dialog,'Rule type','Number range'); await expect(h.field(dialog,'Minimum')).toHaveValue('0'); await expect(h.field(dialog,'Maximum')).toHaveValue('100'); await expect(h.button(dialog,'Delete rule')).toBeVisible();
     await h.field(dialog,'Minimum').fill('40'); await h.field(dialog,'Maximum').fill('60'); await h.button(dialog,'Save').click(); await expect(dialog).toBeHidden(); await h.values(page,{A1:'50'}); await h.edit(page,'A1','60');
     await page.reload(); await h.edit(page,'A1','61'); await expect(h.text(page,'Please enter a number between 40 and 60').first()).toBeVisible(); await h.values(page,{A1:'60'});
+    await test.step('Changing limits preserves the entire original rule range',async()=>{
+      await h.edit(page,'A2','61'); await expect(h.text(page,'Please enter a number between 40 and 60').first()).toBeVisible();
+      await h.values(page,{A1:'60',A2:''}); await h.edit(page,'A2','60');
+      await h.persisted(page,()=>h.values(page,{A1:'60',A2:'60'}));
+    });
     ''')
     for method,expected in [('SUM',{'A1':'Region','B1':'SUM of Sales','A2':'East','B2':'10','A3':'North','A4':'Grand Total','B4':'10'}),('AVERAGE',{'A1':'Region','B1':'AVERAGE of Sales','A2':'East','B2':'10','A4':'Grand Total','B4':'10'})]:
         # An empty group's AVERAGE display is not specified. Assert its name,
@@ -537,5 +542,8 @@ def register(s):
     await h.sourceData(page); await h.pivot(page); await h.tab(page,'Sheet1').click(); await h.structure(page,'column','B','Delete column'); await h.tab(page,'Pivot1').click(); await h.button(page,'Refresh pivot table').click();
     await expect(h.text(page,'Pivot field is no longer available. Select a new field.').first()).toBeVisible(); await h.values(page,{B1:'SUM of Sales',B2:'40',B4:'60'}); const editor=page.getByRole('region',{name:'Pivot table editor',exact:true});
     await h.choose(editor,'Rows','Region'); await h.choose(editor,'Values','Status'); await h.choose(editor,'Summarize by','COUNT'); await h.button(editor,'Apply').click();
-    await h.persisted(page,()=>h.values(page,{A1:'Region',B1:'COUNT of Status',A2:'East',B2:'2',A3:'North',B3:'1',A4:'Grand Total',B4:'3'})); await h.tab(page,'Sheet1').click(); await h.values(page,{A1:'Region',B1:'Status',A2:'East',B2:'Open',A3:'North',B3:'Closed',A4:'East',B4:'Closed'});
+    await h.persisted(page,async()=>{
+      await expect(h.text(page,'Pivot field is no longer available. Select a new field.')).toHaveCount(0);
+      await h.values(page,{A1:'Region',B1:'COUNT of Status',A2:'East',B2:'2',A3:'North',B3:'1',A4:'Grand Total',B4:'3'});
+    }); await h.tab(page,'Sheet1').click(); await h.values(page,{A1:'Region',B1:'Status',A2:'East',B2:'Open',A3:'North',B3:'Closed',A4:'East',B4:'Closed'});
     ''')

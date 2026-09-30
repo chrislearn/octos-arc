@@ -46,6 +46,11 @@ test("REQ-5-2-1: modifying a numeric rule immediately changes its persisted limi
   const dialog=page.getByRole('dialog',{name:'Data validation',exact:true}); await h.chosen(dialog,'Rule type','Number range'); await expect(h.field(dialog,'Minimum')).toHaveValue('0'); await expect(h.field(dialog,'Maximum')).toHaveValue('100'); await expect(h.button(dialog,'Delete rule')).toBeVisible();
   await h.field(dialog,'Minimum').fill('40'); await h.field(dialog,'Maximum').fill('60'); await h.button(dialog,'Save').click(); await expect(dialog).toBeHidden(); await h.values(page,{A1:'50'}); await h.edit(page,'A1','60');
   await page.reload(); await h.edit(page,'A1','61'); await expect(h.text(page,'Please enter a number between 40 and 60').first()).toBeVisible(); await h.values(page,{A1:'60'});
+  await test.step('Changing limits preserves the entire original rule range',async()=>{
+    await h.edit(page,'A2','61'); await expect(h.text(page,'Please enter a number between 40 and 60').first()).toBeVisible();
+    await h.values(page,{A1:'60',A2:''}); await h.edit(page,'A2','60');
+    await h.persisted(page,()=>h.values(page,{A1:'60',A2:'60'}));
+  });
 });
 
 test("REQ-5-2-1: dropdown validation rejects grid and whole clipboard/move rectangles without clearing any source", async ({ page, browser }) => {

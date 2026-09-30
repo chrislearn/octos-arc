@@ -15,7 +15,7 @@ export async function blank(p: Page) {
   await p.goto('/'); await button(p, 'New blank workbook').click(); await button(p, 'Create').click();
   await expect(tab(p, 'Sheet1')).toHaveAttribute('aria-selected', 'true');
   await expect(cell(p, 'A1')).toHaveAttribute('aria-selected', 'true');
-  await expect(cell(p, 'A1')).toHaveText('');
+  await values(p, { A1: '' });
   return p.url();
 }
 export async function edit(p: Page, at: string, value: string, viaGrid = false) {
@@ -24,10 +24,18 @@ export async function edit(p: Page, at: string, value: string, viaGrid = false) 
   else { await field(p, 'Formula bar').fill(value); await field(p, 'Formula bar').press('Enter'); }
 }
 export async function values(p: Page, expected: Record<string, string>) {
-  for (const [at, value] of Object.entries(expected)) await expect(cell(p, at)).toHaveText(value);
+  for (const [at, value] of Object.entries(expected)) {
+    // A cell may contain filter/dropdown controls. Their decorative labels are
+    // not its value; retain an exact assertion on all remaining displayed text.
+    await expect.poll(() => cell(p, at).evaluate(el => {
+      const content = el.cloneNode(true) as HTMLElement;
+      content.querySelectorAll('button, [role="button"], [aria-hidden="true"]').forEach(control => control.remove());
+      return (content.textContent || '').replace(/\s+/g, ' ').trim();
+    })).toBe(value.replace(/\s+/g, ' ').trim());
+  }
 }
 export async function formula(p: Page, at: string, expression: string, result: string) {
-  await expect(cell(p, at)).toHaveText(result); await cell(p, at).click();
+  await values(p, { [at]: result }); await cell(p, at).click();
   await expect(field(p, 'Formula bar')).toHaveValue(expression);
 }
 export async function persisted(p: Page, assertion: () => Promise<void>) { await assertion(); await p.reload(); await assertion(); }
@@ -130,6 +138,13 @@ export async function filterValues(p: Page, header: string, names: string[]) {
 export async function visibleRows(p: Page, visible: string[], hidden: string[]) {
   for (const at of visible) await expect(cell(p, at)).toBeVisible();
   for (const at of hidden) await expect(cell(p, at)).toBeHidden();
+}
+export async function filterHeaders(p: Page, expected: Record<string, string>) {
+  for (const [at, value] of Object.entries(expected)) {
+    await expect(cell(p, at)).toBeVisible();
+    await expect(button(p, `Filter ${value}`)).toBeVisible();
+  }
+  await values(p, expected);
 }
 export async function selection(p: Page, inside: string[], outside: string[]) {
   await expect(grid(p)).toHaveAttribute('aria-multiselectable', 'true');

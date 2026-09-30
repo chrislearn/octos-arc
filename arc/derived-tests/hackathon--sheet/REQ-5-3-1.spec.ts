@@ -100,5 +100,8 @@ test("REQ-5-3-1: a deleted pivot field can be reselected and successful apply re
   await h.sourceData(page); await h.pivot(page); await h.tab(page,'Sheet1').click(); await h.structure(page,'column','B','Delete column'); await h.tab(page,'Pivot1').click(); await h.button(page,'Refresh pivot table').click();
   await expect(h.text(page,'Pivot field is no longer available. Select a new field.').first()).toBeVisible(); await h.values(page,{B1:'SUM of Sales',B2:'40',B4:'60'}); const editor=page.getByRole('region',{name:'Pivot table editor',exact:true});
   await h.choose(editor,'Rows','Region'); await h.choose(editor,'Values','Status'); await h.choose(editor,'Summarize by','COUNT'); await h.button(editor,'Apply').click();
-  await h.persisted(page,()=>h.values(page,{A1:'Region',B1:'COUNT of Status',A2:'East',B2:'2',A3:'North',B3:'1',A4:'Grand Total',B4:'3'})); await h.tab(page,'Sheet1').click(); await h.values(page,{A1:'Region',B1:'Status',A2:'East',B2:'Open',A3:'North',B3:'Closed',A4:'East',B4:'Closed'});
+  await h.persisted(page,async()=>{
+    await expect(h.text(page,'Pivot field is no longer available. Select a new field.')).toHaveCount(0);
+    await h.values(page,{A1:'Region',B1:'COUNT of Status',A2:'East',B2:'2',A3:'North',B3:'1',A4:'Grand Total',B4:'3'});
+  }); await h.tab(page,'Sheet1').click(); await h.values(page,{A1:'Region',B1:'Status',A2:'East',B2:'Open',A3:'North',B3:'Closed',A4:'East',B4:'Closed'});
 });

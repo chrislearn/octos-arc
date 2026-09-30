@@ -11,7 +11,10 @@ export const unique = (prefix = 'pw') => `${prefix}-${randomUUID().slice(0, 12)}
 export const button = (p: Page | Locator, name: string) => p.getByRole('button', { name, exact: true });
 export const link = (p: Page | Locator, name: string) => p.getByRole('link', { name, exact: true });
 export const field = (p: Page | Locator, name: string) => p.getByLabel(name, { exact: true });
-export const text = (p: Page | Locator, value: string) => p.getByText(value, { exact: true });
+// Filled controls are not submission feedback. Wait for the public rendered
+// result so a following reload cannot race the request while matching its input.
+export const text = (p: Page | Locator, value: string) => p.getByText(value, { exact: true })
+  .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])'));
 // Native select options contribute text matches even while hidden. Only inspect
 // the rendered summary when the contract asks for visible text.
 export const visibleText = (p: Page | Locator, value: string) => text(p, value).filter({ visible: true });
