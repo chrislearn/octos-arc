@@ -114,6 +114,30 @@ impl Prompts {
             .unwrap_or_else(|| panic!("unknown prompt {name}"))
     }
 
+    pub fn with_frozen_suite(mut self, note: String) -> Self {
+        for name in [
+            "acceptance-tests",
+            "skeleton-tests",
+            "repair",
+            "verify-full",
+            "verify-minimal",
+            "codegen-repair-suffix",
+        ] {
+            if let Some(text) = self.texts.get_mut(name) {
+                *text = text.replace("official", "source-reviewed frozen internal");
+            }
+        }
+        self.texts.insert("frozen-test-note".into(), note);
+        self
+    }
+
+    pub fn frozen_test_note(&self) -> &str {
+        self.texts
+            .get("frozen-test-note")
+            .map(String::as_str)
+            .unwrap_or("")
+    }
+
     /// Format a template with `{name}` placeholders.
     pub fn render(&self, name: &str, vars: &[(&str, &str)]) -> Result<String> {
         render_template(self.get(name), vars)

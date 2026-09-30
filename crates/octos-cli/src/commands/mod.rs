@@ -421,6 +421,9 @@ impl Executable for Command {
                         }
                         return Ok(());
                     }
+                    Some(octos_arc::ArcSubcommand::Tests(tests)) => {
+                        return octos_arc::test_suites::execute(tests);
+                    }
                     Some(octos_arc::ArcSubcommand::DenyProtected(deny)) => {
                         std::process::exit(octos_arc::execute_deny_protected(deny));
                     }

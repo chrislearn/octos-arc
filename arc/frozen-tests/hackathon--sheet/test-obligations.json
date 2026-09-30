@@ -1,0 +1,3649 @@
+{
+  "version": 1,
+  "review_status": "reviewed",
+  "frozen": true,
+  "official": false,
+  "basis": "Verbatim source clause inventory including every substantive ancestor. mixed preserves a clause without claiming a single success/rejection branch; no executable test witness or coverage claim is inferred.",
+  "obligations": [
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-1ed907161208ab54c476"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "kind": "context",
+      "id": "OB-3deaeec685c6d35867ab"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "outcome": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "kind": "summary",
+      "id": "OB-54d245b6abaaee6fd4e7"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "outcome": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-9c4b6ea588df12c46c6e"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "outcome": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-55fb1d08fe21f0384a28"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "outcome": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-85db4ed3d22d7123b008"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "outcome": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-4d8ad8fd8da3fb79c9ca"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "outcome": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-48e070be64f7d48a2ab6"
+    },
+    {
+      "requirement_id": "REQ-1-1",
+      "quote": "Supports viewing and opening available workbooks from the home page.",
+      "outcome": "Supports viewing and opening available workbooks from the home page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-b08db9294c116a5a2121"
+    },
+    {
+      "requirement_id": "REQ-1-1",
+      "quote": "After a workbook is successfully created, renamed, or imported from CSV, returning to or refreshing the home page must show the updated record in the list.",
+      "outcome": "After a workbook is successfully created, renamed, or imported from CSV, returning to or refreshing the home page must show the updated record in the list.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-ebbcca00a5da5c900413"
+    },
+    {
+      "requirement_id": "REQ-1-1-1",
+      "quote": "Users view available workbooks on the workbook home page.",
+      "outcome": "Users view available workbooks on the workbook home page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-fd2c14baec101a71c5bf"
+    },
+    {
+      "requirement_id": "REQ-1-1-1",
+      "quote": "Each record displays \"Last updated: <last updated value>\" and provides a link whose accessible name is the workbook name.",
+      "outcome": "Each record displays \"Last updated: <last updated value>\" and provides a link whose accessible name is the workbook name.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-7cc4e6c00527ab784473"
+    },
+    {
+      "requirement_id": "REQ-1-1-1",
+      "quote": "After the user clicks the link, the editor displays the same \"Last updated: <last updated value>\", the corresponding workbook name, worksheet tabs and order, current active worksheet, row and column structure, grid values, formula bar content, filter views, validation entry points, and pivot table results; data from another workbook must not appear in the current grid.",
+      "outcome": "After the user clicks the link, the editor displays the same \"Last updated: <last updated value>\", the corresponding workbook name, worksheet tabs and order, current active worksheet, row and column structure, grid values, formula bar content, filter views, validation entry points, and pivot table results; data from another workbook must not appear in the current grid.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-093bbf25a0890c586ef9"
+    },
+    {
+      "requirement_id": "REQ-1-1-1",
+      "quote": "The current editor page entry in the browser must be directly accessible and continue to identify the same workbook after refresh; visiting that exact workbook state in the same or a later browser session must restore the workbook’s most recent successful state without requiring navigation through the home page.",
+      "outcome": "The current editor page entry in the browser must be directly accessible and continue to identify the same workbook after refresh; visiting that exact workbook state in the same or a later browser session must restore the workbook’s most recent successful state without requiring navigation through the home page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-15dfa01a13f86ecfc081"
+    },
+    {
+      "requirement_id": "REQ-1-1-1",
+      "quote": "The entry format is implementation-defined.",
+      "outcome": "The entry format is implementation-defined.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-1-1"
+      ],
+      "id": "OB-efe0a1b25c56c93dd8bc"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-fd28e962eb8c06c91ce0"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "kind": "context",
+      "id": "OB-5fa24df602556c02ad72"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "outcome": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "kind": "summary",
+      "id": "OB-9c93cebc2753c3a347e9"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "outcome": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-77edd40d0afb19e49f7a"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "outcome": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-788805f3e8c1d53445d3"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "outcome": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-62a4630d619212218903"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "outcome": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-b54c15851c786a19d07f"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "outcome": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-9985479e5c384efda1ff"
+    },
+    {
+      "requirement_id": "REQ-1-2",
+      "quote": "Supports creating a blank workbook and changing the workbook name; both operations are initiated from visible workbook state points on the home page or editor page.",
+      "outcome": "Supports creating a blank workbook and changing the workbook name; both operations are initiated from visible workbook state points on the home page or editor page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-734d27a954d9f48bfe5f"
+    },
+    {
+      "requirement_id": "REQ-1-2",
+      "quote": "After success, the workbook record on the home page and the editor title are updated consistently and remain so after refresh or reopening.",
+      "outcome": "After success, the workbook record on the home page and the editor title are updated consistently and remain so after refresh or reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-88356ba99c6e167c67f7"
+    },
+    {
+      "requirement_id": "REQ-1-2-1",
+      "quote": "Users create a blank workbook from the workbook home page.",
+      "outcome": "Users create a blank workbook from the workbook home page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-35b6a7c5a41b1717e2b8"
+    },
+    {
+      "requirement_id": "REQ-1-2-1",
+      "quote": "The home page provides a button with the accessible name \"New blank workbook\"; clicking it opens the creation page, whose submit button is named \"Create\".",
+      "outcome": "The home page provides a button with the accessible name \"New blank workbook\"; clicking it opens the creation page, whose submit button is named \"Create\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-6cb68ea9c062aa445fdb"
+    },
+    {
+      "requirement_id": "REQ-1-2-1",
+      "quote": "After creation succeeds, the editor opens and shows only a blank worksheet named Sheet1, with Sheet1 active and A1 selected; refreshing or returning to the home page and reopening produces the same state.",
+      "outcome": "After creation succeeds, the editor opens and shows only a blank worksheet named Sheet1, with Sheet1 active and A1 selected; refreshing or returning to the home page and reopening produces the same state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-2718ed4b15f40804822e"
+    },
+    {
+      "requirement_id": "REQ-1-2-1",
+      "quote": "If creation fails, an error is displayed, the user remains in a retryable state, and no incomplete workbook record may appear on the home page.",
+      "outcome": "If creation fails, an error is displayed, the user remains in a retryable state, and no incomplete workbook record may appear on the home page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-1"
+      ],
+      "id": "OB-7b64aca02270aa1c2817"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-3228eba3a5baf1bc5741"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "kind": "context",
+      "id": "OB-ffd2f0f8ad2d1e8087d7"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "outcome": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "kind": "summary",
+      "id": "OB-6caf0f84aff745d9118c"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "outcome": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-76675be63ab41b6b0d2a"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "outcome": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-10a93bcd70caa8575b90"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "outcome": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-5661eb48abd11511d712"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "outcome": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-6d571ca6a185fc6b5d57"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "outcome": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-8d6bab05b1fa30db12be"
+    },
+    {
+      "requirement_id": "REQ-1-2",
+      "quote": "Supports creating a blank workbook and changing the workbook name; both operations are initiated from visible workbook state points on the home page or editor page.",
+      "outcome": "Supports creating a blank workbook and changing the workbook name; both operations are initiated from visible workbook state points on the home page or editor page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-d069159db15bc59c4b33"
+    },
+    {
+      "requirement_id": "REQ-1-2",
+      "quote": "After success, the workbook record on the home page and the editor title are updated consistently and remain so after refresh or reopening.",
+      "outcome": "After success, the workbook record on the home page and the editor title are updated consistently and remain so after refresh or reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-cbed1892aea6450a3f91"
+    },
+    {
+      "requirement_id": "REQ-1-2-2",
+      "quote": "Users can change the workbook name on the workbook editor page.",
+      "outcome": "Users can change the workbook name on the workbook editor page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-0a42bc43c6ba45c1024f"
+    },
+    {
+      "requirement_id": "REQ-1-2-2",
+      "quote": "Next to the editor title is a button with the accessible name \"Rename workbook\"; clicking it displays a text box labeled \"Workbook name\", prefilled with the last saved name, and a \"Save\" button.",
+      "outcome": "Next to the editor title is a button with the accessible name \"Rename workbook\"; clicking it displays a text box labeled \"Workbook name\", prefilled with the last saved name, and a \"Save\" button.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-9641a83c822fa5645176"
+    },
+    {
+      "requirement_id": "REQ-1-2-2",
+      "quote": "After leading and trailing spaces are trimmed, the name must not be empty; an empty name must be rejected with \"Workbook name cannot be empty\".",
+      "outcome": "After leading and trailing spaces are trimmed, the name must not be empty; an empty name must be rejected with \"Workbook name cannot be empty\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-94e2bb484d7a9bd99de8"
+    },
+    {
+      "requirement_id": "REQ-1-2-2",
+      "quote": "After a successful save, both the editor title and the home-page link display the new name; if saving fails, an error is shown and the original name remains displayed.",
+      "outcome": "After a successful save, both the editor title and the home-page link display the new name; if saving fails, an error is shown and the original name remains displayed.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-a67171063bee518bc551"
+    },
+    {
+      "requirement_id": "REQ-1-2-2",
+      "quote": "Reopening the workbook shows the most recently saved name.",
+      "outcome": "Reopening the workbook shows the most recently saved name.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-2-2"
+      ],
+      "id": "OB-edfabd85b08076d97ab0"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-1c55ef1f137dab6f9f32"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "kind": "context",
+      "id": "OB-458c0563257a9271ab1a"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "outcome": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "kind": "summary",
+      "id": "OB-ba923a05f719e4c4e446"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "outcome": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-4948573c2a07bdc175d9"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "outcome": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-34768bed17e80d9ecfb6"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "outcome": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-d32037801375cfee7eea"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "outcome": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-858eaea26f455194aa99"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "outcome": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-240e1a1335c3c8d8a613"
+    },
+    {
+      "requirement_id": "REQ-1-3",
+      "quote": "Supports importing external CSV data completely as a workbook and exporting the current active worksheet as CSV.",
+      "outcome": "Supports importing external CSV data completely as a workbook and exporting the current active worksheet as CSV.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-988c3e9de0d864908af0"
+    },
+    {
+      "requirement_id": "REQ-1-3",
+      "quote": "After a successful import, the Sheet1 editor page opens and continues to show the complete imported result after refresh or reopening; export reads only the current active worksheet and must not change workbook content or the current interface state.",
+      "outcome": "After a successful import, the Sheet1 editor page opens and continues to show the complete imported result after refresh or reopening; export reads only the current active worksheet and must not change workbook content or the current interface state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-67a7a3f918fee72a4b26"
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "quote": "Users start an import by clicking the \"Import CSV\" button on the workbook home page.",
+      "outcome": "Users start an import by clicking the \"Import CSV\" button on the workbook home page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-d8bd278574bbb69e821a"
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "quote": "A dialog named \"Import CSV\" provides a file control labeled \"CSV file\" and a \"Confirm import\" button.",
+      "outcome": "A dialog named \"Import CSV\" provides a file control labeled \"CSV file\" and a \"Confirm import\" button.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-c3acfb9f2c26493a00b8"
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "quote": "The system parses data in the original row and column order, preserves empty fields, supports UTF-8 Chinese text, English text, and numeric text, and correctly handles commas enclosed in double quotes, escaped pairs of double quotes, and line breaks within fields; a field that begins with a double quote but has no closing double quote is invalid CSV and must be rejected with \"Invalid CSV file format.",
+      "outcome": "The system parses data in the original row and column order, preserves empty fields, supports UTF-8 Chinese text, English text, and numeric text, and correctly handles commas enclosed in double quotes, escaped pairs of double quotes, and line breaks within fields; a field that begins with a double quote but has no closing double quote is invalid CSV and must be rejected with \"Invalid CSV file format.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-338c269a2e72ac537f11"
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "quote": "Import failed.\" After a successful import, a new workbook is created whose name is the file name with its final .csv extension removed, and Sheet1 opens with the complete CSV rows, columns, and original text; the first row remains ordinary data.",
+      "outcome": "Import failed.\" After a successful import, a new workbook is created whose name is the file name with its final .csv extension removed, and Sheet1 opens with the complete CSV rows, columns, and original text; the first row remains ordinary data.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-cfea6c6244a27bd5704f"
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "quote": "After refresh or reopening, grid content and row/column order remain unchanged.",
+      "outcome": "After refresh or reopening, grid content and row/column order remain unchanged.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-9f31a6d7064598b59238"
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "quote": "If parsing or import fails, no workbook link with that name may appear on the home page, and no partial import result may be displayed or retained.",
+      "outcome": "If parsing or import fails, no workbook link with that name may appear on the home page, and no partial import result may be displayed or retained.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-1"
+      ],
+      "id": "OB-6bb6405867623a18e62c"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-0578f38e0334a3c33823"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "kind": "context",
+      "id": "OB-5997858f8a56bcab72f9"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "outcome": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "kind": "summary",
+      "id": "OB-e2e190f92c2162cf74bb"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "outcome": "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-4c5c553488b5c18dbb1e"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "outcome": "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-90d7b4ddf0b5f83d9870"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "outcome": "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-8e65b0af2df37cf3b566"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "outcome": "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-69597cada1cf0a0e2757"
+    },
+    {
+      "requirement_id": "REQ-1",
+      "quote": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "outcome": "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-155c2c2967e03b888e21"
+    },
+    {
+      "requirement_id": "REQ-1-3",
+      "quote": "Supports importing external CSV data completely as a workbook and exporting the current active worksheet as CSV.",
+      "outcome": "Supports importing external CSV data completely as a workbook and exporting the current active worksheet as CSV.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-a3a09dd8e05d61b2ed55"
+    },
+    {
+      "requirement_id": "REQ-1-3",
+      "quote": "After a successful import, the Sheet1 editor page opens and continues to show the complete imported result after refresh or reopening; export reads only the current active worksheet and must not change workbook content or the current interface state.",
+      "outcome": "After a successful import, the Sheet1 editor page opens and continues to show the complete imported result after refresh or reopening; export reads only the current active worksheet and must not change workbook content or the current interface state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-e8552518db2502f0d2b6"
+    },
+    {
+      "requirement_id": "REQ-1-3-2",
+      "quote": "Users can export the current active worksheet using the button with the accessible name \"Export CSV\" on the workbook editor toolbar.",
+      "outcome": "Users can export the current active worksheet using the button with the accessible name \"Export CSV\" on the workbook editor toolbar.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-b57b89b7d3d18b62c215"
+    },
+    {
+      "requirement_id": "REQ-1-3-2",
+      "quote": "Clicking it starts a browser download; the suggested filename ends with \".csv\", and the downloaded UTF-8 text is the exported CSV.",
+      "outcome": "Clicking it starts a browser download; the suggested filename ends with \".csv\", and the downloaded UTF-8 text is the exported CSV.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-78b55e7c7b5db8dd76d3"
+    },
+    {
+      "requirement_id": "REQ-1-3-2",
+      "quote": "The exported CSV preserves empty cells within the used range according to the grid’s actual row and column order and correctly escapes text containing commas, quotes, or line breaks.",
+      "outcome": "The exported CSV preserves empty cells within the used range according to the grid’s actual row and column order and correctly escapes text containing commas, quotes, or line breaks.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-c11f4c56cd888741673e"
+    },
+    {
+      "requirement_id": "REQ-1-3-2",
+      "quote": "Ordinary cells export their displayed values; formula cells export their current calculated results rather than formula expressions.",
+      "outcome": "Ordinary cells export their displayed values; formula cells export their current calculated results rather than formula expressions.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-d00256367c95437d6309"
+    },
+    {
+      "requirement_id": "REQ-1-3-2",
+      "quote": "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh.",
+      "outcome": "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-1-3-2"
+      ],
+      "id": "OB-7ed7a394dbf5806b5321"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-f60533e0ccf81f36c911"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "kind": "context",
+      "id": "OB-c94c5d52b38a7e79a2c4"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "outcome": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-f5f8174d7d9446cf7d56"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "outcome": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-7ba0ee6328b1ec092962"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "outcome": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-a9eb91421d21ff497c11"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "outcome": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-0d29a517ad4384f5c08c"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-e28bcf59f78b87675ced"
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "quote": "Users add a worksheet using the button with the accessible name \"Add worksheet\" in the tab bar of the workbook editor page.",
+      "outcome": "Users add a worksheet using the button with the accessible name \"Add worksheet\" in the tab bar of the workbook editor page.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-c949d735de29a793a6df"
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "quote": "The new tab uses the first unused SheetN name in positive-integer order; when only Sheet1 exists, Sheet2 is created.",
+      "outcome": "The new tab uses the first unused SheetN name in positive-integer order; when only Sheet1 exists, Sheet2 is created.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-13380d0b553da76990ef"
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "quote": "The new worksheet is blank and does not inherit filters, validation, or pivot results from other worksheets; after creation it becomes the active tab and A1 is selected.",
+      "outcome": "The new worksheet is blank and does not inherit filters, validation, or pivot results from other worksheets; after creation it becomes the active tab and A1 is selected.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-d4949fde4380237cf319"
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "quote": "Existing worksheets and their data remain unchanged.",
+      "outcome": "Existing worksheets and their data remain unchanged.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-828f7f2f4b0fd8b2b26f"
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "quote": "The new tab still exists after refresh or reopening.",
+      "outcome": "The new tab still exists after refresh or reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-b4581bdf2246b8e43f3b"
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "quote": "If addition fails, an error is shown, no new tab appears, and existing worksheets remain unchanged.",
+      "outcome": "If addition fails, an error is shown, no new tab appears, and existing worksheets remain unchanged.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-1"
+      ],
+      "id": "OB-d1b97b2ddc9b1f0d70cc"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-3362e75dd6d067c5393a"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "kind": "context",
+      "id": "OB-d5fc2736e6c397be0cce"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "outcome": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-1dc7e159b66cfb40fe37"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "outcome": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-ed620085c63e38aa7ddd"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "outcome": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-1bbcee29cdd8e362b04f"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "outcome": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-de3230f9de9737b634b7"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-5018fb1613542be21dcf"
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "quote": "After the user clicks another ARIA tab, the grid, row and column structure, selected cell, text box labeled \"Formula bar\", filter buttons, validation entry points, and pivot table results all switch to the state of the target worksheet; the formula bar displays either the ordinary value or the original formula of the selected cell.",
+      "outcome": "After the user clicks another ARIA tab, the grid, row and column structure, selected cell, text box labeled \"Formula bar\", filter buttons, validation entry points, and pivot table results all switch to the state of the target worksheet; the formula bar displays either the ordinary value or the original formula of the selected cell.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-b58f5c37b44f62c39130"
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "quote": "A worksheet opened for the first time with no selection history selects A1.",
+      "outcome": "A worksheet opened for the first time with no selection history selects A1.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-c78d22de782245a04a32"
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "quote": "Switching must not modify the source worksheet; returning to it restores its most recent successful state.",
+      "outcome": "Switching must not modify the source worksheet; returning to it restores its most recent successful state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-d628b2b143e7f0384d1c"
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "quote": "Reopening the workbook directly displays the last active tab and restores the last confirmed selected cell for each worksheet.",
+      "outcome": "Reopening the workbook directly displays the last active tab and restores the last confirmed selected cell for each worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-2"
+      ],
+      "id": "OB-ea15ed04b75f59b42e37"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-05fc6d66b2d35a77e279"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "kind": "context",
+      "id": "OB-468cacc0ddc18543c789"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "outcome": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-7659315c8d136e9c303d"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "outcome": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-3eb9c9d0f510edadef42"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "outcome": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-2303be4d578a10c6a25d"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "outcome": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-1319cd839dfedc576188"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-c0fd42c01d203200de28"
+    },
+    {
+      "requirement_id": "REQ-2-1-3",
+      "quote": "Users change a worksheet name from the worksheet tab menu.",
+      "outcome": "Users change a worksheet name from the worksheet tab menu.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-b5323c1188c67eb6ddc0"
+    },
+    {
+      "requirement_id": "REQ-2-1-3",
+      "quote": "The \"Rename\" menu item opens a dialog named \"Rename worksheet\", containing a text box labeled \"Worksheet name\" prefilled with the current name and a \"Save\" button.",
+      "outcome": "The \"Rename\" menu item opens a dialog named \"Rename worksheet\", containing a text box labeled \"Worksheet name\" prefilled with the current name and a \"Save\" button.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-df61da828ed5e1163c08"
+    },
+    {
+      "requirement_id": "REQ-2-1-3",
+      "quote": "After trimming leading and trailing spaces, the new name must not be empty and must be unique within the same workbook; an empty name displays \"Worksheet name cannot be empty\", and a duplicate name displays \"Worksheet name already exists\".",
+      "outcome": "After trimming leading and trailing spaces, the new name must not be empty and must be unique within the same workbook; an empty name displays \"Worksheet name cannot be empty\", and a duplicate name displays \"Worksheet name already exists\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-16426dd74295379a2cd9"
+    },
+    {
+      "requirement_id": "REQ-2-1-3",
+      "quote": "After a successful save, the tab displays the new name; if saving fails, the name is duplicate, or the name is empty, an error is displayed and the original name remains.",
+      "outcome": "After a successful save, the tab displays the new name; if saving fails, the name is duplicate, or the name is empty, an error is displayed and the original name remains.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-bffa53fce112732ce336"
+    },
+    {
+      "requirement_id": "REQ-2-1-3",
+      "quote": "Refreshing or reopening shows the most recently saved successful name.",
+      "outcome": "Refreshing or reopening shows the most recently saved successful name.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-3"
+      ],
+      "id": "OB-c25c4cfc33fc34e88580"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-9d8de1ca15f20aaa1c15"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "kind": "context",
+      "id": "OB-4e01beb41ec0ff4e5052"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "outcome": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-9b63ca5d3efbeb900337"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "outcome": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-704f7b388aa10c42a2b3"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "outcome": "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-e843d5ab903b7e6a0aa6"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "outcome": "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-8cd14a33bc53cd2ad7e7"
+    },
+    {
+      "requirement_id": "REQ-2-1",
+      "quote": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-9d986f2a9e976615f9b5"
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "quote": "Users delete a worksheet through the \"Delete\" command in the worksheet tab menu.",
+      "outcome": "Users delete a worksheet through the \"Delete\" command in the worksheet tab menu.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-dd0cef03becfdeb71ded"
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "quote": "When deletion is allowed, the system displays a dialog named \"Delete worksheet\" describing the target worksheet, whose visible text includes \"<target worksheet name>\", and providing a \"Delete worksheet\" confirmation button.",
+      "outcome": "When deletion is allowed, the system displays a dialog named \"Delete worksheet\" describing the target worksheet, whose visible text includes \"<target worksheet name>\", and providing a \"Delete worksheet\" confirmation button.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-77a0e11215fb9608a2ec"
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "quote": "After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh.",
+      "outcome": "After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-aaf8dd9ad42c7202e702"
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "quote": "After a pivot-result worksheet is deleted, its corresponding source worksheet is no longer constrained by that pivot table.",
+      "outcome": "After a pivot-result worksheet is deleted, its corresponding source worksheet is no longer constrained by that pivot table.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-cd178bcfabf5815483a6"
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "quote": "If the target is still a pivot table source worksheet, confirmation is rejected with \"Please delete or rebuild dependent pivot tables first\"; the dialog closes and both source data and pivot results remain unchanged.",
+      "outcome": "If the target is still a pivot table source worksheet, confirmation is rejected with \"Please delete or rebuild dependent pivot tables first\"; the dialog closes and both source data and pivot results remain unchanged.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-358cfbfdd7a1a5b979e3"
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "quote": "If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\".",
+      "outcome": "If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-c4c70e3151ad0fde2db4"
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "quote": "Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh.",
+      "outcome": "Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-1-4"
+      ],
+      "id": "OB-e2f3338f8b0ebe27d548"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-10b60fb9667f56c95a4a"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "kind": "context",
+      "id": "OB-541c5d523e532ad49ea1"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "outcome": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-8183e16d0e5cce94c67a"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "outcome": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-b65551c9d5902f6b5cb5"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "Supports inserting and deleting rows and columns in the current active worksheet.",
+      "outcome": "Supports inserting and deleting rows and columns in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-5c64b82d52d43393781b"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "After an operation, grid values, formula bar, filter views, validation behavior, and pivot refresh results remain consistent while other worksheets remain unchanged; the structure persists after refresh or reopening.",
+      "outcome": "After an operation, grid values, formula bar, filter views, validation behavior, and pivot refresh results remain consistent while other worksheets remain unchanged; the structure persists after refresh or reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-fe4773fc9e10981413f4"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "Row numbers use the ARIA rowheader role with the decimal row number as the accessible name; column headers use the ARIA columnheader role with the column letter as the accessible name.",
+      "outcome": "Row numbers use the ARIA rowheader role with the decimal row number as the accessible name; column headers use the ARIA columnheader role with the column letter as the accessible name.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-89e0a8fd5ed62645d2b1"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "Right-clicking a row number or column header opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "Right-clicking a row number or column header opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-dcf7e6057dccaec5a50e"
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "quote": "Users insert blank rows above or below a target row, or delete the target row, through the row-number menu in the current active worksheet.",
+      "outcome": "Users insert blank rows above or below a target row, or delete the target row, through the row-number menu in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-109d9c252c5cad84e8e4"
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "quote": "The row-number menu provides \"Insert 1 row above\", \"Insert 1 row below\", and \"Delete row\".",
+      "outcome": "The row-number menu provides \"Insert 1 row above\", \"Insert 1 row below\", and \"Delete row\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-d50b9f6133767f0bdd67"
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "quote": "On insertion, the target row and all subsequent complete records, validation rules, and formula references shift downward together; on deletion, subsequent rows shift upward and rules on the target row are removed.",
+      "outcome": "On insertion, the target row and all subsequent complete records, validation rules, and formula references shift downward together; on deletion, subsequent rows shift upward and rules on the target row are removed.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-40015b669ea2d9c83b57"
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "quote": "Affected formulas display the adjusted original formulas and correct results, and references that cannot be preserved display an explicit error; filters continue to apply to the original data region.",
+      "outcome": "Affected formulas display the adjusted original formulas and correct results, and references that cannot be preserved display an explicit error; filters continue to apply to the original data region.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-7be15d895227f5503d63"
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "quote": "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+      "outcome": "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-40870b9f236f150dc11d"
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "quote": "If the change overlaps a pivot-table source range, the existing pivot result remains unchanged until \"Refresh pivot table\" is clicked, after which it is recomputed using the adjusted range.",
+      "outcome": "If the change overlaps a pivot-table source range, the existing pivot result remains unchanged until \"Refresh pivot table\" is clicked, after which it is recomputed using the adjusted range.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-1b668d354c1657a5113b"
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "quote": "If the operation fails, an error is displayed and the grid immediately and after refresh retains the pre-operation structure; partial row movement is not allowed.",
+      "outcome": "If the operation fails, an error is displayed and the grid immediately and after refresh retains the pre-operation structure; partial row movement is not allowed.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-1"
+      ],
+      "id": "OB-e9ba4c238b8c23011a99"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-5edadb1cd19642382063"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "kind": "context",
+      "id": "OB-4a0882a3ce78abad530d"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "outcome": "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-25345e1b4337d4a58db8"
+    },
+    {
+      "requirement_id": "REQ-2",
+      "quote": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "outcome": "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-2a272a86216aef3e0500"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "Supports inserting and deleting rows and columns in the current active worksheet.",
+      "outcome": "Supports inserting and deleting rows and columns in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-c3064cb4346089c5a888"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "After an operation, grid values, formula bar, filter views, validation behavior, and pivot refresh results remain consistent while other worksheets remain unchanged; the structure persists after refresh or reopening.",
+      "outcome": "After an operation, grid values, formula bar, filter views, validation behavior, and pivot refresh results remain consistent while other worksheets remain unchanged; the structure persists after refresh or reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-88391f0fe3ef67f765bc"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "Row numbers use the ARIA rowheader role with the decimal row number as the accessible name; column headers use the ARIA columnheader role with the column letter as the accessible name.",
+      "outcome": "Row numbers use the ARIA rowheader role with the decimal row number as the accessible name; column headers use the ARIA columnheader role with the column letter as the accessible name.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-c68baf6bedf7210a67c2"
+    },
+    {
+      "requirement_id": "REQ-2-2",
+      "quote": "Right-clicking a row number or column header opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "Right-clicking a row number or column header opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-2a32daa0217c8af1244f"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "Users insert a blank column to the left or right of a target column, or delete the target column, through the column-header menu in the current active worksheet.",
+      "outcome": "Users insert a blank column to the left or right of a target column, or delete the target column, through the column-header menu in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-54d9e2ff087cf41a1689"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "The column-header menu provides \"Insert 1 column left\", \"Insert 1 column right\", and \"Delete column\".",
+      "outcome": "The column-header menu provides \"Insert 1 column left\", \"Insert 1 column right\", and \"Delete column\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-1b2f85e86cd534079ca3"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "On insertion, all complete data, validation rules, and formula references in the target column and subsequent columns shift right together; on deletion, subsequent columns shift left and rules on the target column are removed.",
+      "outcome": "On insertion, all complete data, validation rules, and formula references in the target column and subsequent columns shift right together; on deletion, subsequent columns shift left and rules on the target column are removed.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-559e10320ab3a1b477b5"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "Data outside the deleted column is preserved; affected formulas display the adjusted original formulas and correct results, while direct references that cannot be preserved display #REF!; filters continue to apply to the adjusted region.",
+      "outcome": "Data outside the deleted column is preserved; affected formulas display the adjusted original formulas and correct results, while direct references that cannot be preserved display #REF!; filters continue to apply to the adjusted region.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-57aed08c40b70fdb0552"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+      "outcome": "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-bf2c5874b3cf67c27ff1"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "After pivot-table source columns move, existing results remain unchanged until \"Refresh pivot table\" is clicked, after which the moved fields are used.",
+      "outcome": "After pivot-table source columns move, existing results remain unchanged until \"Refresh pivot table\" is clicked, after which the moved fields are used.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-5202da20950fd105e209"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "If a selected header is deleted, refreshing or opening the pivot table editor displays a visible error requiring the field to be reselected and preserves the last successful result.",
+      "outcome": "If a selected header is deleted, refreshing or opening the pivot table editor displays a visible error requiring the field to be reselected and preserves the last successful result.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-3484f8d28bf4cb8150f1"
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "quote": "If the operation fails, an error is shown and the grid retains the pre-operation structure immediately and after refresh.",
+      "outcome": "If the operation fails, an error is shown and the grid retains the pre-operation structure immediately and after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-2-2-2"
+      ],
+      "id": "OB-add15501d1a1f178f04a"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-cf19b7c62f67c4313cf3"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "kind": "context",
+      "id": "OB-825098d309bed0b929cd"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "outcome": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-aba31afc1d24f29d2adc"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "outcome": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-9afdeec8f88a2dab8835"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "Supports entering data through the current worksheet grid, the text box labeled \"Formula bar\", or the external clipboard.",
+      "outcome": "Supports entering data through the current worksheet grid, the text box labeled \"Formula bar\", or the external clipboard.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-eff5a8e09dcad21f6ef1"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "The grid, formula bar, and selection state must show consistent content for the same cell; ordinary values and original formulas persist after refresh.",
+      "outcome": "The grid, formula bar, and selection state must show consistent content for the same cell; ordinary values and original formulas persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-053989b041133afd8c7f"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "Double-clicking a grid cell displays an inline text box with the accessible name \"Edit <cell coordinate>\".",
+      "outcome": "Double-clicking a grid cell displays an inline text box with the accessible name \"Edit <cell coordinate>\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-2613e60ec5e9980b6022"
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "quote": "After selecting a cell in the current active worksheet, users can modify its content directly in the grid or formula bar.",
+      "outcome": "After selecting a cell in the current active worksheet, users can modify its content directly in the grid or formula bar.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-95e5c3a45ed2d2b2d550"
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "quote": "Cells support text, numbers, boolean-like values, date text, and formulas beginning with an equals sign.",
+      "outcome": "Cells support text, numbers, boolean-like values, date text, and formulas beginning with an equals sign.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-50660c7b5867d173adc4"
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "quote": "Pressing Enter or clicking another cell commits the change; pressing Escape cancels an uncommitted change.",
+      "outcome": "Pressing Enter or clicking another cell commits the change; pressing Escape cancels an uncommitted change.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-993b6476c572d870d6cc"
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "quote": "Ordinary cells show the same input in the grid and formula bar; formula cells show the calculated result in the grid and the original submitted formula in the formula bar.",
+      "outcome": "Ordinary cells show the same input in the grid and formula bar; formula cells show the calculated result in the grid and the original submitted formula in the formula bar.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-d72a3b2145f95434222f"
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "quote": "After a source value is committed, directly and indirectly dependent formulas update their results.",
+      "outcome": "After a source value is committed, directly and indirectly dependent formulas update their results.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-0472dfb5d4e3d6bcbb67"
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "quote": "Values, original formulas, and results persist after refresh.",
+      "outcome": "Values, original formulas, and results persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-295338e7ef57d0acf874"
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "quote": "If a commit fails, an error is displayed, the grid and formula bar continue to show the last successful value or formula, and dependent results remain unchanged.",
+      "outcome": "If a commit fails, an error is displayed, the grid and formula bar continue to show the last successful value or formula, and dependent results remain unchanged.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-1"
+      ],
+      "id": "OB-880d7f8754ee9714e064"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-02b9f186ebb2bb00087c"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "kind": "context",
+      "id": "OB-551868af0da6ff82e125"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "outcome": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-9428276f3019f7eb1084"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "outcome": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-e5ebde818b3520b9c82f"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "Supports entering data through the current worksheet grid, the text box labeled \"Formula bar\", or the external clipboard.",
+      "outcome": "Supports entering data through the current worksheet grid, the text box labeled \"Formula bar\", or the external clipboard.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-b57f116579a2ea29a7b1"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "The grid, formula bar, and selection state must show consistent content for the same cell; ordinary values and original formulas persist after refresh.",
+      "outcome": "The grid, formula bar, and selection state must show consistent content for the same cell; ordinary values and original formulas persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-265262f505132e96ecbf"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "Double-clicking a grid cell displays an inline text box with the accessible name \"Edit <cell coordinate>\".",
+      "outcome": "Double-clicking a grid cell displays an inline text box with the accessible name \"Edit <cell coordinate>\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-1353f5ef5cfeb40659d6"
+    },
+    {
+      "requirement_id": "REQ-3-1-2",
+      "quote": "Users paste text containing tab-separated columns and newline-separated rows into a starting cell in the current active worksheet.",
+      "outcome": "Users paste text containing tab-separated columns and newline-separated rows into a starting cell in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-803ddcb686962dccc271"
+    },
+    {
+      "requirement_id": "REQ-3-1-2",
+      "quote": "The system applies the entire rectangle, preserves empty fields, and overwrites only the target rectangle; formulas within the target are replaced by the new content and related formulas display recalculated results.",
+      "outcome": "The system applies the entire rectangle, preserves empty fields, and overwrites only the target rectangle; formulas within the target are replaced by the new content and related formulas display recalculated results.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-65a2ebd9215fdc4c4bf6"
+    },
+    {
+      "requirement_id": "REQ-3-1-2",
+      "quote": "The full paste either updates every cell in the rectangle and persists after refresh, or displays an error while all target cells retain their original values; when a 0-to-100 numeric validation rule rejects the paste, that error is \"Please enter a number from 0 to 100\".",
+      "outcome": "The full paste either updates every cell in the rectangle and persists after refresh, or displays an error while all target cells retain their original values; when a 0-to-100 numeric validation rule rejects the paste, that error is \"Please enter a number from 0 to 100\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-e0a4215e58799416fbe6"
+    },
+    {
+      "requirement_id": "REQ-3-1-2",
+      "quote": "Silently dropping only some values is not allowed.",
+      "outcome": "Silently dropping only some values is not allowed.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-0f70bdcdd400df4e8c1d"
+    },
+    {
+      "requirement_id": "REQ-3-1-2",
+      "quote": "The grid context menu provides a command using the ARIA menuitem role with the accessible name \"Paste\", and Ctrl+V pastes the same external clipboard content.",
+      "outcome": "The grid context menu provides a command using the ARIA menuitem role with the accessible name \"Paste\", and Ctrl+V pastes the same external clipboard content.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-2"
+      ],
+      "id": "OB-67cd7b9581bbabebcd10"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-846cd155387f89df27ca"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "kind": "context",
+      "id": "OB-0b401a2bd7a02d75d206"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "outcome": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-ed13b620cfa57573c2a9"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "outcome": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-20777dcb78912fad4899"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "Supports entering data through the current worksheet grid, the text box labeled \"Formula bar\", or the external clipboard.",
+      "outcome": "Supports entering data through the current worksheet grid, the text box labeled \"Formula bar\", or the external clipboard.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-2e067c6ee6722718f706"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "The grid, formula bar, and selection state must show consistent content for the same cell; ordinary values and original formulas persist after refresh.",
+      "outcome": "The grid, formula bar, and selection state must show consistent content for the same cell; ordinary values and original formulas persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-4ac0bb234dabe85f0abe"
+    },
+    {
+      "requirement_id": "REQ-3-1",
+      "quote": "Double-clicking a grid cell displays an inline text box with the accessible name \"Edit <cell coordinate>\".",
+      "outcome": "Double-clicking a grid cell displays an inline text box with the accessible name \"Edit <cell coordinate>\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-ac6ce325b27357a36783"
+    },
+    {
+      "requirement_id": "REQ-3-1-3",
+      "quote": "Users can click to select a single cell or drag from one corner of a rectangular region to the diagonally opposite cell to select a contiguous rectangle.",
+      "outcome": "Users can click to select a single cell or drag from one corner of a rectangular region to the diagonally opposite cell to select a contiguous rectangle.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-1d10bf65bec6397d46fb"
+    },
+    {
+      "requirement_id": "REQ-3-1-3",
+      "quote": "The active worksheet must visibly indicate the complete selection; the grid exposes aria-multiselectable=\"true\"; every gridcell inside the rectangle exposes aria-selected=\"true\", while every gridcell outside it exposes aria-selected=\"false\".",
+      "outcome": "The active worksheet must visibly indicate the complete selection; the grid exposes aria-multiselectable=\"true\"; every gridcell inside the rectangle exposes aria-selected=\"true\", while every gridcell outside it exposes aria-selected=\"false\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-f366d81fe1f287c10c77"
+    },
+    {
+      "requirement_id": "REQ-3-1-3",
+      "quote": "Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent existing data.",
+      "outcome": "Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent existing data.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-f6129b0e85b2286cefe0"
+    },
+    {
+      "requirement_id": "REQ-3-1-3",
+      "quote": "Selecting another cell or range replaces the previous selection and updates the ARIA state accordingly.",
+      "outcome": "Selecting another cell or range replaces the previous selection and updates the ARIA state accordingly.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-b8ae537ad1fce8830a36"
+    },
+    {
+      "requirement_id": "REQ-3-1-3",
+      "quote": "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection.",
+      "outcome": "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-1-3"
+      ],
+      "id": "OB-87db10647dd7559735a6"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-9875e96ed3da2341fc42"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "kind": "context",
+      "id": "OB-4bcb2f7ea26bcfbd0988"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "outcome": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-a7ae1e275b2ce007ddb5"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "outcome": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-9cf1451eb792f3599858"
+    },
+    {
+      "requirement_id": "REQ-3-2",
+      "quote": "Supports transferring data between ranges in the current active worksheet and using undo and redo to restore grid values, formulas, rule ranges, and row/column structure.",
+      "outcome": "Supports transferring data between ranges in the current active worksheet and using undo and redo to restore grid values, formulas, rule ranges, and row/column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-4902996238bd78bd58d3"
+    },
+    {
+      "requirement_id": "REQ-3-2",
+      "quote": "The visible state after each undo or redo persists after refresh.",
+      "outcome": "The visible state after each undo or redo persists after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-8fa66d1aa5f8e347f932"
+    },
+    {
+      "requirement_id": "REQ-3-2-1",
+      "quote": "Users select a rectangular range by dragging from one corner to another in the current active worksheet, then copy or cut it and select a target location to paste; only operations within the same worksheet are supported.",
+      "outcome": "Users select a rectangular range by dragging from one corner to another in the current active worksheet, then copy or cut it and select a target location to paste; only operations within the same worksheet are supported.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-e4127881fcfc6fe9fa3b"
+    },
+    {
+      "requirement_id": "REQ-3-2-1",
+      "quote": "After copy, the source range remains unchanged; after cut, the source range is cleared only after the target range has been displayed completely.",
+      "outcome": "After copy, the source range remains unchanged; after cut, the source range is cleared only after the target range has been displayed completely.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-dd85515e2becfd428adf"
+    },
+    {
+      "requirement_id": "REQ-3-2-1",
+      "quote": "Values and formulas preserve their two-dimensional layout; when formulas are copied, relative references adjust according to the target offset while absolute references remain unchanged, and the formula bar displays the adjusted original formula.",
+      "outcome": "Values and formulas preserve their two-dimensional layout; when formulas are copied, relative references adjust according to the target offset while absolute references remain unchanged, and the formula bar displays the adjusted original formula.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-7692eb17dbdfd503d832"
+    },
+    {
+      "requirement_id": "REQ-3-2-1",
+      "quote": "The source range, target range, and affected formulas must either all update and persist after refresh or all remain in their original state; when a target 0-to-100 numeric validation rule rejects the operation, the page displays \"Please enter a number from 0 to 100\".",
+      "outcome": "The source range, target range, and affected formulas must either all update and persist after refresh or all remain in their original state; when a target 0-to-100 numeric validation rule rejects the operation, the page displays \"Please enter a number from 0 to 100\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-8c908a0fbde49dd6da62"
+    },
+    {
+      "requirement_id": "REQ-3-2-1",
+      "quote": "Cells outside these ranges must not change.",
+      "outcome": "Cells outside these ranges must not change.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-1"
+      ],
+      "id": "OB-a29497fc147f4ad3e809"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-f393dacd4cffbe5993d6"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "kind": "context",
+      "id": "OB-910d2ca6fecaff966a3c"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "outcome": "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-b70e4f0c8a4aeaaba5f4"
+    },
+    {
+      "requirement_id": "REQ-3",
+      "quote": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "outcome": "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-7f810f15153fa8285abd"
+    },
+    {
+      "requirement_id": "REQ-3-2",
+      "quote": "Supports transferring data between ranges in the current active worksheet and using undo and redo to restore grid values, formulas, rule ranges, and row/column structure.",
+      "outcome": "Supports transferring data between ranges in the current active worksheet and using undo and redo to restore grid values, formulas, rule ranges, and row/column structure.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-e17b327bf12f29b3862c"
+    },
+    {
+      "requirement_id": "REQ-3-2",
+      "quote": "The visible state after each undo or redo persists after refresh.",
+      "outcome": "The visible state after each undo or redo persists after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-c9288f640acdd5fb6790"
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "quote": "Users can undo recent cell edits, bulk pastes, range moves, and row/column structure changes in the current workbook session.",
+      "outcome": "Users can undo recent cell edits, bulk pastes, range moves, and row/column structure changes in the current workbook session.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-8fd84e43e4af2bad55b5"
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "quote": "The toolbar provides buttons with the accessible names \"Undo\" and \"Redo\";",
+      "outcome": "The toolbar provides buttons with the accessible names \"Undo\" and \"Redo\";",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-8b531f10b5f6b074bb3e"
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "quote": "Ctrl+Z and Ctrl+Y perform the same operations.",
+      "outcome": "Ctrl+Z and Ctrl+Y perform the same operations.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-7576a27f75fd6be2a6cd"
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "quote": "Undo restores the grid values, original formulas, row/column structure, rule ranges, pivot-result validity, and calculation results from before the operation; consecutive undo operations restore changes in reverse order, and redo reapplies the complete operation that was just undone.",
+      "outcome": "Undo restores the grid values, original formulas, row/column structure, rule ranges, pivot-result validity, and calculation results from before the operation; consecutive undo operations restore changes in reverse order, and redo reapplies the complete operation that was just undone.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-987454227e442f44dd89"
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "quote": "Undo in one workbook must not modify another workbook.",
+      "outcome": "Undo in one workbook must not modify another workbook.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-b2343e7561102ad07b3d"
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "quote": "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening.",
+      "outcome": "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-6d598d0103563d4a36b4"
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "quote": "If a new modification is made after an undo, the \"Redo\" button becomes disabled and Ctrl+Y cannot restore the old branch.",
+      "outcome": "If a new modification is made after an undo, the \"Redo\" button becomes disabled and Ctrl+Y cannot restore the old branch.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-3-2-2"
+      ],
+      "id": "OB-4e6ec3cf74127f475fcc"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-0bf9d938854ddf5e9db8"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "kind": "context",
+      "id": "OB-547f6155b0a9e354c39e"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "outcome": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-80f4f21761e229038278"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "outcome": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-1e3c3193e3a4b79bdad2"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "outcome": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-86f1032a529e920410e4"
+    },
+    {
+      "requirement_id": "REQ-4-1",
+      "quote": "Supports entering basic expressions and aggregate functions through the grid and \"Formula bar\" from REQ-3-1-1 and copying formulas through REQ-3-2-1.",
+      "outcome": "Supports entering basic expressions and aggregate functions through the grid and \"Formula bar\" from REQ-3-1-1 and copying formulas through REQ-3-2-1.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-4a3173a8e984b434ead6"
+    },
+    {
+      "requirement_id": "REQ-4-1",
+      "quote": "The formula bar always displays the original formula, the grid displays results consistent with the current source data, and both persist after refresh.",
+      "outcome": "The formula bar always displays the original formula, the grid displays results consistent with the current source data, and both persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-bb38a1b09d1b7bd0503a"
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "quote": "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1.",
+      "outcome": "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-72b8e6930e9599259ab7"
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "quote": "Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required.",
+      "outcome": "Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-7c13e05748923623d7a7"
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "quote": "The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh.",
+      "outcome": "The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-c9f47e6e25b330b4b284"
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "quote": "Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero.",
+      "outcome": "Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-1"
+      ],
+      "id": "OB-92f4dac13e5843736186"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-17c6ab25117fcf6eab12"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "kind": "context",
+      "id": "OB-29d47126719fd12e041c"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "outcome": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-1e5af89f61522894365f"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "outcome": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-69da557581951c0d3e01"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "outcome": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-a5dd459698d30298d608"
+    },
+    {
+      "requirement_id": "REQ-4-1",
+      "quote": "Supports entering basic expressions and aggregate functions through the grid and \"Formula bar\" from REQ-3-1-1 and copying formulas through REQ-3-2-1.",
+      "outcome": "Supports entering basic expressions and aggregate functions through the grid and \"Formula bar\" from REQ-3-1-1 and copying formulas through REQ-3-2-1.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-e96217a8675f41e55940"
+    },
+    {
+      "requirement_id": "REQ-4-1",
+      "quote": "The formula bar always displays the original formula, the grid displays results consistent with the current source data, and both persist after refresh.",
+      "outcome": "The formula bar always displays the original formula, the grid displays results consistent with the current source data, and both persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-a53301c66918736aa966"
+    },
+    {
+      "requirement_id": "REQ-4-1-2",
+      "quote": "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh.",
+      "outcome": "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-06efd74bef5a317e7216"
+    },
+    {
+      "requirement_id": "REQ-4-1-2",
+      "quote": "If the offset moves a relative reference outside the worksheet bounds, the target formula bar displays =#REF! and the grid displays #REF!.",
+      "outcome": "If the offset moves a relative reference outside the worksheet bounds, the target formula bar displays =#REF! and the grid displays #REF!.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-1-2"
+      ],
+      "id": "OB-3b483035a4ca52423b8b"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-3bfe9f65b6e1939f842e"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "kind": "context",
+      "id": "OB-aada38ee61cd522d819a"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "outcome": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-366e015bcbfdf75329f2"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "outcome": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-e81f0f24ace0a4de0f17"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "outcome": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-e6b7fabc7de2c603d492"
+    },
+    {
+      "requirement_id": "REQ-4-2",
+      "quote": "Supports dependency recalculation after source data changes and isolation of formula errors.",
+      "outcome": "Supports dependency recalculation after source data changes and isolation of formula errors.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-14fad90db1fdb8b971bb"
+    },
+    {
+      "requirement_id": "REQ-4-2",
+      "quote": "After REQ-3 value edits, pastes, and moves or REQ-2 row/column changes, all affected formulas display results consistent with the current source data; one erroneous formula does not affect unrelated cells.",
+      "outcome": "After REQ-3 value edits, pastes, and moves or REQ-2 row/column changes, all affected formulas display results consistent with the current source data; one erroneous formula does not affect unrelated cells.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-be0a4ef6fcc6ea8bc333"
+    },
+    {
+      "requirement_id": "REQ-4-2-1",
+      "quote": "After a source-value edit, bulk paste, range move, or row/column structure change succeeds, all directly and indirectly dependent formulas update in dependency order; each formula bar continues to display its original formula while the grid displays the new result or error.",
+      "outcome": "After a source-value edit, bulk paste, range move, or row/column structure change succeeds, all directly and indirectly dependent formulas update in dependency order; each formula bar continues to display its original formula while the grid displays the new result or error.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-fa8308d27676421056e6"
+    },
+    {
+      "requirement_id": "REQ-4-2-1",
+      "quote": "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged.",
+      "outcome": "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-1"
+      ],
+      "id": "OB-8994f8263548dc9bfb59"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-f7cc3e5c2aa7e1518568"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "kind": "context",
+      "id": "OB-d275873d0209c3a076ed"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "outcome": "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-599b661fcdf5bb8a5d1e"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "outcome": "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-70439b79bb33a01d8743"
+    },
+    {
+      "requirement_id": "REQ-4",
+      "quote": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "outcome": "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-63474295329e65a5ad46"
+    },
+    {
+      "requirement_id": "REQ-4-2",
+      "quote": "Supports dependency recalculation after source data changes and isolation of formula errors.",
+      "outcome": "Supports dependency recalculation after source data changes and isolation of formula errors.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-e3da5454a6af4dc6e7ec"
+    },
+    {
+      "requirement_id": "REQ-4-2",
+      "quote": "After REQ-3 value edits, pastes, and moves or REQ-2 row/column changes, all affected formulas display results consistent with the current source data; one erroneous formula does not affect unrelated cells.",
+      "outcome": "After REQ-3 value edits, pastes, and moves or REQ-2 row/column changes, all affected formulas display results consistent with the current source data; one erroneous formula does not affect unrelated cells.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-9531b3aa6ffc2a1c1478"
+    },
+    {
+      "requirement_id": "REQ-4-2-2",
+      "quote": "Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays #ERROR!, and a direct or indirect circular reference displays #REF!.",
+      "outcome": "Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays #ERROR!, and a direct or indirect circular reference displays #REF!.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-55d791f9c78e6bfeee07"
+    },
+    {
+      "requirement_id": "REQ-4-2-2",
+      "quote": "When an error cell is selected, the formula bar displays the original formula submitted by the user; after refresh, both the error value and original formula persist.",
+      "outcome": "When an error cell is selected, the formula bar displays the original formula submitted by the user; after refresh, both the error value and original formula persist.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-5c4566940251afcb6443"
+    },
+    {
+      "requirement_id": "REQ-4-2-2",
+      "quote": "An error cell does not block viewing, editing, or recalculating other cells.",
+      "outcome": "An error cell does not block viewing, editing, or recalculating other cells.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-77b59b4b492e6d9d2fe9"
+    },
+    {
+      "requirement_id": "REQ-4-2-2",
+      "quote": "After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh.",
+      "outcome": "After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-4-2-2"
+      ],
+      "id": "OB-ca135a03cc3832915c77"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-0503fb6f67f3b1a45893"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "kind": "context",
+      "id": "OB-61fe99efcf2cc5663b18"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "outcome": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-5df2cc0360a22e2509d6"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "outcome": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-48c674490c96d6afb7a0"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "outcome": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-5d28d561f3883a129fb9"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-b2a1a31e1c5d9d9f9edc"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "outcome": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-61c878770859c649e28c"
+    },
+    {
+      "requirement_id": "REQ-5-1",
+      "quote": "Supports sorting a selected rectangular range in the current worksheet by column and filtering it by value or condition.",
+      "outcome": "Supports sorting a selected rectangular range in the current worksheet by column and filtering it by value or condition.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-f76f378a65994060daa2"
+    },
+    {
+      "requirement_id": "REQ-5-1",
+      "quote": "Sorting and filtering apply only to the range selected by the user and do not expand to adjacent data or other worksheets; the same order and visible rows persist after refresh.",
+      "outcome": "Sorting and filtering apply only to the range selected by the user and do not expand to adjacent data or other worksheets; the same order and visible rows persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-04b3c75cf03e3cfdc12c"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu.",
+      "outcome": "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-5ac6c9423c1c1136fd88"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button.",
+      "outcome": "A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-aee377043cf08166a761"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "Options in \"Sort by\" use the header text of the selected range as accessible names;",
+      "outcome": "Options in \"Sort by\" use the header text of the selected range as accessible names;",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-5c7d33556287be673f3e"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "\"Order\" provides options named \"Ascending\" and \"Descending\".",
+      "outcome": "\"Order\" provides options named \"Ascending\" and \"Descending\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-77a1fb2726d1844733ee"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "When the first row is declared a header, it does not participate in sorting.",
+      "outcome": "When the first row is declared a header, it does not participate in sorting.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-58d8d3a59d57f6ac461b"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row.",
+      "outcome": "Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-a0cdf99b7fb3efd31b7d"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh.",
+      "outcome": "After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-a453e31e71415478acc3"
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "quote": "If sorting fails, an error is displayed and the grid retains its original order.",
+      "outcome": "If sorting fails, an error is displayed and the grid retains its original order.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-1"
+      ],
+      "id": "OB-7babbe0c56f03f466f6c"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-ff32fb80c27e2cfa963b"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "kind": "context",
+      "id": "OB-c17472ddf8d2fe4cb450"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "outcome": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-98d6137a0a9b2b5614c7"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "outcome": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-46f8462e0cfeda8ffb6e"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "outcome": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-6be5bba4f98ac7a271f1"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-ed128085fb6f8f6b7952"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "outcome": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-adb4fa47a274c48cee87"
+    },
+    {
+      "requirement_id": "REQ-5-1",
+      "quote": "Supports sorting a selected rectangular range in the current worksheet by column and filtering it by value or condition.",
+      "outcome": "Supports sorting a selected rectangular range in the current worksheet by column and filtering it by value or condition.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-8ec8c2faaa591e4479d6"
+    },
+    {
+      "requirement_id": "REQ-5-1",
+      "quote": "Sorting and filtering apply only to the range selected by the user and do not expand to adjacent data or other worksheets; the same order and visible rows persist after refresh.",
+      "outcome": "Sorting and filtering apply only to the range selected by the user and do not expand to adjacent data or other worksheets; the same order and visible rows persist after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-5556e3e39bc3951eb10c"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu.",
+      "outcome": "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-a1c8d970b574c7f00698"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\".",
+      "outcome": "Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-bf6257c2f0eabfbe9d3d"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name.",
+      "outcome": "The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-43c676e65a51aea17cbf"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\".",
+      "outcome": "The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-a18500f05d0a190e695a"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "\"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box;",
+      "outcome": "\"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box;",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-50e9b1a1cbee1f8d5e5c"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "\"Is empty\" and \"Is not empty\" require no value.",
+      "outcome": "\"Is empty\" and \"Is not empty\" require no value.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-40a0f3beb194a8c4cdb9"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered.",
+      "outcome": "Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-f4a37bdb363234686b1e"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "After refresh or reopening, the same rows remain visible.",
+      "outcome": "After refresh or reopening, the same rows remain visible.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-b8e02c2d4342b1b9916a"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "CSV export and pivot summarization still include hidden rows within the filtered range.",
+      "outcome": "CSV export and pivot summarization still include hidden rows within the filtered range.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-e4f763507ac53617572c"
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "quote": "\"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged.",
+      "outcome": "\"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-1-2"
+      ],
+      "id": "OB-853414d11ac9fefe7e01"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-5e3ad9b7cd17d8808811"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "kind": "context",
+      "id": "OB-dfce8836f5616c3b4020"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "outcome": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-5501b4f0697b6c67bb78"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "outcome": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-695e45ce5d0af2145518"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "outcome": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-04c8cda70847c2f917bf"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-4d15322c8bbe210b4473"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "outcome": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-5359881e16862e258a23"
+    },
+    {
+      "requirement_id": "REQ-5-2",
+      "quote": "Supports configuring dropdown or numeric validation for ranges in the current active worksheet.",
+      "outcome": "Supports configuring dropdown or numeric validation for ranges in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-ea875faef20143fe34d7"
+    },
+    {
+      "requirement_id": "REQ-5-2",
+      "quote": "The same rules are enforced when writing through the grid, formula bar, paste, or range move; after row or column changes, dropdown buttons and numeric limits move with the originally constrained cells.",
+      "outcome": "The same rules are enforced when writing through the grid, formula bar, paste, or range move; after row or column changes, dropdown buttons and numeric limits move with the originally constrained cells.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-8d54e4bd58fb0910ae84"
+    },
+    {
+      "requirement_id": "REQ-5-2",
+      "quote": "Rules remain active after refresh and existing valid values are preserved.",
+      "outcome": "Rules remain active after refresh and existing valid values are preserved.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-dd0fb091c0e690910c7e"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "Users select a target range and click \"Data validation\" in the \"Data\" menu.",
+      "outcome": "Users select a target range and click \"Data validation\" in the \"Data\" menu.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-162f0d11ddb58f9032bc"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "A dialog named \"Data validation\" provides a combo box labeled \"Rule type\";",
+      "outcome": "A dialog named \"Data validation\" provides a combo box labeled \"Rule type\";",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-104256b61059d8f5e03d"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "\"Dropdown\" uses a text box labeled \"Allowed values\", where comma-separated items are trimmed of leading and trailing spaces;",
+      "outcome": "\"Dropdown\" uses a text box labeled \"Allowed values\", where comma-separated items are trimmed of leading and trailing spaces;",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-4bd142ceee9d2c302f0d"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "\"Number range\" uses text boxes labeled \"Minimum\" and \"Maximum\"; the \"Save\" button applies an inclusive rule.",
+      "outcome": "\"Number range\" uses text boxes labeled \"Minimum\" and \"Maximum\"; the \"Save\" button applies an inclusive rule.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-372bb1a09d353bea7ad1"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "After a valid save succeeds, the dialog closes.",
+      "outcome": "After a valid save succeeds, the dialog closes.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-072a572b4d2008ca3f3d"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name.",
+      "outcome": "A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-f8ff420de108e2b244ce"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\".",
+      "outcome": "If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-af9f3b5bc2250e477cce"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\".",
+      "outcome": "In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\".",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-dfe90883dc0d63ea16ae"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "If any target in a bulk operation is invalid, all targets retain their original values.",
+      "outcome": "If any target in a bulk operation is invalid, all targets retain their original values.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-26869713695fdf22639e"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "Rules remain active after refresh.",
+      "outcome": "Rules remain active after refresh.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-3d53fb5729c67abbd4ca"
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "quote": "When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values.",
+      "outcome": "When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-2-1"
+      ],
+      "id": "OB-8fcc87953cffa3555a08"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "outcome": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-480d3516537fac5ff9f6"
+    },
+    {
+      "requirement_id": "ROOT",
+      "quote": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "outcome": "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "kind": "context",
+      "id": "OB-4174483280e9df18c079"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "outcome": "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-78fcd372e2c22ca7b963"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "outcome": "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-d574888674153aa66b92"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "outcome": "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-3c4b295c049ca64c6500"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "outcome": "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-5ada07e1f9b951e01d48"
+    },
+    {
+      "requirement_id": "REQ-5",
+      "quote": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "outcome": "Options in named combo boxes use the ARIA option role and their visible names.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-081ead34a758fa495ab6"
+    },
+    {
+      "requirement_id": "REQ-5-3",
+      "quote": "Supports creating a basic pivot table from a data range in the current worksheet.",
+      "outcome": "Supports creating a basic pivot table from a data range in the current worksheet.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-e5f028b960457d9d98d3"
+    },
+    {
+      "requirement_id": "REQ-5-3",
+      "quote": "Pivot results reside in a separate worksheet and only read source data; when switching back to the source worksheet, original values and order remain unchanged, and pivot results persist after refresh or reopening.",
+      "outcome": "Pivot results reside in a separate worksheet and only read source data; when switching back to the source worksheet, original values and order remain unchanged, and pivot results persist after refresh or reopening.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-dbbe5344202980b80a67"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu.",
+      "outcome": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-389ef185f37b3c61a801"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created.",
+      "outcome": "A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-a484b7a4106f50c787fd"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button.",
+      "outcome": "A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-1f9f884e9ee5b7c511cd"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names;",
+      "outcome": "Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names;",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-778a8e4b81b84288dcf9"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "\"Summarize by\" provides options named SUM, COUNT, and AVERAGE.",
+      "outcome": "\"Summarize by\" provides options named SUM, COUNT, and AVERAGE.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-1986659096ac5dd6839c"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "The configuration supports one row field, one optional column field, and one value field.",
+      "outcome": "The configuration supports one row field, one optional column field, and one value field.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-3057e6f17a9549533641"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.",
+      "outcome": "SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-6ede14a48f8aaafb215d"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "When no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records.",
+      "outcome": "When no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-d23d2eae0a0b8416aea7"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row.",
+      "outcome": "When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-bb6ae22c896b4bee7100"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "COUNT displays 0 when a row/column combination has no record with a non-empty value field.",
+      "outcome": "COUNT displays 0 when a row/column combination has no record with a non-empty value field.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-fd4f5a6ffa4c2ab6b4de"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "After a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results.",
+      "outcome": "After a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-afb473731c58aaebb55b"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range.",
+      "outcome": "The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-ad6cf92daebe956d685f"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available.",
+      "outcome": "If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-5a2fec4a068771fe2a74"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets.",
+      "outcome": "Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-b2b17505752e7fa55d6f"
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "quote": "When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.",
+      "outcome": "When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.",
+      "branch": "mixed",
+      "applies_to": [
+        "REQ-5-3-1"
+      ],
+      "id": "OB-68ea214d98ff50be8fc7"
+    }
+  ],
+  "nodes": {
+    "REQ-1-1-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 15
+    },
+    "REQ-1-2-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 14
+    },
+    "REQ-1-2-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 15
+    },
+    "REQ-1-3-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 16
+    },
+    "REQ-1-3-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 15
+    },
+    "REQ-2-1-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 13
+    },
+    "REQ-2-1-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 11
+    },
+    "REQ-2-1-3": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 12
+    },
+    "REQ-2-1-4": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 14
+    },
+    "REQ-2-2-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 15
+    },
+    "REQ-2-2-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 16
+    },
+    "REQ-3-1-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 14
+    },
+    "REQ-3-1-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 12
+    },
+    "REQ-3-1-3": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 12
+    },
+    "REQ-3-2-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 11
+    },
+    "REQ-3-2-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 13
+    },
+    "REQ-4-1-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 11
+    },
+    "REQ-4-1-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 9
+    },
+    "REQ-4-2-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 9
+    },
+    "REQ-4-2-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 11
+    },
+    "REQ-5-1-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 17
+    },
+    "REQ-5-1-2": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 19
+    },
+    "REQ-5-2-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 21
+    },
+    "REQ-5-3-1": {
+      "status": "source_grounded",
+      "review_status": "reviewed",
+      "frozen": true,
+      "errors": [],
+      "attempts": 1,
+      "method": "offline_source_review",
+      "candidate_obligations": 24
+    }
+  },
+  "seconds": 0,
+  "requirements_sha256": "0cd43ed5e40610fee702ca65f4cc8acf876a146f494ec8edd69b296964ef5b99",
+  "runtime_status": "not_run_against_product"
+}
