@@ -195,7 +195,8 @@ class EmbeddedSuiteTests(unittest.TestCase):
         flow.codegen_mode=Mock(return_value=False)
         flow.head=Mock(return_value='source')
         flow.has_app=Mock(return_value=True)
-        flow.repair_source_index=Mock(return_value=SimpleNamespace(versions={}))
+        from source_index import SourceIndex
+        flow.repair_source_index=Mock(return_value=SourceIndex({}))
         flow.app_source_digest=Mock(return_value='source')
         flow.corrections_text=Mock(return_value='')
         flow.turn=Mock(return_value=(True,'generated node source'))

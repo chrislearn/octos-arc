@@ -32,6 +32,12 @@ PYTHONPATH=arc python3 arc/integration/layered_input_sizes.py --evidence /tmp/la
 
 ## 五步
 
+共享代码的实现和修复提前携带当前节点父级的原始约束，以及相关已通过节点的原始需求：旧节点先取依赖，再按具体源码及调用关系补充受影响节点；父级只引用 description，不展开未来兄弟功能。历史通过后变红的节点仍需恢复。`OCTOS_ARC_PRESERVATION_CHARS` 默认 24,000 字符，父级和历史合同共同计入现有文本生成预算；描述只整段引用，超限则转工具模式并指定原始需求文件。`.arc/flow-metrics.jsonl` 分开记录 inherited 父级、历史 owner、遗漏节点和字符量。这个提示约束不代替实际回归验收。
+
+源码引用会从测试里的字面导航和实际失败 URL，沿可静态确认的 React Route 及其默认导入找到页面组件；即使组件名很短，也要求引用完整源码。路由分析限定到浏览器源码及其静态依赖，构建配置的动态 import 不参与判断。动态或有歧义的客户端路由仍留待工具核实，这个映射只选择上下文，不证明页面可达或功能通过。
+
+菜单超时的失败摘要会优先保留“打开 → Escape → 再次打开 → 点击目标”的实际操作链；它只用于提出待核实的状态假设。目标元素缺失不能直接证明控件角色错误。修复后仍须同时测量当前节点和受影响的历史节点，全部通过才接受。
+
 ```sh
 # 0. 准备（一次）
 pip install -r arc/requirements.txt          # pyyaml、arcbench-runtime

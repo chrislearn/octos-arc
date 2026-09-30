@@ -69,6 +69,8 @@ class MustIncludeRankingTests(unittest.TestCase):
 class RefusalRetryTests(unittest.TestCase):
     def _flow(self, root):
         flow = Mock(spec=m.Flow)
+        flow.preservation_context.return_value = m.PreservationContext()
+        flow.with_preservation_context.side_effect = lambda prompt, *_args: prompt
         flow.repair_source_index.return_value.versions = {}
         flow.output_dir = root; flow.req_dir = root
         flow.spec_map = {"REQ-9": ["REQ-9.spec.ts"]}
@@ -201,6 +203,8 @@ class OutlineFallbackTests(unittest.TestCase):
         flow = Mock(spec=m.Flow)
         flow.output_dir = root; flow.req_dir = root
         flow.has_app.return_value = True
+        flow.preservation_context.return_value = m.PreservationContext()
+        flow.with_preservation_context.side_effect = lambda prompt, *_args: prompt
         flow.codegen_reasoning.return_value = "none"
         flow.codegen_context_chars.return_value = 90_000
         flow.codegen_ports_clause.return_value = ""

@@ -65,6 +65,7 @@ class EditProtocolTests(TestCase):
         self.assertFalse(self.flow.use_structured_edits(prompt, 'wave implement'))
         self.assertTrue(self.flow.use_structured_edits(prompt, 'suite repair'))
 
+    @patch.dict(os.environ, {'OCTOS_ARC_EDIT_SOURCE_CHARS': '16000'})
     def test_tools_preserve_evidence_strip_sources_and_record_partial_writes(self):
         p = self.source('const before = 1;\n' * 1000)
         self.flow.llm_proxy = SimpleNamespace(extra_drop_tools={'original'})
@@ -121,6 +122,7 @@ class EditProtocolTests(TestCase):
         self.flow.bind_edit_scope(prompt, '', {'frontend/src/Small.jsx'})
         self.assertFalse(self.flow.use_structured_edits(prompt, 'suite repair'))
 
+    @patch.dict(os.environ, {'OCTOS_ARC_EDIT_SOURCE_CHARS': '16000'})
     def test_retained_context_prioritizes_bound_scope_before_alphabetical_files(self):
         other = self.source('/* unrelated */' + 'a' * 10000)
         target = other.parent / 'ZTarget.jsx'
@@ -138,6 +140,21 @@ class EditProtocolTests(TestCase):
         self.assertNotIn(other.read_text(), sent)
         self.assertIn('Acceptance evidence: keep the required link semantics.', sent)
         self.assertIn('Previous observation', sent)
+
+    def test_default_retention_keeps_large_feature_owner_before_template_libraries(self):
+        owner = self.source('/* Worksheet options Rename worksheet */' + 'a' * 20000)
+        library = self.root / 'backend/lib/collection.js'
+        library.parent.mkdir(parents=True, exist_ok=True)
+        library.write_text('/* unrelated infrastructure */' + 'b' * 15000)
+        prompt = ('--- backend/lib/collection.js ---\n' + library.read_text() + '\n'
+                  '--- frontend/src/App.jsx ---\n' + owner.read_text() + '\n')
+        self.flow.bind_edit_scope(prompt, 'Worksheet options Rename worksheet',
+                                  {'frontend/src/App.jsx', 'backend/lib/collection.js'})
+        self.flow.turn = Mock(return_value=(True, 'done'))
+        self.flow.structured_edit_turn(prompt, 90, 'repair')
+        sent = self.flow.turn.call_args.args[0]
+        self.assertIn(owner.read_text(), sent)
+        self.assertNotIn(library.read_text(), sent)
 
     def test_structured_repairs_check_partial_writes_but_not_unchanged_turns(self):
         for ok in (True, False):

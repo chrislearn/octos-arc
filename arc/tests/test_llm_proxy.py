@@ -30,8 +30,13 @@ class InjectTests(unittest.TestCase):
                         (json.dumps(complete).encode(), None)]):
                 self.assertEqual(proxy._request_upstream('POST', '/chat/completions', body, {})[0], 200)
                 self.assertTrue(proxy.interrupted_reply)
+                self.assertEqual(proxy.interrupted_details['stream_integrity'], 'upstream_incomplete')
                 self.assertEqual(proxy._request_upstream('POST', '/chat/completions', body, {})[0], 200)
                 self.assertFalse(proxy.interrupted_reply)
+                self.assertEqual(proxy.interrupted_details, {})
+                proxy.interrupted_details = {'request_id': 'previous-turn'}
+                proxy.begin_turn(3)
+                self.assertEqual(proxy.interrupted_details, {})
         finally:
             proxy.server.server_close()
 

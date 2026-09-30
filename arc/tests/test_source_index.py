@@ -12,6 +12,41 @@ from llm_proxy import compact_repeated_reads
 
 
 class SourceIndexTests(TestCase):
+    def route_sources(self):
+        return {'frontend/src/App.jsx': "import Landing from './pages/UI';\n"
+            "import Account from './pages/Account';\n"
+            '<Routes>\n<Route path="/" element={<Landing />} />\n'
+            '<Route path="/settings">\n<Route path="account" element={<Account />} />\n'
+            '</Route>\n</Routes>', 'frontend/src/pages/UI.jsx': 'export default function UI(){}',
+            'frontend/src/pages/Account.jsx': 'export default function Account(){}',
+            'frontend/src/pages/Future.jsx': 'export default function Future(){}'}
+
+    def test_literal_routes_quote_the_actual_renderer_even_when_its_name_is_short(self):
+        index = SourceIndex(self.route_sources())
+        self.assertEqual(index.navigation_owners("await page.goto('/');"), {'frontend/src/pages/UI.jsx'})
+        self.assertEqual(index.navigation_owners('  Page URL at failure: http://127.0.0.1:43300/?x=1'),
+                         {'frontend/src/pages/UI.jsx'})
+        self.assertEqual(index.navigation_owners("page.goto('/settings/account')"),
+                         {'frontend/src/pages/Account.jsx'})
+
+    def test_external_invalid_or_dynamic_navigation_does_not_select_a_renderer(self):
+        index = SourceIndex(self.route_sources())
+        for evidence in ['Page URL at failure: https://other.example/',
+                         'Page URL at failure: http://[bad/', "page.goto(`/settings/${tab}`)",
+                         "page.goto('javascript:/')", 'ordinary prose /']:
+            self.assertEqual(index.navigation_owners(evidence), set(), evidence)
+
+    def test_dynamic_router_table_is_not_used_as_closed_navigation_ownership(self):
+        sources = self.route_sources()
+        sources['frontend/src/App.jsx'] = sources['frontend/src/App.jsx'].replace('path="/"', 'path={entry}')
+        self.assertEqual(SourceIndex(sources).navigation_owners("page.goto('/settings/account')"), set())
+
+    def test_build_script_dynamic_import_does_not_hide_the_client_page_owner(self):
+        sources = self.route_sources()
+        sources['frontend/vite.config.mjs'] = "const plugin = await import('@vitejs/plugin-react')"
+        self.assertEqual(SourceIndex(sources).navigation_owners("page.goto('/')"),
+                         {'frontend/src/pages/UI.jsx'})
+
     def test_direct_callers_and_dependencies(self):
         idx = SourceIndex({'src/App.jsx': "import Card from './Card'; <Card item={x} />",
                            'src/Card.jsx': 'export default function Card() {}',
@@ -90,7 +125,8 @@ class SourceIndexTests(TestCase):
                              ['a.spec.ts', 'b.spec.ts'])
             self.assertEqual(flow.affected_regression_specs({'A.jsx'}, ['a.spec.ts']), [])
             flow.test_verdict['b'] = False
-            self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']), [])
+            self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']),
+                             ['a.spec.ts', 'b.spec.ts'])
             flow.test_verdict = {'b': True}
             self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']),
                              ['a.spec.ts', 'b.spec.ts'])

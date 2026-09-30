@@ -254,6 +254,58 @@ class RepairOutcomeTests(unittest.TestCase):
         self.assertEqual(self.flow.last_codegen_outcome, "unchanged")
         self.assertIn("unchanged", " ".join(self.flow.pending_corrections))
 
+    def test_unapplied_tool_reply_continues_with_only_the_remaining_round_requests(self):
+        self.flow.codegen_mode = lambda **kw: False
+        self.flow.llm_proxy = SimpleNamespace(turn_upstream_requests=0, hard_budget_exhausted=False)
+        def repair(*args, **kwargs):
+            first = self.flow.repair_tool_turn.call_count == 1
+            self.flow.llm_proxy.turn_upstream_requests = 5 if first else 2
+            self.flow.last_turn_changed = not first
+            return True, 'Let me implement this fix.' if first else 'Applied.'
+        self.flow.repair_tool_turn = Mock(side_effect=repair)
+        with patch.dict(os.environ, {'OCTOS_ARC_REPAIR_ROUND_REQUESTS': '7'}):
+            self.assertTrue(self.flow.node_repair_turn('R', 'missing field', 300, 'R repair', lambda: 'repair'))
+        self.assertEqual([call.kwargs['request_budget'] for call in self.flow.repair_tool_turn.call_args_list], [7, 2])
+        self.assertIn('proposed diagnosis is unverified', self.flow.repair_tool_turn.call_args.args[0])
+        self.assertIn('Let me implement this fix.', self.flow.repair_tool_turn.call_args.args[0])
+
+    def test_unapplied_tool_continuation_is_limited_to_one_attempt(self):
+        self.flow.codegen_mode = lambda **kw: False
+        self.flow.llm_proxy = SimpleNamespace(turn_upstream_requests=1, hard_budget_exhausted=False)
+        def no_edit(*args, **kwargs):
+            self.flow.last_turn_changed = False
+            return True, 'I will apply the edit next.'
+        self.flow.repair_tool_turn = Mock(side_effect=no_edit)
+        self.assertFalse(self.flow.node_repair_turn('R', 'missing field', 300, 'R repair', lambda: 'repair'))
+        self.assertEqual(self.flow.repair_tool_turn.call_count, 2)
+        self.assertLessEqual(self.flow.repair_tool_turn.call_args.kwargs['request_budget'], 8)
+
+    def test_unapplied_tool_continuation_does_not_reset_the_deadline(self):
+        self.flow.codegen_mode = lambda **kw: False
+        self.flow.llm_proxy = SimpleNamespace(turn_upstream_requests=1, hard_budget_exhausted=False)
+        now = [0.0]
+        def no_edit(*args, **kwargs):
+            now[0] = 90
+            self.flow.last_turn_changed = False
+            return True, 'Let me implement this fix.'
+        self.flow.repair_tool_turn = Mock(side_effect=no_edit)
+        with patch('main.time.monotonic', side_effect=lambda: now[0]):
+            self.assertFalse(self.flow.node_repair_turn('R', 'missing field', 100, 'R repair', lambda: 'repair'))
+        self.flow.repair_tool_turn.assert_called_once()
+
+    def test_failed_or_request_exhausted_tool_reply_has_no_continuation(self):
+        self.flow.codegen_mode = lambda **kw: False
+        for ok, spent in ((False, 1), (True, 7)):
+            with self.subTest(ok=ok, spent=spent):
+                self.flow.llm_proxy = SimpleNamespace(turn_upstream_requests=spent, hard_budget_exhausted=False)
+                def no_edit(*args, **kwargs):
+                    self.flow.last_turn_changed = False
+                    return ok, 'Let me implement this fix.'
+                self.flow.repair_tool_turn = Mock(side_effect=no_edit)
+                with patch.dict(os.environ, {'OCTOS_ARC_REPAIR_ROUND_REQUESTS': '7'}):
+                    self.assertFalse(self.flow.node_repair_turn('R', 'missing field', 300, 'R repair', lambda: 'repair'))
+                self.flow.repair_tool_turn.assert_called_once()
+
     def test_startup_repair_uses_file_protocol_even_when_tools_would_be_selected(self):
         self.flow.use_structured_edits = Mock(return_value=True)
         self.flow.structured_edit_turn = Mock()

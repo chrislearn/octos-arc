@@ -84,6 +84,7 @@ class CoverageTests(unittest.TestCase):
         fixtures.RecoveryControlTests.setUp(self)
         f = self.flow
         f.mark = Mock()
+        f.repair_rounds = 0  # this test observes the initial regression gate only
         f.codegen_mode = Mock(return_value=False)
         f.repair_source_index = Mock(return_value=SimpleNamespace(versions={'frontend/shared.js': 'new'}))
         f.affected_regression_specs = Mock(return_value=['B.spec.ts'])

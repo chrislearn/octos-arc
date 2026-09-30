@@ -11,6 +11,7 @@ functions covered by arc/tests/test_acceptance.py; process handling lives in
 from __future__ import annotations
 
 import json
+from repair_context import dismiss_reopen_evidence
 from snapshot_focus import focus_interaction_snapshot
 import hashlib
 import os
@@ -341,40 +342,66 @@ _ROLE_LOCATOR = re.compile(
 _VISIBLE_ROLE = re.compile(r'''(?m)^\s*-\s+(?P<role>[a-z]+)\s+"(?P<name>[^"\n]+)"''', re.I)
 
 
-def locator_role_mismatch(outcome: TestOutcome) -> str:
-    """Flag a narrow locator race candidate, never a functional pass verdict.
-
-    A helper may choose a button before async navigation/list data settles,
-    while the failure snapshot later contains the named link or heading. Only
-    literal names and simple escaped-space/dot regexes are interpreted here;
-    arbitrary test regexes stay opaque and must be diagnosed by the model.
-    """
+def _locator_role_conflict(outcome: TestOutcome) -> tuple[str, str, str, str] | None:
+    """Compare a failed role locator with the rendered snapshot, without guessing a cause."""
     if outcome.ok or not outcome.rendered_page:
-        return ""
-    if any(re.search(r'\b(?:TypeError|ReferenceError|SyntaxError|Request HTTP [45]\d\d)\b', e)
+        return None
+    if any(re.search(r'\b(?:TypeError|ReferenceError|SyntaxError|Request HTTP 5\d\d)\b', e)
            for e in outcome.action_errors):
-        return ""  # A demonstrated app/runtime error is stronger evidence.
+        return None  # A demonstrated app/runtime error is stronger evidence.
+    # Client rejections can be expected (for example, an unauthenticated session
+    # probe). They do not explain away a visible control's wrong role.
     match = _ROLE_LOCATOR.search(outcome.message)
     if not match:
-        return ""
+        return None
     raw = match['name']
     if raw.startswith('/'):
         name = raw[1:raw.rfind('/')].strip('^$')
         if not re.fullmatch(r'(?:[\w .-]|\\[.s]|\+)+', name):
-            return ""
+            return None
         name = name.replace(r'\s+', ' ').replace(r'\.', '.')
     else:
         name = raw[1:-1]
     name = ' '.join(name.casefold().split())
     if len(name) < 3:
-        return ""
-    for visible in _VISIBLE_ROLE.finditer(outcome.rendered_page):
+        return None
+    visible_controls = list(_VISIBLE_ROLE.finditer(outcome.rendered_page))
+    if any(visible['role'].casefold() == match['role'].casefold()
+           and name in ' '.join(visible['name'].casefold().split()) for visible in visible_controls):
+        return None  # The expected role exists; scope/readiness still needs diagnosis.
+    for visible in visible_controls:
         actual = ' '.join(visible['name'].casefold().split())
         if visible['role'].casefold() != match['role'].casefold() and name in actual:
-            return (f"Locator waited for {match['role']} named {name!r}, but the failure snapshot "
-                    f"shows a visible {visible['role']} named {visible['name']!r}. "
-                    "This may be a route/data timing race in a role-selecting test helper; "
-                    "recheck the same spec before changing application semantics.")
+            return match['role'].casefold(), name, visible['role'].casefold(), visible['name']
+    return None
+
+
+def locator_role_mismatch(outcome: TestOutcome) -> str:
+    """Report a role conflict as diagnostic evidence, never as proof of a timing race."""
+    conflict = _locator_role_conflict(outcome)
+    if conflict:
+        role, name, actual_role, actual_name = conflict
+        return (f"Locator waited for {role} named {name!r}, but the failure snapshot "
+                f"shows a visible {actual_role} named {actual_name!r}. "
+                "Check the required role/name and route/data readiness; a role conflict alone "
+                "does not establish a timing race.")
+    return ""
+
+
+def locator_role_contract_violation(outcome: TestOutcome, required_ui: list[dict]) -> str:
+    """Identify a same-name control that contradicts an explicit requirement role."""
+    conflict = _locator_role_conflict(outcome)
+    if not conflict:
+        return ""
+    role, name, actual_role, actual_name = conflict
+    if ' '.join(actual_name.casefold().split()) != name:
+        return ""  # A partial/regex name match is insufficient contract evidence.
+    roles = {str(control.get('role') or '').casefold() for control in required_ui
+             if isinstance(control, dict) and ' '.join(str(control.get('name') or '').casefold().split()) == name}
+    if role in roles and actual_role not in roles:
+        return (f"The requirement explicitly requires {role} named {actual_name!r}, but the page "
+                f"renders a {actual_role}. Repair the application control; do not substitute another "
+                "role or weaken the test.")
     return ""
 
 
@@ -415,6 +442,9 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
         steps_src = r.steps or _call_log_steps(r.message)
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")
+        transition = dismiss_reopen_evidence('\n'.join(r.action_errors))
+        if transition:
+            blocks[-1] += '\n  Interaction evidence: ' + transition
         mismatch = locator_role_mismatch(r)
         if mismatch:
             blocks[-1] += "\n  Diagnostic: " + mismatch
@@ -505,6 +535,32 @@ def failure_signature(summary: RunSummary, unstable: frozenset[str] = frozenset(
 _FEATURE_SPECIFIC_SHAPE = re.compile(r"not reachable|to be visible|is visible on|is not visible", re.I)
 
 
+def alternative_text_locator_conflict(row: TestOutcome, requirement: str) -> str:
+    """Detect a narrow oracle conflict, never treat it as a product pass.
+
+    Two distinct required error messages may both be valid. An unscoped OR
+    locator's strict-mode failure is not evidence that either should be removed.
+    Complex regexes, duplicate controls and absent rendered messages are unknown.
+    """
+    if 'strict mode violation' not in (row.message or ''):
+        return ''
+    match = re.search(r'getByText\(/([^/\n]+)/(?:[a-z]*)\)', row.message or '')
+    if not match:
+        return ''
+    alternatives = match[1].split('|')
+    if len(alternatives) < 2 or any(re.search(r'[\\\[\]().*+?^${}]', text) for text in alternatives):
+        return ''
+    rendered = row.rendered_page or ''
+    found = [text for text in alternatives if text and text in requirement and text in rendered
+             and re.search(r'<[^>]+>\s*' + re.escape(text) + r'\s*</', row.message or '')]
+    if len(set(found)) < 2:
+        return ''
+    return ('Internal oracle conflict: an unscoped alternative-text locator matched multiple distinct '
+            'messages explicitly permitted by the original requirement: ' + '; '.join(found) +
+            '. Preserve field validation and both messages; this failure requires test-source review, '
+            'not removal of valid product behavior. The case remains unverified, not passed.')
+
+
 def observation_shape(message: str) -> str:
     """The first line of a failure with its concrete values abstracted:
     'gridcell "D1" shows "Item" on http://…' -> 'gridcell "…" shows "…" on <url>'."""
@@ -529,11 +585,22 @@ class SharedFailureTracker:
         self.examples: dict[str, str] = {}
 
     def note(self, node_id: str, summary: RunSummary) -> str:
+        # Replace this node's last measured failures; healed nodes are not
+        # evidence that a defect is still shared by the current application.
+        for nodes in self.nodes.values():
+            nodes.discard(node_id)
         shapes = []
         for row in summary.results:
             if row.ok:
                 continue
             shape = observation_shape(row.message)
+            if re.search(r'locator\.|expect\(locator\)|timeout|timed out|strict mode', shape, re.I):
+                locator = re.search(r'(?m)^\s*Locator:\s*([^\n]+)', _ANSI.sub('', row.message or ''))
+                if not locator:
+                    locator = re.search(r'waiting for (getBy(?:Role|Text|Label|Placeholder|TestId)\([^\n]+)', row.message or '')
+                if not locator:
+                    continue  # a generic timeout does not identify a common cause
+                shape = 'locator: ' + ' '.join(locator[1].split())[:300]
             if len(shape) < 12 or _FEATURE_SPECIFIC_SHAPE.search(shape):
                 continue
             self.nodes.setdefault(shape, set()).add(node_id)
@@ -547,10 +614,9 @@ class SharedFailureTracker:
                 notes.append(f"- '{shape}' also failed in {', '.join(others[:6])}")
         if not notes:
             return ""
-        return ("\nShared defect: the same failure already occurred in other requirements:\n" + "\n".join(notes[:3]) +
-                "\nThese features share one step (a common component, helper, handler or data path). Find and fix "
-                "that shared cause first -- trace the failing step through the shared code rather than patching "
-                "this feature around it.\n")
+        return ("\nShared failure evidence: the same concrete observation occurred in other requirements:\n" + "\n".join(notes[:3]) +
+                "\nInspect this possible shared cause through the component, helper or data path. "
+                "A common observation is a diagnostic lead, not proof of one defect; verify ownership and current state before editing.\n")
 
 
 # ---------------------------------------------------------------- processes

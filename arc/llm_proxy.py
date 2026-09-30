@@ -1383,6 +1383,9 @@ class LlmProxy:
                     integrity = meta.get("stream_integrity")
                     if integrity in {"upstream_incomplete", "locally_interrupted"}:
                         self.interrupted_reply = True
+                        self.interrupted_details = {
+                            key: meta.get(key) for key in ('stream_integrity', 'stream_guard',
+                                                          'stream_events', 'provider_usage_known', 'request_id')}
                     elif integrity in {None, "complete"}:
                         # The kernel can retry within this turn. Only a real,
                         # complete provider reply supersedes an earlier broken
@@ -1393,6 +1396,7 @@ class LlmProxy:
                             finished = len(choices) == 1 and choices[0].get("finish_reason") in {"stop", "tool_calls"}
                             if finished and not response.get("arc_local_response"):
                                 self.interrupted_reply = False
+                                self.interrupted_details = {}
                         except (ValueError, TypeError, AttributeError):
                             pass
                 self.capture_truncated_reply(payload, meta)
@@ -1491,6 +1495,7 @@ class LlmProxy:
             self.turn_serial += 1
             self.truncated_reply = None
             self.interrupted_reply = False
+            self.interrupted_details = {}
             self.turn_budget = int(budget)
             self.turn_budget_extended = False
             self.turn_requests = 0

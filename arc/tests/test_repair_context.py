@@ -4,11 +4,31 @@ from types import SimpleNamespace
 
 from acceptance import RunSummary, TestOutcome
 
-from repair_context import balanced_failure_evidence, diagnosed_failure_evidence, failure_triage
+from repair_context import balanced_failure_evidence, diagnosed_failure_evidence, failure_triage, dismiss_reopen_evidence
 import test_whole_app_v5 as whole_tests
 
 
 class EvidenceTests(TestCase):
+    def test_escape_then_same_toggle_is_observation_not_role_verdict(self):
+        chain = ("Actions preceding the final failed step (diagnostic only):\n"
+                 "Click getByRole('button', { name: 'User options', exact: true }) -> Press \"Escape\" -> "
+                 "Click getByRole('button', { name: 'User options', exact: true }) -> "
+                 "Click getByRole('link', { name: 'Exit', exact: true })")
+        text = '- Feature: account\n  Observation: locator.click timed out\n' + 'DOM\n' * 3000 + chain
+        evidence = diagnosed_failure_evidence(text, 6000)
+        self.assertIn('Observed dismiss/reopen sequence', evidence)
+        self.assertIn('Press "Escape"', evidence)
+        self.assertIn('second click may close it', evidence)
+        self.assertIn('hypothesis, not a verdict', evidence)
+        self.assertIn('An absent target does not prove a role mismatch', evidence)
+        self.assertLessEqual(len(evidence), 6000)
+
+    def test_dismiss_evidence_requires_actual_repeated_trigger(self):
+        self.assertEqual(dismiss_reopen_evidence('getByRole button Escape locator.click timed out'), '')
+        self.assertEqual(dismiss_reopen_evidence('Actions preceding the final failed step:\n'
+            'Click getByRole(\'button\', { name: \'A\' }) -> Press "Escape" -> '
+            'Click getByRole(\'button\', { name: \'B\' })'), '')
+
     def test_triage_keeps_missing_data_and_locator_hypotheses_distinct(self):
         text = "- Feature: A\ngetByRole('button', { name: 'Edit' })\n  Page at failure:\n- link \"Edit\"\n- Feature: B\nlocator.click timed out"
         result = diagnosed_failure_evidence(text, 6000)

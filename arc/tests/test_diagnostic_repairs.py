@@ -174,7 +174,7 @@ class FlowRegression(unittest.TestCase):
         f.codegen_repair_prompt = Mock(return_value=None)
         f.codegen_repair_unavailable_reason = 'prompt_unavailable:required_source_or_context_budget'
         f.compact_tool_repair_prompt = Mock(return_value='focused tool prompt')
-        f.repair_tool_turn = Mock()
+        f.repair_tool_turn = Mock(return_value=(True, 'applied repair'))
         f.llm_proxy = None
         evidence = ('Steps: Press "Control+V"\nShortcut keydown events before failure: '
                     '[{"key":"V","ctrl":true,"target":"TD"}]')

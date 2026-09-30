@@ -2,6 +2,7 @@
 import hashlib
 import posixpath
 import re
+from urllib.parse import urlsplit
 
 
 class SourceIndex:
@@ -22,6 +23,73 @@ class SourceIndex:
         paths = set(paths) & self.sources.keys()
         return paths | {q for p in paths for q in self.dependencies[p]} | {
             p for p, deps in self.dependencies.items() if deps & paths}
+
+    def navigation_owners(self, evidence):
+        """Resolve literal JSX routes to imported renderers for source quoting.
+
+        Dynamic routers, ambiguous tags/imports and external failure pages
+        remain unknown. This selects context, never a reachability verdict.
+        """
+        from route_evidence import frontend_route_index, _jsx_tags
+        urls = [m[2] for m in re.finditer(r"\.goto\(\s*(['\"`])([^'\"`\r\n]*)\1\s*[,)]", evidence)]
+        urls += re.findall(r'(?m)^\s*Page URL at failure: (https?://[^\s]+)', evidence)
+        paths = set()
+        for url in urls:
+            if '${' in url or url.startswith('//'):
+                continue
+            try:
+                parsed = urlsplit(url)
+            except ValueError:
+                continue
+            if parsed.scheme and parsed.scheme not in {'http', 'https'}:
+                continue
+            if parsed.netloc and parsed.hostname not in {'localhost', '127.0.0.1', '0.0.0.0', '::1'}:
+                continue
+            if parsed.path.startswith('/') and '..' not in parsed.path.split('/'):
+                paths.add(parsed.path.rstrip('/') or '/')
+        if not paths:
+            return set()
+        # Build tooling can use import() without participating in the browser
+        # route tree. Include client sources and their static dependencies,
+        # rather than treating every frontend build script as a router.
+        browser_paths = {p for p in self.sources if p.startswith('frontend/src/') or
+                         p.startswith('frontend/') and posixpath.basename(p) in
+                         {'App.jsx', 'App.tsx', 'main.js', 'main.jsx', 'main.ts', 'main.tsx'}}
+        pending = list(browser_paths)
+        while pending:
+            path = pending.pop()
+            for dep in self.dependencies[path] - browser_paths:
+                if dep.startswith('frontend/'):
+                    browser_paths.add(dep)
+                    pending.append(dep)
+        table = frontend_route_index({p: self.sources[p] for p in browser_paths})
+        if not table['complete']:
+            return set()
+        found = set()
+        for row in table['declarations']:
+            if (row['path'].rstrip('/') or '/') not in paths:
+                continue
+            source = self.sources[row['file']]
+            tags = [(start, end) for start, end, name, kind, attrs in _jsx_tags(source)
+                    if name == 'Route' and kind in {'open', 'self'}
+                    and source.count('\n', 0, start) + 1 == row['line']]
+            if len(tags) != 1:
+                continue
+            start, end = tags[0]
+            element = re.search(r'\belement\s*=\s*\{\s*<([A-Z]\w*)\s*/>\s*\}', source[start:end])
+            if not element:
+                continue
+            imports = re.findall(r'(?m)^\s*import\s+' + re.escape(element[1]) +
+                                 r'''\s+from\s+['"](\.[^'"\r\n]+)['"]''', source)
+            if len(imports) != 1:
+                continue
+            base = posixpath.normpath(posixpath.join(posixpath.dirname(row['file']), imports[0]))
+            candidates = [base] + [base + ext for ext in ('.js', '.jsx', '.ts', '.tsx', '.mjs')]
+            candidates += [base + '/index' + ext for ext in ('.js', '.jsx', '.ts', '.tsx')]
+            targets = {p for p in candidates if p in self.sources}
+            if len(targets) == 1:
+                found |= targets
+        return found
 
     def contract_context(self, paths, owners=()):
         """Required owners and dependencies, without pulling every routed page.

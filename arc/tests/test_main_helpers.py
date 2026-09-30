@@ -23,21 +23,57 @@ class LocatorRaceAdmissionTests(unittest.TestCase):
         flow.final_phase_reserve.return_value = 0
         flow.repair_minimum.return_value = 60
         flow.suite_is_measured.return_value = True
+        flow.wound_down.return_value = False
+        flow.time_up.return_value = False
+        flow.node_timeout = 1200
+        flow.slow_test_ms.return_value = 30000
+        flow.perf_text.return_value = ''
+        flow.affected_regression_specs.return_value = []
+        flow.derived_review_needed.return_value = False
+        flow.node_repair_turn.return_value = True
         row = TestOutcome('shelf', False, 'timedOut', 30000, file='REQ-1.spec.ts',
                           message="Locator: getByRole('button', { name: /Shelf\\s+4/i })",
                           rendered_page='- link "Shelf 4"')
         failed = RunSummary(total=1, passed=0, results=[row])
         return flow, failed
 
-    def test_repeat_role_mismatch_defers_costly_local_repair(self):
+    def test_stable_role_mismatch_enters_repair_after_one_recheck(self):
+        from acceptance import RunSummary, TestOutcome
         import time
         flow, failed = self.flow_and_failure()
-        flow.run_specs.side_effect = [failed, failed]
+        passed = RunSummary(total=1, passed=1, results=[
+            TestOutcome('shelf', True, 'passed', 1000, file='REQ-1.spec.ts')])
+        flow.run_specs.side_effect = [failed, failed, passed]
         verdict = m.Flow.acceptance_loop(flow, 'REQ-1', ['REQ-1.spec.ts'], time.time() + 300)
-        self.assertFalse(verdict)
+        self.assertTrue(verdict)
+        self.assertEqual(flow.run_specs.call_count, 3)
+        flow.node_repair_turn.assert_called_once()
+        self.assertIn('not evidence of a timing race', flow.node_repair_turn.call_args.args[1])
+
+    def test_required_link_mismatch_repairs_without_recheck_or_whole_app_rewrite(self):
+        from acceptance import RunSummary, TestOutcome
+        import time
+        flow, _ = self.flow_and_failure()
+        flow.requirement_contracts = {'nodes': [{'id': 'REQ-1-1-1', 'ui': [
+            {'role': 'link', 'name': 'Create an account'}]}]}
+        row = TestOutcome('registration entry', False, 'timedOut', 60000,
+                          file='REQ-1-1-1.spec.ts',
+                          message="Locator: getByRole('link', { name: 'Create an account', exact: true })",
+                          rendered_page='- button "Create an account"')
+        failed = RunSummary(total=3, passed=0, results=[row, row, row])
+        passed = RunSummary(total=3, passed=3, results=[
+            TestOutcome(str(index), True, 'passed', 1000, file='REQ-1-1-1.spec.ts') for index in range(3)])
+        flow.run_specs.side_effect = [failed, passed]
+        flow.can_rewrite_from_scratch.return_value = True
+        rebuild = Mock(return_value='unnecessary whole-app rewrite')
+        verdict = m.Flow.acceptance_loop(flow, 'REQ-1-1-1', ['REQ-1-1-1.spec.ts'],
+                                        time.time() + 1500, rebuild_prompt=rebuild)
+        self.assertTrue(verdict)
         self.assertEqual(flow.run_specs.call_count, 2)
-        flow.node_repair_turn.assert_not_called()
-        self.assertIn('repeated locator-role mismatch', flow.pending_corrections[0])
+        flow.node_repair_turn.assert_called_once()
+        self.assertIn('explicitly requires link', flow.node_repair_turn.call_args.args[1])
+        rebuild.assert_not_called()
+        flow.codegen_turn.assert_not_called()
 
     def test_two_green_rechecks_are_required_for_timing_sensitive_pass(self):
         from acceptance import RunSummary, TestOutcome
@@ -50,6 +86,44 @@ class LocatorRaceAdmissionTests(unittest.TestCase):
         self.assertTrue(verdict)
         self.assertEqual(flow.run_specs.call_count, 3)
         flow.node_repair_turn.assert_not_called()
+
+    def test_role_repair_followup_failure_keeps_targeted_repair_instead_of_rewrite(self):
+        from acceptance import RunSummary, TestOutcome
+        import time
+        flow, first = self.flow_and_failure()
+        flow.requirement_contracts = {'nodes': [{'id': 'REQ-1', 'ui': [
+            {'role': 'button', 'name': 'Shelf 4'}]}]}
+        followup = RunSummary(total=1, passed=0, results=[TestOutcome(
+            'shelf', False, 'failed', 1000, file='REQ-1.spec.ts',
+            message='Expected editor fields to be visible after navigation')])
+        passed = RunSummary(total=1, passed=1, results=[TestOutcome(
+            'shelf', True, 'passed', 1000, file='REQ-1.spec.ts')])
+        flow.run_specs.side_effect = [first, followup, passed]
+        flow.can_rewrite_from_scratch.return_value = True
+        rebuild = Mock(return_value='unnecessary whole-app rewrite')
+        verdict = m.Flow.acceptance_loop(flow, 'REQ-1', ['REQ-1.spec.ts'],
+                                        time.time() + 1500, rebuild_prompt=rebuild)
+        self.assertTrue(verdict)
+        self.assertEqual(flow.node_repair_turn.call_count, 2)
+        self.assertIn('Expected editor fields', flow.node_repair_turn.call_args.args[1])
+        rebuild.assert_not_called()
+        flow.codegen_turn.assert_not_called()
+
+    def test_explicit_role_conflict_respects_repair_cap_and_final_reserve(self):
+        import time
+        for rounds, reserve in ((0, 0), (2, 580)):
+            with self.subTest(rounds=rounds, reserve=reserve):
+                flow, failed = self.flow_and_failure()
+                flow.requirement_contracts = {'nodes': [{'id': 'REQ-1', 'ui': [
+                    {'role': 'button', 'name': 'Shelf 4'}]}]}
+                flow.repair_rounds = rounds
+                flow.final_phase_reserve.return_value = reserve
+                flow.run_specs.return_value = failed
+                verdict = m.Flow.acceptance_loop(flow, 'REQ-1', ['REQ-1.spec.ts'],
+                                                time.time() + 300)
+                self.assertFalse(verdict)
+                flow.run_specs.assert_called_once()
+                flow.node_repair_turn.assert_not_called()
 
 
 def node(node_id, description, deps=()):
@@ -939,6 +1013,40 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         self.assertEqual(flow.restored, ["sha0"])
         self.assertTrue(flow.test_verdict["REQ-1"]); self.assertFalse(flow.test_verdict["REQ-2"])
 
+    def test_two_regressions_repair_the_restored_suite_failure_not_the_rejected_patch(self):
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        flow = self._flow([1])
+        app = flow.output_dir / 'frontend/src/app.js'
+        app.parent.mkdir(parents=True); app.write_text('baseline')
+        def run(*args, **kwargs):
+            state = app.read_text()
+            passed = 2 if state == 'fixed' else 1 if state == 'baseline' else 0
+            rows = [TestOutcome(title=name, ok=i < passed,
+                status='passed' if i < passed else 'failed', duration_ms=1, file=name + '.spec.ts',
+                message='Original missing entry' if state == 'baseline' else 'Rejected duplicate control')
+                for i, name in enumerate(['REQ-1', 'REQ-2'])]
+            return RunSummary(results=rows, total=2, passed=passed)
+        flow.run_specs = run
+        def restore(sha):
+            flow.restored.append(sha); app.write_text('baseline')
+        flow.restore_app = restore
+        prompts = []
+        def repair(label, owners, failures, timeout, **kwargs):
+            prompts.append((owners, failures, kwargs['tool_prompt']))
+            app.write_text('fixed' if len(prompts) == 3 else 'rejected')
+            flow.last_repair_changed = True
+            return 'tools', ''
+        flow.suite_repair_turn = Mock(side_effect=repair)
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS': '3'}):
+            flow.final_acceptance()
+        self.assertEqual(len(prompts), 3)
+        self.assertEqual(flow.restored, ['sha0'])
+        self.assertEqual(prompts[2][0], ['REQ-2'])
+        self.assertIn('Original missing entry', prompts[2][1])
+        self.assertNotIn('Rejected duplicate control', prompts[2][2])
+        self.assertTrue(flow.final_suite_green)
+
     def test_should_never_deliver_a_later_pass_that_is_worse(self):
         """`final_acceptance_passes` says a repeat starts from a state at least as
         good as the one before it. Cloud 6e82a7ff571c bears it out -- pass 1 ended
@@ -1430,6 +1538,8 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:
             flow = Mock(spec=m.Flow)
+            flow.preservation_context.return_value = m.PreservationContext()
+            flow.with_preservation_context.side_effect = lambda prompt, *_args: prompt
             flow.repair_source_index.return_value.versions = {}
             flow.output_dir = Path(directory)
             flow.req_dir = Path(directory)

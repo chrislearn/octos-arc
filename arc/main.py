@@ -94,6 +94,9 @@ Environment (all optional):
     OCTOS_ARC_ADAPTIVE_WAVE_CONTEXT  "0" disables larger single-leaf waves; default requires declared model capacities
     OCTOS_ARC_MODEL_CONTEXT_TOKENS  JSON map of explicit model context capacities for the proxy and adaptive waves
     OCTOS_ARC_LLM_TIMEOUT_SECONDS  kernel HTTP timeout per LLM request; must exceed the proxy wait (default 900)
+    OCTOS_ARC_EDIT_SOURCE_CHARS  whole-source retention in focused tool turns (default 32768)
+    OCTOS_ARC_PRESERVATION_CHARS  complete relevant prior requirement descriptions (default 24000; overflow uses tool reads)
+    OCTOS_ARC_FIXTURE_CONTEXT_CHARS  public frozen fixture prerequisites quoted into codegen (default 12000)
     OCTOS_ARC_BLOCK_ROUTE_WARNINGS  "1" makes a wave's own ROUTE_LINK warnings block completion (default advisory)
     OCTOS_ARC_PRIME_GENERATION_BUILD  "0" skips the one-time dependency/build preflight (default on)
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
@@ -131,7 +134,7 @@ from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     workers_for_memory, process_cwd, workspace_contains, free_owned_ports,
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, clip_ends, container_memory_limit, ensure_playwright,
-    failure_signature, failure_summaries, failure_source_context, locator_role_mismatch, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
+    failure_signature, failure_summaries, failure_source_context, locator_role_mismatch, locator_role_contract_violation, alternative_text_locator_conflict, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     mutated_by_tests, store_changes_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes,
     startup_error_digest, backend_error_digest, SharedFailureTracker)
@@ -160,6 +163,10 @@ from visual_requirements import (cache_key as visual_cache_key, parse_observatio
                                  summary_for_nodes as visual_summary)
 from reply_quality import prune_degenerate_edits  # noqa: E402
 from repair_context import diagnosed_failure_evidence as balanced_failure_evidence  # noqa: E402
+from preservation_context import (PreservationContext, strip_context as strip_preservation_context,
+                                  ancestor_nodes,
+                                  render_context as render_preservation_context,
+                                  select_owners as preservation_owners)  # noqa: E402
 from generic_template import generic_entry_intact, generic_template_active, install_generic_template  # noqa: E402
 from web_stack import recommended_capabilities, stack_note  # noqa: E402
 from progress_timeout import ProgressDeadline
@@ -1549,6 +1556,15 @@ class HarnessCorrections(str):
         return None
 
 
+class RegressionEvidence(str):
+    """A measured failure belongs to one application source version."""
+    def __new__(cls, evidence: str, specs, source_hash: str):
+        value = super().__new__(cls, 'Related regression checks after the targeted repair:\n' + evidence)
+        value.specs = frozenset(specs)
+        value.source_hash = source_hash
+        return value
+
+
 # ---------------------------------------------------------------- octos driver
 
 OCTOS_RELEASE_URL = (
@@ -2194,10 +2210,16 @@ Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local
 Packages: update package.json and the build script only for required dependencies.
 Data: seed only a new store or migration; preserve edits/deletions across restarts. Use atomic aggregate updates for related state and server-side validation. Persist deadlines, distinguish calendar dates from timestamps. Label rich-text textbox regions; use native select when native selection is required.
 HTTP: 400 malformed, 401 unauthenticated (challenge), 403 forbidden, 404 missing, 409 conflict, consistent 400/422 validation. Honor explicit codes; no 2xx or partial writes on rejection.
-Rules: handle general inputs and preserve working behavior. Use accessible controls and unique IDs. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Put each named control where the requirement places it (page/settings/menu/dialog), exact text; a control said to show a value (username) shows it. No two visible controls with the same role and name. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
+Rules: handle general inputs and preserve working behavior. Honor required roles/names and unique IDs; links use an anchor with href or Router Link. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Put each named control where the requirement places it (page/settings/menu/dialog), exact text; a control said to show a value (username) shows it. No two visible controls with the same role and name. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
 Async: clicks do not await handlers. Mount usable editor/dialog controls before the first await; isolate background only for modal overlays. Await save and list refresh (or update optimistically); retain edits on failure.
 Output: FILE blocks for new files or necessary replacements; prefer exact anchored EDIT blocks for localized changes. Never rewrite an existing file without its full current source quoted here; request that path. Keep package and lock versions aligned. No changes: <<<NO CHANGE>>>.
 """
+
+FORM_VALIDATION_GUIDANCE = (
+    "Form contracts: honor inherited parent constraints. For required simultaneous field errors, "
+    "use noValidate to prevent native validation intercepting submission; validate all fields on "
+    "the server and render errors together. Preserve non-sensitive drafts and clear password/confirmation "
+    "after rejection when required. Enforce required unique identity fields before creating a record.\n")
 
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
 JSX (including Context providers) needs .jsx/.tsx, not .js/.ts; update imports. Fix source parse errors before changing build config.
@@ -2233,6 +2255,49 @@ def seed_contract_text(flow) -> str:
     """The resolved seed contract for prompts ("" without a resolved conflict)."""
     resolution = getattr(flow, "seed_resolution", None)
     return seed_contract_note(resolution) if isinstance(resolution, SeedResolution) else ""
+
+
+def fixture_context(flow, evidence: str) -> str:
+    """Inline complete public prerequisites; text-only codegen cannot read a path."""
+    directory = getattr(flow, 'tests_dir', None)
+    if not getattr(flow, 'frozen_suite', None) or not isinstance(directory, Path):
+        return ''
+    try:
+        document = json.loads((directory / 'fixtures.json').read_text(encoding='utf8'))
+    except (OSError, ValueError):
+        return ''
+    cap = max(0, int(os.environ.get('OCTOS_ARC_FIXTURE_CONTEXT_CHARS', '12000')))
+    if not cap or not isinstance(document, dict):
+        return ''
+    render = lambda value: json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+    if len(render(document)) <= cap:
+        selected = document
+    else:
+        selected = {key: value for key, value in document.items() if not isinstance(value, list)}
+        pending = [(key, row) for key, values in document.items() if isinstance(values, list)
+                   for row in values if isinstance(row, dict)]
+        context = evidence.lower()
+        while pending:
+            added = False
+            for key, row in list(pending):
+                identities = [row.get(field) for field in ('username', 'name', 'identifier', 'slug', 'id')]
+                if not any(isinstance(value, str) and value and value.lower() in context for value in identities):
+                    continue
+                candidate = {**selected, key: selected.get(key, []) + [row]}
+                if len(render(candidate)) <= cap:
+                    selected = candidate
+                    context += '\n' + render(row).lower()
+                    added = True
+                pending.remove((key, row))
+            if not added:
+                break
+        if not any(isinstance(value, list) and value for value in selected.values()):
+            return ''
+    body = render(selected)
+    if len(body) > cap:
+        return ''
+    return ('\nPublic fixture prerequisites (read-only source-reviewed records; provision through normal '
+            'application seeds, preserve independent records, no private test API):\n' + body + '\n')
 
 
 def read_text_or_empty(path: Path) -> str:
@@ -2665,6 +2730,7 @@ class Flow:
         # needs; the next codegen prompt quotes it whole (must_include).
         self.refused_paths: set[str] = set()
         self.test_verdict: dict[str, bool | None] = {}
+        self.proven_behavior: set[str] = set()
         # Source progress and test observations are independent state axes.
         self.generation_state: dict[str, str] = {}
         self.implementation_status: dict[str, str] = {}
@@ -3247,7 +3313,7 @@ class Flow:
         """How much of the app to quote into a turn that edits with tools.
 
         This is an input budget and the context window bounds it;
-        `codegen_context_chars` is an output budget, bounding what a tool-free
+        `codegen_context_chars` bounds the serialized input and source plan of a tool-free
         turn is asked to re-emit. They default to the same number and are easy
         to mistake for one thing, but raising that one to quote more source
         would also start asking codegen turns for larger files than they should
@@ -3298,7 +3364,15 @@ class Flow:
     def corrections_text(self) -> str:
         if not self.pending_corrections:
             return ""
-        text = HarnessCorrections(self.pending_corrections)
+        current = self.app_source_digest() if any(isinstance(c, RegressionEvidence)
+                                                  for c in self.pending_corrections) else None
+        approved = ({path for owner, paths in self.spec_map.items()
+                     if owner and self.derived_has_runnable_cases(owner) for path in paths}
+                    if getattr(self, 'derived_as_specs', False) is True else None)
+        entries = [c for c in self.pending_corrections
+                   if not isinstance(c, RegressionEvidence) or (c.source_hash == current
+                       and (approved is None or bool(c.specs & approved)))]
+        text = HarnessCorrections(entries) if entries else ''
         self.pending_corrections = []
         return text
 
@@ -3369,6 +3443,11 @@ class Flow:
             ok, text = False, "local_no_action_limit: node incomplete; partial edits retained for independent checks."
         if proxy is not None and getattr(proxy, "interrupted_reply", False) is True:
             ok, text = False, "interrupted_codegen_response: response was not complete; no text patch may be applied."
+            detail = getattr(proxy, 'interrupted_details', {})
+            if isinstance(detail, dict):
+                self.metric('codegen_interruption', label=label, **detail)
+                reason = detail.get('stream_guard') or detail.get('stream_integrity') or 'unknown'
+                text += ' Interruption reason: ' + str(reason)
         elapsed = time.time() - t0
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
@@ -3537,6 +3616,7 @@ class Flow:
         index = SourceIndex(sources) if sources is not None else self.repair_source_index()
         paths = [Path(p) for p in index.sources]
         targets = set(priority) | spec_targets(evidence, paths) | navigation_targets(evidence, paths)
+        targets |= index.navigation_owners(evidence)
         active = set(requirement_ids) | set(re.findall(r"\bREQ-\d+(?:(?:\.|-)\d+)*\b", evidence))
         design = getattr(self, "app_design_doc", None) or {}
         contracts = [row for key in ('domain_contracts', 'contracts', 'commands', 'modules')
@@ -3546,6 +3626,42 @@ class Flow:
         owners = set(re.findall(r"(?:frontend|backend)/[\w./-]+\.(?:jsx?|tsx?|mjs)",
                                 json.dumps(contracts, ensure_ascii=False)))
         return index.contract_context(targets, owners)
+
+    def preservation_context(self, active_ids, evidence='', edit_paths=()) -> PreservationContext:
+        """Bring relevant, previously measured original contracts before an edit."""
+        nodes = getattr(self, 'requirement_nodes', {})
+        req_path = getattr(self, 'req_dir', Path('requirements')) / 'requirements.yaml'
+        if not req_path.is_file() and req_path.with_suffix('.yml').is_file():
+            req_path = req_path.with_suffix('.yml')
+        limit = max(0, int(os.environ.get('OCTOS_ARC_PRESERVATION_CHARS', '24000')))
+        parents = ancestor_nodes(getattr(self, 'original_requirement_tree', None)
+                                 or getattr(self, 'requirement_tree', None), active_ids)
+        inherited = render_preservation_context(parents, tuple(parents), req_path, limit, inherited=True)
+        proven = set(getattr(self, 'proven_behavior', ())) | {
+            owner for owner, verdict in getattr(self, 'test_verdict', {}).items() if verdict is True}
+        proven = (proven & nodes.keys()) - set(active_ids)
+        if not proven:
+            return inherited
+        index = self.repair_source_index()
+        paths = [Path(path) for path in index.sources]
+        scope = (set(map(str, edit_paths)) | spec_targets(evidence, paths)
+                 | navigation_targets(evidence, paths)) - set(TASK_NEUTRAL_HELPERS)
+        scope |= index.navigation_owners(evidence)
+        targets = self.requirement_source_targets(proven)
+        owners = preservation_owners(nodes, active_ids, proven, targets, scope, index,
+                                     getattr(self, 'folder_children', {}))
+        prior = render_preservation_context(nodes, owners, req_path, max(0, limit - len(inherited.text)))
+        return PreservationContext(inherited.text + prior.text, prior.owners,
+                                   inherited.omitted + prior.omitted, inherited.inherited)
+
+    def with_preservation_context(self, prompt, active_ids, evidence=''):
+        prompt = strip_preservation_context(prompt)
+        context = self.preservation_context(active_ids, evidence)
+        if context.owners or context.inherited:
+            self.metric('preservation_context', active_ids=list(active_ids), owners=list(context.owners),
+                        inherited=list(context.inherited),
+                        omitted=list(context.omitted), chars=len(context.text), mode='tools')
+        return prompt + '\n' + context.text if context.text else prompt
 
     def codegen_implement_prompt(self, node: dict, spec: str, corrections: str = "", *, evidence: str = "",
                                  must_include: set[str] | None = None,
@@ -3567,6 +3683,7 @@ class Flow:
         wholesale, 36 requests a node (dev-docs/token-reduction-plan.md §3.1).
         """
         limit = self.codegen_context_chars()
+        evidence = strip_preservation_context(evidence)
         if context_limit is not None:
             limit = max(12000, int(context_limit))  # input cap is independent of rewrite/output planning
         if len(spec) >= limit * 0.6:
@@ -3579,7 +3696,11 @@ class Flow:
             evidence += '\nPrevious batch checks (fix confirmed errors; verify advisory hypotheses before editing):\n' + gate[:4000]
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
-        dynamic_rules = stack_note(self.output_dir) + seed_contract_text(self)
+        dynamic_rules = (stack_note(self.output_dir) + seed_contract_text(self)
+                         + fixture_context(self, describe_node(node) + '\n' + spec + '\n' + evidence))
+        form_context = str(node.get('description') or '') + '\n' + spec
+        if re.search(r'\b(?:form|password|e-?mail|validat\w*|register|registration)\b', form_context, re.I):
+            dynamic_rules += FORM_VALIDATION_GUIDANCE
         if getattr(self, "generic_template_installed", False):
             rules += GENERIC_TEMPLATE_NOTE
             dynamic_rules += route_table_note(self.output_dir)
@@ -3610,7 +3731,8 @@ class Flow:
         # A wave uses a synthetic node id; its active requirement ids are
         # explicitly listed in the description. Single-node turns use their id.
         node_id = str(node.get("id"))
-        active_ids = ([node_id] if node_id in (getattr(self, "phase_plan", None) or {}).get("leaf_phase", {})
+        active_ids = ([node_id] if node_id in getattr(self, 'requirement_nodes', {})
+                      or node_id in (getattr(self, "phase_plan", None) or {}).get("leaf_phase", {})
                       else re.findall(r"\b[A-Za-z][A-Za-z0-9_-]*-\d+(?:-\d+)*\b",
                                       str(node.get("description") or "").split("ACTIVE DETAILS:", 1)[0]))
         active_ids = list(node.get("active_requirement_ids") or active_ids)
@@ -3660,6 +3782,13 @@ class Flow:
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
+        preservation = self.preservation_context(active_ids or [node_id], spec + '\n' + evidence,
+                                                 must_include)
+        if preservation.omitted:
+            self.codegen_budget = dict(spec=len(spec), entry=entry_size, limit=limit,
+                reason='preservation_contracts_need_tool_reads', omitted=list(preservation.omitted))
+            return None
+        dynamic_rules += preservation.text
         # getattr: tests build bare Flows without __init__, like base_reasoning_mode above.
         design_stable, design_slice = app_design_blocks(getattr(self, "app_design_doc", None), spec,
                                                         int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "24000")),
@@ -3708,6 +3837,8 @@ class Flow:
         prompt = rules + design_stable + sources + "\n" + design_slice + dynamic_rules + corrections + evidence + task
         self.bind_edit_scope(prompt, spec + '\n' + evidence, must_include)
         self.metric("implementation_context", node_id=node_id, design_chars=len(design_stable) + len(design_slice),
+                    preservation_owners=list(preservation.owners), preservation_chars=len(preservation.text),
+                    inherited_owners=list(preservation.inherited),
                     required_source_paths=sorted(must_include), prompt_chars=len(prompt), limit=limit,
                     focused_sources=focused_sources, source_chars=len(sources),
                     quoted_source_paths=sorted(quoted_paths(sources)))
@@ -3740,6 +3871,9 @@ class Flow:
         scopes = getattr(self, '_edit_scopes', {})
         scopes[hashlib.sha256(prompt.encode()).hexdigest()] = scope
         self._edit_scopes = dict(list(scopes.items())[-4:])
+        observations = getattr(self, '_edit_evidence', {})
+        observations[hashlib.sha256(prompt.encode()).hexdigest()] = evidence
+        self._edit_evidence = dict(list(observations.items())[-4:])
 
     def edit_scope(self, prompt):
         return getattr(self, '_edit_scopes', {}).get(hashlib.sha256(prompt.encode()).hexdigest()) or quoted_paths(prompt)
@@ -3756,6 +3890,16 @@ class Flow:
         if not spec or spec == "(none)":
             self.codegen_repair_unavailable_reason = "missing_spec"
             return None
+        preservation = self.preservation_context([node_id], spec + '\n' + failures)
+        if preservation.omitted:
+            # Check before the spec-size fast refusal too: otherwise the
+            # requote fallback could retain instructions to read missing
+            # contracts in a tool-less turn.
+            self.codegen_repair_unavailable_reason = 'preservation_contracts_need_tool_reads'
+            return None
+        prompt = strip_preservation_context(prompt)
+        if preservation.text:
+            prompt += '\n' + preservation.text
         if failures and failures in prompt:
             prompt = prompt.replace(failures, balanced_failure_evidence(failures, 6000), 1)
         # Build implementation and repair through the same stable prefix.
@@ -3774,6 +3918,9 @@ class Flow:
         tail = prompt.replace(current_sources, '', 1) if current_sources.strip() and current_sources in prompt else prompt
         fallback = self.codegen_implement_prompt(node, spec, "", evidence=tail) if node is not None else None
         if fallback is None:
+            if getattr(self, 'codegen_budget', {}).get('reason') == 'preservation_contracts_need_tool_reads':
+                self.codegen_repair_unavailable_reason = 'preservation_contracts_need_tool_reads'
+                return None
             patched = self._patched_repair_prompt(node_id, spec, prompt)
             if patched is not None:
                 self.bind_edit_scope(patched, spec + '\n' + failures, getattr(self, 'refused_paths', ()))
@@ -4787,7 +4934,7 @@ class Flow:
             # Historical diffs may contain the entire generated application.
             # Prefer current failure ownership and its direct callers instead.
             must = localized | (changed if len(changed) <= 3 else changed & index.related(localized))
-        node = {"id": ", ".join(names), "description": description}
+        node = {"id": ", ".join(names), "description": description, "active_requirement_ids": names}
         prompt = self.codegen_implement_prompt(node, specs, "", evidence=evidence, must_include=must)
         if prompt is None or not must:
             return prompt
@@ -4856,10 +5003,12 @@ class Flow:
         self.remember_repair(label, prompt, 'applied' if self.last_codegen_written else 'unchanged' if ok else 'tool_incomplete')
         return ok, text
 
-    def requirement_source_targets(self):
+    def requirement_source_targets(self, node_ids=None):
         paths = [p.relative_to(self.output_dir) for p in app_source_files(self.output_dir)]
         targets = {}
         for node, specs in self.spec_map.items():
+            if node_ids is not None and node not in node_ids:
+                continue
             texts = []
             for spec in specs or []:
                 path = self.tests_dir / spec
@@ -4877,7 +5026,9 @@ class Flow:
         """
         if not changed or not self.tests_dir:
             return []
-        proven = {node for node, verdict in self.test_verdict.items() if verdict is True}
+        proven = set(getattr(self, 'proven_behavior', set()))
+        proven.update(node for node, verdict in self.test_verdict.items() if verdict is True)
+        self.proven_behavior = proven
         current = set(already_run)
         prior_specs = {spec for node in proven for spec in self.spec_map.get(node, [])}
         if not prior_specs - current:
@@ -4918,7 +5069,8 @@ class Flow:
         self.last_repair_changed = False
         round_spent = 0
         proxy = getattr(self, "llm_proxy", None)
-        tool_prompt = self.compact_tool_repair_prompt(tool_prompt, failures)
+        tool_prompt = self.compact_tool_repair_prompt(
+            self.with_preservation_context(tool_prompt, failing_ids, failures), failures)
         if prefer_codegen and self.codegen_mode(node_block=False):
             prompt = self.suite_repair_prompt(failing_ids, failures)
             if prompt is not None:
@@ -5489,6 +5641,7 @@ class Flow:
                   for p in app_source_files(self.output_dir, exts=None)}
         # Scope is keyed by the original prompt, before memory/index additions.
         scope = self.edit_scope(prompt)
+        evidence = getattr(self, '_edit_evidence', {}).get(hashlib.sha256(prompt.encode()).hexdigest(), '')
         if phase_for_label(label) == 'repair':
             prompt += self.repair_memory_context(prompt)
         from source_index import SourceIndex
@@ -5498,16 +5651,20 @@ class Flow:
         prompt += "\n" + index.render(scope) + "\n"
         related = index.related(scope)
         retained = 0
+        retention_limit = max(0, int(os.environ.get('OCTOS_ARC_EDIT_SOURCE_CHARS', '32768')))
+        terms = spec_terms(evidence)
         # Select by relevance, but leave retained quotations in their original
         # stable order for prefix reuse. Never discard failure/spec evidence.
-        for rel in sorted(quoted_paths(prompt), key=lambda p: (p not in scope, p not in related, p)):
+        for rel in sorted(quoted_paths(prompt), key=lambda p: (
+                p not in scope, p not in related, p in TASK_NEUTRAL_HELPERS,
+                -sum(term in sources.get(p, '').lower() for term in terms), p)):
             path = self.output_dir / rel
             if path.is_file():
                 content = path.read_text(encoding="utf-8", errors="replace").rstrip()
                 quoted = f"--- {rel} ---\n{content}\n"
                 # Preserve small, already localized files instead of paying for
                 # another read. Large files remain available through range reads.
-                if quoted in prompt and retained + len(content) <= 16000:
+                if quoted in prompt and retained + len(content) <= retention_limit:
                     retained += len(content)
                 else:
                     prompt = prompt.replace(quoted, f"--- {rel} --- (read current file before editing)\n")
@@ -5531,6 +5688,8 @@ class Flow:
                    "Do not repeat identical or no-op edits. Preserve unrelated behavior and stop after the changes. "
                    "Use targeted grep and line-range reads; do not reread unchanged files to confirm an edit that succeeded. "
                    "Before changing a shared prop/callback, locate every caller and update all rendering branches. "
+                   "UI composition can override an anchor's role through asChild. Preserve required rendered roles, "
+                   "and trace menu closing, navigation and dialog opening through the actual handlers. "
                    "Keep seed/create/update/read record shapes consistent; optional collections must not crash rendering. "
                    "Do not narrate a long diagnosis: issue the necessary edits and finish with a short summary. "
                    "The harness builds and runs acceptance immediately afterwards; no shell is available.\n")
@@ -5593,7 +5752,8 @@ class Flow:
                     elapsed_seconds=round(time.monotonic() - started, 3),
                     changed_files=len(self.last_codegen_written),
                     file_changes={rel: {"before": before.get(rel), "after": after.get(rel)} for rel in self.last_codegen_written},
-                    retained_source_chars=retained, scope_files=len(scope))
+                    retained_source_chars=retained, source_retention_limit=retention_limit,
+                    scope_files=len(scope))
         # Do not feed final tool prose into the FILE protocol-retry detector.
         return ok, "" if ok else "Structured editing incomplete; inspect current files before continuing. " + text[-300:]
 
@@ -5707,6 +5867,20 @@ class Flow:
         return ("Original requirements (read-only; preserve details even when acceptance does not assert them):\n"
                 + text + "\n")
 
+    def frozen_oracle_conflicts(self, summary: RunSummary) -> list[str]:
+        if not getattr(self, 'frozen_suite', None):
+            return []
+        notes = []
+        for owner, rows in nodes_for_failures(summary.results, self.spec_map).items():
+            requirement = str(getattr(self, 'requirement_nodes', {}).get(owner, {}).get('description') or '')
+            for row in rows:
+                note = alternative_text_locator_conflict(row, requirement)
+                if note:
+                    notes.append(note)
+                    self.metric('frozen_oracle_conflict', node_id=owner, title=row.title,
+                                decision='preserve_product_and_require_review', source_hash=self.app_source_digest())
+        return notes
+
     def repair_test_location(self, specs: list[str] | None = None) -> str:
         if not self.tests_dir:
             return ""
@@ -5742,6 +5916,10 @@ class Flow:
         result = template.format(**fields)
         if getattr(self, 'frozen_suite', None):
             result = result.replace('official acceptance tests', 'reviewed internal derived tests').replace('official tests', 'reviewed internal derived tests')
+        node = getattr(self, 'requirement_nodes', {}).get(fields.get('node_id'), {})
+        form_context = str(node.get('description') or '') + '\n' + str(fields.get('failures') or '')
+        if re.search(r'\b(?:form|password|e-?mail|validat\w*|register|registration)\b', form_context, re.I):
+            result += '\n' + FORM_VALIDATION_GUIDANCE
         return result
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
@@ -6380,6 +6558,9 @@ class Flow:
         return err
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
+        if (summary.all_passed and self.suite_is_measured(summary, specs)
+                and not self.derived_review_needed(node_id)):
+            self.proven_behavior = set(getattr(self, 'proven_behavior', set())) | {node_id}
         if getattr(self, 'derived_as_specs', False) is True and self.derived_review_needed(node_id):
             self.metric('derived_test_wait', node_id=node_id, decision='record_approved_cases_only')
         source_hash = self.app_source_digest() if any(not row.ok for row in summary.results) else None
@@ -6404,7 +6585,8 @@ class Flow:
 
     def can_rewrite_from_scratch(self) -> bool:
         """A failing node does not justify replacing previously verified behavior."""
-        return not (any(v is True for v in getattr(self, "test_verdict", {}).values())
+        return not (getattr(self, 'proven_behavior', set())
+                    or any(v is True for v in getattr(self, "test_verdict", {}).values())
                     or any(r.passed > 0 for r in getattr(self, "probe_summaries", {}).values()))
 
     @staticmethod
@@ -6430,6 +6612,9 @@ class Flow:
         sources. False means no repair was applied and the allowance is exhausted.
         """
         deadline = time.monotonic() + timeout
+        original_builder = build_prompt
+        build_prompt = lambda: self.with_preservation_context(
+            original_builder(), [node_id], failures)
         prompt = build_prompt()
         codegen_enabled = self.codegen_mode()
         compact = self.codegen_repair_prompt(node_id, prompt, failures=failures) if codegen_enabled else None
@@ -6503,9 +6688,27 @@ class Flow:
                 "Inspect current files; apply a concrete fix before rerunning acceptance. "
                 "An unapplied or unchanged reply is not evidence that the proposed fix failed.")
         self.last_turn_changed = None
-        self.repair_tool_turn(self.compact_tool_repair_prompt(build_prompt(), failures), left, label,
-                              request_budget=allowance)
+        ok, text = self.repair_tool_turn(self.compact_tool_repair_prompt(build_prompt(), failures), left, label,
+                                       request_budget=allowance)
         changed = getattr(self, "last_turn_changed", None)
+        spent = getattr(proxy, 'turn_upstream_requests', None)
+        if changed is False and not applied and ok and text and isinstance(spent, int) and spent > 0:
+            round_spent += spent
+            continuation = min(8, max(0, self.node_repair_request_cap(failures, applied) - round_spent))
+            left = deadline - time.monotonic()
+            if continuation and left >= 30 and not self.wound_down() and getattr(proxy, 'hard_budget_exhausted', False) is not True:
+                note = ("\nThe previous repair returned no application edit. Its proposed diagnosis is unverified; "
+                        "check it against the current helper/API shapes. Use the available edit_file/write_file tools "
+                        "to apply the focused fix now; do not finish by promising to implement it. "
+                        "Explanatory code blocks do not change disk files. Preserve the tests and existing behavior.\n"
+                        + self.unfinished_repair_note(text))
+                self.metric('repair_noop_continuation', node_id=node_id, label=label, spent=round_spent,
+                            request_allowance=continuation, seconds_left=round(left, 1))
+                log(f'[flow] {label}: unapplied tool reply; one continuation with {continuation} remaining request(s)')
+                self.last_turn_changed = None
+                self.repair_tool_turn(self.compact_tool_repair_prompt(build_prompt(), failures) + note, left,
+                                      label + ' (apply unfinished repair)', request_budget=continuation)
+                changed = getattr(self, 'last_turn_changed', None)
         if changed is False and not applied:
             log(f"[flow] {label}: no source changes after repair fallback; skipping duplicate acceptance")
             return False
@@ -6963,18 +7166,27 @@ class Flow:
             log(f'[acceptance] {node_id}: generated tests await complete independent review; repair deferred')
             return None
         best_passed, best_sha, regressions, stalls = (-1, self.head(), 0, 0)
+        best_quality = (-1, -1, -1)
         rewrite_used = False
+        role_conflict_confirmed = False
         previous_failures = None
         repair_applied = False
         prior_regressed = False
         checked_failed_versions = set()
+        pending_regression_specs = set()
+        last_regression_evidence = ''
         initial_versions = source_versions if source_versions is not None else self.repair_source_index().versions
         self.codegen_blocked = False
         explicit_rounds = getattr(self, 'repair_rounds_explicit', True)
         maximum_rounds = 5 if not explicit_rounds and self.repair_rounds == 3 else self.repair_rounds
         failure_signatures = set()
         made_progress = False
-        for attempt in range(maximum_rounds + 1):
+        attempt = 0
+        while attempt <= maximum_rounds:
+            regression_failed = bool(pending_regression_specs)
+            regression_results = []
+            related_specs = []
+            prior_regressed = bool(pending_regression_specs)
             if getattr(self, 'derived_as_specs', False) is True and (not self.derived_has_runnable_cases(node_id)):
                 self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases_during_acceptance')
                 return None
@@ -7028,7 +7240,7 @@ class Flow:
                     shared = tracker.note(node_id, summary)
                     if shared:
                         failures += shared
-                        log(f'[acceptance] {node_id}: failure shared with earlier requirements; repair targets the common cause ({shared.splitlines()[2][:200]})')
+                        log(f'[acceptance] {node_id}: possible shared failure; verify the concrete cause ({shared.splitlines()[2][:200]})')
             log(f'[acceptance] {node_id} round {attempt}: {passed}/{summary.total}')
             self.last_node_own_pass = bool(measured and passed == summary.total and (not self.derived_review_needed(node_id)))
             self.metric('acceptance', scope='node', node_id=node_id, round=attempt, passed=passed, total=summary.total, after_applied_repair=repair_applied, verdict='measured' if measured else 'unknown', error=infrastructure_error or None)
@@ -7039,12 +7251,6 @@ class Flow:
                     first_pass = sum((self.batch_first_pass[member] for member in group))
                     log(f'[flow] sibling batch {list(group)}: first-pass {first_pass}/{len(group)} leaves')
             was_codegen = self.codegen_mode()
-            normalized = failure_signature(summary) if summary.results else failures
-            if repair_applied and normalized and (normalized == previous_failures):
-                self.codegen_blocked = True
-                self.pending_corrections.append('Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
-                log(f'[flow] {node_id}: identical failure twice; switching repairs to tool mode')
-            previous_failures = normalized
             if attempt >= int(os.environ.get('OCTOS_ARC_CODEGEN_REPAIRS', '2')) and passed < summary.total and self.codegen_mode():
                 self.codegen_blocked = True
                 log(f'[flow] {node_id}: codegen attempt {attempt} still failing; repairs use tool mode')
@@ -7055,9 +7261,12 @@ class Flow:
                 current_versions = self.repair_source_index().versions
                 changed = {p for p in initial_versions.keys() | current_versions.keys() if initial_versions.get(p) != current_versions.get(p)}
                 regression_specs = self.affected_regression_specs(changed, specs) if repair_applied or source_versions is not None else []
+                regression_specs = sorted(set(regression_specs) | pending_regression_specs)
                 if getattr(self, 'derived_as_specs', False) is True:
                     reviewed_paths = {path for owner, paths in self.spec_map.items() if owner and self.derived_has_runnable_cases(owner) for path in paths}
                     regression_specs = [path for path in regression_specs if path in reviewed_paths]
+                    pending_regression_specs.intersection_update(reviewed_paths)
+                    regression_failed = bool(pending_regression_specs)
                 if passed < summary.total:
                     version_key = tuple(sorted(((p, current_versions.get(p)) for p in changed)))
                     if version_key in checked_failed_versions:
@@ -7065,6 +7274,7 @@ class Flow:
                     else:
                         checked_failed_versions.add(version_key)
                 affected_count = len(regression_specs)
+                related_specs = sorted(set(regression_specs) - set(specs))
                 if passed < summary.total and regression_specs:
                     prior_specs = sorted(set(regression_specs) - set(specs))
                     cap = max(1, int(os.environ.get('OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS', '16')))
@@ -7086,37 +7296,56 @@ class Flow:
                         excluded.update((Path(path).name.removesuffix('.spec.ts') for path in regression_specs if not self.derived_has_runnable_cases(Path(path).name.removesuffix('.spec.ts'))))
                         for prior in excluded:
                             self.test_verdict[prior] = None
+                            pending_regression_specs.difference_update(self.spec_map.get(prior, []))
                         regression_specs = [path for path in regression_specs if Path(path).name.removesuffix('.spec.ts') not in excluded]
                         regression = self.uncontested_derived_results(regression)
+                    regression_results = regression.results
+                    if regression.all_passed and self.suite_is_measured(regression, regression_specs):
+                        pending_regression_specs.difference_update(regression_specs)
+                    regression_failed = bool(pending_regression_specs)
                     self.metric('acceptance', scope='affected_regression', node_id=node_id, passed=regression.passed, total=regression.total, checked_specs=len(regression_specs), affected_specs=affected_count, changed_files=sorted(changed))
+                    prior_regressed = False
+                    for prior, paths in self.spec_map.items():
+                        if not prior or not paths or (not set(paths) <= set(regression_specs)):
+                            continue
+                        if getattr(self, 'derived_as_specs', False) and (not self.derived_has_runnable_cases(prior)):
+                            self.test_verdict[prior] = None
+                            self.metric('derived_test_wait', node_id=prior, decision='review_invalidated_by_regression_audit')
+                            continue
+                        rows = [r for r in regression.results if any((str(r.file or '').replace('\\', '/') == p or str(r.file or '').replace('\\', '/').endswith('/' + p) for p in paths))]
+                        local = RunSummary(results=rows, total=len(rows), passed=sum((r.ok for r in rows)), error=regression.error, killed=regression.killed, load_errors=regression.load_errors)
+                        if self.suite_is_measured(local, paths):
+                            self.test_verdict[prior] = None if local.all_passed and self.derived_review_needed(prior) else local.all_passed
+                            self.record_tests(prior, paths, local)
+                            if local.all_passed:
+                                pending_regression_specs.difference_update(paths)
+                            if not local.all_passed:
+                                if prior != node_id and self.test_verdict.get(prior) is False:
+                                    prior_regressed = True
+                                    pending_regression_specs.update(paths)
+                                self.mark('test_failed', prior, 'affected behavior failed after application changes')
+                        else:
+                            self.test_verdict[prior] = None
                     if regression_specs and (not regression.all_passed or not self.suite_is_measured(regression, regression_specs)):
-                        prior_regressed = False
-                        for prior, paths in self.spec_map.items():
-                            if not prior or not paths or (not set(paths) <= set(regression_specs)):
-                                continue
-                            if getattr(self, 'derived_as_specs', False) and (not self.derived_has_runnable_cases(prior)):
-                                self.test_verdict[prior] = None
-                                self.metric('derived_test_wait', node_id=prior, decision='review_invalidated_by_regression_audit')
-                                continue
-                            rows = [r for r in regression.results if any((str(r.file or '').replace('\\', '/') == p or str(r.file or '').replace('\\', '/').endswith('/' + p) for p in paths))]
-                            local = RunSummary(results=rows, total=len(rows), passed=sum((r.ok for r in rows)), error=regression.error, killed=regression.killed, load_errors=regression.load_errors)
-                            if self.suite_is_measured(local, paths):
-                                self.test_verdict[prior] = None if local.all_passed and self.derived_review_needed(prior) else local.all_passed
-                                self.record_tests(prior, paths, local)
-                                if not local.all_passed:
-                                    if prior != node_id and self.test_verdict.get(prior) is False:
-                                        prior_regressed = True
-                                    self.mark('test_failed', prior, 'affected behavior failed after application changes')
-                            else:
-                                self.test_verdict[prior] = None
+                        regression_failed = True
                         regression_evidence = balanced_failure_evidence(failure_summaries(regression) or regression.error or 'Incomplete regression verdict', 4000)
-                        self.pending_corrections.append('Related regression checks after the targeted repair:\n' + regression_evidence)
-                        if passed == summary.total:
-                            return False
-                        if prior_regressed:
-                            failures += '\nPreviously passing behavior regressed after this edit:\n' + regression_evidence
-                            log(f'[acceptance] {node_id}: shared-file edit regressed proven behavior; including it in the local repair')
-                if passed == summary.total:
+                        if not pending_regression_specs and not self.suite_is_measured(regression, regression_specs):
+                            pending_regression_specs.update(related_specs)
+                        last_regression_evidence = regression_evidence
+                        self.pending_corrections.append(RegressionEvidence(
+                            regression_evidence, pending_regression_specs or related_specs or regression_specs,
+                            self.app_source_digest()))
+                        failures += '\nPreviously passing behavior regressed after this edit:\n' + regression_evidence
+                        self.metric('joint_repair_required', node_id=node_id, target_passed=passed,
+                                    target_total=summary.total, regression_specs=regression_specs)
+                        log(f'[acceptance] {node_id}: shared-file edit regressed proven behavior; including it in the local repair')
+                elif regression_specs:
+                    self.metric('joint_acceptance_unverified', node_id=node_id, specs=regression_specs)
+                    return None
+                elif pending_regression_specs:
+                    related_specs = sorted(pending_regression_specs)
+                    failures += '\nUnresolved regression on this unchanged source:\n' + last_regression_evidence
+                if passed == summary.total and not regression_failed:
                     if self.derived_review_needed(node_id):
                         log(f'[acceptance] {node_id}: generated reach/entry checks pass, but no behavioural spec can verify the feature')
                         self.metric('derived_spec_coverage', node_id=node_id, outcome='unverified', passed=passed, total=summary.total)
@@ -7124,7 +7353,22 @@ class Flow:
                         return None
                     self.commit(f'{node_id} (accepted): {passed}/{summary.total} acceptance tests pass')
                     return True
+            joint = dc_replace(summary, results=summary.results + regression_results)
+            normalized = failure_signature(joint) if joint.results else failures
+            if repair_applied and normalized and normalized == previous_failures:
+                self.codegen_blocked = True
+                self.pending_corrections.append('Repeated attempts produced the same observed failure. Recheck the expected and received values, exact failing operation and application state before editing again. Preserve passing behavior.')
+                log(f'[flow] {node_id}: identical failure twice; switching repairs to tool mode')
+            previous_failures = normalized
             failed_rows = [row for row in summary.results if not row.ok]
+            conflicts = (self.frozen_oracle_conflicts(summary)
+                         if measured and failed_rows and getattr(self, 'frozen_suite', None) else [])
+            if conflicts:
+                failures += '\n' + '\n'.join(conflicts)
+                if len(conflicts) == len(failed_rows) and not regression_failed:
+                    self.self_audit_node(node_id, 'internal oracle ambiguous between valid required messages')
+                    log(f'[acceptance] {node_id}: internal alternative-text locator conflicts with required field errors; case remains unverified')
+                    return None
             if measured and failed_rows:
                 source = 'derived' if getattr(self, 'derived_as_specs', False) else ('embedded_reviewed' if getattr(self, 'frozen_suite', None) else 'official')
                 requirement_node = getattr(self, 'requirement_nodes', {}).get(node_id, {})
@@ -7138,7 +7382,19 @@ class Flow:
                     self.self_audit_node(node_id, 'local or low-signal failure deferred after source review')
                     self.metric('acceptance_deferred', node_id=node_id, levels=levels, decision='continue_generation')
                     return False if 'F2' in levels else None
-            if attempt == 0 and measured and failed_rows and (not prior_regressed) and (len(specs) <= 2) and all((locator_role_mismatch(row) for row in failed_rows)) and (deadline - time.time() >= 90) and (self.remaining() >= self.final_phase_reserve() + self.repair_minimum() + 90):
+            contracts = getattr(self, 'requirement_contracts', None)
+            required_ui = [control for contract in (contracts.get('nodes') or [])
+                           if isinstance(contract, dict) and str(contract.get('id')) == node_id
+                           for control in (contract.get('ui') or [])] if isinstance(contracts, dict) else []
+            role_violations = list(dict.fromkeys(filter(None, (
+                locator_role_contract_violation(row, required_ui) for row in failed_rows))))
+            role_conflict_confirmed = role_conflict_confirmed or bool(role_violations)
+            if measured and role_violations:
+                failures += '\nExplicit requirement role conflicts:\n' + '\n'.join(role_violations)
+                self.metric('locator_contract_violation', node_id=node_id, conflicts=role_violations,
+                            decision='bounded_application_repair')
+                log(f'[acceptance] {node_id}: explicit requirement role mismatch; repairing the application')
+            if attempt == 0 and measured and failed_rows and not role_violations and (not prior_regressed) and (len(specs) <= 2) and all((locator_role_mismatch(row) for row in failed_rows)) and (deadline - time.time() >= 90) and (self.remaining() >= self.final_phase_reserve() + self.repair_minimum() + 90):
                 confirmation = self.run_specs(specs)
                 confirmed = self.suite_is_measured(confirmation, specs)
                 self.metric('locator_race_recheck', node_id=node_id, first_passed=summary.passed, recheck_passed=confirmation.passed, confirmed=confirmed)
@@ -7158,32 +7414,52 @@ class Flow:
                         self.pending_corrections.append(f'{node_id}: locator-role failure passed one independent recheck, but there was insufficient time for a second confirmation. Preserve the UI and remeasure it with the later suite before treating this as fixed.')
                         return False
                 if confirmed and confirmation.passed == summary.passed and all((locator_role_mismatch(row) for row in confirmation.results if not row.ok)):
-                    self.pending_corrections.append(f'{node_id}: repeated locator-role mismatch while the named target was visible. Check route/data readiness and the actual accessible role before changing feature logic. The local repair was deferred to leave time for shared checkpoint diagnosis.')
-                    log(f'[acceptance] {node_id}: repeated locator-role mismatch; deferring local repair')
-                    return False
+                    role_conflict_confirmed = True
+                    failures += '\nThe same role conflict persisted on an independent recheck. Diagnose and repair the application using the requirement/spec role contract; repeated failure is not evidence of a timing race.\n'
+                    log(f'[acceptance] {node_id}: repeated locator-role mismatch; continuing bounded repair')
                 if confirmed:
                     failures += '\nIndependent recheck (use the newer evidence when diagnosing):\n' + failure_summaries(confirmation)
-            signature = tuple(sorted(((str(row.file), row.title, row.status, tuple(re.findall('[^\\s()]+\\.spec\\.[jt]sx?:[0-9]+:[0-9]+', row.message or ''))) for row in summary.results if not row.ok)))
+            # A changed concrete failure is progress. Unlocated prose alone
+            # cannot buy more rounds by changing a generic timeout's wording.
+            signature = (normalized if any(row.file or row.location for row in joint.results if not row.ok)
+                         else tuple(sorted((row.title, row.status) for row in joint.results if not row.ok)))
             if attempt and failure_signatures and signature and (signature not in failure_signatures):
                 made_progress = True
                 stalls = 0
             failure_signatures.add(signature)
-            if measured and passed > best_passed:
+            quality = (int(not regression_failed), passed, sum(row.ok for row in regression_results))
+            if measured and quality > best_quality:
                 made_progress = made_progress or attempt > 0
                 if best_passed >= 0:
                     self.commit(f'{node_id} (repair {attempt}): {passed}/{summary.total} pass')
                 best_passed, best_sha, regressions, stalls = (passed, self.head(), 0, 0)
-            elif measured and passed == best_passed and (attempt > 0):
+                best_quality = quality
+            elif measured and quality == best_quality and (attempt > 0):
                 stalls += 1
                 if stalls >= 2 and (not (was_codegen and self.codegen_blocked)):
                     log(f'[flow] {node_id}: no improvement for two repairs; keeping the best state')
                     break
-            elif measured and passed < best_passed:
+            elif measured and quality < best_quality:
                 regressions += 1
                 if regressions >= 2 and best_sha:
+                    before_rollback = self.app_source_digest()
                     self.restore_app(best_sha)
                     self.pending_corrections.append(f'Your last two repairs made the tests worse; the harness restored frontend/ and backend/ to the best state ({best_passed}/{summary.total}). Start from that code.')
                     regressions = 0
+                    # The local failure/DOM/action summaries describe the
+                    # rejected patch, not this restored source. Remeasure
+                    # before constructing another model prompt, keeping the
+                    # same repair count and all unresolved prior obligations.
+                    checked_failed_versions.clear()
+                    last_regression_evidence = ''
+                    previous_failures = None
+                    repair_applied = False
+                    self.metric('node_rollback', node_id=node_id, attempt=attempt,
+                                before_source_sha256=before_rollback,
+                                restored_source_sha256=self.app_source_digest(),
+                                pending_specs=sorted(pending_regression_specs),
+                                next_action='remeasure_before_repair')
+                    continue
             initial_cap = min(maximum_rounds, max(0, int(os.environ.get('OCTOS_ARC_F1_REPAIR_ROUNDS', '3'))))
             repair_cap = repair_allowance(initial_cap, maximum_rounds, made_progress)
             self.metric('effective_repair_budget', node_id=node_id, attempt=attempt, initial=initial_cap, effective=repair_cap, maximum=maximum_rounds, progress=made_progress, levels=levels)
@@ -7200,7 +7476,7 @@ class Flow:
             self.snapshot_sources(node_id, attempt)
             slow = summary.slow(self.slow_test_ms())
             slow_text = 'These tests exceeded the configured slow-test threshold: ' + '; '.join(slow) + '. Inspect the failed operations and measured timings before optimizing.\n' + self.perf_text() if slow else ''
-            if measured and passed == 0 and (rebuild_prompt is not None) and (not rewrite_used) and (not getattr(self, 'derived_as_specs', False)) and (best_passed <= 0) and self.can_rewrite_from_scratch() and (os.environ.get('OCTOS_ARC_REWRITE_ON_ZERO', '1') != '0'):
+            if measured and passed == 0 and not role_conflict_confirmed and (rebuild_prompt is not None) and (not rewrite_used) and (not getattr(self, 'derived_as_specs', False)) and (best_passed <= 0) and self.can_rewrite_from_scratch() and (os.environ.get('OCTOS_ARC_REWRITE_ON_ZERO', '1') != '0'):
                 rewrite_used = True
                 log(f'[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch')
                 prompt = rebuild_prompt(failures or '(no detail)')
@@ -7212,6 +7488,7 @@ class Flow:
                     self.turn(prompt, min(self.node_timeout, left), f'{node_id} rewrite (repair {attempt + 1})', request_budget=int(os.environ.get('OCTOS_ARC_IMPLEMENT_REQUESTS', '20')))
                     repair_applied = self.last_turn_changed is not False
                 if repair_applied:
+                    attempt += 1
                     continue
                 self.pending_corrections.append('The rewrite did not change application sources. Apply the pending fix before retesting.')
                 left = deadline - time.time()
@@ -7224,10 +7501,15 @@ class Flow:
             def repair_prompt():
                 nonlocal corrections
                 corrections = str(corrections) + str(self.corrections_text())
-                return self.app_repair_prompt(node_id=node_id, passed=passed, total=summary.total, failures=failures or '(no detail)', test_location=self.repair_test_location(specs), corrections=corrections, slow=slow_text, smoke=self.smoke_port, port=self.web_port, sources=self.repair_requirements(node_id) + self.sources_text())
+                related = [owner for owner, paths in getattr(self, 'spec_map', {}).items()
+                           if owner != node_id and paths and set(paths) & pending_regression_specs]
+                context = ''.join(self.repair_requirements(owner) + '\n' + self.spec_bodies(owner)
+                                  for owner in related)
+                return self.app_repair_prompt(node_id=node_id, passed=passed, total=summary.total, failures=failures or '(no detail)', test_location=self.repair_test_location(sorted(set(specs + related_specs))), corrections=corrections, slow=slow_text, smoke=self.smoke_port, port=self.web_port, sources=self.repair_requirements(node_id) + context + self.sources_text())
             if not self.node_repair_turn(node_id, failures, min(self.node_timeout, left), f'{node_id} repair {attempt + 1}/{repair_cap} (maximum {maximum_rounds})', repair_prompt):
                 break
             repair_applied = True
+            attempt += 1
         startup_regression = bool(getattr(self, '_unresolved_startup_error', '') and best_passed >= 0)
         if best_sha and (best_passed > 0 or startup_regression):
             self.restore_app(best_sha)
@@ -11072,7 +11354,8 @@ class Flow:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         before_sha = self.head()
-        proven_before = {prior for prior, value in self.test_verdict.items() if value is True}
+        proven_before = (set(getattr(self, 'proven_behavior', set()))
+                         | {prior for prior, value in self.test_verdict.items() if value is True})
         self.last_codegen_written = []
         self.last_codegen_outcome = ""
         self.last_codegen_refused = set()
@@ -11143,7 +11426,7 @@ class Flow:
                                     tests=self.tests_prompt_for(node_id), smoke=self.smoke_port, port=self.web_port,
                                     performance=self.perf_text(), ui=self.ui_contract(), verify=self.verify_text(total))
         corrections = self.corrections_text()
-        prompt = corrections + prompt
+        prompt = self.with_preservation_context(corrections + prompt, [node_id], self.spec_bodies(node_id))
         codegen_prompt = None
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
         tiny_ok = preimplemented
@@ -11580,6 +11863,10 @@ class Flow:
             log(f"[acceptance] {node_id}: {regressed_proven} fail without this node's changes too; "
                 f"not a regression -- extension kept ({after_sha[:8]})")
             return True
+        green_specs = {spec for prior in regressed_proven if self.test_verdict.get(prior) is True
+                       for spec in self.spec_map.get(prior, [])}
+        self.pending_corrections = [c for c in self.pending_corrections
+                                   if not isinstance(c, RegressionEvidence) or not c.specs <= green_specs]
         self.metric('failed_extension_rollback', node_id=node_id, restored=before_sha,
                     regressed_nodes=regressed_proven)
         log(f"[acceptance] {node_id}: failed extension regressed {regressed_proven}; "
@@ -11985,6 +12272,18 @@ class Flow:
                 self.metric('acceptance', scope='final_suite', verdict='blocked_test_file', load_errors=summary.load_errors)
                 return
             repair_summary = self.uncontested_derived_results(summary)
+            conflicts = self.frozen_oracle_conflicts(summary)
+            if (conflicts and len(conflicts) == sum(not row.ok for row in summary.results)
+                    and self.suite_is_measured(summary, all_specs)):
+                self.record_full_suite(summary, nodes_for_failures(summary.results, self.spec_map))
+                self.final_spec_dispute = True
+                self.final_suite_green = False
+                for owner in nodes_for_failures(summary.results, self.spec_map):
+                    if owner:
+                        self.test_verdict[owner] = None
+                        self.self_audit_node(owner, 'internal oracle ambiguous between valid required messages')
+                log('[acceptance] full suite: only confirmed internal alternative-text conflicts remain; results stay unverified, tests unchanged')
+                return
             score = repair_summary.passed
             if best is not None:
                 best_repair = self.uncontested_derived_results(best['summary'])
@@ -12118,6 +12417,21 @@ class Flow:
                     self.record_full_suite(best['summary'], best['grouped'])
                     last_passed = best['passed']
                     regressions = 0
+                    # Align the next repair with the restored, measured
+                    # snapshot, as in the equal-score rollback above.
+                    # Rejected-patch failures must not select the next group.
+                    restored_this_round = True
+                    summary, grouped = best['summary'], best['grouped']
+                    repair_summary = self.uncontested_derived_results(summary)
+                    score = repair_summary.passed
+                    failures = failure_summaries(repair_summary) + failure_source_context(repair_summary, self.tests_dir)
+                    failures += self.interference_note(grouped, passed_alone, summary.stores_written)
+                    failures += self.intermittent_note(grouped, passed_a_round)
+                    failures += self.worker_parity_note(workers)
+                    force_tool_repair = True
+                    last_repair_mode = ''
+                    unfinished = ''
+                    previous_failing = None
             self.final_safe_failures_remaining = measured and bool(grouped)
             if measured and (not grouped) and self.disputed_generated_failures(summary):
                 log('[acceptance] full suite: only disputed generated failures remain; their scenarios stay unverified')
@@ -12166,6 +12480,8 @@ class Flow:
                     self.metric('repair_group', active=active, groups=clusters)
             failures += self.store_change_note(summary)
             failures += self.unfinished_repair_note(unfinished)
+            if getattr(self, 'frozen_suite', None):
+                failures += '\n' + '\n'.join(self.frozen_oracle_conflicts(summary))
             prompt = self.app_repair_prompt(node_id=', '.join(failing), passed=summary.passed, total=summary.total, failures=failures, test_location=self.repair_test_location(), sources=self.repair_requirements() + self.sources_text(), corrections=self.corrections_text() + 'The full suite runs all spec files against one server; tests from different files must not interfere through shared server state (e.g. a counter that every browser session shares). Keep persisted data only where the requirement demands persistence.\n', slow='', smoke=self.smoke_port, port=self.web_port)
             before_repair_digest = self.app_source_digest()
             last_repair_mode, unfinished = self.suite_repair_turn(f'full-suite repair {attempt + 1}/{rounds}', failing if measured else [], failures, min(self.suite_repair_timeout(), max(1, self.remaining() - self.final_measurement_reserve())), tool_prompt=prompt, prefer_codegen=not repeated and (not force_tool_repair))

@@ -9,6 +9,7 @@ from acceptance import (
     clip_ends,
     failure_summaries,
     locator_role_mismatch,
+    locator_role_contract_violation,
     isolated_install_env,
     map_specs_to_nodes,
     playwright_version_hint,
@@ -100,6 +101,18 @@ class ReportTests(unittest.TestCase):
         summary = summarize_report(report(("t", "failed", msg, [], 100)))
         self.assertIn('Steps: navigating to "http://x/", waiting until "load"', failure_summaries(summary))
 
+    def test_dismiss_reopen_chain_survives_verbose_browser_diagnostics(self):
+        from repair_context import balanced_failure_evidence
+        summary = summarize_report(report(('menu action', 'timedOut', 'locator.click timeout', [], 60000)))
+        trigger = 'Click getByRole(\'button\', { name: "User options" })'
+        chain = trigger + ' -> Press "Escape" -> ' + trigger + ' -> Click getByRole(\'link\', { name: "Exit" })'
+        summary.results[0].action_errors = ['Browser network diagnostics: ' + 'x' * 6000,
+            'Actions preceding the final failed step (diagnostic only):\n' + chain]
+        summary.results[0].rendered_page = '- main\n' + '- generic\n' * 3000
+        evidence = balanced_failure_evidence(failure_summaries(summary), 6000)
+        self.assertIn(chain, evidence)
+        self.assertIn('hypothesis, not a verdict', evidence)
+
     def test_should_mark_timeouts_as_performance_observations(self):
         summary = summarize_report(report(("slow one", "timedOut", "Test timeout of 10000ms exceeded.", ["page.reload"], 10000)))
         text = failure_summaries(summary)
@@ -162,6 +175,7 @@ class ReportTests(unittest.TestCase):
                           action_errors=['Browser observation (diagnostic only):\nPage URL at failure: '
                                          'http://localhost:3000/shelves'])
         self.assertIn("visible link", locator_role_mismatch(row))
+        self.assertIn("does not establish a timing race", locator_role_mismatch(row))
         summary = RunSummary(results=[row], total=1)
         evidence = failure_summaries(summary)
         self.assertIn("Diagnostic: Locator waited", evidence)
@@ -171,6 +185,31 @@ class ReportTests(unittest.TestCase):
         row.rendered_page = '- link "Shelf 4.4.2"'
         row.action_errors.append('Browser observation (diagnostic only):\nTypeError: price.toFixed is not a function')
         self.assertEqual(locator_role_mismatch(row), "")
+
+    def test_explicit_link_contract_rejects_a_same_name_button(self):
+        from acceptance import TestOutcome
+        row = TestOutcome('registration entry', False, 'timedOut', 60000,
+                          message="Locator: getByRole('link', { name: 'Create an account', exact: true })",
+                          rendered_page='- button "Create an account"')
+        required = [{'role': 'link', 'name': 'Create an account'}]
+        self.assertIn('explicitly requires link', locator_role_contract_violation(row, required))
+        row.action_errors = ['Browser observation (diagnostic only):\nRequest HTTP 401 GET http://localhost/api/auth/me']
+        self.assertIn('explicitly requires link', locator_role_contract_violation(row, required))
+        row.action_errors = ['Browser observation (diagnostic only):\nRequest HTTP 500 GET http://localhost/api/auth/me']
+        self.assertEqual(locator_role_contract_violation(row, required), '')
+        row.action_errors = []
+        self.assertEqual(locator_role_contract_violation(row, []), '')
+        self.assertEqual(locator_role_contract_violation(row, required + [
+            {'role': 'button', 'name': 'Create an account'}]), '')
+        row.rendered_page = '- button "Create an account later"'
+        self.assertEqual(locator_role_contract_violation(row, required), '')
+        row.rendered_page = '- link "Create an account"\n- button "Create an account"'
+        self.assertEqual(locator_role_mismatch(row), '')
+        self.assertEqual(locator_role_contract_violation(row, required), '')
+        row.rendered_page = '- button "Create an account"'
+        row.action_errors.append('Browser observation (diagnostic only):\nTypeError: price.toFixed is not a function')
+        self.assertEqual(locator_role_mismatch(row), "")
+        self.assertEqual(locator_role_contract_violation(row, required), '')
 
 
 if __name__ == "__main__":

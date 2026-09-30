@@ -14,7 +14,8 @@ def failure_triage(text: str, limit: int = 1200) -> str:
     if re.search(r'getByRole\(|locator\.(?:click|fill)|toBeVisible\(\) failed', text):
         hints.append('UI/LOCATOR: first distinguish missing required data, failed request, stale UI and locator timing/semantics. '
                      'A timeout alone proves none of these. Compare the last actions, response and rendered snapshot. '
-                     'If the target exists under another role, inspect helper fallback and async readiness; do not turn '
+                     'An absent target does not prove a role mismatch. Change its role only when rendered evidence '
+                     'shows the intended named control under a conflicting role. If so, inspect helper fallback and async readiness; do not turn '
                      'all links into buttons or ordinary text into headings merely to satisfy a fallback selector.')
     if 'Shortcut keydown events before failure:' in text:
         hints.append('KEYBOARD: compare the observed event.key and modifiers with the current handler, including '
@@ -56,11 +57,44 @@ def diagnosed_failure_evidence(text: str, limit: int = 8000) -> str:
     """Keep classification and original evidence inside the caller's budget."""
     hint = failure_triage(text, min(1200, max(0, limit // 5)))
     shortcut = shortcut_diagnostic_evidence(text, min(800, limit // 5)) if limit >= 400 else ''
-    prefix = '\n'.join(part for part in (hint, shortcut) if part)
+    transition = dismiss_reopen_evidence(text, min(900, limit // 5)) if limit >= 400 else ''
+    prefix = '\n'.join(part for part in (hint, shortcut, transition) if part)
     if not prefix:
         return balanced_failure_evidence(text, limit)
     return prefix[:limit] + ('\n' + balanced_failure_evidence(
         text, max(0, limit - len(prefix) - 1)) if len(prefix) < limit else '')
+
+
+def dismiss_reopen_evidence(text: str, limit: int = 900) -> str:
+    """Promote an observed open/Escape/reopen sequence, without declaring a cause.
+
+    A helper may open a menu, press Escape, then toggle the same control again.
+    If Escape failed to close it, that toggle hides the intended next action.
+    Only recorded actions qualify; a selector mentioning Escape is not evidence.
+    """
+    chains = []
+    for match in re.finditer(r'Actions preceding the final failed step[^\n]*:\s*\n([^\n]+)', text):
+        steps = [step.strip() for step in match[1].split(' -> ')]
+        for pos, step in enumerate(steps):
+            if not re.fullmatch(r'Press [\'"]Escape[\'"]', step):
+                continue
+            previous = [action for action in steps[:pos] if action.startswith('Click getByRole(')]
+            if not previous:
+                continue
+            trigger = previous[-1]
+            following = steps[pos + 1:]
+            if trigger not in following:
+                continue
+            chain = ' -> '.join([trigger, step, trigger] +
+                                ([following[-1]] if following[-1] != trigger else []))
+            if chain not in chains:
+                chains.append(chain)
+    if not chains or limit <= 0:
+        return ''
+    return _clip('Observed dismiss/reopen sequence (diagnostic only):\n' + '\n'.join(chains[:3]) +
+        '\nVerify whether Escape actually closes the first menu and which state the second toggle produces. '
+        'If the menu remained open, the second click may close it and hide the next action. '
+        'Inspect the handler and rendered state before changing link/button roles; this sequence is a hypothesis, not a verdict.', limit)
 
 
 def shortcut_diagnostic_evidence(text: str, limit: int = 800) -> str:
