@@ -2894,8 +2894,8 @@ class HelperTrimTests(unittest.TestCase):
 
 
 class HelperTrimFallbackTests(unittest.TestCase):
-    """An export form the declaration parser cannot name (re-export list,
-    destructuring, default object) must make the trimmer quote the whole
+    """An export form the declaration parser cannot name (destructuring,
+    default object) must make the trimmer quote the whole
     file: silently dropping a helper the spec imports would leave the model
     guessing at behaviour the test depends on. None of the six public web
     tasks use such forms (checked 2026-09-17); this pins the fallback for the
@@ -2903,7 +2903,6 @@ class HelperTrimFallbackTests(unittest.TestCase):
 
     def test_should_quote_the_whole_helper_when_an_export_cannot_be_named(self):
         for helper in (
-            "const a = 1;\nconst b = 2;\nexport { a, b };\n",
             "export const { x, y } = require('./cfg');\nexport function z() {}\n",
             "export default { open: async (p) => p.goto('/') };\nexport function z() {}\n",
         ):

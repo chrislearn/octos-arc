@@ -274,7 +274,7 @@ class DesignReviewFindingsTests(unittest.TestCase):
         flow = PromptPlacementTests()._flow(folder)
         flow.app_design_doc = design
         with patch.dict(os.environ, {"OCTOS_ARC_APP_DESIGN_CHARS": str(cap)}):
-            return flow.codegen_implement_prompt({"id": "REQ-9", "description": "d"}, node_spec)
+            return flow.codegen_implement_prompt({"id": "REQ-9", "description": "d"}, node_spec, focused_sources=False)
 
     def test_should_keep_the_prefix_through_the_sources_identical_when_the_design_is_over_cap(self):
         with tempfile.TemporaryDirectory() as folder:

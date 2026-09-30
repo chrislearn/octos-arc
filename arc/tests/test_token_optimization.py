@@ -31,8 +31,8 @@ class TokenOptimizationTests(unittest.TestCase):
     def test_same_sources_keep_a_long_prefix_across_nodes_and_corrections(self):
         self.app(server="// stable entry\n" + "e" * 600, page="<h1>Notes</h1>" + "p" * 600)
         (self.root / "frontend/src/settings.html").write_text("<h1>Settings</h1>" + "s" * 600)
-        a = self.flow.codegen_implement_prompt(helpers.node("REQ-1", "Notes"), "notes", "Fix notes\n")
-        b = self.flow.codegen_implement_prompt(helpers.node("REQ-2", "Settings"), "settings", "Fix settings\n")
+        a = self.flow.codegen_implement_prompt(helpers.node("REQ-1", "Notes"), "notes", "Fix notes\n", focused_sources=False)
+        b = self.flow.codegen_implement_prompt(helpers.node("REQ-2", "Settings"), "settings", "Fix settings\n", focused_sources=False)
         common = os.path.commonprefix([a, b])
         self.assertIn("--- frontend/src/settings.html ---", common)
         self.assertGreater(len(common), 3000)

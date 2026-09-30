@@ -1,0 +1,17 @@
+{
+  "python": {
+    "total": 2196,
+    "passed": 2168,
+    "skipped": 28,
+    "failed": 0,
+    "elapsed_seconds": 88.37,
+    "log_sha256": "47d90235ab9a150ccc0bd6b45fa75fd4255b15ede5109be6b27f3ea81a1d9da0"
+  },
+  "new_regressions": 13,
+  "typechecked_node_closures": 71,
+  "business_cases_passed": 170,
+  "model_requests_started": 0,
+  "test_fixture_metric_rows_removed": 3,
+  "independent_runtime_binary_unchanged": true,
+  "independent_runtime_binary_sha256": "0167785099f8165c34c29d956d0fe00b074853081726d2fcedddfd5767d6b960"
+}

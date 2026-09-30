@@ -712,10 +712,11 @@ def reserve_edit_budget(body: bytes, used: int, budget: int, phase: str = 'repai
 
 
 def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
-    """Once `used` requests have been made in the current turn, strip the tool
-    schemas and append a user notice so the model must answer (ending the turn).
-    This is only a prompt-level finishing hint. The proxy admission check supplies
-    the hard limit; removing tool schemas alone cannot stop unsolicited calls."""
+    """Append a finishing hint without changing the turn's tool schema.
+
+    Hard admission in _request_upstream enforces the limit before networking;
+    schema removal neither enforces it nor helps prefix reuse.
+    """
     if budget <= 0 or used < budget:
         return body
     try:
@@ -724,8 +725,6 @@ def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
         return body
     if not isinstance(data, dict) or "messages" not in data:
         return body
-    data.pop("tools", None)
-    data.pop("tool_choice", None)
     msgs = list(data.get("messages") or [])
     if not msgs or msgs[-1].get("role") != "user" or msgs[-1].get("content") != BUDGET_NOTICE:
         msgs.append({"role": "user", "content": BUDGET_NOTICE})
@@ -767,10 +766,9 @@ def force_write_decision(body: bytes, used: int, budget: int, elapsed: float,
             if ((tool.get("function") or {}).get("name") or tool.get("name")) in WRITE_TOOLS]
     if not kept:
         return body
-    # Focus navigation, but keep targeted reads needed to resolve missing
-    # contracts/anchors. Hard request admission still bounds the turn.
-    data["tools"] = [tool for tool in data["tools"] if tool in kept or
-                     ((tool.get("function") or {}).get("name") or tool.get("name")) in {"read_file", "grep"}]
+    # Guidance belongs at the tail. Removing navigation schemas here and
+    # restoring them after a write invalidated the same turn's cached prefix.
+    # Admission and protected-path checks remain the hard limits.
     messages = [m for m in data["messages"] if not (
         m.get("role") == "user" and m.get("content") == WRITE_DECISION_NOTICE)]
     messages.append({"role": "user", "content": WRITE_DECISION_NOTICE})
@@ -876,16 +874,21 @@ def to_sse(response_body: bytes) -> bytes:
 
 
 def prompt_fingerprint(request_body: bytes, previous_text: str) -> tuple[str, int, str]:
-    """(sha256 of the prompt text, chars it shares as a prefix with the previous
-    request's prompt text, the text). The text is the messages serialised in
-    order; the shared prefix is what a provider prefix cache could reuse. ("",
-    0, "") for anything that is not a chat request."""
+    """Hash canonical schemas and complete ordered messages, including calls.
+
+    Shared characters describe this local representation, not provider token
+    cache hits. Never persist the returned text; only hashes and counts.
+    """
     import hashlib
     try:
         data = json.loads(request_body)
-        messages = data["messages"]
-        text = "\n".join(f"{m.get('role')}:{m.get('content') if isinstance(m.get('content'), str) else json.dumps(m.get('content'))}"
-                         for m in messages)
+        if not isinstance(data.get("messages"), list):
+            return "", 0, ""
+        canonical = lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        # Keep the growing history after the schema so appending a message does
+        # not shift the existing prefix. Object key order is not semantic.
+        text = canonical({k: data[k] for k in ("tools", "tool_choice", "response_format") if k in data})
+        text += "\n" + "\n".join(canonical(message) for message in data["messages"])
     except (ValueError, TypeError, KeyError, AttributeError):
         return "", 0, ""
     sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -894,6 +897,24 @@ def prompt_fingerprint(request_body: bytes, previous_text: str) -> tuple[str, in
     while shared < limit and text[shared] == previous_text[shared]:
         shared += 1
     return sha, shared, text
+
+
+def request_fingerprints(request_body: bytes) -> dict:
+    """Safe evidence for the final proxy wire body, after every transformation."""
+    import hashlib
+    try:
+        data = json.loads(request_body)
+        if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+            return {}
+        digest = lambda value: hashlib.sha256(json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        return {"fingerprint_schema": "octos.arc.forwarded-context.v2",
+                "wire_sha256": hashlib.sha256(request_body).hexdigest(),
+                "request_structure_sha256": digest(data),
+                "tool_schema_sha256": digest({k: data[k] for k in ("tools", "tool_choice") if k in data}),
+                "messages_sha256": digest(data["messages"])}
+    except (ValueError, TypeError, UnicodeError):
+        return {}
 
 
 def error_message(response_body: bytes) -> str:
@@ -1581,7 +1602,8 @@ class LlmProxy:
                     "mode": self.mode,
                     "output_limit": request.get("max_completion_tokens", request.get("max_tokens")),
                     "label": getattr(self, "label", ""), "prompt_sha256": sha, "prefix_shared_chars": shared,
-                    "turn_serial": self.turn_serial, "codegen": self.no_tools}
+                    "turn_serial": self.turn_serial, "codegen": self.no_tools,
+                    **request_fingerprints(request_body)}
 
     def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"", req_bytes: int = 0,
              resp_bytes: int = 0, status: int | None = None, meta: dict | None = None) -> None:

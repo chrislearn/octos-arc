@@ -1,0 +1,212 @@
+{
+  "schema": "octos.arc.performance-review-checks.v1",
+  "passed": true,
+  "checks": [
+    {
+      "name": "132 completed reported upstream requests",
+      "status": "passed",
+      "detail": 132
+    },
+    {
+      "name": "tokens reconcile without double-counting reasoning",
+      "status": "passed",
+      "detail": {
+        "prompt_tokens": 3674067,
+        "completion_tokens": 621296,
+        "reasoning_tokens": 469246,
+        "prompt_cache_hit_tokens": 2745600,
+        "requests": 132,
+        "elapsed_seconds_sum": 6030.605,
+        "uncached_prompt_tokens": 928467,
+        "non_reasoning_completion_tokens": 152050,
+        "cache_ratio": 0.7472917614186132,
+        "reasoning_completion_ratio": 0.7552696299348459,
+        "elapsed_seconds_median": 14.7965,
+        "prompt_token_range": [
+          7307,
+          45327
+        ],
+        "descriptive_pearson_elapsed_output": 0.9948070905056279,
+        "descriptive_pearson_elapsed_input": 0.041980063820231873,
+        "descriptive_pearson_elapsed_uncached_input": 0.06605328538331337
+      }
+    },
+    {
+      "name": "cache count independently recomputed",
+      "status": "passed",
+      "detail": 0.7472917614186132
+    },
+    {
+      "name": "first implementation subset excludes context and correction requests",
+      "status": "passed",
+      "detail": {
+        "prompt_tokens": 301592,
+        "completion_tokens": 94551,
+        "reasoning_tokens": 57564,
+        "prompt_cache_hit_tokens": 69632,
+        "requests": 10,
+        "elapsed_seconds_sum": 806.285,
+        "uncached_prompt_tokens": 231960,
+        "non_reasoning_completion_tokens": 36987,
+        "cache_ratio": 0.2308814557415316,
+        "reasoning_completion_ratio": 0.608814290700257,
+        "elapsed_seconds_median": 94.11099999999999,
+        "prompt_token_range": [
+          18547,
+          38367
+        ],
+        "descriptive_pearson_elapsed_output": 0.9898748109942858,
+        "descriptive_pearson_elapsed_input": -0.17703794400294814,
+        "descriptive_pearson_elapsed_uncached_input": -0.08672196289502555
+      }
+    },
+    {
+      "name": "protocol retry duration selects unique outer turns",
+      "status": "passed",
+      "detail": [
+        {
+          "label": "REQ-1-1-1 implement (protocol correction 1)",
+          "elapsed_seconds": 324.032
+        },
+        {
+          "label": "REQ-1-1-1 implement (protocol correction 2)",
+          "elapsed_seconds": 351.734
+        },
+        {
+          "label": "REQ-1-1-1 repair 1/3 (maximum 5) (application retry) (protocol correction 1)",
+          "elapsed_seconds": 14.214
+        },
+        {
+          "label": "REQ-2-2-1 implement (complete blocks retry)",
+          "elapsed_seconds": 150.846
+        },
+        {
+          "label": "REQ-2-2-1 implement (complete blocks retry) (protocol correction 1)",
+          "elapsed_seconds": 309.147
+        },
+        {
+          "label": "REQ-3-1-1 implement (protocol correction 1)",
+          "elapsed_seconds": 172.529
+        }
+      ]
+    },
+    {
+      "name": "tool events reconcile",
+      "status": "passed",
+      "detail": {
+        "count": 143,
+        "counts_by_name": {
+          "read_file": 105,
+          "edit_file": 28,
+          "bash": 6,
+          "grep": 3,
+          "list_dir": 1
+        },
+        "reported_execution_ms_sum": 2225
+      }
+    },
+    {
+      "name": "two schema oscillations accompany zero input-cache reads",
+      "status": "passed",
+      "detail": [
+        {
+          "request_id": "f0c2148705314d5baaf29721261a28c3",
+          "turn_serial": 30,
+          "label": "REQ-2-2-1 repair 1/3 (maximum 5) (structured edits)",
+          "prompt_tokens": 42641,
+          "prompt_cache_hit_tokens": 0,
+          "prefix_shared_chars": 145721,
+          "before": [
+            "edit_file",
+            "grep",
+            "list_dir",
+            "read_file",
+            "write_file"
+          ],
+          "after": [
+            "edit_file",
+            "grep",
+            "read_file",
+            "write_file"
+          ]
+        },
+        {
+          "request_id": "35321eee1be648c49393034a67cbd534",
+          "turn_serial": 30,
+          "label": "REQ-2-2-1 repair 1/3 (maximum 5) (structured edits)",
+          "prompt_tokens": 42214,
+          "prompt_cache_hit_tokens": 0,
+          "prefix_shared_chars": 150281,
+          "before": [
+            "edit_file",
+            "grep",
+            "read_file",
+            "write_file"
+          ],
+          "after": [
+            "edit_file",
+            "grep",
+            "list_dir",
+            "read_file",
+            "write_file"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "current code reproduces tool-set oscillation",
+      "status": "passed",
+      "detail": {
+        "initial_tools": [
+          "edit_file",
+          "grep",
+          "list_dir",
+          "read_file",
+          "write_file"
+        ],
+        "budget_tools": [
+          "edit_file",
+          "grep",
+          "read_file",
+          "write_file"
+        ],
+        "after_write_tools": [
+          "edit_file",
+          "grep",
+          "list_dir",
+          "read_file",
+          "write_file"
+        ],
+        "text_fingerprint_ignores_tool_schema": true
+      }
+    },
+    {
+      "name": "text fingerprint has a confirmed tool-schema blind spot",
+      "status": "passed",
+      "detail": true
+    },
+    {
+      "name": "frozen shared design is identical across 24 node specimens",
+      "status": "passed",
+      "detail": true
+    },
+    {
+      "name": "all 24 helper specimens currently take the full-file fallback",
+      "status": "passed",
+      "detail": 11383
+    },
+    {
+      "name": "run is explicitly incomplete because of infrastructure interruption",
+      "status": "passed",
+      "detail": "REQ-3-1-2"
+    }
+  ],
+  "scope": "offline arithmetic, data provenance and pure-function probes; no product acceptance or model A/B experiment",
+  "runtime_code_changed": false,
+  "model_requests_started": 0,
+  "independent_totals_reconciled": true,
+  "report_sha256": "c04c638615fb12ed353750788f9b5bb400ff9f637f560e6dfbeb480776fb061c",
+  "manual_review": "review.md",
+  "local_links_valid": true,
+  "invalid_local_links": []
+}

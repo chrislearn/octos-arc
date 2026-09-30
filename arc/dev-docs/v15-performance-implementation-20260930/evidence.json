@@ -1,0 +1,756 @@
+{
+  "schema": "octos.arc.performance-implementation-verification.v1",
+  "model_requests_started": 0,
+  "specs_and_helpers_unchanged": true,
+  "integration_executed": false,
+  "suites": {
+    "hackathon--github": {
+      "typecheck": "passed",
+      "runtime": {
+        "startTime": "2026-09-30T11:22:18.853Z",
+        "duration": 94490.84999999999,
+        "expected": 98,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "node_specs": 47,
+      "helper_original_chars": 7754,
+      "helper_rendered_chars_median": 2910,
+      "typecheck_diagnostics": ""
+    },
+    "hackathon--sheet": {
+      "typecheck": "passed",
+      "runtime": {
+        "startTime": "2026-09-30T11:23:54.835Z",
+        "duration": 71578.58099999999,
+        "expected": 72,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "node_specs": 24,
+      "helper_original_chars": 11383,
+      "helper_rendered_chars_median": 2198.0,
+      "typecheck_diagnostics": ""
+    }
+  },
+  "helper_closures": [
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-1-1-1",
+      "original_chars": 7754,
+      "rendered_chars": 1418,
+      "saved_chars": 6336,
+      "spec_sha256": "aebaed68205c4d494a37b9108b125e4280febf2d1e7ef8c0e52f2bffc797e425",
+      "helper_sha256": "d87ced0ee9a86c0a09e3adfdfb8e6ce22997fbaebcd2af75ca3e6d4dd9e32388"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-1-1-2",
+      "original_chars": 7754,
+      "rendered_chars": 1712,
+      "saved_chars": 6042,
+      "spec_sha256": "968db4e9f32337d5936096030b339294bb1d9f6c35d6dd6484419b738aaa40d8",
+      "helper_sha256": "c211ae7211d0b599f8b9695aec4c0dadd8c84b95c3720a92dcfd356a5bb4cdbc"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-1-1-3",
+      "original_chars": 7754,
+      "rendered_chars": 2344,
+      "saved_chars": 5410,
+      "spec_sha256": "af53f478782a1b1eac61b333c6860580dad3fe45e2f4a96b49522a12fdcd5006",
+      "helper_sha256": "bc8d05943751bb4b8f782c9656e480630674442e75a7528df34534606055988a"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-1-2",
+      "original_chars": 7754,
+      "rendered_chars": 2344,
+      "saved_chars": 5410,
+      "spec_sha256": "e9a4756539f16fcdb8b2d37ba313b33eeb8e28d1544484873c19bb22c1f92777",
+      "helper_sha256": "bc8d05943751bb4b8f782c9656e480630674442e75a7528df34534606055988a"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-1-3",
+      "original_chars": 7754,
+      "rendered_chars": 2344,
+      "saved_chars": 5410,
+      "spec_sha256": "48ff29e7be497694edae4d020285b7721f4d67f92b72f51821e00dc09c1d4ebb",
+      "helper_sha256": "bc8d05943751bb4b8f782c9656e480630674442e75a7528df34534606055988a"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-2-1-1",
+      "original_chars": 7754,
+      "rendered_chars": 2220,
+      "saved_chars": 5534,
+      "spec_sha256": "1b482616daf0184ced5664655fbc82e6bc91d118dbadbafb3a68c3326ba26350",
+      "helper_sha256": "7aa8c308c660cc371138ad97fb236e5ff318fd3ddb05bc8bd90ed279b3000a7c"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-2-1-2",
+      "original_chars": 7754,
+      "rendered_chars": 3241,
+      "saved_chars": 4513,
+      "spec_sha256": "afcb6eb04f8a9401650406607688c12f19a10d4de9a7497f9aea9023b79cc87e",
+      "helper_sha256": "cf8954dc3548a405ce57ac88d68b16fb10ebe5c9284633f4b208be66d65479d2"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-2-2-1",
+      "original_chars": 7754,
+      "rendered_chars": 3241,
+      "saved_chars": 4513,
+      "spec_sha256": "ee8811af19b312cf2b5134e16cbecfec85969cac8ffb93b180778d0b43ebfc35",
+      "helper_sha256": "cf8954dc3548a405ce57ac88d68b16fb10ebe5c9284633f4b208be66d65479d2"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-2-2-2",
+      "original_chars": 7754,
+      "rendered_chars": 3158,
+      "saved_chars": 4596,
+      "spec_sha256": "9146fd20b39ad88756eb3ae1fc2d9fcb71bc961f155114e42a2911e5b742b616",
+      "helper_sha256": "9d451d2e9405610d5d3d70ba7d3c268b84497a9591041d7b0590e03610baaea0"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-2-2-3",
+      "original_chars": 7754,
+      "rendered_chars": 3902,
+      "saved_chars": 3852,
+      "spec_sha256": "3208658e2e0650da5dac44f6ea1ce0db71787fb9904f3dd53052891b02ba4f12",
+      "helper_sha256": "b077a11434623e62f00973b3edc9d81d5af28e8ce081039d57e01d9d40a0982e"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-2-2-4",
+      "original_chars": 7754,
+      "rendered_chars": 3431,
+      "saved_chars": 4323,
+      "spec_sha256": "009421549f9791a729942fef49fb0e520b954f471bc815a8312799aa291dc1ae",
+      "helper_sha256": "2fc56d19d7a3d67aeeb8cd424da82ce412110b790cdf4e5cfc03987a3ca916ab"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-2-3",
+      "original_chars": 7754,
+      "rendered_chars": 4050,
+      "saved_chars": 3704,
+      "spec_sha256": "3391b50f9ca41eed5ecf910dbc9deccce6f7a586bbde38b92f889e3650c01737",
+      "helper_sha256": "d31974876e41c956a271138b00660a56d95693a87e46768da8db69597dc545a6"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-3-1",
+      "original_chars": 7754,
+      "rendered_chars": 1741,
+      "saved_chars": 6013,
+      "spec_sha256": "76265e93e1ef26fabe9ac5394edcbb647fb67a055a937e448eb339dc3aa55d10",
+      "helper_sha256": "3c564b6b5cdcee300fbe17d0a2c60ce59faf3f2b2935b13068b74f947a6ed784"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-3-2-1",
+      "original_chars": 7754,
+      "rendered_chars": 2629,
+      "saved_chars": 5125,
+      "spec_sha256": "dcf57f7578f6c78ba6955c220241e01fdc22ab3008fb72684a2a1da7d41e4bf4",
+      "helper_sha256": "73c13403c521fe461963ddf4ddbb48679c2d6a0da93125a2017f13df4859e4e9"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-3-2-2",
+      "original_chars": 7754,
+      "rendered_chars": 2629,
+      "saved_chars": 5125,
+      "spec_sha256": "c9d956d87681a08f5fd6623fd602fb640ea2b442796d683841065503988576a2",
+      "helper_sha256": "73c13403c521fe461963ddf4ddbb48679c2d6a0da93125a2017f13df4859e4e9"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-3-2-3",
+      "original_chars": 7754,
+      "rendered_chars": 1713,
+      "saved_chars": 6041,
+      "spec_sha256": "252b06432e1183223ca912c96c60de44e62a08d616d70971883609b182064bf3",
+      "helper_sha256": "0cdd0fbe3f1030430b763c233f8002590847e254eb48327b9688072d9793f85c"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-3-3",
+      "original_chars": 7754,
+      "rendered_chars": 1741,
+      "saved_chars": 6013,
+      "spec_sha256": "15db0e138b1946aef0a34ee2d1a5a06078855862535086bcc0457d391ec27aa8",
+      "helper_sha256": "3c564b6b5cdcee300fbe17d0a2c60ce59faf3f2b2935b13068b74f947a6ed784"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-3-4",
+      "original_chars": 7754,
+      "rendered_chars": 2794,
+      "saved_chars": 4960,
+      "spec_sha256": "c25a6008e42041f7e81dec80c41a242bd1cfd33ff1d40a66aff6bc2b36b08f17",
+      "helper_sha256": "236ebc7ecd998a376380467bd1308380086500e25b506b2b984ad8251410f5dc"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-1",
+      "original_chars": 7754,
+      "rendered_chars": 1741,
+      "saved_chars": 6013,
+      "spec_sha256": "ef2605bd343fedf7888c958bb498c20a0e86b586787a8071f004dbe2ead295c3",
+      "helper_sha256": "3c564b6b5cdcee300fbe17d0a2c60ce59faf3f2b2935b13068b74f947a6ed784"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-2-1",
+      "original_chars": 7754,
+      "rendered_chars": 1608,
+      "saved_chars": 6146,
+      "spec_sha256": "6768e9b72467499c5e238b0559e164e05f856c71f01b94b672a5eb9636d60ceb",
+      "helper_sha256": "ccf13d52b0be0584df0cbd0dbcfc6f648996908ed659cd446c0f8415a46b907a"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-2-2",
+      "original_chars": 7754,
+      "rendered_chars": 1608,
+      "saved_chars": 6146,
+      "spec_sha256": "96d1ddac8b213384969c8446383065c4cf1a57d442230b62aa45ea0e7e03da87",
+      "helper_sha256": "ccf13d52b0be0584df0cbd0dbcfc6f648996908ed659cd446c0f8415a46b907a"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-2-3",
+      "original_chars": 7754,
+      "rendered_chars": 1741,
+      "saved_chars": 6013,
+      "spec_sha256": "6320a0d33d5f0142ba4d000b98652ad3795ae7d73f2e8ec1cbe2de2cfeee9839",
+      "helper_sha256": "3c564b6b5cdcee300fbe17d0a2c60ce59faf3f2b2935b13068b74f947a6ed784"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-3-1",
+      "original_chars": 7754,
+      "rendered_chars": 2057,
+      "saved_chars": 5697,
+      "spec_sha256": "bdad35d500952b3c45bd5687ad6a2e57fb8d5ad9d1a6fc737d6a3771dcfedaec",
+      "helper_sha256": "7c0f90ce0b0c1cab71ab0b3bb5fffab49e4b92016b6642c63675f46d903dcdb9"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-3-2",
+      "original_chars": 7754,
+      "rendered_chars": 2998,
+      "saved_chars": 4756,
+      "spec_sha256": "6aa0dced7092752c6aef1983f245071bf24575d4c299a162e1629c229e5ba177",
+      "helper_sha256": "7ce8237af8b2983ff02cde1be37a07097cd672d4f66522396a154b646b4bb0ea"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-3-3",
+      "original_chars": 7754,
+      "rendered_chars": 2910,
+      "saved_chars": 4844,
+      "spec_sha256": "cf19110ee7ca820158b9998af7e95a2eec3e40396d378eeea8aca450cd12f830",
+      "helper_sha256": "ecc185f2d265fee251d8be514b403a92f40cd0266702ff95a5f0372a14d9dd40"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-4-4",
+      "original_chars": 7754,
+      "rendered_chars": 2882,
+      "saved_chars": 4872,
+      "spec_sha256": "fe18a45fa138a64f863f8cf36bef5c40d0f036786771b2263b2ee4b273bb964b",
+      "helper_sha256": "77f6beb05fb2e8c67d5ee67d6f35ce09ce69c89862b9206d6f173bd2d3a6d474"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-1-1",
+      "original_chars": 7754,
+      "rendered_chars": 2290,
+      "saved_chars": 5464,
+      "spec_sha256": "6d1d2973f5c0fa1a9c5ac4b39f3684ece1ebb50847584850da12f8d1cc31bafe",
+      "helper_sha256": "2e5c0fee226bc0ad6ce1db75c87229be51bc12f320f95bd6565ab098a33897ed"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-1-2",
+      "original_chars": 7754,
+      "rendered_chars": 2290,
+      "saved_chars": 5464,
+      "spec_sha256": "2ea2f39c218839142bba178838c0f8a99213f53b196292ccb9f25dfaadbb9dd9",
+      "helper_sha256": "2e5c0fee226bc0ad6ce1db75c87229be51bc12f320f95bd6565ab098a33897ed"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-2-1",
+      "original_chars": 7754,
+      "rendered_chars": 3178,
+      "saved_chars": 4576,
+      "spec_sha256": "7fc8ac34f856fc8b5a36702d813518d4c2eb0bba86c723e8154e1a5cb21f3151",
+      "helper_sha256": "f152e7ca3e80441050f6f8eacc39dc9d0ec3be038bfe013f2c5ecf238772a90d"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-2-2",
+      "original_chars": 7754,
+      "rendered_chars": 3297,
+      "saved_chars": 4457,
+      "spec_sha256": "4ec31eeaeabb2e237b15571c29d0339ff1d3bcb539cc2106c334b3d5dad85ea2",
+      "helper_sha256": "46aa96b5d7c21ffe6635565c397b43c9464ac4e6ee4e8f0298576f37ff024e83"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-2-3",
+      "original_chars": 7754,
+      "rendered_chars": 3178,
+      "saved_chars": 4576,
+      "spec_sha256": "f256ee42c4ffe880dea22a1e2f904db3d16e8cd03d813f42235dc7b06d064b76",
+      "helper_sha256": "f152e7ca3e80441050f6f8eacc39dc9d0ec3be038bfe013f2c5ecf238772a90d"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-3-1",
+      "original_chars": 7754,
+      "rendered_chars": 3956,
+      "saved_chars": 3798,
+      "spec_sha256": "cb52ca0815dc329bd780526175a8334ad188eeef41867b7c7a4d6b5558bbe6b5",
+      "helper_sha256": "15b28131875e3092b2a28f59351ef783a90e53d3c15d4bd44f023d9cc53408e8"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-3-2",
+      "original_chars": 7754,
+      "rendered_chars": 3754,
+      "saved_chars": 4000,
+      "spec_sha256": "ff46e3c4d0b377d790f62c80e00abcd9890dbb7d5386893600d909ea352514fe",
+      "helper_sha256": "7e355c7a73e1af8b8cea331c6709db0eb34ea437f82ecd87f7999a47ffc8c12b"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-3-3",
+      "original_chars": 7754,
+      "rendered_chars": 3754,
+      "saved_chars": 4000,
+      "spec_sha256": "2fd357d43457f7b75804fd4f76d10e0151e9d1ab79cc9752ffd64e69dabf12b6",
+      "helper_sha256": "7e355c7a73e1af8b8cea331c6709db0eb34ea437f82ecd87f7999a47ffc8c12b"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-5-4",
+      "original_chars": 7754,
+      "rendered_chars": 3297,
+      "saved_chars": 4457,
+      "spec_sha256": "701e951c3f326d4a9a93b08fc93dc6f6fcac81e05b4da26395cf73b139ade433",
+      "helper_sha256": "46aa96b5d7c21ffe6635565c397b43c9464ac4e6ee4e8f0298576f37ff024e83"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-1",
+      "original_chars": 7754,
+      "rendered_chars": 3180,
+      "saved_chars": 4574,
+      "spec_sha256": "5177b2de33b2efad2b2559a22cfee53a7ec98328e71ac8787a27124db133af5f",
+      "helper_sha256": "33daaeda5d84e4f8fd375053b955607257892cb705a6dd4194736841f2fa7c48"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-2-1",
+      "original_chars": 7754,
+      "rendered_chars": 1646,
+      "saved_chars": 6108,
+      "spec_sha256": "c792442dc0d9a1a24e56dc9f0cd319ca8fc0b95b920f786df4abdc339a3800f6",
+      "helper_sha256": "e8fe5584c1d6838a62c843e6e48e60a6f9807abc2d66cd99ea2dcf80887fa07d"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-2-2",
+      "original_chars": 7754,
+      "rendered_chars": 3373,
+      "saved_chars": 4381,
+      "spec_sha256": "94ca11e39c19fcffd5f60a6675bac424c3b43748fb06f410af96d1561d9b5b77",
+      "helper_sha256": "ffdbec399922d58e77c457252c5544e0435089ebdae216ca047a61dc058238cf"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-2-3",
+      "original_chars": 7754,
+      "rendered_chars": 3589,
+      "saved_chars": 4165,
+      "spec_sha256": "e24dd7f85ffd475d2afb7a04462b50fa15884506add3da6bdad676532e2dc6cb",
+      "helper_sha256": "bbb517e757be685cdf077890fd49d351cd2e381fdbd308f20a8823f5a7a15704"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-2-4",
+      "original_chars": 7754,
+      "rendered_chars": 3589,
+      "saved_chars": 4165,
+      "spec_sha256": "a1c2e2e18823a39633a32ce5ea9137d99e4fdcbe25cbcd258251bdd825fce34b",
+      "helper_sha256": "bbb517e757be685cdf077890fd49d351cd2e381fdbd308f20a8823f5a7a15704"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-3-1",
+      "original_chars": 7754,
+      "rendered_chars": 2199,
+      "saved_chars": 5555,
+      "spec_sha256": "a685a8519dcc728be79ce285e912d3d9cba8f556120e4a54898d3715ff9529e6",
+      "helper_sha256": "3a8d1833d7aab5af6dd4a5f2230dccf7addeb03a0a71125d3aad2d2aa1cfb53e"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-3-2",
+      "original_chars": 7754,
+      "rendered_chars": 2161,
+      "saved_chars": 5593,
+      "spec_sha256": "58fae6c27094a1af079f17c0f86954878209eadf35c31aabe3c05b0ef7fdeff2",
+      "helper_sha256": "352f45c5b98177660d9f95abb392ba02950201e19c7356ea5cf1810895c428a2"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-3-3",
+      "original_chars": 7754,
+      "rendered_chars": 3182,
+      "saved_chars": 4572,
+      "spec_sha256": "dde4b6ba6866dc8882bdaacabf6ace512371e39fc6b5aff7633dde949d701047",
+      "helper_sha256": "593b52ccefd3fbf7c9c746723b819f9b2de827fd0ae2082edad3b368394b276c"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-3-4",
+      "original_chars": 7754,
+      "rendered_chars": 3372,
+      "saved_chars": 4382,
+      "spec_sha256": "7af38c0b94e7eb5072d53f0c7b84d275dbfb78ee54c3b603dfc624a5b18884f4",
+      "helper_sha256": "fe4bce82af3d98c01e66cf5ca3757cdd4fb7fc1b32ae85c1508512ee32602c80"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-4",
+      "original_chars": 7754,
+      "rendered_chars": 3215,
+      "saved_chars": 4539,
+      "spec_sha256": "f7574cede1a6c62d3593128747c6db51b259cab7be7642a8b1af1fe840eb6b00",
+      "helper_sha256": "0c58d5a2e0efbe0485e21761f8e4fbb846abad30032955928aca203e08e427ad"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-5",
+      "original_chars": 7754,
+      "rendered_chars": 3215,
+      "saved_chars": 4539,
+      "spec_sha256": "66c03b1813cb48dc0ab9369559f9d745c0153a9e65d89b06270405d57fc9905f",
+      "helper_sha256": "0c58d5a2e0efbe0485e21761f8e4fbb846abad30032955928aca203e08e427ad"
+    },
+    {
+      "suite": "hackathon--github",
+      "node": "REQ-6-6",
+      "original_chars": 7754,
+      "rendered_chars": 3099,
+      "saved_chars": 4655,
+      "spec_sha256": "abee7b6ec159472b483dbab01c0576b6fa894608e1013f3f273b1171a090e3ec",
+      "helper_sha256": "afa00bd1408eb8551007cf73cbba788e79dfbdd55b9d28b368f41de7d1c59bb1"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-1-1-1",
+      "original_chars": 11383,
+      "rendered_chars": 1063,
+      "saved_chars": 10320,
+      "spec_sha256": "3af761df3851e17534c39d25662d305a2e3a98486afb4a56a5bf36a3be7654d4",
+      "helper_sha256": "b2239bcda95598acbcc23375a003c1dcfa6378ec32b4c78096c77901dc3b98f9"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-1-2-1",
+      "original_chars": 11383,
+      "rendered_chars": 1390,
+      "saved_chars": 9993,
+      "spec_sha256": "50c402874221c614c899ab277c7a6465db23bf8e6a29263647680eb85315cb70",
+      "helper_sha256": "37ec2416edd71db5604f5c4c69cbb41872db2a9ea19150a425936b7968448318"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-1-2-2",
+      "original_chars": 11383,
+      "rendered_chars": 1604,
+      "saved_chars": 9779,
+      "spec_sha256": "64425c00fc2cc95840888ea8d09aa18100cf354f09ead7576d9a2da93617087b",
+      "helper_sha256": "6ecc853995b86b41db85fcb923cdf1311156339ff44dce22b99ccb6d3853acbc"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-1-3-1",
+      "original_chars": 11383,
+      "rendered_chars": 2058,
+      "saved_chars": 9325,
+      "spec_sha256": "793f379074084acba8d0cd4ac995a5f7787381f34b3de83f38bd4f302eae9622",
+      "helper_sha256": "1972e64abd14ebae305a7e1d927b67a28dc1a7cd5256ff4a0b02f6a99b6eec6d"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-1-3-2",
+      "original_chars": 11383,
+      "rendered_chars": 2973,
+      "saved_chars": 8410,
+      "spec_sha256": "7a9090332f99057975513aad5d3076cef6956294cf418f9325151e668f7f3458",
+      "helper_sha256": "aa3882a43a2d97316bbe4cbd685268f57d692e6c669654bae3799280320df5ab"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-2-1-1",
+      "original_chars": 11383,
+      "rendered_chars": 1764,
+      "saved_chars": 9619,
+      "spec_sha256": "f56f1399a588ac298f32e888e190f9c2c6da9f044914afd370428276618d6dc6",
+      "helper_sha256": "06fb82eb6e4d564ababae6804a249244c46ff460821805f1d2f7f39aa7e35e97"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-2-1-2",
+      "original_chars": 11383,
+      "rendered_chars": 2198,
+      "saved_chars": 9185,
+      "spec_sha256": "388d82a8b6e0e5b2f8b78a1abb28f3c4de7981b43c5f28d884d989fa74e6786a",
+      "helper_sha256": "0466d7d1cc7716700912eda7530e81b2922ce09b132a90a5096757df2ce0b729"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-2-1-3",
+      "original_chars": 11383,
+      "rendered_chars": 2159,
+      "saved_chars": 9224,
+      "spec_sha256": "467a9db2bd2f6ac7820b9b15aafce7ec355894498df65949176dcd28409ffd92",
+      "helper_sha256": "b5c408d52ee9f63b5ccb28f353fbc37f3d795a6ef100fb517004fdbdcff324de"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-2-1-4",
+      "original_chars": 11383,
+      "rendered_chars": 5155,
+      "saved_chars": 6228,
+      "spec_sha256": "a8b600d0234605446e4871aea2ad204b9efc580402944e5505c16deb4d862953",
+      "helper_sha256": "d8bc0da73cf554db4694377907c187ad591ae84a913f11af90fcd0888c5c46a9"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-2-2-1",
+      "original_chars": 11383,
+      "rendered_chars": 1376,
+      "saved_chars": 10007,
+      "spec_sha256": "485426475720277a57b4f1b742043b8601b7021c6cc041f9166fae5b201f21b4",
+      "helper_sha256": "080d3d247f39a20c2db119e7900ec05e58d5d5db628c6bac44204b9b2704b824"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-2-2-2",
+      "original_chars": 11383,
+      "rendered_chars": 1376,
+      "saved_chars": 10007,
+      "spec_sha256": "34e65142b842d1f16cd22e6e197552b08cef611fae86771a9ee780ffffae314d",
+      "helper_sha256": "080d3d247f39a20c2db119e7900ec05e58d5d5db628c6bac44204b9b2704b824"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-3-1-1",
+      "original_chars": 11383,
+      "rendered_chars": 2549,
+      "saved_chars": 8834,
+      "spec_sha256": "6f09f936bd3dc674e58482d6f7fdf412618cf09c059192856cc0cf5a8a09ce07",
+      "helper_sha256": "59ae56af7524a49999b23ff879dcb8b2850faaf0101352d963a4c90ce904c590"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-3-1-2",
+      "original_chars": 11383,
+      "rendered_chars": 2282,
+      "saved_chars": 9101,
+      "spec_sha256": "71debc69e3b81c24a06c5998f338e6a0714f6b0c0370d33cbc3de4073db0ba19",
+      "helper_sha256": "544698b0a95c7b5f79452091517ed432c76395256b2be35c03c4d6443aff7229"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-3-1-3",
+      "original_chars": 11383,
+      "rendered_chars": 2086,
+      "saved_chars": 9297,
+      "spec_sha256": "e61e90c23e161afd967383ed24ace28c6ea25ec0d8d0714c82355fd52adc198e",
+      "helper_sha256": "1e05ece12eb9bb7a956ba9d5c19735130424731d5b70fda5c9990d9f0fb72ba4"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-3-2-1",
+      "original_chars": 11383,
+      "rendered_chars": 2673,
+      "saved_chars": 8710,
+      "spec_sha256": "4e2de1c60c03bf87510ea415d33491c917379b770b7096e6614badafec57c772",
+      "helper_sha256": "621d223d629e2ab8770a9941ab508f5a6f1aa22e46e8533e3f6b32fe56f1b261"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-3-2-2",
+      "original_chars": 11383,
+      "rendered_chars": 2818,
+      "saved_chars": 8565,
+      "spec_sha256": "31687dd42f54d6cbec93b2bfd9f7f849fffba14e0941688eebd4e5b30552013d",
+      "helper_sha256": "54d5d08654913b93dc8bb8ec18e074efeb39c4edf7ae5418feaa8712d47ae286"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-4-1-1",
+      "original_chars": 11383,
+      "rendered_chars": 2118,
+      "saved_chars": 9265,
+      "spec_sha256": "a89a32d018e7dea5d5f70835ade8a503600377ffa2ac07efdb7ff2a796a0dd04",
+      "helper_sha256": "b53faae84ae23132940e27874f091df533319f26b5c1af85f169e4a3eb69540d"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-4-1-2",
+      "original_chars": 11383,
+      "rendered_chars": 2023,
+      "saved_chars": 9360,
+      "spec_sha256": "d42f0140a94e5bcecbdf8765ac5ee4cc1b3628ba692d20857111aeba2d5fe605",
+      "helper_sha256": "66cff9980a9efab84f19259b8a131d844260b9162a2ed92868c9ca221330d01c"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-4-2-1",
+      "original_chars": 11383,
+      "rendered_chars": 2904,
+      "saved_chars": 8479,
+      "spec_sha256": "95ca34f52fe19983bb9ec56bb45eb525ded0de94c6ff07a2fff2af866c61d14b",
+      "helper_sha256": "1915aef79058e3e384121d377606c26cec3036e5fd9c00b4df3c5086f4ec08a6"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-4-2-2",
+      "original_chars": 11383,
+      "rendered_chars": 2198,
+      "saved_chars": 9185,
+      "spec_sha256": "c08204a0f7b0d708fcf321bb201be41f809d8830750505c10cb995c04322fe28",
+      "helper_sha256": "0466d7d1cc7716700912eda7530e81b2922ce09b132a90a5096757df2ce0b729"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-5-1-1",
+      "original_chars": 11383,
+      "rendered_chars": 4957,
+      "saved_chars": 6426,
+      "spec_sha256": "031f2866717ee9030a458b3c84ebfa1d28d2697ab448f38ea26aa7a1bf5bbca6",
+      "helper_sha256": "618912f568fcd392ef2ba0f49e26228a76c2989da4985b8fde0b1e5e8be9922f"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-5-1-2",
+      "original_chars": 11383,
+      "rendered_chars": 5725,
+      "saved_chars": 5658,
+      "spec_sha256": "13314a81e813a240de75e19d28843416901cf18e385b294959266da0dd2060b0",
+      "helper_sha256": "3ca3c69ddc51128b289b8c3eeaa7d3ca69c06ea6ba8ddede4d03fd9b8ce12b47"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-5-2-1",
+      "original_chars": 11383,
+      "rendered_chars": 5361,
+      "saved_chars": 6022,
+      "spec_sha256": "7e8ffb1ca497f5672fc5c3a537c3aa4e67086d8c4aeabc5b6740beb0a69b6df7",
+      "helper_sha256": "57ea8f4b2d4da4178e493fa6abf6fc064e244f4567cd1c0529998ead98e98ddf"
+    },
+    {
+      "suite": "hackathon--sheet",
+      "node": "REQ-5-3-1",
+      "original_chars": 11383,
+      "rendered_chars": 4699,
+      "saved_chars": 6684,
+      "spec_sha256": "888930925f2797f29956198b06a0735f6caf1d9cbd4981d543bfaa0c288422d5",
+      "helper_sha256": "95c677dbe07e55fb0157530a7bb8e62e3bf7bee1bcc82d9a6a55be3c33def954"
+    }
+  ],
+  "protected_source_sha256": {
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/helpers.ts": "924c8f6d0cefc6dd69006899f0b7a73bfaee3b939fe4bd8e7bb730436c3f90a8",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-1-1-1.spec.ts": "aebaed68205c4d494a37b9108b125e4280febf2d1e7ef8c0e52f2bffc797e425",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-1-1-2.spec.ts": "968db4e9f32337d5936096030b339294bb1d9f6c35d6dd6484419b738aaa40d8",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-1-1-3.spec.ts": "af53f478782a1b1eac61b333c6860580dad3fe45e2f4a96b49522a12fdcd5006",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-1-2.spec.ts": "e9a4756539f16fcdb8b2d37ba313b33eeb8e28d1544484873c19bb22c1f92777",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-1-3.spec.ts": "48ff29e7be497694edae4d020285b7721f4d67f92b72f51821e00dc09c1d4ebb",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-2-1-1.spec.ts": "1b482616daf0184ced5664655fbc82e6bc91d118dbadbafb3a68c3326ba26350",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-2-1-2.spec.ts": "afcb6eb04f8a9401650406607688c12f19a10d4de9a7497f9aea9023b79cc87e",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-2-2-1.spec.ts": "ee8811af19b312cf2b5134e16cbecfec85969cac8ffb93b180778d0b43ebfc35",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-2-2-2.spec.ts": "9146fd20b39ad88756eb3ae1fc2d9fcb71bc961f155114e42a2911e5b742b616",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-2-2-3.spec.ts": "3208658e2e0650da5dac44f6ea1ce0db71787fb9904f3dd53052891b02ba4f12",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-2-2-4.spec.ts": "009421549f9791a729942fef49fb0e520b954f471bc815a8312799aa291dc1ae",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-2-3.spec.ts": "3391b50f9ca41eed5ecf910dbc9deccce6f7a586bbde38b92f889e3650c01737",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-3-1.spec.ts": "76265e93e1ef26fabe9ac5394edcbb647fb67a055a937e448eb339dc3aa55d10",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-3-2-1.spec.ts": "dcf57f7578f6c78ba6955c220241e01fdc22ab3008fb72684a2a1da7d41e4bf4",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-3-2-2.spec.ts": "c9d956d87681a08f5fd6623fd602fb640ea2b442796d683841065503988576a2",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-3-2-3.spec.ts": "252b06432e1183223ca912c96c60de44e62a08d616d70971883609b182064bf3",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-3-3.spec.ts": "15db0e138b1946aef0a34ee2d1a5a06078855862535086bcc0457d391ec27aa8",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-3-4.spec.ts": "c25a6008e42041f7e81dec80c41a242bd1cfd33ff1d40a66aff6bc2b36b08f17",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-1.spec.ts": "ef2605bd343fedf7888c958bb498c20a0e86b586787a8071f004dbe2ead295c3",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-2-1.spec.ts": "6768e9b72467499c5e238b0559e164e05f856c71f01b94b672a5eb9636d60ceb",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-2-2.spec.ts": "96d1ddac8b213384969c8446383065c4cf1a57d442230b62aa45ea0e7e03da87",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-2-3.spec.ts": "6320a0d33d5f0142ba4d000b98652ad3795ae7d73f2e8ec1cbe2de2cfeee9839",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-3-1.spec.ts": "bdad35d500952b3c45bd5687ad6a2e57fb8d5ad9d1a6fc737d6a3771dcfedaec",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-3-2.spec.ts": "6aa0dced7092752c6aef1983f245071bf24575d4c299a162e1629c229e5ba177",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-3-3.spec.ts": "cf19110ee7ca820158b9998af7e95a2eec3e40396d378eeea8aca450cd12f830",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-4-4.spec.ts": "fe18a45fa138a64f863f8cf36bef5c40d0f036786771b2263b2ee4b273bb964b",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-1-1.spec.ts": "6d1d2973f5c0fa1a9c5ac4b39f3684ece1ebb50847584850da12f8d1cc31bafe",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-1-2.spec.ts": "2ea2f39c218839142bba178838c0f8a99213f53b196292ccb9f25dfaadbb9dd9",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-2-1.spec.ts": "7fc8ac34f856fc8b5a36702d813518d4c2eb0bba86c723e8154e1a5cb21f3151",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-2-2.spec.ts": "4ec31eeaeabb2e237b15571c29d0339ff1d3bcb539cc2106c334b3d5dad85ea2",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-2-3.spec.ts": "f256ee42c4ffe880dea22a1e2f904db3d16e8cd03d813f42235dc7b06d064b76",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-3-1.spec.ts": "cb52ca0815dc329bd780526175a8334ad188eeef41867b7c7a4d6b5558bbe6b5",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-3-2.spec.ts": "ff46e3c4d0b377d790f62c80e00abcd9890dbb7d5386893600d909ea352514fe",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-3-3.spec.ts": "2fd357d43457f7b75804fd4f76d10e0151e9d1ab79cc9752ffd64e69dabf12b6",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-5-4.spec.ts": "701e951c3f326d4a9a93b08fc93dc6f6fcac81e05b4da26395cf73b139ade433",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-1.spec.ts": "5177b2de33b2efad2b2559a22cfee53a7ec98328e71ac8787a27124db133af5f",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-2-1.spec.ts": "c792442dc0d9a1a24e56dc9f0cd319ca8fc0b95b920f786df4abdc339a3800f6",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-2-2.spec.ts": "94ca11e39c19fcffd5f60a6675bac424c3b43748fb06f410af96d1561d9b5b77",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-2-3.spec.ts": "e24dd7f85ffd475d2afb7a04462b50fa15884506add3da6bdad676532e2dc6cb",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-2-4.spec.ts": "a1c2e2e18823a39633a32ce5ea9137d99e4fdcbe25cbcd258251bdd825fce34b",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-3-1.spec.ts": "a685a8519dcc728be79ce285e912d3d9cba8f556120e4a54898d3715ff9529e6",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-3-2.spec.ts": "58fae6c27094a1af079f17c0f86954878209eadf35c31aabe3c05b0ef7fdeff2",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-3-3.spec.ts": "dde4b6ba6866dc8882bdaacabf6ace512371e39fc6b5aff7633dde949d701047",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-3-4.spec.ts": "7af38c0b94e7eb5072d53f0c7b84d275dbfb78ee54c3b603dfc624a5b18884f4",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-4.spec.ts": "f7574cede1a6c62d3593128747c6db51b259cab7be7642a8b1af1fe840eb6b00",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-5.spec.ts": "66c03b1813cb48dc0ab9369559f9d745c0153a9e65d89b06270405d57fc9905f",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--github/REQ-6-6.spec.ts": "abee7b6ec159472b483dbab01c0576b6fa894608e1013f3f273b1171a090e3ec",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/helpers.ts": "dc712282406f4e039dbcb9cb6cb3077eefbaa7b72b08adc7ae20e4486a732da4",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-1-1-1.spec.ts": "3af761df3851e17534c39d25662d305a2e3a98486afb4a56a5bf36a3be7654d4",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-1-2-1.spec.ts": "50c402874221c614c899ab277c7a6465db23bf8e6a29263647680eb85315cb70",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-1-2-2.spec.ts": "64425c00fc2cc95840888ea8d09aa18100cf354f09ead7576d9a2da93617087b",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-1-3-1.spec.ts": "793f379074084acba8d0cd4ac995a5f7787381f34b3de83f38bd4f302eae9622",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-1-3-2.spec.ts": "7a9090332f99057975513aad5d3076cef6956294cf418f9325151e668f7f3458",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-2-1-1.spec.ts": "f56f1399a588ac298f32e888e190f9c2c6da9f044914afd370428276618d6dc6",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-2-1-2.spec.ts": "388d82a8b6e0e5b2f8b78a1abb28f3c4de7981b43c5f28d884d989fa74e6786a",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-2-1-3.spec.ts": "467a9db2bd2f6ac7820b9b15aafce7ec355894498df65949176dcd28409ffd92",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-2-1-4.spec.ts": "a8b600d0234605446e4871aea2ad204b9efc580402944e5505c16deb4d862953",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-2-2-1.spec.ts": "485426475720277a57b4f1b742043b8601b7021c6cc041f9166fae5b201f21b4",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-2-2-2.spec.ts": "34e65142b842d1f16cd22e6e197552b08cef611fae86771a9ee780ffffae314d",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-3-1-1.spec.ts": "6f09f936bd3dc674e58482d6f7fdf412618cf09c059192856cc0cf5a8a09ce07",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-3-1-2.spec.ts": "71debc69e3b81c24a06c5998f338e6a0714f6b0c0370d33cbc3de4073db0ba19",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-3-1-3.spec.ts": "e61e90c23e161afd967383ed24ace28c6ea25ec0d8d0714c82355fd52adc198e",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-3-2-1.spec.ts": "4e2de1c60c03bf87510ea415d33491c917379b770b7096e6614badafec57c772",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-3-2-2.spec.ts": "31687dd42f54d6cbec93b2bfd9f7f849fffba14e0941688eebd4e5b30552013d",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-4-1-1.spec.ts": "a89a32d018e7dea5d5f70835ade8a503600377ffa2ac07efdb7ff2a796a0dd04",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-4-1-2.spec.ts": "d42f0140a94e5bcecbdf8765ac5ee4cc1b3628ba692d20857111aeba2d5fe605",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-4-2-1.spec.ts": "95ca34f52fe19983bb9ec56bb45eb525ded0de94c6ff07a2fff2af866c61d14b",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-4-2-2.spec.ts": "c08204a0f7b0d708fcf321bb201be41f809d8830750505c10cb995c04322fe28",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-5-1-1.spec.ts": "031f2866717ee9030a458b3c84ebfa1d28d2697ab448f38ea26aa7a1bf5bbca6",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-5-1-2.spec.ts": "13314a81e813a240de75e19d28843416901cf18e385b294959266da0dd2060b0",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-5-2-1.spec.ts": "7e8ffb1ca497f5672fc5c3a537c3aa4e67086d8c4aeabc5b6740beb0a69b6df7",
+    "/home/chris/Works/octos-arc/arc/derived-tests/hackathon--sheet/REQ-5-3-1.spec.ts": "888930925f2797f29956198b06a0735f6caf1d9cbd4981d543bfaa0c288422d5"
+  },
+  "verified_renderer_sha256": "4c68b5bf4d03fecb7eeaf70786e69afb6c79d01c999d07ff1df5c88c48d53668",
+  "final_renderer_matches_runtime_closures": 71
+}

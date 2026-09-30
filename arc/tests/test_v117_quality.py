@@ -216,7 +216,7 @@ class QualityTests(unittest.TestCase):
                            'tools': [{'type': 'function', 'function': {'name': n}} for n in ('read_file', 'grep', 'write_file', 'glob')]}).encode()
         data = json.loads(force_write_decision(body, 18, 24, 900))
         names = {x['function']['name'] for x in data['tools']}
-        self.assertEqual(names, {'read_file', 'grep', 'write_file'})
+        self.assertEqual(names, {'read_file', 'grep', 'write_file', 'glob'})
 
     def test_approval_must_map_supplied_obligations_and_requirement_hash_changes(self):
         from derived_case_review import validate_review, requirement_text

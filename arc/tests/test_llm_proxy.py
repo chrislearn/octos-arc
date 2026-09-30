@@ -259,26 +259,26 @@ class ExtraDropTests(unittest.TestCase):
 
 
 class TurnBudgetTests(unittest.TestCase):
-    def test_should_strip_tools_and_append_notice_once_budget_is_used(self):
+    def test_should_keep_schema_and_append_notice_once_budget_is_used(self):
         body = json.dumps({"model": "m", "messages": [{"role": "user", "content": "x"}], "tools": [{"type": "function", "function": {"name": "bash"}}]}).encode()
         self.assertIs(enforce_turn_budget(body, 3, 6), body)
         self.assertIs(enforce_turn_budget(body, 99, 0), body)
         out = json.loads(enforce_turn_budget(body, 6, 6))
-        self.assertNotIn("tools", out)
+        self.assertEqual(out["tools"], json.loads(body)["tools"])
         self.assertEqual(out["messages"][-1], {"role": "user", "content": BUDGET_NOTICE})
         again = json.loads(enforce_turn_budget(json.dumps(out).encode(), 7, 6))
         self.assertEqual(sum(1 for m in again["messages"] if m.get("content") == BUDGET_NOTICE), 1)
 
     def test_should_keep_targeted_reads_late_in_a_no_write_structured_turn(self):
         tools = [{"type": "function", "function": {"name": name}}
-                 for name in ("read_file", "grep", "edit_file", "write_file")]
+                 for name in ("read_file", "grep", "list_dir", "edit_file", "write_file")]
         body = json.dumps({"messages": [
             {"role": "assistant", "tool_calls": [{"id": "r1", "function": {
                 "name": "read_file", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "r1", "content": "source"},
         ], "tools": tools}).encode()
         out = json.loads(force_write_decision(body, used=6, budget=8, elapsed=20))
-        self.assertEqual([t["function"]["name"] for t in out["tools"]], ["read_file", "grep", "edit_file", "write_file"])
+        self.assertEqual(out["tools"], tools)
         self.assertEqual(out["messages"][-1]["content"], WRITE_DECISION_NOTICE)
 
     def test_should_keep_reads_before_threshold_or_after_a_write_attempt(self):

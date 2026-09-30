@@ -12,7 +12,8 @@ class SourceIndex:
         for path, source in self.sources.items():
             for name in re.findall(r'''(?:from\s*|import\s*|require\s*\(\s*)['"](\.[^'"]+)['"]''', source):
                 base = posixpath.normpath(posixpath.join(posixpath.dirname(path), name))
-                candidates = [base] + [base + ext for ext in ('.js', '.jsx', '.ts', '.tsx', '/index.js', '/index.ts', '/index.tsx')]
+                extensions = ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json', '.css')
+                candidates = [base] + [base + ext for ext in extensions] + [base + '/index' + ext for ext in extensions]
                 target = next((p for p in candidates if p in self.sources), None)
                 if target:
                     self.dependencies[path].add(target)

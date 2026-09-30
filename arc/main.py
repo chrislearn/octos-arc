@@ -1121,39 +1121,137 @@ _HELPER_DECL = re.compile(
 _IDENT = re.compile(r"[A-Za-z_$][\w$]*")
 
 
-def trim_helper_to_references(helper: str, referenced: set[str]) -> str:
-    """The top-level declarations of a test helper file that `referenced`
-    identifiers reach, transitively, plus its import lines; "" when none do.
+def _helper_statements(source: str) -> list[str] | None:
+    """Recognize bounded top-level statements; uncertain syntax stays whole.
 
-    A shared helpers.ts is written for the whole suite (12306: 54 exports,
-    25k chars) while one spec uses a handful (median 4). Quoting the file
-    whole into every node's prompt made every spec look 25k chars long: the
-    reasoning-off rule never fired and ~7k tokens of unrelated code rode
-    along in each request. A file with no recognisable top-level
-    declarations is returned whole -- better too much than a broken quote."""
-    decls = list(_HELPER_DECL.finditer(helper))
-    if not decls:
+    This is only a context renderer, not a TypeScript compiler. Strings,
+    comments and regular expressions cannot introduce declaration boundaries.
+    """
+    statements, stack = [], []
+    start = i = 0
+    block_decl = re.compile(r"^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function\*?|class|interface|enum)\b")
+    while i < len(source):
+        c = source[i]
+        if (not stack and (i == 0 or source[i - 1] == '\n')
+                and re.match(r'\s*(?:export|import|(?:async\s+)?function|const|let|var|class|type|interface|enum)\b', source[i:])):
+            prefix = re.sub(r'(?s)^(?:\s|//[^\n]*(?:\n|$)|/\*.*?\*/)*', '', source[start:i])
+            if prefix.strip():
+                return None  # semicolon-free or otherwise uncertain boundary
+        if source.startswith(('//', '/*'), i):
+            end = source.find('\n', i + 2) if source[i:i + 2] == '//' else source.find('*/', i + 2)
+            if end < 0:
+                if source[i:i + 2] == '/*':
+                    return None
+                i = len(source)
+                break
+            i = end + (2 if source[i:i + 2] == '/*' else 1)
+            continue
+        if c in "'\"`" or c == '/' and (not source[start:i].strip() or source[:i].rstrip()[-1:] in '=(:,[!&|?{;'):
+            quote, j, in_class = c, i + 1, False
+            while j < len(source):
+                if source[j] == '\\':
+                    j += 2
+                    continue
+                if quote == '/':
+                    if source[j] == '[': in_class = True
+                    elif source[j] == ']': in_class = False
+                if source[j] == quote and not in_class:
+                    break
+                j += 1
+            if j == len(source):
+                return None
+            if quote == '`' and '${' in re.sub(r'\$\{[^{}]*\}', '', source[i + 1:j]):
+                return None  # nested template/expression syntax needs an AST
+            i = j + 1
+            continue
+        if c in '({[':
+            stack.append(c)
+        elif c in ')}]':
+            if not stack or stack.pop() != {')': '(', '}': '{', ']': '['}[c]:
+                return None
+        if c == ',' and not stack and re.match(r'\s*(?:export\s+)?(?:const|let|var)\b', source[start:i]):
+            return None  # multiple declarators need a real binding parser
+        # Leading comments belong to their following declaration. Strip them
+        # only to classify the statement; the emitted source stays verbatim.
+        head = re.sub(r'(?s)^(?:\s|//[^\n]*(?:\n|$)|/\*.*?\*/)*', '', source[start:i + 1]) if c == '}' and not stack else ''
+        if c == '}' and not stack and block_decl.match(head):
+            following = source[i + 1:]
+            if following and not re.match(r'[ \t]*(?:\r?\n|;|//|/\*|$)', following):
+                return None  # e.g. an object-shaped TypeScript return type
+        if not stack and (c == ';' or c == '}' and block_decl.match(head)):
+            statements.append(source[start:i + 1])
+            start = i + 1
+        i += 1
+    if stack:
+        return None
+    if source[start:].strip():
+        statements.append(source[start:])
+    return statements
+
+
+def trim_helper_to_references(helper: str, referenced: set[str]) -> str:
+    """Render reachable declarations while retaining imports and initialization.
+
+    Simple export lists/aliases participate in the closure. Unknown exports,
+    duplicate declarations or uncertain boundaries use the original helper.
+    This never changes the executable spec/helper bytes on disk.
+    """
+    statements = _helper_statements(helper)
+    if statements is None:
         return helper
-    # An export the parser cannot name -- `export { a, b }`, a destructuring
-    # `export const { x } = ...`, `export default { ... }` -- would be dropped
-    # silently by the closure below. Quote the whole file instead.
-    if any(not _HELPER_DECL.match(line) for line in re.findall(r"^export\b.*$", helper, re.M)):
+    spans, aliases, required = {}, {}, set()
+    rows = []
+    for number, statement in enumerate(statements):
+        text = re.sub(r'(?s)^(?:\s|//[^\n]*(?:\n|$)|/\*.*?\*/)*', '', statement)
+        decl = _HELPER_DECL.match(text)
+        key = f'@{number}'
+        forced = not text.strip() or text.startswith('import ')
+        if decl:
+            key = decl[1]
+            if key in spans:
+                return helper
+            # Calls in an eager initializer may register fixtures or mutate
+            # shared state. Arrow/function bodies execute only when invoked.
+            initializer = text.split('=', 1)[-1]
+            eager = re.match(r'^(?:export\s+)?(?:const|let|var)\b', text)
+            deferred = re.match(r'\s*(?:async\s+)?(?:function\b|\((?!\s*\()[^;]*?\)\s*(?::[^=]+)?=>|[\w$]+\s*=>)', initializer, re.S)
+            if re.search(r'}\s*(?:\(|\.)', initializer):
+                deferred = None  # immediately invoked/function-valued setup
+            forced = bool(eager and not deferred and re.search(
+                r'\(|\b(?:new|await|delete)\b|\+\+|--|[\w$]\s*(?:\.|\[|`)|(?<![=!<>])=(?!=)', initializer))
+            forced |= bool(re.match(r'^(?:export\s+(?:default\s+)?)?(?:class|enum)\b', text))
+        elif text.startswith('export '):
+            match = re.fullmatch(r'export\s*\{([^{}]+)\}\s*(?:from\s*([\'\"])[^\'\"]+\2\s*)?;?\s*', text, re.S)
+            if not match:
+                return helper
+            for item in match[1].split(','):
+                if not item.strip(): continue
+                pair = re.fullmatch(r'\s*([\w$]+)(?:\s+as\s+([\w$]+))?\s*', item)
+                if not pair:
+                    return helper
+                aliases[pair[2] or pair[1]] = key
+            # External re-exports also load their module for side effects.
+            forced = bool(match[2])
+        else:
+            forced = True  # retain all top-level executable statements
+        spans[key] = statement
+        rows.append(key)
+        if forced: required.add(key)
+    if not any(not key.startswith('@') for key in spans):
         return helper
-    starts = [d.start() for d in decls] + [len(helper)]
-    spans = {d.group(1): helper[starts[i]:starts[i + 1]] for i, d in enumerate(decls)}
     include: set[str] = set()
-    frontier = set(spans) & referenced
+    frontier = (set(spans) & referenced) | {aliases[name] for name in referenced & aliases.keys()} | required
     while frontier:
         include |= frontier
         reached = set()
         for name in frontier:
             reached |= set(_IDENT.findall(spans[name])) & set(spans)
         frontier = reached - include
-    if not include:
+    # Imports alone are not useful when the spec reaches no helper and the
+    # module contains no eager initialization or other executable statement.
+    if not include - {key for key in required if spans[key].lstrip().startswith('import ')}:
         return ""
-    header = [line for line in helper[:starts[0]].splitlines() if line.startswith("import ")]
-    kept = [spans[d.group(1)].rstrip() for d in decls if d.group(1) in include]
-    return "\n".join(header + [""] + kept).strip() + "\n"
+    return '\n'.join(spans[key].strip() for key in rows if key in include).strip() + '\n'
 
 
 def quoted_paths(prompt: str) -> set[str]:
@@ -3392,6 +3490,8 @@ class Flow:
         """
         if os.environ.get("OCTOS_ARC_SOURCE_STABILITY_ORDER", "1") == "0":
             return {}
+        if hasattr(self, '_source_change_counts'):
+            return dict(self._source_change_counts)
         runtime = getattr(self, "runtime", None)
         if runtime is None:
             return {}
@@ -3406,6 +3506,9 @@ class Flow:
             path = path.strip()
             if path.startswith(("frontend/", "backend/")):
                 counts[path] = counts.get(path, 0) + 1
+        # Freeze presentation weights for this run. New commits must not move
+        # unchanged quotes before/after one another on the next node.
+        self._source_change_counts = counts
         return counts
 
     def omit_unchanged_template_libraries(self, scored: list[tuple], must_include=()) -> list[tuple]:
@@ -3425,15 +3528,21 @@ class Flow:
                 defaults[rel] = (BUNDLE_DIR / "blueprints" / asset).read_text(encoding="utf-8")
             except OSError:
                 return scored
-        return [row for row in scored if str(row[3]) in required
+        return [(min(row[0], 1), *row[1:]) if str(row[3]) in defaults and row[4] != defaults[str(row[3])] else row
+                for row in scored if str(row[3]) in required
                 or str(row[3]) not in defaults or row[4] != defaults[str(row[3])]]
 
-    def required_source_context(self, evidence: str, priority=(), sources=None) -> set[str]:
+    def required_source_context(self, evidence: str, priority=(), sources=None, requirement_ids=()) -> set[str]:
         from source_index import SourceIndex
         index = SourceIndex(sources) if sources is not None else self.repair_source_index()
         paths = [Path(p) for p in index.sources]
         targets = set(priority) | spec_targets(evidence, paths) | navigation_targets(evidence, paths)
-        contracts = (getattr(self, "app_design_doc", None) or {}).get("domain_contracts", [])
+        active = set(requirement_ids) | set(re.findall(r"\bREQ-\d+(?:(?:\.|-)\d+)*\b", evidence))
+        design = getattr(self, "app_design_doc", None) or {}
+        contracts = [row for key in ('domain_contracts', 'contracts', 'commands', 'modules')
+                     for row in design.get(key, [])
+                     if isinstance(row, dict) and (not row.get('requirements') or not active
+                                                  or set(row['requirements']) & active)]
         owners = set(re.findall(r"(?:frontend|backend)/[\w./-]+\.(?:jsx?|tsx?|mjs)",
                                 json.dumps(contracts, ensure_ascii=False)))
         return index.contract_context(targets, owners)
@@ -3442,7 +3551,7 @@ class Flow:
                                  must_include: set[str] | None = None,
                                  context_limit: int | None = None,
                                  source_limit: int | None = None,
-                                 focused_sources: bool = False) -> str | None:
+                                 focused_sources: bool | None = None) -> str | None:
         """Budget a complete user message, preserving rules and critical corrections.
 
         Fixed rules/source order precede node-specific text and size rules. Only
@@ -3470,19 +3579,20 @@ class Flow:
             evidence += '\nPrevious batch checks (fix confirmed errors; verify advisory hypotheses before editing):\n' + gate[:4000]
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
+        dynamic_rules = stack_note(self.output_dir) + seed_contract_text(self)
         if getattr(self, "generic_template_installed", False):
-            rules += GENERIC_TEMPLATE_NOTE + route_table_note(self.output_dir)
+            rules += GENERIC_TEMPLATE_NOTE
+            dynamic_rules += route_table_note(self.output_dir)
             rules += ("Keep frontend/build.mjs and frontend/vite.config.mjs unchanged for feature work. "
                       "If an active requirement truly needs a build configuration change, edit only when "
                       "the complete current file is quoted here; otherwise request it through NEEDS_CONTEXT. "
                       "The existing-file write guard still applies.\n")
-        rules += stack_note(self.output_dir) + seed_contract_text(self)
         # The harness has already written package.json, which is enough for
         # has_app() but not for a runnable backend. Keep existing sources while
         # explicitly requiring the missing entry in this generation request.
         missing_entry = missing_backend_entry(self.output_dir)
         if missing_entry:
-            rules += f"Startup prerequisite: {missing_entry} is missing. Create it in this response so the configured backend start command can run.\n"
+            dynamic_rules += f"Startup prerequisite: {missing_entry} is missing. Create it in this response so the configured backend start command can run.\n"
         derived_contract = "DERIVED REQUIREMENT VERIFICATION CONTRACT" in spec
         task = CODEGEN_TASK.format(node_id=str(node.get("id")),
             description=describe_node(node, include_scenarios=not derived_contract)
@@ -3516,8 +3626,6 @@ class Flow:
                      "because its generated design or test is incomplete.\n"
                      + json.dumps(gaps, ensure_ascii=False))
         existing = self.has_app()
-        if existing:
-            rules = rules.replace("Files:", "Existing app below; preserve working behavior. Files:", 1)
         entry = backend_entry(self.output_dir) if existing else None
         if must_include is None:
             must_include = set(getattr(self, "refused_paths", ()))
@@ -3530,14 +3638,25 @@ class Flow:
                 and limit >= 12000 and len(spec) < limit * 0.45):
             must_include.add("frontend/package.json")
         scored = scored_sources(self.output_dir, spec + "\n" + evidence, entry, must_include=must_include) if existing else []
+        # A modified shared scaffold library can change every feature's API.
+        # Keep it and its dependencies mandatory even in focused context.
+        must_include |= {str(row[3]) for row in Flow.omit_unchanged_template_libraries(self, scored, must_include)
+                         if row[0] == 1}
         if existing:
             must_include |= Flow.required_source_context(
-                self, spec + "\n" + evidence, must_include, {str(row[3]): row[4] for row in scored})
+                self, spec + "\n" + evidence, must_include, {str(row[3]): row[4] for row in scored},
+                requirement_ids=[node_id, *active_ids])
             # Reuse exactly the snapshots already read for selection. Mandatory
             # dependencies outrank optional matches without reading disk twice.
             scored = sorted([(1 if row[0] > 0 and str(row[3]) in must_include else row[0], *row[1:])
                              for row in scored], key=lambda row: row[:3])
         scored = Flow.omit_unchanged_template_libraries(self, scored, must_include)
+        if focused_sources is None:
+            # Scope only when evidence names a concrete feature file. A shared
+            # composition root alone cannot identify an unknown feature owner.
+            concrete = {str(row[3]) for row in scored if row[0] in (1, 2, 3)}
+            hubs = {'App.jsx', 'App.tsx', 'app.js', 'router.js', 'main.jsx', 'main.tsx', 'package.json'}
+            focused_sources = any(Path(path).name not in hubs for path in concrete)
         entry_indexes = [i for i, row in enumerate(scored)
                          if entry is not None and row[3] == entry.relative_to(self.output_dir)]
         entry_size = scored[entry_indexes[0]][2] if entry_indexes else 0
@@ -3545,7 +3664,7 @@ class Flow:
         design_stable, design_slice = app_design_blocks(getattr(self, "app_design_doc", None), spec,
                                                         int(os.environ.get("OCTOS_ARC_APP_DESIGN_CHARS", "24000")),
                                                         requirement_ids=[node_id, *active_ids])
-        fixed = (len(rules) + len(design_stable) + len(design_slice) + len(task) + len(evidence)
+        fixed = (len(rules) + len(dynamic_rules) + len(design_stable) + len(design_slice) + len(task) + len(evidence)
                  + len(FORMAT_INSTRUCTIONS) + 2)
         room = limit - fixed - len(corrections)
         self.codegen_budget = dict(spec=len(spec), entry=entry_size, room=room, limit=limit, reason="")
@@ -3581,15 +3700,17 @@ class Flow:
             fixed=fixed, source_block=len(sources), quoted_sources=len(quoted_paths(sources)),
             required_sources=len(must_include), source_limit=source_room,
             design_chars=len(design_stable) + len(design_slice),
-            required_source_paths=sorted(must_include))
+            required_source_paths=sorted(must_include), focused_sources=focused_sources)
         # Rules, a design that fits whole (identical for every node), the sources in
         # stability order -- unchanged low-churn files precede frequently edited
         # ones for prefix reuse -- then the per-node design slice, if any, with the
         # other node-specific text.
-        prompt = rules + design_stable + sources + "\n" + design_slice + corrections + evidence + task
+        prompt = rules + design_stable + sources + "\n" + design_slice + dynamic_rules + corrections + evidence + task
         self.bind_edit_scope(prompt, spec + '\n' + evidence, must_include)
         self.metric("implementation_context", node_id=node_id, design_chars=len(design_stable) + len(design_slice),
-                    required_source_paths=sorted(must_include), prompt_chars=len(prompt), limit=limit)
+                    required_source_paths=sorted(must_include), prompt_chars=len(prompt), limit=limit,
+                    focused_sources=focused_sources, source_chars=len(sources),
+                    quoted_source_paths=sorted(quoted_paths(sources)))
         return prompt
 
     def render_outlines(self, paths: list[str], room: int) -> str | None:
@@ -3637,22 +3758,28 @@ class Flow:
             return None
         if failures and failures in prompt:
             prompt = prompt.replace(failures, balanced_failure_evidence(failures, 6000), 1)
-        patched = self._patched_repair_prompt(node_id, spec, prompt)
-        if patched is not None:
-            self.bind_edit_scope(patched, spec + '\n' + failures, getattr(self, 'refused_paths', ()))
-            return patched
+        # Build implementation and repair through the same stable prefix.
+        # A custom tool-mode prompt can still be requoted as a fallback below.
         # The tool-mode prompt could not be requoted within the budget (cloud
         # fcec6ac02a95: 15 repairs went straight to tools this way). Build the
         # repair the way an implement turn is built -- rules, design, ranked
         # sources with the refused/target files first, then the failures as
         # evidence -- before giving the node to tools.
         node = getattr(self, "requirement_nodes", {}).get(node_id)
-        if node is None:
-            self.codegen_repair_unavailable_reason = "missing_requirement_node"
-            return None
         evidence = ("The current application fails these acceptance checks; fix them without breaking the "
                     "passing ones:\n" + balanced_failure_evidence(failures or "(no detail)", 6000) + "\n")
-        fallback = self.codegen_implement_prompt(node, spec, "", evidence=evidence)
+        # Preserve diagnostic instructions, dispute protocols and corrections
+        # from the caller. Only the duplicated source snapshot is removed.
+        current_sources = self.sources_text()
+        tail = prompt.replace(current_sources, '', 1) if current_sources.strip() and current_sources in prompt else prompt
+        fallback = self.codegen_implement_prompt(node, spec, "", evidence=tail) if node is not None else None
+        if fallback is None:
+            patched = self._patched_repair_prompt(node_id, spec, prompt)
+            if patched is not None:
+                self.bind_edit_scope(patched, spec + '\n' + failures, getattr(self, 'refused_paths', ()))
+                return patched
+            # Retain the existing bounded fallback for oversized tool prompts.
+            fallback = self.codegen_implement_prompt(node, spec, "", evidence=evidence) if node is not None else None
         if fallback is None:
             budget = getattr(self, "codegen_budget", {}) or {}
             reason = str(budget.get("reason") or "required_source_or_context_budget")
@@ -3677,7 +3804,7 @@ class Flow:
         suffix = stack_note(getattr(self, "output_dir", None)) + design + suffix
         limit = self.codegen_context_chars()
         current_sources = self.sources_text()
-        required = self.required_source_context(spec, getattr(self, "refused_paths", ()))
+        required = self.required_source_context(spec, getattr(self, "refused_paths", ()), requirement_ids=[node_id])
         if current_sources.strip() and current_sources in prompt:
             room = limit - (len(prompt) - len(current_sources)) - len(suffix) - len(FORMAT_INSTRUCTIONS) - 2000
             if room < 8000:
@@ -4659,7 +4786,7 @@ class Flow:
         if localized and not getattr(self, "refused_paths", ()):
             # Historical diffs may contain the entire generated application.
             # Prefer current failure ownership and its direct callers instead.
-            must = localized | (changed & index.related(localized))
+            must = localized | (changed if len(changed) <= 3 else changed & index.related(localized))
         node = {"id": ", ".join(names), "description": description}
         prompt = self.codegen_implement_prompt(node, specs, "", evidence=evidence, must_include=must)
         if prompt is None or not must:
