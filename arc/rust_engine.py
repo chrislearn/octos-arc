@@ -266,10 +266,11 @@ def main(args) -> int:
         runtime.traceability.store_requirement_tree(tree)
         tests_dir = legacy.locate_acceptance_tests(tree, BUNDLE_DIR)
         octos_bin = legacy.find_octos()
-        from frozen_suites import materialize, requested_name
+        from frozen_suites import materialize, prefer_embedded
         suite_name = getattr(args, 'test_suite', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
-        if (suite_name or not tests_dir) and requested_name(tree, suite_name):
-            embedded = materialize(octos_bin, tree, output_dir, suite_name, log)
+        if suite_name or not tests_dir or prefer_embedded(args):
+            embedded = materialize(octos_bin, tree, output_dir, suite_name, log,
+                                   requirements_path=req_dir / 'requirements.yaml')
             if embedded:
                 tests_dir, _manifest = embedded
         runtime.git.ensure_repo()

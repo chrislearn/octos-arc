@@ -31,6 +31,65 @@ pub struct TestsCommand {
     pub requirements_sha256: Option<String>,
 }
 
+#[derive(Debug, Args)]
+pub struct GenerateTestSuiteCommand {
+    /// Request such as: Read requirements.yaml. For task "github", generate test specs and contracts.
+    #[arg(long)]
+    pub prompt: String,
+    #[arg(long)]
+    pub output_dir: PathBuf,
+    /// Original requirements identity supplied by the caller.
+    #[arg(long)]
+    pub requirements_sha256: String,
+}
+
+fn prompt_suite_name(prompt: &str) -> Option<&'static str> {
+    let identity = regex::Regex::new(r#"(?i)for\s+task\s+"([^"]+)""#).unwrap();
+    let captured = identity.captures(prompt);
+    let text = captured
+        .as_ref()
+        .and_then(|c| c.get(1))
+        .map_or(prompt, |m| m.as_str());
+    let text = text.to_lowercase();
+    let github = regex::Regex::new(r"\b(?:hackathon--github|github)\b")
+        .unwrap()
+        .is_match(&text);
+    let sheet = regex::Regex::new(r"\b(?:hackathon--sheet|sheet|spreadsheet)\b")
+        .unwrap()
+        .is_match(&text);
+    match (github, sheet) {
+        (true, false) => Some("hackathon--github"),
+        (false, true) => Some("hackathon--sheet"),
+        _ => None,
+    }
+}
+
+/// This prompt command is deterministic: unsupported tasks never generate files or call a model.
+pub fn generate(command: &GenerateTestSuiteCommand) -> Result<Value> {
+    let name = prompt_suite_name(&command.prompt)
+        .ok_or_else(|| eyre::eyre!("No embedded test suite for the requested task"))?;
+    let mut receipt = extract(name, &command.requirements_sha256, &command.output_dir)?;
+    receipt["success"] = json!(true);
+    receipt["generation"] = json!("embedded");
+    Ok(receipt)
+}
+
+pub fn execute_generate(command: GenerateTestSuiteCommand) -> i32 {
+    match generate(&command) {
+        Ok(receipt) => {
+            println!("{receipt}");
+            0
+        }
+        Err(error) => {
+            println!(
+                "{}",
+                json!({"success":false,"trusted":false,"error":error.to_string()})
+            );
+            1
+        }
+    }
+}
+
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -63,7 +122,8 @@ fn content(name: &str, fingerprint: &str) -> Result<(Value, BTreeMap<String, Vec
     ensure!(
         manifest["official"] == false
             && manifest["review_status"] == "reviewed"
-            && manifest["frozen"] == true,
+            && manifest["frozen"] == true
+            && manifest["trusted"] == true,
         "Suite is not reviewed and frozen"
     );
     ensure!(
@@ -220,7 +280,7 @@ pub fn extract(name: &str, fingerprint: &str, directory: &Path) -> Result<Value>
         fs::rename(stage.path(), directory).wrap_err("Cannot publish frozen suite directory")?;
     }
     Ok(
-        json!({"name":name,"directory":fs::canonicalize(directory)?,"official":false,"review_status":"reviewed","frozen":true,"case_count":manifest["case_count"],"spec_count":manifest["spec_count"],"requirements_sha256":fingerprint,"manifest_sha256":hash(&files["suite-origin.json"])}),
+        json!({"name":name,"directory":fs::canonicalize(directory)?,"trusted":true,"trust_scope":["tests","domain_contracts","requirement_contracts","business_model"],"official":false,"review_status":"reviewed","frozen":true,"case_count":manifest["case_count"],"spec_count":manifest["spec_count"],"requirements_sha256":fingerprint,"manifest_sha256":hash(&files["suite-origin.json"])}),
     )
 }
 
@@ -268,7 +328,7 @@ pub fn note_for_extracted(directory: &Path, tree: &Value) -> Result<Option<Strin
     let (_, files) = content(name, &requirements_fingerprint(tree))?;
     check_existing(directory, &files)?;
     Ok(Some(format!(
-        "SOURCE-REVIEWED FROZEN INTERNAL TEST SUITE at {}. All cases were source-reviewed before this run; do not regenerate or modify them. This is not an official benchmark suite or a measured pass. Requirements remain authoritative. Read {}/fixtures.json and {}/README.md before generation to provision independent public seeds and role accounts; no private/reset API is required. Use the frozen source-reviewed app-design.json, domain-contracts.json, requirement-contracts.json and test-obligations.json in that directory directly; do not regenerate or edit those business models. Their shared schemas are design proposals; implementation paths remain choices.\n",
+        "SOURCE-REVIEWED FROZEN INTERNAL TEST SUITE at {}. Octos attested trusted=true for tests and contracts; skip spec generation, review, audit and waiting queues. All cases were source-reviewed before this run; do not regenerate or modify them. This is not an official benchmark suite or a measured pass. Requirements remain authoritative. Read {}/fixtures.json and {}/README.md before generation to provision independent public seeds and role accounts; no private/reset API is required. Use the frozen source-reviewed app-design.json, domain-contracts.json, requirement-contracts.json and test-obligations.json in that directory directly; do not regenerate or edit those business models. Their shared schemas are design proposals; implementation paths remain choices.\n",
         directory.display(),
         directory.display(),
         directory.display()
@@ -340,6 +400,40 @@ mod tests {
             .into()
     }
     #[test]
+    fn prompt_generation_materializes_only_known_tasks_and_attests_trust() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["hackathon--github", "hackathon--sheet"] {
+            let command = GenerateTestSuiteCommand {
+                prompt: format!(
+                    "Read /task/requirements.yaml. For task \"{name}\", generate test suite specs and business contracts."
+                ),
+                output_dir: root.path().join(name),
+                requirements_sha256: fingerprint(name),
+            };
+            let result = generate(&command).unwrap();
+            assert_eq!(result["trusted"], true);
+            assert_eq!(result["success"], true);
+            assert_eq!(result["generation"], "embedded");
+        }
+        let absent = root.path().join("unknown");
+        let unknown = GenerateTestSuiteCommand {
+            prompt: "Read /github/requirements.yaml. For task \"unknown\", generate tests.".into(),
+            output_dir: absent.clone(),
+            requirements_sha256: fingerprint("hackathon--github"),
+        };
+        assert!(generate(&unknown).is_err());
+        assert!(!absent.exists());
+        assert_eq!(
+            prompt_suite_name("Read requirements and generate specs for github"),
+            Some("hackathon--github")
+        );
+        assert_eq!(
+            prompt_suite_name("Read requirements and generate specs for sheet"),
+            Some("hackathon--sheet")
+        );
+        assert_eq!(prompt_suite_name("github and sheet"), None);
+    }
+    #[test]
     fn every_catalogued_suite_extracts_reviewed_complete_content_and_is_reusable() {
         let root = tempfile::tempdir().unwrap();
         for name in ["hackathon--github", "hackathon--sheet"] {
@@ -347,6 +441,7 @@ mod tests {
             let receipt = extract(name, &fingerprint(name), &directory).unwrap();
             assert_eq!(receipt["review_status"], "reviewed");
             assert_eq!(receipt["frozen"], true);
+            assert_eq!(receipt["trusted"], true);
             assert_eq!(receipt["official"], false);
             let specs = fs::read_dir(&directory)
                 .unwrap()

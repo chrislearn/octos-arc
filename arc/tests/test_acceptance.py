@@ -29,6 +29,7 @@ class SpecIdTests(unittest.TestCase):
         self.assertEqual(spec_node_id("REQ-1.spec.ts"), "REQ-1")
         self.assertEqual(spec_node_id("REQ-1.1-user-registration.spec.ts"), "REQ-1.1")
         self.assertEqual(spec_node_id("sub/REQ-12.3.4-x.spec.ts"), "REQ-12.3.4")
+        self.assertEqual(spec_node_id("REQ-1-2-1.spec.ts"), "REQ-1-2-1")
         self.assertIsNone(spec_node_id("support/e2e.ts"))
         self.assertIsNone(spec_node_id("smoke.spec.ts"))
 

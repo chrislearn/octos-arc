@@ -31,6 +31,8 @@ pub enum ArcSubcommand {
     Run(crate::run::RunCommand),
     /// List or materialize embedded reviewed/frozen internal test suites.
     Tests(crate::test_suites::TestsCommand),
+    /// Generate trusted embedded test specs and business contracts from a task prompt.
+    GenerateTestSuite(crate::test_suites::GenerateTestSuiteCommand),
     /// before_tool_call hook: deny file writes inside protected directories
     /// (payload on stdin; exit 1 = deny). Used by `octos arc run` itself.
     #[command(hide = true, name = "deny-protected")]

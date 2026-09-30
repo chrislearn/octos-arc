@@ -2506,6 +2506,8 @@ class Flow:
     def __init__(self, args, output_dir: Path, req_dir: Path) -> None:
         self.args = args
         self.test_suite_name = getattr(args, 'test_suite', None)
+        self.test_specs_trusted = False
+        self.layered = None
         self.output_dir = output_dir
         self.req_dir = req_dir
         self.web_port = args.web_port
@@ -4184,6 +4186,50 @@ class Flow:
         else:
             log(f"[flow] generation build preflight ready in {elapsed}s; per-wave frontend builds enabled")
 
+    def prepare_test_spec_source(self, tree: dict, ordered: list[dict]) -> None:
+        """Select the source once; only an octos-attested suite bypasses spec planning."""
+        original_tree = self.original_requirement_tree
+        node_ids = [str(node["id"]) for node in ordered]
+        self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
+        from frozen_suites import materialize, prefer_embedded
+        self.frozen_suite = None
+        self.test_specs_trusted = False
+        suite_name = getattr(self, 'test_suite_name', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
+        if suite_name or not self.tests_dir or prefer_embedded(self.args):
+            embedded = materialize(find_octos(), original_tree, self.output_dir, suite_name, log,
+                                   requirements_path=self.req_dir / 'requirements.yaml')
+            if embedded:
+                self.tests_dir, self.frozen_suite = embedded
+                self.adopt_frozen_business()
+                self.metric('frozen_test_suite', name=self.frozen_suite['name'],
+                            official=False, review_status='reviewed', frozen=True,
+                            runtime_status='not_run', case_count=self.frozen_suite['case_count'])
+        if getattr(self, 'test_specs_trusted', False):
+            self.layered = None
+            self.metric('test_spec_pipeline', mode='trusted', trusted=True,
+                        skipped=['mechanical_generation', 'basic_spec_generation', 'business_spec_generation',
+                                 'spec_review', 'spec_audit', 'spec_waiting'],
+                        node_execution='generate_test_repair')
+        else:
+            from layered_tests import LayeredTests
+            self.layered = LayeredTests(self, ordered)
+        if self.tests_dir:
+            specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+            self.spec_map, self.aliases = map_specs_to_nodes(specs, node_ids)
+            log(f"[tests] {len(specs)} spec files at {self.tests_dir}; mapping "
+                f"{ {k: v for k, v in self.spec_map.items() if v} }; aliases {self.aliases}")
+        else:
+            self.requirement_contracts = compile_contracts(ordered)
+            contract_path = self.output_dir / ".arc" / "requirement-contracts.json"
+            save_contracts(contract_path, self.requirement_contracts)
+            log(f"[tests] no acceptance specs found; wrote deterministic requirement contract for "
+                f"{len(ordered)} node(s) to {contract_path}")
+            # No official specs: compile specs from requirements.yaml and run
+            # the SAME measured flow as with official specs. The only extra
+            # step is the spec generation (plus a bounded model review below).
+            if self.prepare_derived_tests(ordered):
+                self.adopt_derived_specs(node_ids)
+
     def adopt_frozen_business(self) -> None:
         from frozen_suites import load_business, verify_directory
         verify_directory(self.tests_dir, self.original_requirement_tree, self.frozen_suite['name'], self.frozen_suite)
@@ -4197,6 +4243,8 @@ class Flow:
         self.derived_obligation_status = ledger['nodes']
         self._design_semantics_reviewed = True
         self._design_blocked = set()
+        self.test_specs_trusted = True
+        self.derived_as_specs = False
         # Conventional paths are readable copies; the protected extracted suite
         # remains the authority and is verified before every acceptance run.
         save_contracts(self.output_dir / '.arc/requirement-contracts.json', contracts)
@@ -6344,6 +6392,8 @@ class Flow:
         again. The app repair loop consumes that new measurement if it still
         fails; a passing replacement is not inferred from the spec edit alone.
         """
+        if getattr(self, 'test_specs_trusted', False):
+            return None
         if (not getattr(self, "derived_as_specs", False)
                 or self.tests_dir != getattr(self, "derived_tests_dir", None)
                 or os.environ.get("OCTOS_ARC_DERIVED_SPEC_AUDIT", "1") == "0"
@@ -6712,6 +6762,8 @@ class Flow:
 
     def audit_related_derived_specs(self, specs: list[str], summary: RunSummary, owner_specs: dict[str, list[str]] | None=None) -> RunSummary:
         """Adjudicate failed reviewed cases before using them for app repair."""
+        if getattr(self, 'test_specs_trusted', False):
+            return summary
         if getattr(self, "layered", None) is not None:
             return summary  # author disputes are terminal; no oracle adjudication loop
         if getattr(self, 'derived_as_specs', False) is not True or summary.all_passed or (not self.suite_is_measured(summary, specs)):
@@ -7799,6 +7851,8 @@ class Flow:
         They live beside frontend/backend (protected from model writes) and are re-run
         unchanged by every derived acceptance round; no model tokens are spent.
         """
+        if getattr(self, 'test_specs_trusted', False):
+            return False
         if self.tests_dir or os.environ.get("OCTOS_ARC_DERIVED_TESTS", "1") == "0":
             return False
         # Mechanical scaffolding is run-level preparation, not admission of
@@ -8233,6 +8287,8 @@ class Flow:
 
     def derived_review_needed(self, node_id: str) -> bool:
         """Every scenario needs an action-then-assertion test for verification."""
+        if getattr(self, 'test_specs_trusted', False):
+            return False
         if not getattr(self, 'derived_as_specs', False):
             return False
         coverage = self.derived_scenario_coverage(node_id)
@@ -8285,6 +8341,8 @@ class Flow:
 
     def derived_completeness_pass(self, ordered: list[dict]) -> None:
         """Recover weak specs, independently audit, execute and repair within a reserved window."""
+        if getattr(self, 'test_specs_trusted', False):
+            return
         if getattr(self, "_completeness_active", False):
             return self._derived_completeness_work(ordered)
         with recovery_budget(self):
@@ -8734,6 +8792,8 @@ class Flow:
             assertion witnesses. Budget exhaustion leaves cases unreviewed; it
             never delays implementation or converts a missing oracle into a pass.
             """
+        if getattr(self, 'test_specs_trusted', False):
+            return
         directory = getattr(self, 'derived_tests_dir', None)
         if directory is None or not node_ids:
             return
@@ -9109,6 +9169,8 @@ class Flow:
         leaves enter short, per-leaf review windows before test execution.
         No test review window withholds source generation.
         """
+        if getattr(self, 'test_specs_trusted', False):
+            return
         if not getattr(self, "derived_as_specs", False):
             return
         phase_plan = getattr(self, "phase_plan", None) or {}
@@ -9198,6 +9260,8 @@ class Flow:
 
     def prepare_derived_build_batch(self, nodes: list[dict]) -> None:
         """Spend a short post-code test review window for the given leaves."""
+        if getattr(self, 'test_specs_trusted', False):
+            return
         attempted = getattr(self, '_derived_build_spec_attempted_ids', set())
         pending = [node for node in nodes
                    if str(node.get('id')) not in getattr(self, '_derived_preflight_node_ids', set())
@@ -9227,6 +9291,8 @@ class Flow:
             incomplete audits stay pending while later leaves keep their review
             opportunity; the final completeness window revisits the debt.
             """
+        if getattr(self, 'test_specs_trusted', False):
+            return
         if getattr(self, "layered", None) is not None:
             return self.layered.business()
         if not getattr(self, 'derived_as_specs', False):
@@ -9341,6 +9407,8 @@ class Flow:
             locked token reservation. The worker never writes application source,
             the protected suite, or Flow state; poll_background_specs owns admission.
             """
+        if getattr(self, 'test_specs_trusted', False):
+            return
         if getattr(self, "layered", None) is not None and not self.layered.business_started:
             return  # audit all mandatory basics first; business never occupies their slot
         if os.environ.get('OCTOS_ARC_BACKGROUND_SPECS', '1') == '0' or not getattr(self, 'derived_as_specs', False) or (not ordered) or (not isinstance(getattr(self, 'llm_proxy', None), LlmProxy)) or (not isinstance(getattr(self, 'driver', None), OctosDriver)) or (not getattr(self, 'derived_tests_dir', None)):
@@ -9432,6 +9500,8 @@ class Flow:
 
     def poll_background_specs(self) -> None:
         """Install only current, independently validated private results."""
+        if getattr(self, 'test_specs_trusted', False):
+            return
         if getattr(self, "layered", None) is not None:
             self.layered.poll_basic()
             if self.layered.cancelled:
@@ -9730,6 +9800,8 @@ class Flow:
 
     def prepare_derived_spec_batch(self, ordered: list[dict]) -> None:
         """Generate and review a bounded set of leaves in the test queue."""
+        if getattr(self, 'test_specs_trusted', False):
+            return
         if getattr(self, 'derived_specs_frozen', False) or not getattr(self, 'derived_as_specs', False) or (not ordered) or (not getattr(self, 'derived_tests_dir', None)):
             return
         pending = []
@@ -10397,7 +10469,7 @@ class Flow:
         if getattr(self, "layered", None) is not None:
             return self.layered.implement(tree, ordered, unchanged)
         self._dependency_tree = tree
-        batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "1"))
+        batch_size = 1 if getattr(self, 'test_specs_trusted', False) else int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "1"))
         batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
         preimplemented: set[str] = set()
         for index, node in enumerate(ordered, 1):
@@ -10904,7 +10976,7 @@ class Flow:
 
         self.mark("design_started", node_id)
         design = None
-        design_wanted = self.design_enabled and total >= self.design_min_nodes
+        design_wanted = self.design_enabled and total >= self.design_min_nodes and not getattr(self, 'test_specs_trusted', False)
         inline_design = design_wanted and self.design_mode == "inline"
         if design_wanted and not inline_design:
             design = self.design(node, ordered, deadline)
@@ -12775,8 +12847,6 @@ class Flow:
                 raise ValueError("no ATOMIC requirement nodes found")
             self.classify_tree(tree)
             node_ids = [str(n.get("id")) for n in ordered]
-            from layered_tests import LayeredTests
-            self.layered = LayeredTests(self, ordered)
             if not self.budget_explicit:
                 # 32-node trees need hours, not the 1-hour smoke default.
                 self.budget = max(self.budget, self.seconds_per_node * len(ordered))
@@ -12800,34 +12870,7 @@ class Flow:
             log(f"[guard] cost guard: {self.max_total_tokens} tokens / {self.max_turns} turns"
                 + (f" / absolute {self.max_total_tokens_abs}" if self.max_total_tokens_abs else ""))
 
-            self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
-            from frozen_suites import materialize, requested_name
-            self.frozen_suite = None
-            suite_name = getattr(self, 'test_suite_name', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
-            if (suite_name or not self.tests_dir) and requested_name(original_tree, suite_name):
-                embedded = materialize(find_octos(), original_tree, self.output_dir, suite_name, log)
-                if embedded:
-                    self.tests_dir, self.frozen_suite = embedded
-                    self.adopt_frozen_business()
-                    self.metric('frozen_test_suite', name=self.frozen_suite['name'],
-                                official=False, review_status='reviewed', frozen=True,
-                                runtime_status='not_run', case_count=self.frozen_suite['case_count'])
-            if self.tests_dir:
-                specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
-                self.spec_map, self.aliases = map_specs_to_nodes(specs, node_ids)
-                log(f"[tests] {len(specs)} spec files at {self.tests_dir}; mapping "
-                    f"{ {k: v for k, v in self.spec_map.items() if v} }; aliases {self.aliases}")
-            else:
-                self.requirement_contracts = compile_contracts(ordered)
-                contract_path = self.output_dir / ".arc" / "requirement-contracts.json"
-                save_contracts(contract_path, self.requirement_contracts)
-                log(f"[tests] no acceptance specs found; wrote deterministic requirement contract for "
-                    f"{len(ordered)} node(s) to {contract_path}")
-                # No official specs: compile specs from requirements.yaml and run
-                # the SAME measured flow as with official specs. The only extra
-                # step is the spec generation (plus a bounded model review below).
-                if self.prepare_derived_tests(ordered):
-                    self.adopt_derived_specs(node_ids)
+            self.prepare_test_spec_source(tree, ordered)
 
             self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
@@ -12867,28 +12910,32 @@ class Flow:
                 # Refresh the guard before the next model turn so those exports
                 # are not mistaken for model edits and restored away.
                 self.snapshot_protected()
-                self.layered.prepare()
+                if self.layered is not None:
+                    self.layered.prepare()
                 self.prime_generation_dependencies()
-                self.start_background_specs(ordered)
+                if not self.test_specs_trusted:
+                    self.start_background_specs(ordered)
                 self._generation_active = True
                 self.implement_sequential(tree, ordered, unchanged)
 
                 self._generation_active = False
-                self.close_background_specs()
+                if not self.test_specs_trusted:
+                    self.close_background_specs()
                 self.log_usage_checkpoint("after_implementation", nodes=node_ids)
-                system_ready = None
-                try:
-                    system_ready = self.pre_review_derived_system_check()
-                except Exception as exc:
-                    self.metric('pre_review_system_check', outcome='unavailable', reason=str(exc)[:300])
-                if system_ready is False and getattr(self, '_last_rehearsal_system_failure', False):
-                    # A confirmed build/start/browser fault has already had
-                    # bounded repair attempts. Keep the remaining time for the
-                    # final system rehearsal instead of spending it on specs
-                    # that cannot exercise a broken application.
-                    self.metric('derived_post_code_review', outcome='deferred_system_failure')
-                else:
-                    self.review_derived_after_implementation(ordered)
+                if not self.test_specs_trusted:
+                    system_ready = None
+                    try:
+                        system_ready = self.pre_review_derived_system_check()
+                    except Exception as exc:
+                        self.metric('pre_review_system_check', outcome='unavailable', reason=str(exc)[:300])
+                    if system_ready is False and getattr(self, '_last_rehearsal_system_failure', False):
+                        # A confirmed build/start/browser fault has already had
+                        # bounded repair attempts. Keep the remaining time for the
+                        # final system rehearsal instead of spending it on specs
+                        # that cannot exercise a broken application.
+                        self.metric('derived_post_code_review', outcome='deferred_system_failure')
+                    else:
+                        self.review_derived_after_implementation(ordered)
                 self.final_acceptance_passes()
                 rehearsal_source = self.app_source_digest()
                 rehearsed = self.rehearsal(
@@ -12897,7 +12944,7 @@ class Flow:
                 rehearsed = self.remeasure_after_rehearsal(rehearsal_source, rehearsed)
             except Exception as exc:
                 from layered_tests import GateBlocked
-                if isinstance(exc, GateBlocked):
+                if isinstance(exc, GateBlocked) and self.layered is not None:
                     self._blocked_delivery_attempted = True
                     self._blocked_partial_ready = False
                     self.layered.close()
@@ -13104,6 +13151,9 @@ def main() -> int:
     parser.add_argument("requirement_path", nargs="?", default=os.environ.get("ARCBENCH_TASK_DIR", "/workspace/task"))
     parser.add_argument("--test-suite", default=os.environ.get("OCTOS_ARC_TEST_SUITE"),
                         help="Embedded reviewed suite name (default: match original requirement title)")
+    parser.add_argument("--trusted-tests", action="store_true",
+                        default=os.environ.get("OCTOS_ARC_TRUSTED_TESTS") == "1",
+                        help="Request octos test-suite generation; trusted results skip spec generation/review, failures use the mechanical pipeline")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--type", "--app-type", dest="app_type", default="web")
     parser.add_argument("--web-port", type=int,

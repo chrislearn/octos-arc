@@ -42,8 +42,13 @@ def main():
         runner._prepare(); staged=runner.work_dir/'tests'/specs[0]
         assert '__octosObservePageErrors' in staged.read_text(); verify_directory(directory,tree,name)
         for _,snapshot,_ in flow.protected_snapshots: shutil.rmtree(snapshot.parent,ignore_errors=True)
-        evidence.append({'name':name,'spec_count':len(specs),'case_count':manifest['case_count'],
+        evidence.append({'name':name,'trusted':manifest['trusted'],'spec_count':len(specs),'case_count':manifest['case_count'],
                          'reviewed':True,'frozen':True,'reuse':'passed','protection_restore':'passed','playwright_staging':'passed','business_model_entities':len(flow.app_design_doc['data_model']),'business_model_reuse':'passed','product_execution':'not_run'})
+    unsupported=output/'unsupported'
+    response=subprocess.run([binary,'arc','generate-test-suite','--prompt','Read /task/requirements.yaml. For task "unknown", generate test specs and contracts.',
+                             '--requirements-sha256','unavailable','--output-dir',str(unsupported)],capture_output=True,text=True)
+    assert response.returncode!=0 and json.loads(response.stdout)['trusted'] is False and not unsupported.exists()
+    evidence.append({'name':'unknown','generation':'failed','trusted':False,'files_written':False,'product_execution':'not_run'})
     (output/'evidence.json').write_text(json.dumps(evidence,indent=2)+'\n'); print(json.dumps(evidence,indent=2))
 
 if __name__=='__main__': main()

@@ -424,6 +424,13 @@ impl Executable for Command {
                     Some(octos_arc::ArcSubcommand::Tests(tests)) => {
                         return octos_arc::test_suites::execute(tests);
                     }
+                    Some(octos_arc::ArcSubcommand::GenerateTestSuite(command)) => {
+                        let code = octos_arc::test_suites::execute_generate(command);
+                        if code != 0 {
+                            std::process::exit(code);
+                        }
+                        return Ok(());
+                    }
                     Some(octos_arc::ArcSubcommand::DenyProtected(deny)) => {
                         std::process::exit(octos_arc::execute_deny_protected(deny));
                     }

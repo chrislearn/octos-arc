@@ -1,6 +1,6 @@
 # Hackathon 内嵌冻结测试套件
 
-本分支基于 `a54685fb`，独立 worktree 为 `/home/chris/.codex/worktrees/hackathon-frozen-specs/octos-arc`，分支为 `codex/hackathon-frozen-specs`。不修改 `/home/chris/Works/octos-arc` 的文件。
+原始内嵌实现基于 `a54685fb`，独立 worktree 为 `/home/chris/.codex/worktrees/hackathon-frozen-specs/octos-arc`，分支为 `codex/hackathon-frozen-specs`。随后按用户要求合并到主目录的新 `v15` 分支，并增加 prompt 命令和可信直通流程；当前运行方式见 `v15-trusted-test-suites-20260930.md`。
 
 ## 入口与名称
 
@@ -13,7 +13,7 @@ python3 arc/main.py /path/to/hackathon--sheet --test-suite hackathon--sheet --ou
 OCTOS_ARC_TEST_SUITE=hackathon--github python3 arc/main.py /path/to/hackathon--github
 ```
 
-显式名称匹配到内嵌套件时优先采用它。未知名称沿用现有官方测试/需求派生流程。不指定名称时，现有官方 public-tests 优先；没有官方测试时，按原始 requirements 根标题和整棵树的 SHA256 自动匹配。自动匹配遇到 requirements 变化时沿用派生流程；显式选择已知套件而 requirements 不同则报错，防止把错误任务的测试当作冻结测试。
+显式名称匹配到内嵌套件时优先采用它。不指定名称时，现有官方 public-tests 优先；没有官方测试时，Python 把原始 requirements 根标题和读取路径写入 prompt，调用 `octos arc generate-test-suite`。命令内部固定解析两套任务，并用原树指纹提取。未知任务或命令失败返回不可信，Python 沿用机械生成流程；只有明确的 `trusted: true` 返回进入冻结直通流程。
 
 GitHub 根标题为 `GitHub Collaboration Platform Core Requirements`，Sheet 为 `Core Requirements for an Online Spreadsheet Data Workspace`。指纹计算使用整棵原始树的 `json.dumps(..., ensure_ascii=False, sort_keys=True, separators=(',', ':'))`，包括 atomic prose、scenario 与继承入口契约。Python 在 seed reconciliation 前保留原树；Rust 同样逐层排序 JSON 键。
 
@@ -67,6 +67,6 @@ python3 arc/audit_frozen_tests.py
 
 基础设施验证与真实产品的 runtime pass 分开记录；`runtime_status` 始终是 `not_run_against_product`，直到实际执行产生独立证据。
 
-`arc/pack.sh` 已加入 `frozen_suites.py`；规格字节只由 Rust kernel 携带。线上必须发布/打包包含本分支的 kernel，再使用相应 Python bundle。旧 kernel 自动模式可回到原流程，显式 suite 选择则提示重建内核，不能把旧版本描述成已内嵌。保留 pack_kernel 的 Linux x86_64/glibc 平台兼容校验；本机生成的验证二进制不是线上兼容性证明。
+`arc/pack.sh` 已加入 `frozen_suites.py`；规格字节只由 Rust kernel 携带。线上必须发布/打包包含本分支的 kernel，再使用相应 Python bundle。旧 kernel 的 prompt 命令失败时回到机械生成流程，不能把旧版本描述成已内嵌。保留 pack_kernel 的 Linux x86_64/glibc 平台兼容校验；本机生成的验证二进制不是线上兼容性证明。
 
 额外修复：原基线 codegen-prompt 的 `{items:[...]}` 被模板渲染器误当作变量，会阻断代码生成。此分支改为转义 `{{items:[...]}}`，渲染后的提示词仍显示原文字面内容。

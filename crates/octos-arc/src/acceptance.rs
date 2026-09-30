@@ -23,7 +23,7 @@ use crate::envs::{self, EnvVec};
 use crate::process::{self, ManagedChild};
 
 static ANSI: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[A-Za-z]").unwrap());
-static SPEC_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(REQ-\d+(?:\.\d+)*)").unwrap());
+static SPEC_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(REQ-\d+(?:[.-]\d+)*)").unwrap());
 static BASE_PORT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"https?://(?:127\.0\.0\.1|localhost):(\d{2,5})").unwrap());
 
@@ -1711,6 +1711,7 @@ mod tests {
         );
         assert_eq!(spec_node_id("support/e2e.ts"), None);
         assert_eq!(spec_node_id("smoke.spec.ts"), None);
+        assert_eq!(spec_node_id("REQ-1-2-1.spec.ts").as_deref(), Some("REQ-1-2-1"));
         assert_eq!(spec_node_id("REQ-1x.spec.ts"), None);
     }
 

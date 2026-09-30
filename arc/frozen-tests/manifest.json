@@ -8,6 +8,7 @@
       "case_count": 98,
       "review_status": "reviewed",
       "frozen": true,
+      "trusted": true,
       "official": false
     },
     "hackathon--sheet": {
@@ -17,6 +18,7 @@
       "case_count": 113,
       "review_status": "reviewed",
       "frozen": true,
+      "trusted": true,
       "official": false
     }
   }

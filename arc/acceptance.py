@@ -29,7 +29,7 @@ from frontend_assets import external_browser_assets
 from web_checks import scaffold_issues, scaffold_warnings
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-_SPEC_ID = re.compile(r"^(REQ-\d+(?:\.\d+)*)(?=[.\-_ ]|$)")
+_SPEC_ID = re.compile(r"^(REQ-\d+(?:[.-]\d+)*)(?=[.\-_ ]|$)")
 
 
 def startup_error_digest(error: str, limit: int = 700) -> str:

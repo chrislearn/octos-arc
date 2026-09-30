@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "branch": "v15",
+  "base_commit": "23e08b94",
+  "merge_commit": "67f45c3e",
+  "merged_worktree_commit": "06993281",
+  "validated_at_utc": "2026-09-30T07:57:47.934093+00:00",
+  "python": {
+    "command": "PYTHONPATH=arc python3 -m unittest discover -s arc/tests -q",
+    "total": 2178,
+    "passed": 2150,
+    "skipped": 28,
+    "failed": 0
+  },
+  "rust": {
+    "command": "cargo test --locked --offline -p octos-arc --lib -j4",
+    "passed": 133,
+    "ignored": 1,
+    "failed": 0
+  },
+  "cli_build": {
+    "status": "passed",
+    "command": "cargo build --locked --offline -p octos-cli --bin octos -j4",
+    "binary_sha256": "4c1bd03a942c7f1b20c496f4ea15bdf4652f5f6efe41488aed3297d81c1fb0ee"
+  },
+  "prompt_command": "octos arc generate-test-suite --prompt ... --output-dir ... --requirements-sha256 ...",
+  "trusted_flow": {
+    "status": "passed",
+    "test": "test_trusted_run_generates_and_tests_each_node_without_spec_queues",
+    "node_count": 24,
+    "coordinator": "real Python Flow.run and node_cycle",
+    "model_and_product_execution": "stubbed",
+    "spec_generation_review_audit_wait_entries_called": false
+  },
+  "unsupported_fallback": {
+    "status": "passed",
+    "test": "test_failed_octos_generation_enters_the_existing_mechanical_pipeline"
+  },
+  "actual_cli_materialization": [
+    {
+      "name": "hackathon--github",
+      "trusted": true,
+      "spec_count": 47,
+      "case_count": 98,
+      "reviewed": true,
+      "frozen": true,
+      "reuse": "passed",
+      "protection_restore": "passed",
+      "playwright_staging": "passed",
+      "business_model_entities": 16,
+      "business_model_reuse": "passed",
+      "product_execution": "not_run"
+    },
+    {
+      "name": "hackathon--sheet",
+      "trusted": true,
+      "spec_count": 24,
+      "case_count": 113,
+      "reviewed": true,
+      "frozen": true,
+      "reuse": "passed",
+      "protection_restore": "passed",
+      "playwright_staging": "passed",
+      "business_model_entities": 9,
+      "business_model_reuse": "passed",
+      "product_execution": "not_run"
+    },
+    {
+      "name": "unknown",
+      "generation": "failed",
+      "trusted": false,
+      "files_written": false,
+      "product_execution": "not_run"
+    }
+  ],
+  "bundle": {
+    "status": "passed",
+    "command": "ARC_PACK_KERNEL=0 sh arc/pack.sh",
+    "source_compile": [
+      "main.py",
+      "frozen_suites.py",
+      "rust_engine.py",
+      "layered_tests.py",
+      "derived_run_trace.py"
+    ],
+    "compatible_kernel_published": false
+  },
+  "new_node_coverage_runtime_guard": false,
+  "product_execution": "not_run"
+}

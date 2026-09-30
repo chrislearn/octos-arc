@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 import yaml
@@ -58,24 +59,101 @@ class FrozenSuiteTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'manifest changed'):
             verify_directory(self.directory,self.tree,'hackathon--sheet',original)
 
-    def test_unknown_task_does_not_start_a_process(self):
-        self.assertIsNone(requested_name({'name':'another task'}))
-        with patch('frozen_suites.subprocess.run') as run:
-            self.assertIsNone(materialize('octos',{'name':'another task'},self.root)); run.assert_not_called()
+    def test_unknown_task_requests_prompt_generation_then_falls_back(self):
+        with patch('frozen_suites.subprocess.run',return_value=Mock(returncode=1,stdout='{"trusted":false}')) as run:
+            self.assertIsNone(materialize('octos',{'name':'another task'},self.root))
+        command=run.call_args.args[0]
+        self.assertEqual(command[:3],['octos','arc','generate-test-suite'])
+        self.assertIn('For task "another task"',command[command.index('--prompt')+1])
+        self.assertFalse((self.root/'.arc/frozen-tests/octos-generated').exists())
 
-    def test_unknown_name_and_automatic_mismatch_fall_back_but_explicit_mismatch_fails(self):
-        catalogue=json.loads((ROOT/'frozen-tests/manifest.json').read_text())
-        with patch('frozen_suites.subprocess.run',return_value=Mock(returncode=0,stdout=json.dumps(catalogue))) as run:
+    def test_failed_generation_falls_back_for_explicit_and_automatic_names(self):
+        with patch('frozen_suites.subprocess.run',return_value=Mock(returncode=1,stdout='{"trusted":false}')) as run:
             self.assertIsNone(materialize('octos',self.tree,self.root,'unknown'))
             changed={**self.tree,'description':'different'}
             self.assertIsNone(materialize('octos',changed,self.root))
-            with self.assertRaises(ValueError): materialize('octos',changed,self.root,'hackathon--sheet')
+            self.assertIsNone(materialize('octos',changed,self.root,'hackathon--sheet'))
             self.assertEqual(run.call_count,3)
 
-    def test_old_binary_falls_back_only_for_automatic_selection(self):
-        with patch('frozen_suites.subprocess.run',return_value=Mock(returncode=2)):
+    def test_old_binary_command_failure_uses_the_mechanical_fallback(self):
+        with patch('frozen_suites.subprocess.run',return_value=Mock(returncode=2,stdout='')):
             self.assertIsNone(materialize('old-octos',self.tree,self.root))
-            with self.assertRaises(RuntimeError): materialize('old-octos',self.tree,self.root,'hackathon--sheet')
+            self.assertIsNone(materialize('old-octos',self.tree,self.root,'hackathon--sheet'))
+
+    def test_only_true_octos_receipt_can_attest_trusted_tests_and_contracts(self):
+        for trusted in [False, None, 'true', 1]:
+            with self.subTest(trusted=trusted), patch('frozen_suites.subprocess.run',return_value=
+                Mock(returncode=0,stdout=json.dumps({'trusted':trusted}))):
+                self.assertIsNone(materialize('octos',self.tree,self.root,'hackathon--sheet'))
+
+    def test_failed_octos_generation_enters_the_existing_mechanical_pipeline(self):
+        flow=Flow(argparse.Namespace(web_port=3000,trusted_tests=True),self.root,self.root/'requirements')
+        flow.original_requirement_tree={'id':'ROOT','name':'unknown task','type':'FOLDER','children':[]}
+        layer=Mock()
+        flow.prepare_derived_tests=Mock(return_value=True)
+        flow.adopt_derived_specs=Mock()
+        with patch('main.locate_acceptance_tests',return_value=None), patch('main.find_octos',return_value='octos'), \
+                patch('frozen_suites.materialize',return_value=None) as generate, \
+                patch('layered_tests.LayeredTests',return_value=layer):
+            flow.prepare_test_spec_source(flow.original_requirement_tree,[])
+        generate.assert_called_once()
+        flow.prepare_derived_tests.assert_called_once_with([])
+        flow.adopt_derived_specs.assert_called_once_with([])
+        self.assertFalse(flow.test_specs_trusted)
+        self.assertIs(flow.layered,layer)
+
+    def test_trusted_run_generates_and_tests_each_node_without_spec_queues(self):
+        """Exercise coordinator + real node_cycle; model and product execution are stubbed."""
+        flow=Flow(argparse.Namespace(web_port=3000,trusted_tests=True,test_suite='hackathon--sheet'),self.root,self.root/'requirements')
+        runtime=SimpleNamespace(events=Mock(),traceability=Mock(),git=Mock())
+        runtime.traceability.list_interfaces.return_value=[]
+        flow.runner=Mock()
+        flow.metric=Mock()
+        flow.resolve_seed_conflicts=Mock(return_value=self.tree)
+        flow.remaining=Mock(return_value=10000)
+        flow.final_phase_due=Mock(return_value=False)
+        flow.node_start_budget_available=flow.admit_node=Mock(return_value=True)
+        flow.codegen_mode=Mock(return_value=False)
+        flow.head=Mock(return_value='source')
+        flow.has_app=Mock(return_value=True)
+        flow.repair_source_index=Mock(return_value=SimpleNamespace(versions={}))
+        flow.app_source_digest=Mock(return_value='source')
+        flow.corrections_text=Mock(return_value='')
+        flow.turn=Mock(return_value=(True,'generated node source'))
+        flow.acceptance_loop=Mock(return_value=True)
+        flow.rehearsal=Mock(return_value=True)
+        flow.batch_codegen=Mock(side_effect=AssertionError('One node at a time'))
+        for name in ['maybe_probe','setup_playwright','start_llm_proxy','prepare_build',
+                     'prime_generation_dependencies','snapshot_protected','record_implementation_evidence',
+                     'mark','commit','regression_checkpoint','log_usage_checkpoint','final_acceptance_passes',
+                     'postflight','write_quality_summary','mark_folders','write_preview_ready']:
+            setattr(flow,name,Mock())
+        for name in ['prepare_derived_tests','start_background_specs','close_background_specs',
+                     'pre_review_derived_system_check','review_derived_after_implementation',
+                     'design','inline_design_instruction','review_domain_design']:
+            setattr(flow,name,Mock(side_effect=AssertionError(f'Trusted run must skip {name}')))
+        manifest=verify_directory(self.directory,self.tree,'hackathon--sheet')
+        with patch('main.AgentRuntime.from_env',return_value=runtime), \
+                patch('main.load_requirement_tree',return_value=self.tree), \
+                patch('main.previous_requirement_records',return_value={}), \
+                patch('main.locate_acceptance_tests',return_value=None), patch('main.find_octos',return_value='octos'), \
+                patch('frozen_suites.materialize',return_value=(self.directory,manifest)), \
+                patch('layered_tests.LayeredTests',side_effect=AssertionError('No basic/business coordinator')), \
+                patch('main.build_octos_env',return_value={}), patch('main.write_profile_defaults'), \
+                patch('main._port_watchdog'), patch('main._reap_stray_processes'), patch('main.reap_workspace_processes'), \
+                patch('main._postflight_structure_check'), patch('main._free_web_port'), \
+                patch.dict('os.environ',{'OCTOS_ARC_DRYRUN':'1','OCTOS_ARC_SIBLING_BATCH_SIZE':'24'}):
+            self.assertEqual(flow.run(),0)
+        from requirement_order import topo_order
+        ids=[row['id'] for row in topo_order(self.tree)]
+        self.assertEqual([call.args[0] for call in flow.acceptance_loop.call_args_list],ids)
+        self.assertEqual(flow.turn.call_count,len(ids))
+        self.assertTrue(all(flow.test_verdict[node] is True for node in ids))
+        self.assertTrue(flow.test_specs_trusted)
+        self.assertIsNone(flow.layered)
+        self.assertFalse(flow.derived_as_specs)
+        flow.batch_codegen.assert_not_called()
+        runtime.events.mark_run_completed.assert_called_once()
 
     def test_frozen_flow_uses_specs_directly_without_regeneration_and_labels_prompts(self):
         flow=Flow(argparse.Namespace(web_port=3000),self.root,self.root/'requirements')

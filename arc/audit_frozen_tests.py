@@ -136,7 +136,7 @@ def audit(freeze=False):
                                 'runtime_status':'not_run_against_product'})
             write(directory/'review.json',{'schema_version':1,'review_status':'reviewed','frozen':True,'cases':reviews})
             paths=sorted(p for p in directory.rglob('*') if p.is_file() and p.name!='suite-origin.json')
-            manifest={'schema_version':1,'name':task,'root_name':tree['name'],'official':False,'review_status':'reviewed','frozen':True,
+            manifest={'schema_version':1,'name':task,'root_name':tree['name'],'official':False,'review_status':'reviewed','frozen':True,'trusted':True,
                       'review_date':'2026-09-30','review_kind':'source_review','runtime_status':'not_run_against_product',
                       'requirements_sha256':requirements_digest(tree),'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
                       'files':{p.relative_to(directory).as_posix():sha(p) for p in paths}}
@@ -145,7 +145,7 @@ def audit(freeze=False):
             from frozen_suites import verify_directory
             manifest=verify_directory(directory,tree,task)
         catalogue['suites'][task]={'root_name':tree['name'],'requirements_sha256':requirements_digest(tree),
-                                 'spec_count':len(specs),'case_count':len(plan),'review_status':'reviewed','frozen':True,'official':False}
+                                 'spec_count':len(specs),'case_count':len(plan),'review_status':'reviewed','frozen':True,'trusted':True,'official':False}
         print(task,len(specs),'atomic requirements',len(plan),'reviewed cases')
     if freeze: write(SUITES/'manifest.json',catalogue)
 
