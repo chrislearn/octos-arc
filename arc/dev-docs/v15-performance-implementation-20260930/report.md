@@ -2,7 +2,7 @@
 
 已先将原有全部修改提交为 `d1294135`，随后复核并实施报告中有代码依据的 P0/P1 项。全程由同一代理完成，没有委派代理或调用其他模型。原始报告的 12 项离线检查再次全部通过，数值与代码事实成立；缓存 miss 的唯一原因、可以节省的分钟数和推理策略收益仍属于待验证假设。
 
-原始报告：[report.md](/home/chris/.codex/worktrees/hackathon-frozen-specs/octos-arc/arc/dev-docs/v15-performance-review-20260930/report.md)。原报告 SHA-256 为 `c04c638615fb12ed353750788f9b5bb400ff9f637f560e6dfbeb480776fb061c`，复算结果保存在 [historical-review-checks.json](historical-review-checks.json)。该复算使用原报告所在工作树，以复现历史缺陷；新实现由当前仓库的回归测试验证。
+原始报告：[report.md](../v15-performance-review-20260930/report.md)。原报告 SHA-256 为 `c04c638615fb12ed353750788f9b5bb400ff9f637f560e6dfbeb480776fb061c`，复算结果保存在 [historical-review-checks.json](historical-review-checks.json)。该复算使用原报告所在工作树，以复现历史缺陷；新实现由当前仓库的回归测试验证。旧工作树清理时，原始报告已原样迁入当前仓库，源码及忽略文件保存在恢复快照中，见 [worktree-cleanup.json](worktree-cleanup.json)。
 
 | 项目 | 实施与复核结论 |
 | --- | --- |

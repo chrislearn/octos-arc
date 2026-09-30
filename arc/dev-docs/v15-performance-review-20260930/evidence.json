@@ -1,0 +1,1052 @@
+{
+  "schema": "octos.arc.performance-review.v1",
+  "collected_at": "2026-09-30T11:07:42.225405+00:00",
+  "run": "/home/chris/Works/octos-arc/arc/arc-output/v15-sheet-trusted-20260930-161037",
+  "source_for_code_probes": "/home/chris/.codex/worktrees/hackathon-frozen-specs/octos-arc",
+  "source_artifact_sha256": {
+    ".arc/llm-usage.jsonl": "e1f10163806ecd969677c0093bbc35820627967db74a416259e0b7f96257431e",
+    ".arc/flow-metrics.jsonl": "70e429f7492d666ac58b2a0e073e757878d288df2ac67bdacb6b453e688e1b1b",
+    ".arc/request-ledger.jsonl": "7e754c655fffda2901a67486ffec4ece2cba98b3b62238efb82d44967b16af28",
+    ".arc/octos-events.jsonl": "87ba6db01a44ca9c28fbf4792eac09fd006854584d7ac65799cb0565902aaba3",
+    ".arc/frozen-tests/hackathon--sheet/helpers.ts": "dc712282406f4e039dbcb9cb6cb3077eefbaa7b72b08adc7ae20e4486a732da4",
+    ".arc/design/app.json": "5d4ae152bf7420771137a3e3d59cae34154f8448991648d83c94ddbefd670903",
+    ".arc/frozen-tests/hackathon--sheet/suite-origin.json": "132a98d241c31addf8a6e95d05a087429d0f0c1bace8807e1e55c2b0140b3baa"
+  },
+  "code_sha256": {
+    "arc/main.py": "21ebab1324b299263ea4f41a30f789b20962a2d3b20daeac9f5daaaae2a2b088",
+    "arc/llm_proxy.py": "6eaa7ed92deb22edc35dc6d5cf493e1b36a71a59f3a6071ffd1f00bb3c2b5662",
+    "arc/context_ledger.py": "00a77750e1a211de3d7ed47566d9749d3bf32fb56aead48dd2118e706ce034c4",
+    "arc/source_index.py": "84704237118c0bf811e742f0e4a78e6de321cbab6ea854cb0a395f76b312017c",
+    "arc/web_stack.py": "ee2ceee78f9e3a8daf8c241d8adb6b8b30ac5e93d3489bd41f5e22156342a83c",
+    "arc/web_checks.py": "aab7b074633be0553d42ae19c120cc1c6e03e6a69f2944eb5fdeaccbcea136a7"
+  },
+  "all": {
+    "prompt_tokens": 3674067,
+    "completion_tokens": 621296,
+    "reasoning_tokens": 469246,
+    "prompt_cache_hit_tokens": 2745600,
+    "requests": 132,
+    "elapsed_seconds_sum": 6030.605,
+    "uncached_prompt_tokens": 928467,
+    "non_reasoning_completion_tokens": 152050,
+    "cache_ratio": 0.7472917614186132,
+    "reasoning_completion_ratio": 0.7552696299348459,
+    "elapsed_seconds_median": 14.7965,
+    "prompt_token_range": [
+      7307,
+      45327
+    ],
+    "descriptive_pearson_elapsed_output": 0.9948070905056279,
+    "descriptive_pearson_elapsed_input": 0.041980063820231873,
+    "descriptive_pearson_elapsed_uncached_input": 0.06605328538331337
+  },
+  "groups": {
+    "implement_codegen": {
+      "prompt_tokens": 512175,
+      "completion_tokens": 295223,
+      "reasoning_tokens": 178321,
+      "prompt_cache_hit_tokens": 256512,
+      "requests": 17,
+      "elapsed_seconds_sum": 2553.883,
+      "uncached_prompt_tokens": 255663,
+      "non_reasoning_completion_tokens": 116902,
+      "cache_ratio": 0.5008288182750037,
+      "reasoning_completion_ratio": 0.6040213668989205,
+      "elapsed_seconds_median": 117.092,
+      "prompt_token_range": [
+        18547,
+        38439
+      ],
+      "descriptive_pearson_elapsed_output": 0.9952440701981724,
+      "descriptive_pearson_elapsed_input": -0.20032035638610976,
+      "descriptive_pearson_elapsed_uncached_input": -0.717852604444807
+    },
+    "repair_codegen": {
+      "prompt_tokens": 104229,
+      "completion_tokens": 62165,
+      "reasoning_tokens": 51847,
+      "prompt_cache_hit_tokens": 58112,
+      "requests": 4,
+      "elapsed_seconds_sum": 609.849,
+      "uncached_prompt_tokens": 46117,
+      "non_reasoning_completion_tokens": 10318,
+      "cache_ratio": 0.5575415671262317,
+      "reasoning_completion_ratio": 0.8340223598487895,
+      "elapsed_seconds_median": 36.473,
+      "prompt_token_range": [
+        17498,
+        29602
+      ],
+      "descriptive_pearson_elapsed_output": 0.9999612510740343,
+      "descriptive_pearson_elapsed_input": -0.9952906154723694,
+      "descriptive_pearson_elapsed_uncached_input": 0.3482642549281188
+    },
+    "repair_tools": {
+      "prompt_tokens": 3057663,
+      "completion_tokens": 263908,
+      "reasoning_tokens": 239078,
+      "prompt_cache_hit_tokens": 2430976,
+      "requests": 111,
+      "elapsed_seconds_sum": 2866.873,
+      "uncached_prompt_tokens": 626687,
+      "non_reasoning_completion_tokens": 24830,
+      "cache_ratio": 0.7950437965204145,
+      "reasoning_completion_ratio": 0.9059141822150143,
+      "elapsed_seconds_median": 12.215,
+      "prompt_token_range": [
+        7307,
+        45327
+      ],
+      "descriptive_pearson_elapsed_output": 0.9973507394248491,
+      "descriptive_pearson_elapsed_input": 0.18580662416981927,
+      "descriptive_pearson_elapsed_uncached_input": -0.040078174395948366
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "REQ-1-1-1",
+      "model_requests": 7,
+      "model_elapsed_seconds": 1460.493,
+      "prompt_tokens": 160350,
+      "completion_tokens": 165662,
+      "reasoning_tokens": 78027,
+      "cache_ratio": 0.5795322731524789,
+      "latest_node_measurement": {
+        "passed": 0,
+        "total": 3
+      }
+    },
+    {
+      "node_id": "REQ-1-2-1",
+      "model_requests": 25,
+      "model_elapsed_seconds": 641.493,
+      "prompt_tokens": 606839,
+      "completion_tokens": 60255,
+      "reasoning_tokens": 54572,
+      "cache_ratio": 0.8070147106563685,
+      "latest_node_measurement": {
+        "passed": 1,
+        "total": 2
+      }
+    },
+    {
+      "node_id": "REQ-1-2-2",
+      "model_requests": 15,
+      "model_elapsed_seconds": 458.414,
+      "prompt_tokens": 418065,
+      "completion_tokens": 42104,
+      "reasoning_tokens": 38799,
+      "cache_ratio": 0.7348139643356895,
+      "latest_node_measurement": {
+        "passed": 3,
+        "total": 3
+      }
+    },
+    {
+      "node_id": "REQ-1-3-1",
+      "model_requests": 29,
+      "model_elapsed_seconds": 1048.726,
+      "prompt_tokens": 730751,
+      "completion_tokens": 97847,
+      "reasoning_tokens": 89888,
+      "cache_ratio": 0.754248711257323,
+      "latest_node_measurement": {
+        "passed": 3,
+        "total": 3
+      }
+    },
+    {
+      "node_id": "REQ-1-3-2",
+      "model_requests": 6,
+      "model_elapsed_seconds": 71.876,
+      "prompt_tokens": 163772,
+      "completion_tokens": 6839,
+      "reasoning_tokens": 5163,
+      "cache_ratio": 0.6721539701536282,
+      "latest_node_measurement": {
+        "passed": 2,
+        "total": 2
+      }
+    },
+    {
+      "node_id": "REQ-2-1-3",
+      "model_requests": 1,
+      "model_elapsed_seconds": 103.923,
+      "prompt_tokens": 29830,
+      "completion_tokens": 11284,
+      "reasoning_tokens": 9210,
+      "cache_ratio": 0.6179014415018438,
+      "latest_node_measurement": {
+        "passed": 2,
+        "total": 2
+      }
+    },
+    {
+      "node_id": "REQ-2-1-1",
+      "model_requests": 30,
+      "model_elapsed_seconds": 533.901,
+      "prompt_tokens": 850136,
+      "completion_tokens": 51388,
+      "reasoning_tokens": 39063,
+      "cache_ratio": 0.8265971562197107,
+      "latest_node_measurement": {
+        "passed": 3,
+        "total": 3
+      }
+    },
+    {
+      "node_id": "REQ-2-2-1",
+      "model_requests": 15,
+      "model_elapsed_seconds": 1025.511,
+      "prompt_tokens": 562253,
+      "completion_tokens": 110700,
+      "reasoning_tokens": 94482,
+      "cache_ratio": 0.6943493409550505,
+      "latest_node_measurement": {
+        "passed": 8,
+        "total": 8
+      }
+    },
+    {
+      "node_id": "REQ-2-2-2",
+      "model_requests": 1,
+      "model_elapsed_seconds": 117.092,
+      "prompt_tokens": 36865,
+      "completion_tokens": 12524,
+      "reasoning_tokens": 7804,
+      "cache_ratio": 0.22221619422216193,
+      "latest_node_measurement": {
+        "passed": 7,
+        "total": 8
+      }
+    },
+    {
+      "node_id": "REQ-3-1-1",
+      "model_requests": 3,
+      "model_elapsed_seconds": 569.176,
+      "prompt_tokens": 115206,
+      "completion_tokens": 62693,
+      "reasoning_tokens": 52238,
+      "cache_ratio": 0.6488550943527247,
+      "latest_node_measurement": {
+        "passed": 3,
+        "total": 3
+      }
+    }
+  ],
+  "first_implementation": {
+    "prompt_tokens": 301592,
+    "completion_tokens": 94551,
+    "reasoning_tokens": 57564,
+    "prompt_cache_hit_tokens": 69632,
+    "requests": 10,
+    "elapsed_seconds_sum": 806.285,
+    "uncached_prompt_tokens": 231960,
+    "non_reasoning_completion_tokens": 36987,
+    "cache_ratio": 0.2308814557415316,
+    "reasoning_completion_ratio": 0.608814290700257,
+    "elapsed_seconds_median": 94.11099999999999,
+    "prompt_token_range": [
+      18547,
+      38367
+    ],
+    "descriptive_pearson_elapsed_output": 0.9898748109942858,
+    "descriptive_pearson_elapsed_input": -0.17703794400294814,
+    "descriptive_pearson_elapsed_uncached_input": -0.08672196289502555
+  },
+  "usage_models": {
+    "deepseek-v4-flash": 132
+  },
+  "usage_reasoning_modes": {
+    "low": 132
+  },
+  "usage_request_ids_unique": true,
+  "token_arithmetic_valid": true,
+  "ledger_events": {
+    "request_received": 133,
+    "context": 132,
+    "attempt_started": 132,
+    "attempt_finished": 132,
+    "proxy_stopped": 2
+  },
+  "received_without_attempt_ids": [
+    "a948f8cee9cb46e3874ac2dd8fc988d8"
+  ],
+  "pending_requests_at_proxy_stop": [
+    [],
+    []
+  ],
+  "protocol_retry_turns": [
+    {
+      "label": "REQ-1-1-1 implement (protocol correction 1)",
+      "elapsed_seconds": 324.032
+    },
+    {
+      "label": "REQ-1-1-1 implement (protocol correction 2)",
+      "elapsed_seconds": 351.734
+    },
+    {
+      "label": "REQ-1-1-1 repair 1/3 (maximum 5) (application retry) (protocol correction 1)",
+      "elapsed_seconds": 14.214
+    },
+    {
+      "label": "REQ-2-2-1 implement (complete blocks retry)",
+      "elapsed_seconds": 150.846
+    },
+    {
+      "label": "REQ-2-2-1 implement (complete blocks retry) (protocol correction 1)",
+      "elapsed_seconds": 309.147
+    },
+    {
+      "label": "REQ-3-1-1 implement (protocol correction 1)",
+      "elapsed_seconds": 172.529
+    }
+  ],
+  "protocol_retry_elapsed_seconds_sum": 1322.502,
+  "tools": {
+    "count": 143,
+    "counts_by_name": {
+      "read_file": 105,
+      "edit_file": 28,
+      "bash": 6,
+      "grep": 3,
+      "list_dir": 1
+    },
+    "reported_execution_ms_sum": 2225
+  },
+  "context_duplicate_read_chars_sum": 0,
+  "same_turn_tool_set_changes": [
+    {
+      "request_id": "f0c2148705314d5baaf29721261a28c3",
+      "turn_serial": 30,
+      "label": "REQ-2-2-1 repair 1/3 (maximum 5) (structured edits)",
+      "prompt_tokens": 42641,
+      "prompt_cache_hit_tokens": 0,
+      "prefix_shared_chars": 145721,
+      "before": [
+        "edit_file",
+        "grep",
+        "list_dir",
+        "read_file",
+        "write_file"
+      ],
+      "after": [
+        "edit_file",
+        "grep",
+        "read_file",
+        "write_file"
+      ]
+    },
+    {
+      "request_id": "35321eee1be648c49393034a67cbd534",
+      "turn_serial": 30,
+      "label": "REQ-2-2-1 repair 1/3 (maximum 5) (structured edits)",
+      "prompt_tokens": 42214,
+      "prompt_cache_hit_tokens": 0,
+      "prefix_shared_chars": 150281,
+      "before": [
+        "edit_file",
+        "grep",
+        "read_file",
+        "write_file"
+      ],
+      "after": [
+        "edit_file",
+        "grep",
+        "list_dir",
+        "read_file",
+        "write_file"
+      ]
+    }
+  ],
+  "offline_probes": {
+    "initial_tools": [
+      "edit_file",
+      "grep",
+      "list_dir",
+      "read_file",
+      "write_file"
+    ],
+    "budget_tools": [
+      "edit_file",
+      "grep",
+      "read_file",
+      "write_file"
+    ],
+    "after_write_tools": [
+      "edit_file",
+      "grep",
+      "list_dir",
+      "read_file",
+      "write_file"
+    ],
+    "text_fingerprint_ignores_tool_schema": true
+  },
+  "design": {
+    "entities": 9,
+    "compact_chars": 131448,
+    "compact_utf8_bytes": 131478,
+    "node_blocks": [
+      {
+        "node_id": "REQ-1-1-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 9553,
+        "spec_file_chars": 3584
+      },
+      {
+        "node_id": "REQ-1-2-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6819,
+        "spec_file_chars": 1768
+      },
+      {
+        "node_id": "REQ-1-2-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6944,
+        "spec_file_chars": 2397
+      },
+      {
+        "node_id": "REQ-1-3-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 9995,
+        "spec_file_chars": 2985
+      },
+      {
+        "node_id": "REQ-1-3-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 7556,
+        "spec_file_chars": 1986
+      },
+      {
+        "node_id": "REQ-2-1-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6189,
+        "spec_file_chars": 2581
+      },
+      {
+        "node_id": "REQ-2-1-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6862,
+        "spec_file_chars": 1062
+      },
+      {
+        "node_id": "REQ-2-1-3",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6531,
+        "spec_file_chars": 2356
+      },
+      {
+        "node_id": "REQ-2-1-4",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 7986,
+        "spec_file_chars": 3767
+      },
+      {
+        "node_id": "REQ-2-2-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 8046,
+        "spec_file_chars": 5848
+      },
+      {
+        "node_id": "REQ-2-2-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 8526,
+        "spec_file_chars": 5611
+      },
+      {
+        "node_id": "REQ-3-1-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6478,
+        "spec_file_chars": 2307
+      },
+      {
+        "node_id": "REQ-3-1-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 7373,
+        "spec_file_chars": 2587
+      },
+      {
+        "node_id": "REQ-3-1-3",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 8050,
+        "spec_file_chars": 2206
+      },
+      {
+        "node_id": "REQ-3-2-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 8195,
+        "spec_file_chars": 2888
+      },
+      {
+        "node_id": "REQ-3-2-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 7600,
+        "spec_file_chars": 5731
+      },
+      {
+        "node_id": "REQ-4-1-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6615,
+        "spec_file_chars": 2811
+      },
+      {
+        "node_id": "REQ-4-1-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 7194,
+        "spec_file_chars": 902
+      },
+      {
+        "node_id": "REQ-4-2-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 7194,
+        "spec_file_chars": 2346
+      },
+      {
+        "node_id": "REQ-4-2-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 6761,
+        "spec_file_chars": 3342
+      },
+      {
+        "node_id": "REQ-5-1-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 7369,
+        "spec_file_chars": 4704
+      },
+      {
+        "node_id": "REQ-5-1-2",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 9008,
+        "spec_file_chars": 6151
+      },
+      {
+        "node_id": "REQ-5-2-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 12432,
+        "spec_file_chars": 6560
+      },
+      {
+        "node_id": "REQ-5-3-1",
+        "stable_chars": 11853,
+        "stable_utf8_bytes": 11853,
+        "stable_sha256": "2df7b68a0f8ff0aa73c8395ef68650bc7f91f6bfe1efcfb06ace4ba9a7876d55",
+        "active_chars": 12804,
+        "spec_file_chars": 11163
+      }
+    ],
+    "stable_blocks_identical": true
+  },
+  "helpers": {
+    "file_chars": 11383,
+    "node_estimates": [
+      {
+        "node_id": "REQ-1-1-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 8218,
+        "hypothetical_saving_chars": 3165
+      },
+      {
+        "node_id": "REQ-1-2-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 5370,
+        "hypothetical_saving_chars": 6013
+      },
+      {
+        "node_id": "REQ-1-2-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 2820,
+        "hypothetical_saving_chars": 8563
+      },
+      {
+        "node_id": "REQ-1-3-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 2822,
+        "hypothetical_saving_chars": 8561
+      },
+      {
+        "node_id": "REQ-1-3-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 4978,
+        "hypothetical_saving_chars": 6405
+      },
+      {
+        "node_id": "REQ-2-1-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 5598,
+        "hypothetical_saving_chars": 5785
+      },
+      {
+        "node_id": "REQ-2-1-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 2199,
+        "hypothetical_saving_chars": 9184
+      },
+      {
+        "node_id": "REQ-2-1-3",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 4357,
+        "hypothetical_saving_chars": 7026
+      },
+      {
+        "node_id": "REQ-2-1-4",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 5228,
+        "hypothetical_saving_chars": 6155
+      },
+      {
+        "node_id": "REQ-2-2-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 6512,
+        "hypothetical_saving_chars": 4871
+      },
+      {
+        "node_id": "REQ-2-2-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 6159,
+        "hypothetical_saving_chars": 5224
+      },
+      {
+        "node_id": "REQ-3-1-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 4051,
+        "hypothetical_saving_chars": 7332
+      },
+      {
+        "node_id": "REQ-3-1-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 4015,
+        "hypothetical_saving_chars": 7368
+      },
+      {
+        "node_id": "REQ-3-1-3",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 3139,
+        "hypothetical_saving_chars": 8244
+      },
+      {
+        "node_id": "REQ-3-2-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 4015,
+        "hypothetical_saving_chars": 7368
+      },
+      {
+        "node_id": "REQ-3-2-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 6149,
+        "hypothetical_saving_chars": 5234
+      },
+      {
+        "node_id": "REQ-4-1-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 2119,
+        "hypothetical_saving_chars": 9264
+      },
+      {
+        "node_id": "REQ-4-1-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 2024,
+        "hypothetical_saving_chars": 9359
+      },
+      {
+        "node_id": "REQ-4-2-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 3202,
+        "hypothetical_saving_chars": 8181
+      },
+      {
+        "node_id": "REQ-4-2-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 2199,
+        "hypothetical_saving_chars": 9184
+      },
+      {
+        "node_id": "REQ-5-1-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 5030,
+        "hypothetical_saving_chars": 6353
+      },
+      {
+        "node_id": "REQ-5-1-2",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 8152,
+        "hypothetical_saving_chars": 3231
+      },
+      {
+        "node_id": "REQ-5-2-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 5290,
+        "hypothetical_saving_chars": 6093
+      },
+      {
+        "node_id": "REQ-5-3-1",
+        "current_helper_chars": 11383,
+        "hypothetical_helper_chars": 5218,
+        "hypothetical_saving_chars": 6165
+      }
+    ],
+    "hypothetical_saving_chars_median": 6715.5
+  },
+  "implementation_context": [
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-1-1-1",
+      "design_chars": 21406,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "backend/lib/store.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx"
+      ],
+      "prompt_chars": 74619,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-1-2-1",
+      "design_chars": 18672,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 100961,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-1-2-2",
+      "design_chars": 18797,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 105717,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-1-3-1",
+      "design_chars": 21848,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 112542,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-1-3-2",
+      "design_chars": 19409,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 113212,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-2-1-3",
+      "design_chars": 18384,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 112848,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-2-1-1",
+      "design_chars": 18042,
+      "required_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 116512,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-2-2-1",
+      "design_chars": 19899,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/components/analysis.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 128474,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-2-2-1",
+      "design_chars": 19899,
+      "required_source_paths": [
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/components/analysis.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 128844,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-2-2-2",
+      "design_chars": 20379,
+      "required_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/components/analysis.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 139254,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-3-1-1",
+      "design_chars": 18331,
+      "required_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/query.js",
+        "backend/lib/store.js",
+        "backend/routes/workbooks.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/components/analysis.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 144410,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-3-1-1",
+      "design_chars": 18331,
+      "required_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/query.js",
+        "backend/lib/store.js",
+        "backend/routes/workbooks.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/components/analysis.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 144528,
+      "limit": 196608
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-3-1-2",
+      "design_chars": 19226,
+      "required_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/query.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/Editor.jsx",
+        "frontend/src/api.js",
+        "frontend/src/components/Grid.jsx",
+        "frontend/src/components/Tabs.jsx",
+        "frontend/src/components/analysis.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/shared/interactions.jsx"
+      ],
+      "prompt_chars": 145510,
+      "limit": 196608
+    }
+  ],
+  "codegen_outcomes": {
+    "invalid_context_request": 2,
+    "format_error": 2,
+    "partial": 1,
+    "needs_context": 1,
+    "applied": 9,
+    "incomplete_blocks": 2,
+    "anchor_failed": 2,
+    "generation_failed": 1
+  },
+  "run_metadata": {
+    "source_commit": "56147ba514db484488dca0e29cce7dd2bd867ece",
+    "branch": "v15",
+    "binary": "/tmp/octos-frozen-rust-target/debug/octos",
+    "binary_sha256": "3f875cb105855a6c3701a170852cdacdb674995aaa386aa833c6f888fe165e81",
+    "started_at": "2026-09-30T16:10:37.365834+08:00",
+    "output": "/home/chris/Works/octos-arc/arc/arc-output/v15-sheet-trusted-20260930-161037",
+    "requirements": "/home/chris/Downloads/arcbench-hackathon-requirements (1)/hackathon--sheet",
+    "model": "deepseek-v4-flash",
+    "visual_model": "deepseek-v4-flash-vision-exp",
+    "api_config": "/home/chris/Works/octos-arc/.test_data",
+    "command": [
+      "/usr/bin/python3",
+      "/home/chris/Works/octos-arc/arc/main.py",
+      "/home/chris/Downloads/arcbench-hackathon-requirements (1)/hackathon--sheet",
+      "--test-suite",
+      "hackathon--sheet",
+      "--trusted-tests",
+      "--output-dir",
+      "/home/chris/Works/octos-arc/arc/arc-output/v15-sheet-trusted-20260930-161037",
+      "--web-port",
+      "43820"
+    ],
+    "ports": {
+      "grading": 43820,
+      "smoke": 43821
+    },
+    "time_budget": "production default",
+    "status": "failed",
+    "pid": 299689,
+    "exit_code": 130,
+    "elapsed_seconds": 7971.234,
+    "finished_at": "2026-09-30T18:23:28.785665+08:00"
+  },
+  "infrastructure_incident": {
+    "reason": "Shared Cargo target binary was replaced during the run; new stdio kernels exit with status 2 and profile/local/create times out.",
+    "source_commit": "56147ba514db484488dca0e29cce7dd2bd867ece",
+    "original_binary_sha256": "3f875cb105855a6c3701a170852cdacdb674995aaa386aa833c6f888fe165e81",
+    "replacement_binary_sha256": "d03155c777933d08b48d8a1aab2bba675435934446aa7bc680f6f5ac34566b7a",
+    "binary_modified_at": "2026-09-30T18:16:38.855745",
+    "first_affected_node": "REQ-3-1-2",
+    "action": "infrastructure interruption; preserve app and rebuild in isolation",
+    "recorded_at": "2026-09-30T18:23:28.661408",
+    "pid": 299689,
+    "replacement_stdio_cli_exit_code": 2,
+    "replacement_stdio_cli_error": "error: unrecognized subcommand 'serve'\n\n  tip: a similar subcommand exists: 'steer'\n\nUsage: octos <COMMAND>\n\nFor more information, try '--help'.\n"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "worktree": "/home/chris/.codex/worktrees/hackathon-frozen-specs/octos-arc",
+  "snapshot_branch": "codex/archive-hackathon-derived-specs-20260930",
+  "snapshot_commit": "521d265cc03724410c4b2a28921c08f37d9a1be2",
+  "archive": "/home/chris/.codex/backups/worktrees/hackathon-derived-specs-20260930-193649/worktree.tar.gz",
+  "archive_sha256": "f66d7bec2c6f53a69a72ed6fcbf48ae760eabebf9b4a9772485450fea8b5a44c",
+  "verified_regular_files": 3052,
+  "preserved_reports": "/home/chris/Works/octos-arc/arc/dev-docs/v15-performance-review-20260930",
+  "report_sha256": {
+    "evidence.json": "7205e7ccc4209381456845836b1b3f086e558f0c8740801b637b27e42464943a",
+    "report.md": "c04c638615fb12ed353750788f9b5bb400ff9f637f560e6dfbeb480776fb061c",
+    "review.md": "7f0765f3246bd52d65a88221941362a42aa8927f1d40f151f6459fce68537980",
+    "review-checks.json": "6b42ef934aa20926b09d5a23288df43acf9ffa63b85efec2ab66a5f758418d3b",
+    "audit.py": "32a398410aabdfcd568fa2af6acdc3ef5b36cc0e01a796c7adbb9a4562cd73d5",
+    "continuation-snapshot.json": "b91c0f07f102c249cad459142ab335c436b73acf243ec139adca1a2ee8a92d62"
+  },
+  "background_run_stopped": true,
+  "removed": true,
+  "background_run_stop_reason": "User requested worktree cleanup and indicated no local task should remain running; stopped the old Sheet background run before removal."
+}

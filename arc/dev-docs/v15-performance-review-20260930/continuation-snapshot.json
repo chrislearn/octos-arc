@@ -1,0 +1,121 @@
+{
+  "captured_at": "2026-09-30T18:58:13.874881+08:00",
+  "metadata": {
+    "source_commit": "56147ba514db484488dca0e29cce7dd2bd867ece",
+    "source_snapshot_sha256": "eb0be5d678c2f60987141c8b4987d121a4b9666e86dd5829ba402d99214f1465",
+    "source_snapshot": "/home/chris/Works/octos-arc/arc/arc-output/v15-sheet-isolated-20260930-182910/source-snapshot.json",
+    "binary": "/home/chris/Works/octos-arc/arc/arc-output/v15-sheet-isolated-20260930-182910/runtime/octos",
+    "binary_sha256": "0167785099f8165c34c29d956d0fe00b074853081726d2fcedddfd5767d6b960",
+    "started_at": "2026-09-30T18:47:40.076733+08:00",
+    "output": "/home/chris/Works/octos-arc/arc/arc-output/v15-sheet-isolated-20260930-182910/app",
+    "requirements": "/home/chris/Downloads/arcbench-hackathon-requirements (1)/hackathon--sheet",
+    "model": "deepseek-v4-flash",
+    "status": "running",
+    "warm_start": true,
+    "warm_start_reason": "Preserved application sources from the earlier infrastructure-interrupted run; no node acceptance states inherited. All nodes will be remeasured.",
+    "spec_count": 41,
+    "case_count": 123,
+    "log": "/home/chris/Works/octos-arc/arc/arc-output/v15-sheet-isolated-20260930-182910/run.log",
+    "pid": 535248
+  },
+  "process_exists": true,
+  "completed_model_requests_so_far": 17,
+  "latest_node_measurements": [
+    {
+      "node_id": "REQ-1-1-1",
+      "scope": "node",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "node_id": "REQ-1-2-1",
+      "scope": "node",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "node_id": "REQ-1-2-1",
+      "scope": "affected_regression",
+      "passed": 2,
+      "total": 2
+    },
+    {
+      "node_id": "REQ-1-2-2",
+      "scope": "node",
+      "passed": 2,
+      "total": 2
+    },
+    {
+      "node_id": "REQ-1-3-1",
+      "scope": "node",
+      "passed": 2,
+      "total": 2
+    },
+    {
+      "node_id": "REQ-1-3-2",
+      "scope": "node",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "node_id": "REQ-2-1-3",
+      "scope": "node",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "node_id": "REQ-2-1-3",
+      "scope": "affected_regression",
+      "passed": 8,
+      "total": 8
+    },
+    {
+      "node_id": "REQ-2-1-1",
+      "scope": "node",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "node_id": "REQ-2-2-1",
+      "scope": "node",
+      "passed": 0,
+      "total": 1
+    },
+    {
+      "node_id": "REQ-2-2-1",
+      "scope": "node",
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "node_id": "REQ-2-2-1",
+      "scope": "affected_regression",
+      "passed": 10,
+      "total": 10
+    },
+    {
+      "node_id": "REQ-2-2-2",
+      "scope": "node",
+      "passed": 1,
+      "total": 1
+    }
+  ],
+  "trusted_pipeline": [
+    {
+      "kind": "test_spec_pipeline",
+      "mode": "trusted",
+      "trusted": true,
+      "skipped": [
+        "mechanical_generation",
+        "basic_spec_generation",
+        "business_spec_generation",
+        "spec_review",
+        "spec_audit",
+        "spec_waiting"
+      ],
+      "node_execution": "generate_test_repair"
+    }
+  ],
+  "comparable_ab_experiment": false,
+  "reason_not_comparable": "Warm restart with changed frozen test distribution, different output directory and cache state; generation policy unchanged."
+}
