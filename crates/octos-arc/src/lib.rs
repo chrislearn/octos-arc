@@ -29,6 +29,7 @@ pub mod run;
 mod runner;
 pub mod spec;
 pub mod tree;
+pub mod test_suites;
 mod workspace;
 
 pub use run::{RunCommand, RunnerSpec, execute_run};

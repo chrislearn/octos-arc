@@ -245,6 +245,15 @@ impl Flow {
             smoke_port += 1;
         }
         let tests_dir = spec.tests_dir.clone().filter(|d| d.is_dir());
+        let prompts = if let Some(directory) = &tests_dir {
+            if let Some(note) = crate::test_suites::note_for_extracted(directory, &tree)? {
+                prompts.with_frozen_suite(note)
+            } else {
+                prompts
+            }
+        } else {
+            prompts
+        };
         let (all_specs, spec_map, extra_ports) = match &tests_dir {
             Some(dir) => {
                 let specs = acceptance::list_specs(dir);
@@ -525,7 +534,7 @@ impl Flow {
         if parts.is_empty() {
             "(none)".into()
         } else {
-            parts.join("\n")
+            format!("{}{}", self.prompts.frozen_test_note(), parts.join("\n"))
         }
     }
 
@@ -604,6 +613,26 @@ impl Flow {
     /// Tests paragraph for a node's turns; `None` lists every spec (final
     /// check), `skeleton` only points at the helpers.
     fn tests_prompt_for(&self, node_id: Option<&str>, skeleton: bool) -> String {
+        let business = if self.prompts.frozen_test_note().is_empty() {
+            String::new()
+        } else {
+            self.tests_dir
+                .as_ref()
+                .map(|directory| {
+                    crate::test_suites::business_context(directory, node_id)
+                        .expect("validated frozen business model")
+                })
+                .unwrap_or_default()
+        };
+        format!(
+            "{}{}{}",
+            self.prompts.frozen_test_note(),
+            business,
+            self.tests_prompt_body(node_id, skeleton)
+        )
+    }
+
+    fn tests_prompt_body(&self, node_id: Option<&str>, skeleton: bool) -> String {
         let Some(tests_dir) = &self.tests_dir else {
             return String::new();
         };
@@ -953,6 +982,17 @@ impl Flow {
         workers: Option<u32>,
         grader_like: bool,
     ) -> RunSummary {
+        if !self.prompts.frozen_test_note().is_empty() {
+            let check = self
+                .tests_dir
+                .as_ref()
+                .ok_or_else(|| eyre::eyre!("Missing frozen suite"))
+                .and_then(|directory| crate::test_suites::note_for_extracted(directory, &self.tree))
+                .and_then(|note| note.ok_or_else(|| eyre::eyre!("Missing frozen suite identity")));
+            if let Err(error) = check {
+                return RunSummary::error(format!("Frozen suite integrity check failed: {error}"));
+            }
+        }
         self.git.snapshot_worktree();
         let started = Instant::now();
         let mut server = self.app_server(grader_like);

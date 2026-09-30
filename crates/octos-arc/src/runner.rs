@@ -29,6 +29,8 @@ pub enum Mode {
 pub enum ArcSubcommand {
     /// Run a whole ARC task from a runner-spec.json with the harness policy
     Run(crate::run::RunCommand),
+    /// List or materialize embedded reviewed/frozen internal test suites.
+    Tests(crate::test_suites::TestsCommand),
     /// before_tool_call hook: deny file writes inside protected directories
     /// (payload on stdin; exit 1 = deny). Used by `octos arc run` itself.
     #[command(hide = true, name = "deny-protected")]

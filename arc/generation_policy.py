@@ -36,7 +36,7 @@ def classify_observation(message: str, *, source: str = "derived", reliable: boo
         return "T", "unverified_test"
     if source == "derived" and any(marker in lower for marker in LOW_SIGNAL):
         return "U", "needs_diagnosis"  # a timeout is neither a disproved oracle nor a proven app bug
-    if source in {"official", "api_reproduced", "derived"} and reliable and core and (
+    if source in {"official", "embedded_reviewed", "api_reproduced", "derived"} and reliable and core and (
             ("403" in lower and "200" in lower and any(word in lower for word in
               ("unauthorized", "forbidden", "permission", "access")))
             or any(marker in lower for marker in ("cross-user access confirmed", "unauthorized deletion confirmed"))):

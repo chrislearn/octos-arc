@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "validated_at": "2026-09-30T07:31:48.724852+00:00",
+  "worktree_base": "a54685fb",
+  "branch": "codex/hackathon-frozen-specs",
+  "suite_catalogue": {
+    "schema_version": 1,
+    "suites": {
+      "hackathon--github": {
+        "root_name": "GitHub Collaboration Platform Core Requirements",
+        "requirements_sha256": "7822c558a0d5fef7c25a162f825471d77ea25e8e4bc9976ad33041781488675f",
+        "spec_count": 47,
+        "case_count": 98,
+        "review_status": "reviewed",
+        "frozen": true,
+        "official": false
+      },
+      "hackathon--sheet": {
+        "root_name": "Core Requirements for an Online Spreadsheet Data Workspace",
+        "requirements_sha256": "0cd43ed5e40610fee702ca65f4cc8acf876a146f494ec8edd69b296964ef5b99",
+        "spec_count": 24,
+        "case_count": 113,
+        "review_status": "reviewed",
+        "frozen": true,
+        "official": false
+      }
+    }
+  },
+  "binary_sha256": "859ff2bba3df5a28e2adda5c99578890551d005b51388d1411e4ca3c031d3773",
+  "checks": [
+    {
+      "name": "python_regression",
+      "passed": 214,
+      "failed": 0,
+      "command": "PYTHONPATH=arc python3 -m unittest arc.tests.test_frozen_suites arc.tests.test_main_helpers arc.tests.test_exported_derived_suite arc.tests.test_rust_engine arc.tests.test_requirement_contracts -q"
+    },
+    {
+      "name": "rust_arc_lib",
+      "passed": 132,
+      "failed": 0,
+      "existing_ignored": 1,
+      "command": "cargo test --locked --offline -p octos-arc --lib -j4",
+      "environment": {
+        "CARGO_TARGET_DIR": "/tmp/octos-frozen-rust-target",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0"
+      }
+    },
+    {
+      "name": "rust_cli_build",
+      "status": "passed",
+      "command": "cargo build --locked --offline -p octos-cli --bin octos -j4"
+    },
+    {
+      "name": "typescript_strict_compile",
+      "status": "passed",
+      "spec_files": 71
+    },
+    {
+      "name": "playwright_discovery",
+      "status": "passed",
+      "cases": 211,
+      "errors": 0
+    },
+    {
+      "name": "chromium_shared_helpers",
+      "passed": 7,
+      "failed": 0,
+      "source": "arc/integration/frozen_helpers.spec.ts",
+      "scope": "Helper infrastructure; no product execution"
+    },
+    {
+      "name": "typescript_clipboard_literal_audit",
+      "status": "passed",
+      "paste_literals": 30
+    },
+    {
+      "name": "binary_embedding_without_source_directory",
+      "status": "passed",
+      "source_directory_absent_during_execution": true,
+      "method": "Temporarily renamed arc/frozen-tests, ran actual compiled CLI from /tmp, restored source in finally.",
+      "command": "python3 arc/integration/frozen_suites.py /tmp/octos-frozen-rust-target/debug/octos /tmp/octos-frozen-e2e-final",
+      "suite_results": [
+        {
+          "name": "hackathon--github",
+          "spec_count": 47,
+          "case_count": 98,
+          "reviewed": true,
+          "frozen": true,
+          "reuse": "passed",
+          "protection_restore": "passed",
+          "playwright_staging": "passed",
+          "business_model_entities": 16,
+          "business_model_reuse": "passed",
+          "product_execution": "not_run"
+        },
+        {
+          "name": "hackathon--sheet",
+          "spec_count": 24,
+          "case_count": 113,
+          "reviewed": true,
+          "frozen": true,
+          "reuse": "passed",
+          "protection_restore": "passed",
+          "playwright_staging": "passed",
+          "business_model_entities": 9,
+          "business_model_reuse": "passed",
+          "product_execution": "not_run"
+        }
+      ]
+    },
+    {
+      "name": "python_bundle",
+      "status": "passed",
+      "command": "ARC_PACK_KERNEL=0 sh arc/pack.sh",
+      "entry_sources_compile": [
+        "main.py",
+        "frozen_suites.py",
+        "rust_engine.py"
+      ],
+      "test_bytes_in_python_zip": false,
+      "compatible_online_kernel_deployed": false
+    },
+    {
+      "name": "source_review_and_freeze_audit",
+      "status": "passed",
+      "command": "python3 arc/audit_frozen_tests.py"
+    }
+  ],
+  "product_execution": "not_run",
+  "authority": "Original requirements; source-reviewed frozen internal suites are not official ARC tests or a measured product pass."
+}

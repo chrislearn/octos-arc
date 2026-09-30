@@ -839,6 +839,24 @@ def app_design_blocks(design: dict | None, spec_text: str, cap: int, *,
     def render(doc: dict) -> str:
         return header + json.dumps(doc, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
 
+    if design.get('frozen') is True and design.get('review_status') == 'reviewed':
+        # The frozen document retains every original clause. Carry shared
+        # identities plus complete active-node contracts, instead of repeating
+        # all sibling clauses in every generation turn.
+        active = set(requirement_ids or []) | set(re.findall(r"\bREQ-\d+(?:(?:\.|-)\d+)*\b", spec_text))
+        common = {key: design[key] for key in ('data_model', 'domain_contracts', 'notes') if design.get(key)}
+        common['authority'] = 'Read the complete immutable app-design.json in the frozen suite; .arc/design/app.json is a conventional readable copy. Original requirements remain authoritative.'
+        detail = {}
+        for key in ('contracts', 'commands'):
+            rows = [row for row in design.get(key, []) if set(row.get('requirements', [])) & active]
+            # Full-suite turns read the full document from disk; a node turn
+            # preserves its exact complete clauses with no string truncation.
+            if len(active) > 6:
+                rows = [row for row in rows if not str(row.get('basis', '')).startswith('verbatim')]
+            if rows:
+                detail[key] = rows
+        return render(common), ('Frozen business contracts for active requirements:\n' + json.dumps(detail,ensure_ascii=False,separators=(',', ':'),sort_keys=True)+'\n') if detail else ''
+
     whole = render(design)
     if len(whole) <= cap:
         return whole, ""
@@ -2489,6 +2507,7 @@ def regression_checkpoint_due(index: int, total: int, start: int) -> bool:
 class Flow:
     def __init__(self, args, output_dir: Path, req_dir: Path) -> None:
         self.args = args
+        self.test_suite_name = getattr(args, 'test_suite', None)
         self.output_dir = output_dir
         self.req_dir = req_dir
         self.web_port = args.web_port
@@ -3343,6 +3362,8 @@ class Flow:
                         .replace("official Playwright specs", "generated Playwright specs"))
             guidance += (" The generated specs are checked against requirements.yaml if they fail; "
                          "requirements.yaml determines the required behavior.\n")
+        if getattr(self, 'frozen_suite', None):
+            guidance = guidance.replace('official', 'source-reviewed frozen internal')
         return guidance
 
     def codegen_mode(self, *, node_block: bool = True) -> bool:
@@ -4147,6 +4168,30 @@ class Flow:
         else:
             log(f"[flow] generation build preflight ready in {elapsed}s; per-wave frontend builds enabled")
 
+    def adopt_frozen_business(self) -> None:
+        from frozen_suites import load_business, verify_directory
+        verify_directory(self.tests_dir, self.original_requirement_tree, self.frozen_suite['name'], self.frozen_suite)
+        model, contracts, ledger = load_business(self.tests_dir)
+        errors = app_design_errors(model, requirement_index(self.original_requirement_tree))
+        if errors:
+            raise ValueError(f'Invalid frozen business model: {errors}')
+        self.app_design_doc = model
+        self.requirement_contracts = contracts
+        self.derived_obligations = ledger['obligations']
+        self.derived_obligation_status = ledger['nodes']
+        self._design_semantics_reviewed = True
+        self._design_blocked = set()
+        # Conventional paths are readable copies; the protected extracted suite
+        # remains the authority and is verified before every acceptance run.
+        save_contracts(self.output_dir / '.arc/requirement-contracts.json', contracts)
+        design_dir = self.output_dir / '.arc/design'
+        design_dir.mkdir(parents=True, exist_ok=True)
+        for name, source in [('app.json', 'app-design.json'), ('domain-contracts.json', 'domain-contracts.json'),
+                             ('test-obligations.json', 'test-obligations.json'), ('business-review.json', 'business-review.json')]:
+            shutil.copyfile(self.tests_dir / source, design_dir / name)
+        self.metric('frozen_business_model', name=self.frozen_suite['name'], review_status='reviewed',
+                    frozen=True, official=False, runtime_status='not_run', entities=len(model['data_model']))
+
     def app_design(self, tree: dict, ordered: list[dict]) -> dict | None:
         """One request over the tree's outline -> routes, pages and data model
         the whole run implements against (OCTOS_ARC_APP_DESIGN=0 disables).
@@ -4154,6 +4199,10 @@ class Flow:
         an existing app IS its design, and tool-mode nodes read the code.
         The document is kept on the flow and in .arc/design/app.json; a reply
         without a JSON object just leaves the run without one."""
+        if getattr(self, 'frozen_suite', None):
+            if not getattr(self, 'app_design_doc', None):
+                self.adopt_frozen_business()
+            return self.app_design_doc
         if os.environ.get("OCTOS_ARC_APP_DESIGN", "1") == "0" or not self.codegen_mode() \
                 or len(ordered) < self.design_min_nodes:
             return None
@@ -5385,6 +5434,9 @@ class Flow:
         return (self.derived_note() + body) if body else "(none)"
 
     def derived_note(self) -> str:
+        if getattr(self, 'frozen_suite', None):
+            from frozen_suites import generation_note
+            return generation_note(self.tests_dir)
         return DERIVED_SPECS_NOTE if getattr(self, "derived_as_specs", False) else ""
 
     def has_requirement_contract(self, node_id: str) -> bool:
@@ -5475,9 +5527,19 @@ class Flow:
 
     def app_repair_prompt(self, **fields) -> str:
         template = DERIVED_REPAIR_PROMPT if getattr(self, "derived_as_specs", False) else REPAIR_PROMPT
-        return template.format(**fields)
+        result = template.format(**fields)
+        if getattr(self, 'frozen_suite', None):
+            result = result.replace('official acceptance tests', 'reviewed frozen internal tests').replace('official tests', 'reviewed frozen internal tests')
+        return result
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
+        result = self._tests_prompt_for(node_id, skeleton)
+        if getattr(self, 'frozen_suite', None):
+            result = (result.replace('official Playwright specs', 'source-reviewed frozen internal Playwright specs')
+                      .replace('PUBLIC ACCEPTANCE TESTS', 'SOURCE-REVIEWED FROZEN INTERNAL TESTS'))
+        return result
+
+    def _tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         if not self.tests_dir or (getattr(self, 'derived_as_specs', False)
                                   and (getattr(self, '_generation_active', False) or skeleton)):
             ids = None if node_id is None else [node_id]
@@ -5834,6 +5896,12 @@ class Flow:
         selected_runner = runner or self.runner
         if selected_runner is None:
             return RunSummary(error='acceptance runner unavailable')
+        if getattr(self, 'frozen_suite', None):
+            from frozen_suites import verify_directory
+            try:
+                verify_directory(self.tests_dir, self.original_requirement_tree, self.frozen_suite['name'], self.frozen_suite)
+            except (OSError, ValueError, KeyError) as exc:
+                return RunSummary(error=f'Frozen suite integrity check failed: {exc}')
         if (getattr(self, 'derived_as_specs', False) is True
                 and (not self.tests_dir or self.tests_dir != getattr(self, "derived_tests_dir", None))):
             return RunSummary(error='generated suite origin mismatch')
@@ -6079,7 +6147,7 @@ class Flow:
             if not row.ok:
                 self.record_quality_observation(
                     node_id, row.title, row.message or row.status,
-                    source="derived" if getattr(self, "derived_as_specs", False) else "official",
+                    source="derived" if getattr(self, "derived_as_specs", False) else ("embedded_reviewed" if getattr(self, "frozen_suite", None) else "official"),
                     reliable=(not getattr(self, "derived_as_specs", False)
                               or self.trusted_derived_case(node_id, row.title)), source_hash=source_hash)
         try:
@@ -7046,7 +7114,7 @@ class Flow:
             # where related loading failures can be diagnosed together.
             failed_rows = [row for row in summary.results if not row.ok]
             if measured and failed_rows:
-                source = "derived" if getattr(self, "derived_as_specs", False) else "official"
+                source = "derived" if getattr(self, "derived_as_specs", False) else ("embedded_reviewed" if getattr(self, "frozen_suite", None) else "official")
                 requirement_node = getattr(self, "requirement_nodes", {}).get(node_id, {})
                 core_text = (str(requirement_node.get("description") or "") + " "
                              + json.dumps(requirement_node.get("scenarios") or [], ensure_ascii=False))
@@ -13336,6 +13404,8 @@ class Flow:
             log(f"[flow] adapter source sha256={provenance['sha256']} ({provenance['scope']})")
             previous = previous_requirement_records(self.output_dir)
             tree = load_requirement_tree(self.req_dir)
+            original_tree = json.loads(json.dumps(tree))
+            self.original_requirement_tree = original_tree
             self.runtime.traceability.store_requirement_tree(tree)
             # The saved requirement table contains the original task text.
             # Seed reconciliation may rewrite scenario steps for generation,
@@ -13374,6 +13444,17 @@ class Flow:
                 + (f" / absolute {self.max_total_tokens_abs}" if self.max_total_tokens_abs else ""))
 
             self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
+            from frozen_suites import materialize, requested_name
+            self.frozen_suite = None
+            suite_name = getattr(self, 'test_suite_name', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
+            if (suite_name or not self.tests_dir) and requested_name(original_tree, suite_name):
+                embedded = materialize(find_octos(), original_tree, self.output_dir, suite_name, log)
+                if embedded:
+                    self.tests_dir, self.frozen_suite = embedded
+                    self.adopt_frozen_business()
+                    self.metric('frozen_test_suite', name=self.frozen_suite['name'],
+                                official=False, review_status='reviewed', frozen=True,
+                                runtime_status='not_run', case_count=self.frozen_suite['case_count'])
             if self.tests_dir:
                 specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
                 self.spec_map, self.aliases = map_specs_to_nodes(specs, node_ids)
@@ -13710,6 +13791,8 @@ def write_minimal_terminal_state(output_dir: Path, state: str, reason: str) -> N
 def main() -> int:
     parser = argparse.ArgumentParser(description="Octos agent bundle for ARC-Bench")
     parser.add_argument("requirement_path", nargs="?", default=os.environ.get("ARCBENCH_TASK_DIR", "/workspace/task"))
+    parser.add_argument("--test-suite", default=os.environ.get("OCTOS_ARC_TEST_SUITE"),
+                        help="Embedded reviewed suite name (default: match original requirement title)")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--type", "--app-type", dest="app_type", default="web")
     parser.add_argument("--web-port", type=int,

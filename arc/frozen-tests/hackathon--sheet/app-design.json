@@ -1,0 +1,2237 @@
+{
+  "data_model": {
+    "Workbook": {
+      "identity": "implementation-defined stable workbook identity",
+      "name": "non-empty string after trimming leading/trailing spaces",
+      "last_updated": "implementation-defined display value used consistently in home record and editor",
+      "worksheet_order": "ordered worksheet identities",
+      "last_active_worksheet": "identity of an existing worksheet",
+      "visible_editor_state": "implementation-defined directly revisitable browser state identifying this workbook"
+    },
+    "Worksheet": {
+      "identity": "worksheet identity scoped to its workbook",
+      "name": "trimmed non-empty string unique within its workbook",
+      "cells": "coordinate -> Cell state; independent of other worksheets",
+      "selection": "most recently confirmed complete rectangular selection and current cell",
+      "validation_rules": "range-scoped ValidationRule states",
+      "filter_views": "range-scoped FilterView states",
+      "pivot_state": "optional PivotTable configuration/results associated with this worksheet"
+    },
+    "Cell": {
+      "coordinate": "same-worksheet A1-style coordinate",
+      "original_content": "ordinary input text or original submitted/adjusted formula expression",
+      "displayed_value": "ordinary original value, current calculated result, or stable formula error",
+      "formula_dependencies": "same-worksheet references implied by the current original formula"
+    },
+    "Selection": {
+      "rectangle": "complete contiguous rectangle bounded by two cell coordinates",
+      "current_cell": "confirmed selected cell in the active worksheet",
+      "aria_selected_cells": "exactly the cells in the selected rectangle; all others false"
+    },
+    "ValidationRule": {
+      "worksheet": "owning worksheet identity",
+      "range": "constrained cell rectangle that follows originally constrained cells on structural changes",
+      "kind": "Dropdown | Number range",
+      "allowed_values": "for Dropdown: comma-separated items trimmed of leading/trailing spaces",
+      "minimum": "for Number range: inclusive numeric lower bound",
+      "maximum": "for Number range: inclusive numeric upper bound"
+    },
+    "FilterView": {
+      "worksheet": "owning worksheet identity",
+      "source_range": "exact selected data region with header row; follows structural changes",
+      "criteria": "per-column distinct-value selections or supported conditions, combined across columns with AND",
+      "visible_rows": "matching source rows without deleting or reordering source records"
+    },
+    "PivotTable": {
+      "source_worksheet": "source worksheet identity",
+      "source_range": "selected header-containing range adjusted by source row/column changes",
+      "result_worksheet": "separate worksheet identity named with first unused PivotN at creation",
+      "row_field": "selected available source header, tracked when its source column moves",
+      "column_field": "optional selected available source header, tracked when its source column moves",
+      "value_field": "selected available source header, tracked when its source column moves",
+      "summarize_by": "SUM | COUNT | AVERAGE",
+      "last_successful_result": "complete ordered summary, field layout, aggregation and grand totals",
+      "refresh_validity": "whether current source range/selected fields can produce a valid replacement"
+    },
+    "TransferOperation": {
+      "worksheet": "same worksheet for source and target; cross-worksheet transfer is outside required scope",
+      "source_rectangle": "exact selected source rectangle for copy/cut",
+      "target_rectangle": "complete two-dimensional target footprint",
+      "mode": "external paste | copy | cut",
+      "pending_cut": "source remains intact until a complete successful target commit"
+    },
+    "UndoHistory": {
+      "scope": "current workbook session, isolated from other workbooks",
+      "undo_operations": "successful recent cell edits, bulk pastes, range moves and row/column changes in reverse order",
+      "redo_operations": "undone complete operations; discarded by a new successful modification",
+      "restored_state": "values, formulas, rule ranges, structure, pivot-result validity and calculation results",
+      "lifetime": "history may be empty after reopening; visible undo/redo result itself is persisted"
+    }
+  },
+  "routes": [],
+  "pages": [],
+  "modules": [],
+  "domain_contracts": [
+    {
+      "entity": "Workbook",
+      "identity": "The home link, observed editor browser state, refresh and later browser session resolve the same current workbook identity; its entry format is implementation-defined.",
+      "storage": "Successful workbook state persists through refresh, home reopening and direct observed editor-state revisits. No storage engine is prescribed.",
+      "producers": [
+        "Create blank workbook",
+        "Import CSV",
+        "Rename workbook",
+        "Successful worksheet/data/analysis mutations"
+      ],
+      "consumers": [
+        "Home workbook records",
+        "Open workbook",
+        "Direct observed editor-state revisit",
+        "Editor title and Last updated label"
+      ],
+      "requirements": [
+        "REQ-1-1-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-1-3-1",
+        "REQ-1-3-2"
+      ]
+    },
+    {
+      "entity": "Worksheet",
+      "identity": "A named tab represents one worksheet in one workbook. Worksheet order and active state identify the most recent successful state without leaking another worksheet's values, formulas, rules, filters or pivot state.",
+      "storage": "Names, order, last active sheet, complete selections, values/formulas, rules, filters and pivot configuration/results are persistent per worksheet.",
+      "producers": [
+        "Create/import workbook",
+        "Add worksheet",
+        "Rename worksheet",
+        "Delete worksheet",
+        "Successful cell/range/structure/analysis operations"
+      ],
+      "consumers": [
+        "ARIA tab bar",
+        "Worksheet grid",
+        "Formula bar",
+        "Validation/filter controls",
+        "Pivot table editor/results",
+        "CSV export"
+      ],
+      "requirements": [
+        "REQ-2-1-1",
+        "REQ-2-1-2",
+        "REQ-2-1-3",
+        "REQ-2-1-4",
+        "REQ-2-2-1",
+        "REQ-2-2-2"
+      ]
+    },
+    {
+      "entity": "Cell",
+      "identity": "A coordinate identifies a cell in the current worksheet; source and target positions adjust consistently when records or structure move.",
+      "storage": "Persist original ordinary text or formula expressions together with results consistent with current source values. The formula bar is the observable original-content projection; CSV export uses displayed values/results.",
+      "producers": [
+        "Grid/Formula bar commit",
+        "External paste",
+        "Copy/cut paste",
+        "Insert/delete rows or columns",
+        "Sort range",
+        "Undo/Redo",
+        "Formula recalculation"
+      ],
+      "consumers": [
+        "Named ARIA gridcell",
+        "Formula bar",
+        "Dependent formulas",
+        "CSV export",
+        "Filters",
+        "Pivot aggregation"
+      ],
+      "requirements": [
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-2-1",
+        "REQ-3-2-2",
+        "REQ-4-1-1",
+        "REQ-4-1-2",
+        "REQ-4-2-1",
+        "REQ-4-2-2",
+        "REQ-5-1-1"
+      ]
+    },
+    {
+      "entity": "Selection",
+      "identity": "The selected rectangle belongs to one worksheet; current-cell selection is a one-cell rectangle and subsequent range operations use the exact rectangle.",
+      "storage": "Persist the complete most recently confirmed rectangle per worksheet, including cells inside/outside ARIA state, through switching and reopening.",
+      "producers": [
+        "Select cell",
+        "Drag either rectangle corner to the opposite corner",
+        "Open a first-time worksheet"
+      ],
+      "consumers": [
+        "aria-selected states",
+        "Formula bar",
+        "Paste/Copy/Cut",
+        "Sort/Filter/Validation/Pivot range entry"
+      ],
+      "requirements": [
+        "REQ-1-2-1",
+        "REQ-2-1-1",
+        "REQ-2-1-2",
+        "REQ-3-1-3"
+      ]
+    },
+    {
+      "entity": "ValidationRule",
+      "identity": "A dropdown or inclusive numeric constraint belongs to a selected worksheet range. Its range follows originally constrained cells; deleted target rules are removed.",
+      "storage": "Persist effective type and parameters; reopening the existing rule exposes its saved parameters and Delete rule control.",
+      "producers": [
+        "Save/modify/delete Data validation rule",
+        "Insert/delete rows or columns",
+        "Undo/Redo structure operations"
+      ],
+      "consumers": [
+        "Grid commit",
+        "Formula bar commit",
+        "External rectangle paste",
+        "Copy/cut target validation",
+        "Dropdown options",
+        "Data validation editor"
+      ],
+      "requirements": [
+        "REQ-5-2-1",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-2-1",
+        "REQ-3-2-2"
+      ]
+    },
+    {
+      "entity": "FilterView",
+      "identity": "A filter is scoped to the user's selected header-containing source region; per-column conditions combine with AND and never become implicit filters on adjacent data or another worksheet.",
+      "storage": "Persist source region and criteria/visibility. Source records retain their original values and order, including hidden rows consumed by export and pivot.",
+      "producers": [
+        "Create filter",
+        "Apply distinct-value filter",
+        "Apply condition",
+        "Clear filter",
+        "Source row/column changes"
+      ],
+      "consumers": [
+        "Filter header buttons",
+        "Visible grid rows",
+        "CSV export",
+        "Pivot source aggregation",
+        "Worksheet switching/reopening"
+      ],
+      "requirements": [
+        "REQ-5-1-2",
+        "REQ-5-1-1",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-1-3-2",
+        "REQ-5-3-1"
+      ]
+    },
+    {
+      "entity": "PivotTable",
+      "identity": "A pivot associates a current source worksheet/range and selected source fields with a separate result worksheet; source fields track structural movement, while a deleted selected field becomes unavailable.",
+      "storage": "Persist successful field layout, summarization method and complete last successful result. Source edits/structure changes do not replace this result until explicit successful refresh.",
+      "producers": [
+        "Create pivot table",
+        "Apply pivot configuration",
+        "Refresh pivot table",
+        "Delete pivot-result worksheet",
+        "Source structural changes",
+        "Undo/Redo validity restoration"
+      ],
+      "consumers": [
+        "Pivot table editor",
+        "Pivot result grid",
+        "Refresh action",
+        "Source worksheet deletion guard",
+        "Worksheet switching/reopening"
+      ],
+      "requirements": [
+        "REQ-5-3-1",
+        "REQ-2-1-4",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-3-2-2"
+      ]
+    },
+    {
+      "entity": "TransferOperation",
+      "identity": "A complete external-paste or copy/cut transfer has one target rectangle in the current worksheet; copy/cut source and target belong to that same worksheet.",
+      "storage": "Persist the complete successful source/target and affected-formula state. A pending cut remains uncommitted and retains its original source until the complete target commit; no clipboard serialization or pending-transfer persistence is prescribed.",
+      "producers": [
+        "External paste",
+        "Copy",
+        "Cut",
+        "Paste transfer"
+      ],
+      "consumers": [
+        "Source/target cells",
+        "Target validation",
+        "Affected formula results",
+        "Undo/Redo operation restoration"
+      ],
+      "requirements": [
+        "REQ-3-1-2",
+        "REQ-3-2-1",
+        "REQ-3-2-2"
+      ]
+    },
+    {
+      "entity": "UndoHistory",
+      "identity": "Undo/redo history belongs to the current workbook session and never acquires authority to mutate another workbook.",
+      "storage": "Persist the complete visible result of every successful undo/redo. The operation history itself is session-scoped and may be empty after reopening; no persistent-history representation is required.",
+      "producers": [
+        "Successful cell edit",
+        "Successful bulk paste",
+        "Successful range move",
+        "Successful row/column structure change",
+        "Undo",
+        "Redo",
+        "New successful modification after Undo"
+      ],
+      "consumers": [
+        "Undo/Redo controls and keyboard actions",
+        "Restored source/target values and original formulas",
+        "Restored rule ranges and row/column structure",
+        "Restored pivot-result validity and calculation results"
+      ],
+      "requirements": [
+        "REQ-3-2-2"
+      ]
+    }
+  ],
+  "contracts": [
+    {
+      "requirements": [
+        "REQ-1-1-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-1-3-1",
+        "REQ-2-1-1",
+        "REQ-2-1-2",
+        "REQ-2-1-3",
+        "REQ-2-1-4"
+      ],
+      "invariants": [
+        "Home is the visible workbook entry; successful open/create/import enter the same editor behavior and stable workbook state.",
+        "Home workbook name/Last updated agree with the corresponding editor; worksheet order and last active sheet remain consistent after reopening.",
+        "Only the opened workbook and current target worksheet may be modified; unrelated workbooks/worksheets preserve their successful state.",
+        "Creation starts with only blank Sheet1 active and A1 selected. Adding a sheet uses first unused SheetN, becomes active at A1, and inherits no analysis/rules/data.",
+        "Workbook and worksheet names trim boundary spaces and reject empty names; worksheet names are unique only within the same workbook.",
+        "The final worksheet cannot be deleted. A pivot source cannot be deleted while dependent pivot results remain; deleting a result releases its source dependency."
+      ]
+    },
+    {
+      "requirements": [
+        "REQ-1-1-1",
+        "REQ-2-1-2",
+        "REQ-3-1-3"
+      ],
+      "invariants": [
+        "Tabs use ARIA tab role and active aria-selected=true. Active grid is named Worksheet grid, exposes grid role and aria-multiselectable=true.",
+        "Cells use gridcell role and their coordinates as accessible names; exactly all selected-rectangle cells are aria-selected=true and all outside cells false.",
+        "Selecting a cell/range replaces previous selection. Complete per-sheet rectangles survive refresh/reopening/switching; first-time sheets select A1.",
+        "Row/column headers use rowheader decimal number and columnheader letter names. Named menu commands use menuitem roles; named combo options use visible option names."
+      ]
+    },
+    {
+      "requirements": [
+        "REQ-1-3-1",
+        "REQ-1-3-2",
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-2-1",
+        "REQ-5-2-1"
+      ],
+      "invariants": [
+        "Ordinary original text and formula expressions are distinct from formula displayed results; imported numeric text retains its original text.",
+        "Import preserves complete ordered CSV rows/columns, empty fields, Unicode, quoted commas/escaped quotes/embedded newlines and ordinary first-row data.",
+        "Unclosed CSV quoted fields reject the import with no partial workbook or matching home link. Imported names remove only the final .csv extension.",
+        "Export is a browser download ending in .csv with UTF-8 ordered current-sheet values, used-range empty cells and proper escaping; formulas export calculated results.",
+        "Export includes filtered hidden source rows and preserves active sheet, filter view, grid values, selection and formula-bar content.",
+        "Enter or selecting another cell commits; Escape cancels pending content. A rejected commit leaves original grid/formula-bar content and dependent results intact.",
+        "A rectangle paste/transfer is one atomic operation: every target and affected dependency updates, or every source/target/dependent state stays unchanged. Cut clears source only after target completion."
+      ]
+    },
+    {
+      "requirements": [
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-3-2-2",
+        "REQ-4-1-2",
+        "REQ-4-2-1",
+        "REQ-5-1-1",
+        "REQ-5-2-1",
+        "REQ-5-3-1"
+      ],
+      "invariants": [
+        "Row/column insertion moves complete subsequent data, rule ranges and formula references together; deletion removes target data/rules and shifts survivors without partial movement.",
+        "Adjusted formula expressions and results remain consistent; invalid direct references show explicit errors, including #REF! for deleted source columns.",
+        "Filter regions continue to address original data after structure changes, and pivot source ranges/fields track those changes while last successful results await refresh.",
+        "Sorting affects exactly the selected rectangle, preserves declared header, compares numeric/date/text values by type, preserves equal-key order and moves full records/formulas consistently.",
+        "Undo/redo restores/reapplies whole operations including values, original formulas, rule ranges, structure, pivot validity and results; new successful modifications discard redo branches."
+      ]
+    },
+    {
+      "requirements": [
+        "REQ-4-1-1",
+        "REQ-4-1-2",
+        "REQ-4-2-1",
+        "REQ-4-2-2"
+      ],
+      "invariants": [
+        "Required formula grammar includes numeric constants, parentheses, + - * /, same-sheet A1 references and contiguous-range SUM/AVERAGE/COUNT/MIN/MAX; function names are case-insensitive.",
+        "Aggregate functions ignore blanks; COUNT counts numeric cells only and numeric aggregation ignores text without treating blanks as zero.",
+        "Copied relative row/column references follow offset while absolute references stay fixed. A relative reference shifted out of worksheet bounds yields original target formula =#REF! and displayed #REF!.",
+        "Successful source edits/pastes/moves/structure changes recalculate direct/transitive dependencies in order; unrelated cells/worksheets remain usable and unchanged.",
+        "Stable errors are #DIV/0! for division by zero, #REF! for invalid/circular references, #NAME? for unsupported functions, #ERROR! for malformed expressions; original submitted expression persists.",
+        "Fixing a formula restores its current result and dependent results through reopening; an error in one formula does not block unrelated editing or recalculation."
+      ]
+    },
+    {
+      "requirements": [
+        "REQ-5-1-2",
+        "REQ-5-2-1",
+        "REQ-5-3-1"
+      ],
+      "invariants": [
+        "Filter values are distinct displayed source values. Supported conditions are Text contains, Greater than, Before, Is empty and Is not empty; only the first three require a Value.",
+        "Different-column filters use AND, hide nonmatching rows without deletion/reordering, and Clear filter restores original records without changing formulas/rules.",
+        "Dropdown allowed items are trimmed; numeric limits are inclusive. Grid, formula bar, paste and range move all enforce the same saved rule and reject the entire bulk operation when any target is invalid.",
+        "Dropdown rejection shows Please select one of the following values: <comma-separated allowed values>; numeric rejection shows Please enter a number between <minimum> and <maximum>, with Please enter a number from 0 to 100 in the specified persisted B3/structural boundary scenarios.",
+        "Existing validation editor restores type/parameters and offers Delete rule; successful save/modification/deletion closes it without modifying existing cell values.",
+        "Pivot reads all qualifying source records including hidden rows and never edits/reorders source data. SUM/AVERAGE consume parseable numbers; COUNT counts non-empty value records including text.",
+        "Pivot groups and column-field values follow first source appearance. No-column headers are row field and <method> of <value field>; optional-column layout adds a final Grand Total column; every layout has a final Grand Total row.",
+        "COUNT missing/empty-value combinations display 0. SUM/AVERAGE fields with no parseable numbers reject visibly with Value field requires numeric values and preserve the last successful result/source.",
+        "Refresh fully replaces old results only on success. Deleted selected headers show Pivot field is no longer available. Select a new field.; invalid range/field refresh preserves source and last successful result."
+      ]
+    },
+    {
+      "requirements": [
+        "REQ-1-1-1"
+      ],
+      "invariants": [
+        "Users view available workbooks on the workbook home page.",
+        "Each record displays \"Last updated: <last updated value>\" and provides a link whose accessible name is the workbook name.",
+        "After the user clicks the link, the editor displays the same \"Last updated: <last updated value>\", the corresponding workbook name, worksheet tabs and order, current active worksheet, row and column structure, grid values, formula bar content, filter views, validation entry points, and pivot table results; data from another workbook must not appear in the current grid.",
+        "The current editor page entry in the browser must be directly accessible and continue to identify the same workbook after refresh; visiting that exact workbook state in the same or a later browser session must restore the workbook’s most recent successful state without requiring navigation through the home page.",
+        "The entry format is implementation-defined."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-2-1"
+      ],
+      "invariants": [
+        "Users create a blank workbook from the workbook home page.",
+        "The home page provides a button with the accessible name \"New blank workbook\"; clicking it opens the creation page, whose submit button is named \"Create\".",
+        "After creation succeeds, the editor opens and shows only a blank worksheet named Sheet1, with Sheet1 active and A1 selected; refreshing or returning to the home page and reopening produces the same state.",
+        "If creation fails, an error is displayed, the user remains in a retryable state, and no incomplete workbook record may appear on the home page."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-2-2"
+      ],
+      "invariants": [
+        "Users can change the workbook name on the workbook editor page.",
+        "Next to the editor title is a button with the accessible name \"Rename workbook\"; clicking it displays a text box labeled \"Workbook name\", prefilled with the last saved name, and a \"Save\" button.",
+        "After leading and trailing spaces are trimmed, the name must not be empty; an empty name must be rejected with \"Workbook name cannot be empty\".",
+        "After a successful save, both the editor title and the home-page link display the new name; if saving fails, an error is shown and the original name remains displayed.",
+        "Reopening the workbook shows the most recently saved name."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-3-1"
+      ],
+      "invariants": [
+        "Users start an import by clicking the \"Import CSV\" button on the workbook home page.",
+        "A dialog named \"Import CSV\" provides a file control labeled \"CSV file\" and a \"Confirm import\" button.",
+        "The system parses data in the original row and column order, preserves empty fields, supports UTF-8 Chinese text, English text, and numeric text, and correctly handles commas enclosed in double quotes, escaped pairs of double quotes, and line breaks within fields; a field that begins with a double quote but has no closing double quote is invalid CSV and must be rejected with \"Invalid CSV file format.",
+        "Import failed.\" After a successful import, a new workbook is created whose name is the file name with its final .csv extension removed, and Sheet1 opens with the complete CSV rows, columns, and original text; the first row remains ordinary data.",
+        "After refresh or reopening, grid content and row/column order remain unchanged.",
+        "If parsing or import fails, no workbook link with that name may appear on the home page, and no partial import result may be displayed or retained."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-3-2"
+      ],
+      "invariants": [
+        "Users can export the current active worksheet using the button with the accessible name \"Export CSV\" on the workbook editor toolbar.",
+        "Clicking it starts a browser download; the suggested filename ends with \".csv\", and the downloaded UTF-8 text is the exported CSV.",
+        "The exported CSV preserves empty cells within the used range according to the grid’s actual row and column order and correctly escapes text containing commas, quotes, or line breaks.",
+        "Ordinary cells export their displayed values; formula cells export their current calculated results rather than formula expressions.",
+        "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-1-1"
+      ],
+      "invariants": [
+        "Users add a worksheet using the button with the accessible name \"Add worksheet\" in the tab bar of the workbook editor page.",
+        "The new tab uses the first unused SheetN name in positive-integer order; when only Sheet1 exists, Sheet2 is created.",
+        "The new worksheet is blank and does not inherit filters, validation, or pivot results from other worksheets; after creation it becomes the active tab and A1 is selected.",
+        "Existing worksheets and their data remain unchanged.",
+        "The new tab still exists after refresh or reopening.",
+        "If addition fails, an error is shown, no new tab appears, and existing worksheets remain unchanged."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-1-2"
+      ],
+      "invariants": [
+        "After the user clicks another ARIA tab, the grid, row and column structure, selected cell, text box labeled \"Formula bar\", filter buttons, validation entry points, and pivot table results all switch to the state of the target worksheet; the formula bar displays either the ordinary value or the original formula of the selected cell.",
+        "A worksheet opened for the first time with no selection history selects A1.",
+        "Switching must not modify the source worksheet; returning to it restores its most recent successful state.",
+        "Reopening the workbook directly displays the last active tab and restores the last confirmed selected cell for each worksheet."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-1-3"
+      ],
+      "invariants": [
+        "Users change a worksheet name from the worksheet tab menu.",
+        "The \"Rename\" menu item opens a dialog named \"Rename worksheet\", containing a text box labeled \"Worksheet name\" prefilled with the current name and a \"Save\" button.",
+        "After trimming leading and trailing spaces, the new name must not be empty and must be unique within the same workbook; an empty name displays \"Worksheet name cannot be empty\", and a duplicate name displays \"Worksheet name already exists\".",
+        "After a successful save, the tab displays the new name; if saving fails, the name is duplicate, or the name is empty, an error is displayed and the original name remains.",
+        "Refreshing or reopening shows the most recently saved successful name."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-1-4"
+      ],
+      "invariants": [
+        "Users delete a worksheet through the \"Delete\" command in the worksheet tab menu.",
+        "When deletion is allowed, the system displays a dialog named \"Delete worksheet\" describing the target worksheet, whose visible text includes \"<target worksheet name>\", and providing a \"Delete worksheet\" confirmation button.",
+        "After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh.",
+        "After a pivot-result worksheet is deleted, its corresponding source worksheet is no longer constrained by that pivot table.",
+        "If the target is still a pivot table source worksheet, confirmation is rejected with \"Please delete or rebuild dependent pivot tables first\"; the dialog closes and both source data and pivot results remain unchanged.",
+        "If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\".",
+        "Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-2-1"
+      ],
+      "invariants": [
+        "Users insert blank rows above or below a target row, or delete the target row, through the row-number menu in the current active worksheet.",
+        "The row-number menu provides \"Insert 1 row above\", \"Insert 1 row below\", and \"Delete row\".",
+        "On insertion, the target row and all subsequent complete records, validation rules, and formula references shift downward together; on deletion, subsequent rows shift upward and rules on the target row are removed.",
+        "Affected formulas display the adjusted original formulas and correct results, and references that cannot be preserved display an explicit error; filters continue to apply to the original data region.",
+        "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+        "If the change overlaps a pivot-table source range, the existing pivot result remains unchanged until \"Refresh pivot table\" is clicked, after which it is recomputed using the adjusted range.",
+        "If the operation fails, an error is displayed and the grid immediately and after refresh retains the pre-operation structure; partial row movement is not allowed."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-2-2"
+      ],
+      "invariants": [
+        "Users insert a blank column to the left or right of a target column, or delete the target column, through the column-header menu in the current active worksheet.",
+        "The column-header menu provides \"Insert 1 column left\", \"Insert 1 column right\", and \"Delete column\".",
+        "On insertion, all complete data, validation rules, and formula references in the target column and subsequent columns shift right together; on deletion, subsequent columns shift left and rules on the target column are removed.",
+        "Data outside the deleted column is preserved; affected formulas display the adjusted original formulas and correct results, while direct references that cannot be preserved display #REF!; filters continue to apply to the adjusted region.",
+        "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+        "After pivot-table source columns move, existing results remain unchanged until \"Refresh pivot table\" is clicked, after which the moved fields are used.",
+        "If a selected header is deleted, refreshing or opening the pivot table editor displays a visible error requiring the field to be reselected and preserves the last successful result.",
+        "If the operation fails, an error is shown and the grid retains the pre-operation structure immediately and after refresh."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-1-1"
+      ],
+      "invariants": [
+        "After selecting a cell in the current active worksheet, users can modify its content directly in the grid or formula bar.",
+        "Cells support text, numbers, boolean-like values, date text, and formulas beginning with an equals sign.",
+        "Pressing Enter or clicking another cell commits the change; pressing Escape cancels an uncommitted change.",
+        "Ordinary cells show the same input in the grid and formula bar; formula cells show the calculated result in the grid and the original submitted formula in the formula bar.",
+        "After a source value is committed, directly and indirectly dependent formulas update their results.",
+        "Values, original formulas, and results persist after refresh.",
+        "If a commit fails, an error is displayed, the grid and formula bar continue to show the last successful value or formula, and dependent results remain unchanged."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-1-2"
+      ],
+      "invariants": [
+        "Users paste text containing tab-separated columns and newline-separated rows into a starting cell in the current active worksheet.",
+        "The system applies the entire rectangle, preserves empty fields, and overwrites only the target rectangle; formulas within the target are replaced by the new content and related formulas display recalculated results.",
+        "The full paste either updates every cell in the rectangle and persists after refresh, or displays an error while all target cells retain their original values; when a 0-to-100 numeric validation rule rejects the paste, that error is \"Please enter a number from 0 to 100\".",
+        "Silently dropping only some values is not allowed.",
+        "The grid context menu provides a command using the ARIA menuitem role with the accessible name \"Paste\", and Ctrl+V pastes the same external clipboard content."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-1-3"
+      ],
+      "invariants": [
+        "Users can click to select a single cell or drag from one corner of a rectangular region to the diagonally opposite cell to select a contiguous rectangle.",
+        "The active worksheet must visibly indicate the complete selection; the grid exposes aria-multiselectable=\"true\"; every gridcell inside the rectangle exposes aria-selected=\"true\", while every gridcell outside it exposes aria-selected=\"false\".",
+        "Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent existing data.",
+        "Selecting another cell or range replaces the previous selection and updates the ARIA state accordingly.",
+        "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-2-1"
+      ],
+      "invariants": [
+        "Users select a rectangular range by dragging from one corner to another in the current active worksheet, then copy or cut it and select a target location to paste; only operations within the same worksheet are supported.",
+        "After copy, the source range remains unchanged; after cut, the source range is cleared only after the target range has been displayed completely.",
+        "Values and formulas preserve their two-dimensional layout; when formulas are copied, relative references adjust according to the target offset while absolute references remain unchanged, and the formula bar displays the adjusted original formula.",
+        "The source range, target range, and affected formulas must either all update and persist after refresh or all remain in their original state; when a target 0-to-100 numeric validation rule rejects the operation, the page displays \"Please enter a number from 0 to 100\".",
+        "Cells outside these ranges must not change."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-2-2"
+      ],
+      "invariants": [
+        "Users can undo recent cell edits, bulk pastes, range moves, and row/column structure changes in the current workbook session.",
+        "The toolbar provides buttons with the accessible names \"Undo\" and \"Redo\";",
+        "Ctrl+Z and Ctrl+Y perform the same operations.",
+        "Undo restores the grid values, original formulas, row/column structure, rule ranges, pivot-result validity, and calculation results from before the operation; consecutive undo operations restore changes in reverse order, and redo reapplies the complete operation that was just undone.",
+        "Undo in one workbook must not modify another workbook.",
+        "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening.",
+        "If a new modification is made after an undo, the \"Redo\" button becomes disabled and Ctrl+Y cannot restore the old branch."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-4-1-1"
+      ],
+      "invariants": [
+        "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1.",
+        "Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required.",
+        "The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh.",
+        "Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-4-1-2"
+      ],
+      "invariants": [
+        "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh.",
+        "If the offset moves a relative reference outside the worksheet bounds, the target formula bar displays =#REF! and the grid displays #REF!."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-4-2-1"
+      ],
+      "invariants": [
+        "After a source-value edit, bulk paste, range move, or row/column structure change succeeds, all directly and indirectly dependent formulas update in dependency order; each formula bar continues to display its original formula while the grid displays the new result or error.",
+        "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-4-2-2"
+      ],
+      "invariants": [
+        "Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays #ERROR!, and a direct or indirect circular reference displays #REF!.",
+        "When an error cell is selected, the formula bar displays the original formula submitted by the user; after refresh, both the error value and original formula persist.",
+        "An error cell does not block viewing, editing, or recalculating other cells.",
+        "After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-1-1"
+      ],
+      "invariants": [
+        "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu.",
+        "A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button.",
+        "Options in \"Sort by\" use the header text of the selected range as accessible names;",
+        "\"Order\" provides options named \"Ascending\" and \"Descending\".",
+        "When the first row is declared a header, it does not participate in sorting.",
+        "Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row.",
+        "After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh.",
+        "If sorting fails, an error is displayed and the grid retains its original order."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-1-2"
+      ],
+      "invariants": [
+        "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu.",
+        "Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\".",
+        "The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name.",
+        "The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\".",
+        "\"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box;",
+        "\"Is empty\" and \"Is not empty\" require no value.",
+        "Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered.",
+        "After refresh or reopening, the same rows remain visible.",
+        "CSV export and pivot summarization still include hidden rows within the filtered range.",
+        "\"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-2-1"
+      ],
+      "invariants": [
+        "Users select a target range and click \"Data validation\" in the \"Data\" menu.",
+        "A dialog named \"Data validation\" provides a combo box labeled \"Rule type\";",
+        "\"Dropdown\" uses a text box labeled \"Allowed values\", where comma-separated items are trimmed of leading and trailing spaces;",
+        "\"Number range\" uses text boxes labeled \"Minimum\" and \"Maximum\"; the \"Save\" button applies an inclusive rule.",
+        "After a valid save succeeds, the dialog closes.",
+        "A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name.",
+        "If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\".",
+        "In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\".",
+        "If any target in a bulk operation is invalid, all targets retain their original values.",
+        "Rules remain active after refresh.",
+        "When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-3-1"
+      ],
+      "invariants": [
+        "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu.",
+        "A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created.",
+        "A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button.",
+        "Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names;",
+        "\"Summarize by\" provides options named SUM, COUNT, and AVERAGE.",
+        "The configuration supports one row field, one optional column field, and one value field.",
+        "SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.",
+        "When no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records.",
+        "When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row.",
+        "COUNT displays 0 when a row/column combination has no record with a non-empty value field.",
+        "After a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results.",
+        "The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range.",
+        "If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available.",
+        "Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets.",
+        "When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified."
+      ],
+      "basis": "verbatim original atomic clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-1-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-1-3-1",
+        "REQ-1-3-2",
+        "REQ-2-1-1",
+        "REQ-2-1-2",
+        "REQ-2-1-3",
+        "REQ-2-1-4",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-1-3",
+        "REQ-3-2-1",
+        "REQ-3-2-2",
+        "REQ-4-1-1",
+        "REQ-4-1-2",
+        "REQ-4-2-1",
+        "REQ-4-2-2",
+        "REQ-5-1-1",
+        "REQ-5-1-2",
+        "REQ-5-2-1",
+        "REQ-5-3-1"
+      ],
+      "invariants": [
+        "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis.",
+        "Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope."
+      ],
+      "source_requirement_id": "ROOT",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-1-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-1-3-1",
+        "REQ-1-3-2"
+      ],
+      "invariants": [
+        "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application.",
+        "The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook.",
+        "After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state.",
+        "After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent.",
+        "Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\".",
+        "Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\"."
+      ],
+      "source_requirement_id": "REQ-1",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-1-1"
+      ],
+      "invariants": [
+        "Supports viewing and opening available workbooks from the home page.",
+        "After a workbook is successfully created, renamed, or imported from CSV, returning to or refreshing the home page must show the updated record in the list."
+      ],
+      "source_requirement_id": "REQ-1-1",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-2-1",
+        "REQ-1-2-2"
+      ],
+      "invariants": [
+        "Supports creating a blank workbook and changing the workbook name; both operations are initiated from visible workbook state points on the home page or editor page.",
+        "After success, the workbook record on the home page and the editor title are updated consistently and remain so after refresh or reopening."
+      ],
+      "source_requirement_id": "REQ-1-2",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-1-3-1",
+        "REQ-1-3-2"
+      ],
+      "invariants": [
+        "Supports importing external CSV data completely as a workbook and exporting the current active worksheet as CSV.",
+        "After a successful import, the Sheet1 editor page opens and continues to show the complete imported result after refresh or reopening; export reads only the current active worksheet and must not change workbook content or the current interface state."
+      ],
+      "source_requirement_id": "REQ-1-3",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-1-1",
+        "REQ-2-1-2",
+        "REQ-2-1-3",
+        "REQ-2-1-4",
+        "REQ-2-2-1",
+        "REQ-2-2-2"
+      ],
+      "invariants": [
+        "Supports managing multiple worksheets within one workbook and adjusting row and column structure.",
+        "Each worksheet’s name, order, grid values, formulas, validation rules, filter views, and pivot table results are independent; switching worksheets or reopening the workbook must not display data from another worksheet."
+      ],
+      "source_requirement_id": "REQ-2",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-1-1",
+        "REQ-2-1-2",
+        "REQ-2-1-3",
+        "REQ-2-1-4"
+      ],
+      "invariants": [
+        "Supports creating, switching, renaming, and deleting worksheets while ensuring that each worksheet’s grid, formulas, validation behavior, filter views, pivot-table field selections, and results remain independent and persist after reopening.",
+        "The worksheet tab bar displays worksheet order and active state after the most recent successful operation and provides a button with the accessible name \"Add worksheet\".",
+        "Each worksheet tab provides a button with the accessible name \"Worksheet options for <worksheet name>\"; clicking it opens a menu whose commands use the ARIA menuitem role."
+      ],
+      "source_requirement_id": "REQ-2-1",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-2-2-1",
+        "REQ-2-2-2"
+      ],
+      "invariants": [
+        "Supports inserting and deleting rows and columns in the current active worksheet.",
+        "After an operation, grid values, formula bar, filter views, validation behavior, and pivot refresh results remain consistent while other worksheets remain unchanged; the structure persists after refresh or reopening.",
+        "Row numbers use the ARIA rowheader role with the decimal row number as the accessible name; column headers use the ARIA columnheader role with the column letter as the accessible name.",
+        "Right-clicking a row number or column header opens a menu whose commands use the ARIA menuitem role."
+      ],
+      "source_requirement_id": "REQ-2-2",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-1-3",
+        "REQ-3-2-1",
+        "REQ-3-2-2"
+      ],
+      "invariants": [
+        "Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous ranges in the current active worksheet.",
+        "Each operation either completely updates the target grid, formula results, and related validation behavior and persists after refresh, or displays an error while the current and other worksheets continue to show the pre-operation state."
+      ],
+      "source_requirement_id": "REQ-3",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-1-3"
+      ],
+      "invariants": [
+        "Supports entering data through the current worksheet grid, the text box labeled \"Formula bar\", or the external clipboard.",
+        "The grid, formula bar, and selection state must show consistent content for the same cell; ordinary values and original formulas persist after refresh.",
+        "Double-clicking a grid cell displays an inline text box with the accessible name \"Edit <cell coordinate>\"."
+      ],
+      "source_requirement_id": "REQ-3-1",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-3-2-1",
+        "REQ-3-2-2"
+      ],
+      "invariants": [
+        "Supports transferring data between ranges in the current active worksheet and using undo and redo to restore grid values, formulas, rule ranges, and row/column structure.",
+        "The visible state after each undo or redo persists after refresh."
+      ],
+      "source_requirement_id": "REQ-3-2",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-4-1-1",
+        "REQ-4-1-2",
+        "REQ-4-2-1",
+        "REQ-4-2-2"
+      ],
+      "invariants": [
+        "Supports basic formula calculation, relative and absolute references, dependency recalculation, and error handling within the current active worksheet.",
+        "The grid displays formula results or errors, while the formula bar displays the expression submitted by the user; copy, paste, row/column changes, and source-value edits follow the same reference-adjustment and recalculation rules.",
+        "After reopening the workbook, formula expressions and correct results calculated from the current source values remain visible."
+      ],
+      "source_requirement_id": "REQ-4",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-4-1-1",
+        "REQ-4-1-2"
+      ],
+      "invariants": [
+        "Supports entering basic expressions and aggregate functions through the grid and \"Formula bar\" from REQ-3-1-1 and copying formulas through REQ-3-2-1.",
+        "The formula bar always displays the original formula, the grid displays results consistent with the current source data, and both persist after refresh."
+      ],
+      "source_requirement_id": "REQ-4-1",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-4-2-1",
+        "REQ-4-2-2"
+      ],
+      "invariants": [
+        "Supports dependency recalculation after source data changes and isolation of formula errors.",
+        "After REQ-3 value edits, pastes, and moves or REQ-2 row/column changes, all affected formulas display results consistent with the current source data; one erroneous formula does not affect unrelated cells."
+      ],
+      "source_requirement_id": "REQ-4-2",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-1-1",
+        "REQ-5-1-2",
+        "REQ-5-2-1",
+        "REQ-5-3-1"
+      ],
+      "invariants": [
+        "Supports sorting, filtering, validation, and pivot-table summarization for data in the current active worksheet.",
+        "After refresh or reopening, sort order, filter views, validation behavior, and pivot results persist; other worksheets are unaffected.",
+        "Sorting changes the row order in the grid, filtering changes only visibility, validation constrains subsequent input, and pivot tables read source ranges without modifying source data.",
+        "The editor toolbar provides a button with the accessible name \"Data\"; clicking it opens a menu whose commands use the ARIA menuitem role.",
+        "Options in named combo boxes use the ARIA option role and their visible names."
+      ],
+      "source_requirement_id": "REQ-5",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
+      "invariants": [
+        "Supports sorting a selected rectangular range in the current worksheet by column and filtering it by value or condition.",
+        "Sorting and filtering apply only to the range selected by the user and do not expand to adjacent data or other worksheets; the same order and visible rows persist after refresh."
+      ],
+      "source_requirement_id": "REQ-5-1",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-2-1"
+      ],
+      "invariants": [
+        "Supports configuring dropdown or numeric validation for ranges in the current active worksheet.",
+        "The same rules are enforced when writing through the grid, formula bar, paste, or range move; after row or column changes, dropdown buttons and numeric limits move with the originally constrained cells.",
+        "Rules remain active after refresh and existing valid values are preserved."
+      ],
+      "source_requirement_id": "REQ-5-2",
+      "basis": "verbatim original inherited clauses"
+    },
+    {
+      "requirements": [
+        "REQ-5-3-1"
+      ],
+      "invariants": [
+        "Supports creating a basic pivot table from a data range in the current worksheet.",
+        "Pivot results reside in a separate worksheet and only read source data; when switching back to the source worksheet, original values and order remain unchanged, and pivot results persist after refresh or reopening."
+      ],
+      "source_requirement_id": "REQ-5-3",
+      "basis": "verbatim original inherited clauses"
+    }
+  ],
+  "commands": [
+    {
+      "name": "View and open workbook",
+      "requirements": [
+        "REQ-1-1-1"
+      ],
+      "preconditions": [
+        "Start at home and use the workbook-name link or revisit the observed editor state."
+      ],
+      "effects": [
+        "Show corresponding title/Last updated, ordered tabs, last active sheet, structure, cells, formulas, filters, validation entry and pivot state."
+      ],
+      "rejected_effects": [
+        "Do not display another workbook's grid or a temporary blank workbook for the same saved editor state."
+      ],
+      "state_transitions": [
+        "Home record -> corresponding stable editor; observed editor state -> most recent successful same-workbook state."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Create blank workbook",
+      "requirements": [
+        "REQ-1-2-1"
+      ],
+      "preconditions": [
+        "Home New blank workbook button opens creation page; submit via Create."
+      ],
+      "effects": [
+        "Create one workbook with only blank Sheet1 active and A1 selected; update home record."
+      ],
+      "rejected_effects": [
+        "On creation failure show error and retryable state without an incomplete home record."
+      ],
+      "state_transitions": [
+        "Home -> creation -> saved editor, or creation -> retryable error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Rename workbook",
+      "requirements": [
+        "REQ-1-2-2"
+      ],
+      "preconditions": [
+        "Open Rename workbook and the Workbook name control prefilled with last saved name."
+      ],
+      "effects": [
+        "Trim boundary spaces and save non-empty name to both title and home link."
+      ],
+      "rejected_effects": [
+        "Empty trimmed name shows Workbook name cannot be empty; other save failures preserve original name."
+      ],
+      "state_transitions": [
+        "Saved name -> pending name -> saved new name or original saved name plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Import CSV",
+      "requirements": [
+        "REQ-1-3-1"
+      ],
+      "preconditions": [
+        "Home Import CSV dialog; choose CSV file and Confirm import."
+      ],
+      "effects": [
+        "Parse entire original CSV text/order; create file-basename workbook with one Sheet1; first row is ordinary data."
+      ],
+      "rejected_effects": [
+        "Unclosed quoted field shows Invalid CSV file format. Import failed.; any parse/import failure creates no partial state or matching home link."
+      ],
+      "state_transitions": [
+        "Home -> pending file -> complete imported editor or original home/retryable import error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Export current worksheet CSV",
+      "requirements": [
+        "REQ-1-3-2"
+      ],
+      "preconditions": [
+        "Current workbook has an active sheet; use Export CSV."
+      ],
+      "effects": [
+        "Download UTF-8 .csv of actual used-range order/empty cells/escaped text and calculated formula results, including filtered hidden rows."
+      ],
+      "rejected_effects": [
+        "Export must never mutate current content, active tab, filter view or formula bar."
+      ],
+      "state_transitions": [
+        "Saved editor -> downloaded snapshot plus same saved editor."
+      ],
+      "permissions": [],
+      "persistence": "Export is read-only; the same visible state remains after refresh."
+    },
+    {
+      "name": "Add worksheet",
+      "requirements": [
+        "REQ-2-1-1"
+      ],
+      "preconditions": [
+        "Use Add worksheet in current workbook."
+      ],
+      "effects": [
+        "Append first unused SheetN, blank and isolated from source rules/filters/pivots; activate it with A1 selected."
+      ],
+      "rejected_effects": [
+        "Addition failure shows error and leaves no new tab or existing-sheet changes."
+      ],
+      "state_transitions": [
+        "Existing ordered sheets -> ordered sheets plus active blank new sheet, or unchanged sheets plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Switch worksheet",
+      "requirements": [
+        "REQ-2-1-2"
+      ],
+      "preconditions": [
+        "Click a target ARIA tab in the same workbook."
+      ],
+      "effects": [
+        "Restore target structure/grid/selection/formula bar/filter/rules/pivot state; first-time target uses A1; retain source state."
+      ],
+      "rejected_effects": [
+        "Switching must not mutate or substitute source/another sheet state."
+      ],
+      "state_transitions": [
+        "Active source -> active target with each sheet's own saved selection."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Rename worksheet",
+      "requirements": [
+        "REQ-2-1-3"
+      ],
+      "preconditions": [
+        "Worksheet options menu Rename opens Rename worksheet dialog prefilled with current Worksheet name."
+      ],
+      "effects": [
+        "Trim name, save non-empty workbook-unique value while retaining sheet identity/order/data."
+      ],
+      "rejected_effects": [
+        "Empty shows Worksheet name cannot be empty; duplicate shows Worksheet name already exists; preserve original on any failure."
+      ],
+      "state_transitions": [
+        "Original tab -> pending name -> renamed same worksheet or original plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Delete worksheet",
+      "requirements": [
+        "REQ-2-1-4"
+      ],
+      "preconditions": [
+        "Use Delete menu command; allowed deletion requires Delete worksheet dialog confirming target name."
+      ],
+      "effects": [
+        "Remove target and its full data/formula/filter/rule/pivot state; activate an adjacent sheet; deleting pivot result removes its source constraint."
+      ],
+      "rejected_effects": [
+        "Final sheet shows A workbook must contain at least one worksheet without dialog; pivot source confirmation shows Please delete or rebuild dependent pivot tables first, closes dialog and preserves source/results; other failures preserve target."
+      ],
+      "state_transitions": [
+        "Existing target -> confirmation -> removed target and adjacent active survivor, or unchanged target plus visible rejection."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Insert/delete rows",
+      "requirements": [
+        "REQ-2-2-1"
+      ],
+      "preconditions": [
+        "Use named rowheader context menu Insert 1 row above/below or Delete row."
+      ],
+      "effects": [
+        "Move all subsequent complete records/rules/references consistently; remove deleted-row rules; adjust filters/pivot source range; recalculate formulas."
+      ],
+      "rejected_effects": [
+        "On rejection show the requirement's visible error, preserve all pre-operation state immediately and after refresh, and retain a retryable control state.",
+        "Shifted 0-to-100 rule rejects out-of-range input with Please enter a number from 0 to 100; unpreservable references display explicit errors."
+      ],
+      "state_transitions": [
+        "Pre-operation structure -> complete adjusted structure with old pivot result pending explicit refresh, or unchanged structure plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Insert/delete columns",
+      "requirements": [
+        "REQ-2-2-2"
+      ],
+      "preconditions": [
+        "Use named columnheader context menu Insert 1 column left/right or Delete column."
+      ],
+      "effects": [
+        "Move complete surviving data/rules/references; preserve outside-deleted-column data; track filter/pivot fields; deleted selected headers invalidate refresh without replacing old result."
+      ],
+      "rejected_effects": [
+        "On rejection show the requirement's visible error, preserve all pre-operation state immediately and after refresh, and retain a retryable control state.",
+        "Invalid direct references show #REF!; shifted 0-to-100 rule rejection uses Please enter a number from 0 to 100."
+      ],
+      "state_transitions": [
+        "Pre-operation structure -> complete adjusted structure plus adjusted dependencies/analysis validity, or unchanged structure plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Edit cell",
+      "requirements": [
+        "REQ-3-1-1"
+      ],
+      "preconditions": [
+        "Select cell; edit Formula bar or double-click cell for Edit <coordinate>."
+      ],
+      "effects": [
+        "Enter or selecting another cell commits ordinary text/numbers/boolean-like/date text/formula; synchronize original formula/value and displayed result; recalculate direct/transitive dependents."
+      ],
+      "rejected_effects": [
+        "Escape cancels pending input; failed commit leaves original grid and formula-bar value/expression and dependent results unchanged."
+      ],
+      "state_transitions": [
+        "Saved cell -> pending input -> saved complete edit, cancelled original, or rejected original plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Paste external rectangle",
+      "requirements": [
+        "REQ-3-1-2"
+      ],
+      "preconditions": [
+        "Select start cell and paste same tab/newline external clipboard via Paste menuitem or Ctrl+V."
+      ],
+      "effects": [
+        "Apply entire rectangle, preserve empties/layout, overwrite only target, replace target formulas and update dependencies."
+      ],
+      "rejected_effects": [
+        "On rejection show the requirement's visible error, preserve all pre-operation state immediately and after refresh, and retain a retryable control state.",
+        "Any invalid numeric target rejects every target; 0-to-100 scenario shows Please enter a number from 0 to 100."
+      ],
+      "state_transitions": [
+        "Clipboard plus saved target -> complete pasted target or complete unchanged target plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Select cell/range",
+      "requirements": [
+        "REQ-3-1-3"
+      ],
+      "preconditions": [
+        "Click cell or drag between opposite rectangle corners."
+      ],
+      "effects": [
+        "Replace selection with exactly all rectangle cells; mark inside true/outside false; subsequent operations use only this range."
+      ],
+      "rejected_effects": [
+        "Do not expand to adjacent existing data or retain only the top-left corner after reopening."
+      ],
+      "state_transitions": [
+        "Previous selection -> complete current sheet rectangle, independent of other sheets."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Copy/cut/paste range",
+      "requirements": [
+        "REQ-3-2-1"
+      ],
+      "preconditions": [
+        "Select complete source rectangle and target location in same worksheet."
+      ],
+      "effects": [
+        "Copy retains source; successful cut clears source only after target fully commits; preserve layout and copied formula relative/absolute reference semantics; outside cells untouched."
+      ],
+      "rejected_effects": [
+        "On rejection show the requirement's visible error, preserve all pre-operation state immediately and after refresh, and retain a retryable control state.",
+        "Invalid validated target rejects the whole source/target update, including source clearing and affected formulas."
+      ],
+      "state_transitions": [
+        "Saved source/target -> copied or pending-cut transfer -> complete saved transfer or complete original state plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Undo/Redo",
+      "requirements": [
+        "REQ-3-2-2"
+      ],
+      "preconditions": [
+        "Current workbook session has a recent successful/undone operation; toolbar or Ctrl+Z/Ctrl+Y."
+      ],
+      "effects": [
+        "Restore/reapply whole cell/paste/range-move/structure operation with formulas/rules/pivot validity/results; consecutive undo is reverse order; new successful modification disables Redo and Ctrl+Y old branch."
+      ],
+      "rejected_effects": [
+        "No effect on another workbook; disabled redo cannot restore abandoned branch."
+      ],
+      "state_transitions": [
+        "Successful operation -> restored previous state -> reapplied operation, or new successful branch discarding redo."
+      ],
+      "permissions": [],
+      "persistence": "Persist every resulting visible state; history itself may be empty after reopening."
+    },
+    {
+      "name": "Calculate expressions/functions",
+      "requirements": [
+        "REQ-4-1-1"
+      ],
+      "preconditions": [
+        "Submit required basic expression or case-insensitive SUM/AVERAGE/COUNT/MIN/MAX over same-sheet contiguous range."
+      ],
+      "effects": [
+        "Calculate from current numeric source cells; ignore blanks/text for numeric aggregation and count only numeric cells for COUNT; show original expression in formula bar."
+      ],
+      "rejected_effects": [
+        "Unsupported/malformed/reference/division/circular errors use REQ-4-2-2 stable values rather than stale numeric results."
+      ],
+      "state_transitions": [
+        "Committed expression plus current inputs -> current result/error and preserved original expression."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Copy formula references",
+      "requirements": [
+        "REQ-4-1-2"
+      ],
+      "preconditions": [
+        "Copy formula through same-sheet range transfer to offset target."
+      ],
+      "effects": [
+        "Adjust relative row/column references by target offset, keep absolute references, preserve source and calculate target with adjusted original expression."
+      ],
+      "rejected_effects": [
+        "Out-of-bounds relative offset yields target original =#REF! and displayed #REF!, without altering source."
+      ],
+      "state_transitions": [
+        "Source formula -> unchanged source plus adjusted target formula/result or explicit invalid target reference."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Recalculate dependencies",
+      "requirements": [
+        "REQ-4-2-1"
+      ],
+      "preconditions": [
+        "A source edit, paste, move or structure change successfully commits."
+      ],
+      "effects": [
+        "Update direct and transitive formulas in dependency order from current source data; retain consistent original expressions and unrelated-sheet results."
+      ],
+      "rejected_effects": [
+        "Rejected source operation does not change dependent results; successful changes must not retain pre-change results after reopening."
+      ],
+      "state_transitions": [
+        "Current committed sources -> consistent direct/transitive results/errors."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Display/fix formula error",
+      "requirements": [
+        "REQ-4-2-2"
+      ],
+      "preconditions": [
+        "An entered formula is erroneous, or user edits its original expression to a valid formula."
+      ],
+      "effects": [
+        "Show stable error and original formula; keep unrelated work usable; valid correction updates result/dependents and clears prior error after reopening."
+      ],
+      "rejected_effects": [
+        "An error must not block unrelated viewing/editing/recalculation or replace original submitted formula."
+      ],
+      "state_transitions": [
+        "Erroneous expression -> persistent explicit error -> valid corrected expression with recovered dependent results."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Sort range",
+      "requirements": [
+        "REQ-5-1-1"
+      ],
+      "preconditions": [
+        "Select exact range; Data Sort range dialog selects header-named Sort by, Ascending/Descending Order and Data has header row."
+      ],
+      "effects": [
+        "Compare numbers/dates/text by type; stable equal-key order; move entire records/formulas; preserve declared header and outside range; retain same-range filters/rules."
+      ],
+      "rejected_effects": [
+        "On rejection show the requirement's visible error, preserve all pre-operation state immediately and after refresh, and retain a retryable control state.",
+        "Failed sort retains original row order."
+      ],
+      "state_transitions": [
+        "Selected original records -> complete ordered same-range records or unchanged order plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Create/apply/clear filter",
+      "requirements": [
+        "REQ-5-1-2"
+      ],
+      "preconditions": [
+        "Select header region; Data Create filter; open Filter <header> for displayed value checkboxes or supported Condition/Value."
+      ],
+      "effects": [
+        "Use distinct source-value selection or condition; AND across columns; hide only nonmatches without record deletion/reordering; clear restores originals; export/pivot read hidden records too."
+      ],
+      "rejected_effects": [
+        "Filtering may not modify source values/order/formulas/rules, adjacent ranges or other worksheets."
+      ],
+      "state_transitions": [
+        "Unfiltered records -> saved filtered view -> cleared original view."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Save/modify/delete validation",
+      "requirements": [
+        "REQ-5-2-1"
+      ],
+      "preconditions": [
+        "Select target range; Data validation Rule type/parameters; existing rule opens prefilled with Delete rule."
+      ],
+      "effects": [
+        "Save trimmed Dropdown options or inclusive Number range; close on successful save/modify/delete without changing current values; enforce new saved constraint through every input/transfer path."
+      ],
+      "rejected_effects": [
+        "Invalid grid/formula/paste/move value shows required dropdown/numeric error; any invalid bulk target retains every original source/target value."
+      ],
+      "state_transitions": [
+        "Unconstrained/effective old rule -> effective saved/modified rule or deleted constraint; invalid write -> complete unchanged values."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "Create/apply/refresh pivot",
+      "requirements": [
+        "REQ-5-3-1"
+      ],
+      "preconditions": [
+        "Select header source; Data Create pivot table dialog shows Source range: <range>, New worksheet and Create; Pivot table editor chooses Rows/optional Columns/Values/Summarize by then Apply."
+      ],
+      "effects": [
+        "Create first unused PivotN result sheet; aggregate all qualifying source rows including hidden rows using required numeric/nonempty semantics; order groups by first appearance with Grand Totals; persist successful configuration/results; explicit refresh fully replaces old results with current adjusted source."
+      ],
+      "rejected_effects": [
+        "Deleted selected header shows Pivot field is no longer available. Select a new field.; nonnumeric-only SUM/AVERAGE shows Value field requires numeric values; other invalid range/field gives visible error; preserve source and complete last successful result."
+      ],
+      "state_transitions": [
+        "Source selection -> new pivot sheet/configuration -> successful saved result; source changes -> stale last successful result -> explicit refreshed result or preserved result plus error."
+      ],
+      "permissions": [],
+      "persistence": "The most recent successful visible workbook/worksheet state persists through refresh and reopening; other workbooks/worksheets remain unchanged."
+    },
+    {
+      "name": "View and Open a Workbook",
+      "requirements": [
+        "REQ-1-1-1"
+      ],
+      "preconditions": [
+        "After the user clicks the link, the editor displays the same \"Last updated: <last updated value>\", the corresponding workbook name, worksheet tabs and order, current active worksheet, row and column structure, grid values, formula bar content, filter views, validation entry points, and pivot table results; data from another workbook must not appear in the current grid.",
+        "The current editor page entry in the browser must be directly accessible and continue to identify the same workbook after refresh; visiting that exact workbook state in the same or a later browser session must restore the workbook’s most recent successful state without requiring navigation through the home page."
+      ],
+      "effects": [
+        "Users view available workbooks on the workbook home page.",
+        "Each record displays \"Last updated: <last updated value>\" and provides a link whose accessible name is the workbook name.",
+        "After the user clicks the link, the editor displays the same \"Last updated: <last updated value>\", the corresponding workbook name, worksheet tabs and order, current active worksheet, row and column structure, grid values, formula bar content, filter views, validation entry points, and pivot table results; data from another workbook must not appear in the current grid.",
+        "The current editor page entry in the browser must be directly accessible and continue to identify the same workbook after refresh; visiting that exact workbook state in the same or a later browser session must restore the workbook’s most recent successful state without requiring navigation through the home page.",
+        "The entry format is implementation-defined."
+      ],
+      "rejected_effects": [
+        "After the user clicks the link, the editor displays the same \"Last updated: <last updated value>\", the corresponding workbook name, worksheet tabs and order, current active worksheet, row and column structure, grid values, formula bar content, filter views, validation entry points, and pivot table results; data from another workbook must not appear in the current grid."
+      ],
+      "state_transitions": [
+        "After the user clicks the link, the editor displays the same \"Last updated: <last updated value>\", the corresponding workbook name, worksheet tabs and order, current active worksheet, row and column structure, grid values, formula bar content, filter views, validation entry points, and pivot table results; data from another workbook must not appear in the current grid."
+      ],
+      "permissions": [
+        "The current editor page entry in the browser must be directly accessible and continue to identify the same workbook after refresh; visiting that exact workbook state in the same or a later browser session must restore the workbook’s most recent successful state without requiring navigation through the home page."
+      ],
+      "persistence": [
+        "The current editor page entry in the browser must be directly accessible and continue to identify the same workbook after refresh; visiting that exact workbook state in the same or a later browser session must restore the workbook’s most recent successful state without requiring navigation through the home page."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Create a Blank Workbook",
+      "requirements": [
+        "REQ-1-2-1"
+      ],
+      "preconditions": [
+        "After creation succeeds, the editor opens and shows only a blank worksheet named Sheet1, with Sheet1 active and A1 selected; refreshing or returning to the home page and reopening produces the same state."
+      ],
+      "effects": [
+        "Users create a blank workbook from the workbook home page.",
+        "The home page provides a button with the accessible name \"New blank workbook\"; clicking it opens the creation page, whose submit button is named \"Create\".",
+        "After creation succeeds, the editor opens and shows only a blank worksheet named Sheet1, with Sheet1 active and A1 selected; refreshing or returning to the home page and reopening produces the same state.",
+        "If creation fails, an error is displayed, the user remains in a retryable state, and no incomplete workbook record may appear on the home page."
+      ],
+      "rejected_effects": [
+        "If creation fails, an error is displayed, the user remains in a retryable state, and no incomplete workbook record may appear on the home page."
+      ],
+      "state_transitions": [
+        "After creation succeeds, the editor opens and shows only a blank worksheet named Sheet1, with Sheet1 active and A1 selected; refreshing or returning to the home page and reopening produces the same state."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After creation succeeds, the editor opens and shows only a blank worksheet named Sheet1, with Sheet1 active and A1 selected; refreshing or returning to the home page and reopening produces the same state."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Rename a Workbook",
+      "requirements": [
+        "REQ-1-2-2"
+      ],
+      "preconditions": [
+        "After leading and trailing spaces are trimmed, the name must not be empty; an empty name must be rejected with \"Workbook name cannot be empty\"."
+      ],
+      "effects": [
+        "Users can change the workbook name on the workbook editor page.",
+        "Next to the editor title is a button with the accessible name \"Rename workbook\"; clicking it displays a text box labeled \"Workbook name\", prefilled with the last saved name, and a \"Save\" button.",
+        "After leading and trailing spaces are trimmed, the name must not be empty; an empty name must be rejected with \"Workbook name cannot be empty\".",
+        "After a successful save, both the editor title and the home-page link display the new name; if saving fails, an error is shown and the original name remains displayed.",
+        "Reopening the workbook shows the most recently saved name."
+      ],
+      "rejected_effects": [
+        "After leading and trailing spaces are trimmed, the name must not be empty; an empty name must be rejected with \"Workbook name cannot be empty\".",
+        "After a successful save, both the editor title and the home-page link display the new name; if saving fails, an error is shown and the original name remains displayed."
+      ],
+      "state_transitions": [],
+      "permissions": [],
+      "persistence": [
+        "Next to the editor title is a button with the accessible name \"Rename workbook\"; clicking it displays a text box labeled \"Workbook name\", prefilled with the last saved name, and a \"Save\" button.",
+        "Reopening the workbook shows the most recently saved name."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Import CSV to Create a Workbook",
+      "requirements": [
+        "REQ-1-3-1"
+      ],
+      "preconditions": [
+        "Users start an import by clicking the \"Import CSV\" button on the workbook home page.",
+        "The system parses data in the original row and column order, preserves empty fields, supports UTF-8 Chinese text, English text, and numeric text, and correctly handles commas enclosed in double quotes, escaped pairs of double quotes, and line breaks within fields; a field that begins with a double quote but has no closing double quote is invalid CSV and must be rejected with \"Invalid CSV file format."
+      ],
+      "effects": [
+        "Users start an import by clicking the \"Import CSV\" button on the workbook home page.",
+        "A dialog named \"Import CSV\" provides a file control labeled \"CSV file\" and a \"Confirm import\" button.",
+        "The system parses data in the original row and column order, preserves empty fields, supports UTF-8 Chinese text, English text, and numeric text, and correctly handles commas enclosed in double quotes, escaped pairs of double quotes, and line breaks within fields; a field that begins with a double quote but has no closing double quote is invalid CSV and must be rejected with \"Invalid CSV file format.",
+        "Import failed.\" After a successful import, a new workbook is created whose name is the file name with its final .csv extension removed, and Sheet1 opens with the complete CSV rows, columns, and original text; the first row remains ordinary data.",
+        "After refresh or reopening, grid content and row/column order remain unchanged.",
+        "If parsing or import fails, no workbook link with that name may appear on the home page, and no partial import result may be displayed or retained."
+      ],
+      "rejected_effects": [
+        "The system parses data in the original row and column order, preserves empty fields, supports UTF-8 Chinese text, English text, and numeric text, and correctly handles commas enclosed in double quotes, escaped pairs of double quotes, and line breaks within fields; a field that begins with a double quote but has no closing double quote is invalid CSV and must be rejected with \"Invalid CSV file format.",
+        "Import failed.\" After a successful import, a new workbook is created whose name is the file name with its final .csv extension removed, and Sheet1 opens with the complete CSV rows, columns, and original text; the first row remains ordinary data.",
+        "After refresh or reopening, grid content and row/column order remain unchanged.",
+        "If parsing or import fails, no workbook link with that name may appear on the home page, and no partial import result may be displayed or retained."
+      ],
+      "state_transitions": [
+        "After refresh or reopening, grid content and row/column order remain unchanged."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After refresh or reopening, grid content and row/column order remain unchanged."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Export the Current Worksheet as CSV",
+      "requirements": [
+        "REQ-1-3-2"
+      ],
+      "preconditions": [
+        "Clicking it starts a browser download; the suggested filename ends with \".csv\", and the downloaded UTF-8 text is the exported CSV.",
+        "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh."
+      ],
+      "effects": [
+        "Users can export the current active worksheet using the button with the accessible name \"Export CSV\" on the workbook editor toolbar.",
+        "Clicking it starts a browser download; the suggested filename ends with \".csv\", and the downloaded UTF-8 text is the exported CSV.",
+        "The exported CSV preserves empty cells within the used range according to the grid’s actual row and column order and correctly escapes text containing commas, quotes, or line breaks.",
+        "Ordinary cells export their displayed values; formula cells export their current calculated results rather than formula expressions.",
+        "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh."
+      ],
+      "rejected_effects": [
+        "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh."
+      ],
+      "state_transitions": [
+        "Users can export the current active worksheet using the button with the accessible name \"Export CSV\" on the workbook editor toolbar.",
+        "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh."
+      ],
+      "permissions": [],
+      "persistence": [
+        "Before and after export, the active worksheet, filter view, grid values, and formula bar content remain unchanged, and the same state remains after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Add a Worksheet",
+      "requirements": [
+        "REQ-2-1-1"
+      ],
+      "preconditions": [
+        "The new tab uses the first unused SheetN name in positive-integer order; when only Sheet1 exists, Sheet2 is created."
+      ],
+      "effects": [
+        "Users add a worksheet using the button with the accessible name \"Add worksheet\" in the tab bar of the workbook editor page.",
+        "The new tab uses the first unused SheetN name in positive-integer order; when only Sheet1 exists, Sheet2 is created.",
+        "The new worksheet is blank and does not inherit filters, validation, or pivot results from other worksheets; after creation it becomes the active tab and A1 is selected.",
+        "Existing worksheets and their data remain unchanged.",
+        "The new tab still exists after refresh or reopening.",
+        "If addition fails, an error is shown, no new tab appears, and existing worksheets remain unchanged."
+      ],
+      "rejected_effects": [
+        "The new worksheet is blank and does not inherit filters, validation, or pivot results from other worksheets; after creation it becomes the active tab and A1 is selected.",
+        "Existing worksheets and their data remain unchanged.",
+        "If addition fails, an error is shown, no new tab appears, and existing worksheets remain unchanged."
+      ],
+      "state_transitions": [
+        "The new worksheet is blank and does not inherit filters, validation, or pivot results from other worksheets; after creation it becomes the active tab and A1 is selected.",
+        "The new tab still exists after refresh or reopening."
+      ],
+      "permissions": [],
+      "persistence": [
+        "The new tab still exists after refresh or reopening."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Switch Worksheets",
+      "requirements": [
+        "REQ-2-1-2"
+      ],
+      "preconditions": [
+        "Switching must not modify the source worksheet; returning to it restores its most recent successful state."
+      ],
+      "effects": [
+        "After the user clicks another ARIA tab, the grid, row and column structure, selected cell, text box labeled \"Formula bar\", filter buttons, validation entry points, and pivot table results all switch to the state of the target worksheet; the formula bar displays either the ordinary value or the original formula of the selected cell.",
+        "A worksheet opened for the first time with no selection history selects A1.",
+        "Switching must not modify the source worksheet; returning to it restores its most recent successful state.",
+        "Reopening the workbook directly displays the last active tab and restores the last confirmed selected cell for each worksheet."
+      ],
+      "rejected_effects": [
+        "Switching must not modify the source worksheet; returning to it restores its most recent successful state."
+      ],
+      "state_transitions": [
+        "After the user clicks another ARIA tab, the grid, row and column structure, selected cell, text box labeled \"Formula bar\", filter buttons, validation entry points, and pivot table results all switch to the state of the target worksheet; the formula bar displays either the ordinary value or the original formula of the selected cell.",
+        "Reopening the workbook directly displays the last active tab and restores the last confirmed selected cell for each worksheet."
+      ],
+      "permissions": [],
+      "persistence": [],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Rename a Worksheet",
+      "requirements": [
+        "REQ-2-1-3"
+      ],
+      "preconditions": [
+        "After trimming leading and trailing spaces, the new name must not be empty and must be unique within the same workbook; an empty name displays \"Worksheet name cannot be empty\", and a duplicate name displays \"Worksheet name already exists\"."
+      ],
+      "effects": [
+        "Users change a worksheet name from the worksheet tab menu.",
+        "The \"Rename\" menu item opens a dialog named \"Rename worksheet\", containing a text box labeled \"Worksheet name\" prefilled with the current name and a \"Save\" button.",
+        "After trimming leading and trailing spaces, the new name must not be empty and must be unique within the same workbook; an empty name displays \"Worksheet name cannot be empty\", and a duplicate name displays \"Worksheet name already exists\".",
+        "After a successful save, the tab displays the new name; if saving fails, the name is duplicate, or the name is empty, an error is displayed and the original name remains.",
+        "Refreshing or reopening shows the most recently saved successful name."
+      ],
+      "rejected_effects": [
+        "After trimming leading and trailing spaces, the new name must not be empty and must be unique within the same workbook; an empty name displays \"Worksheet name cannot be empty\", and a duplicate name displays \"Worksheet name already exists\".",
+        "After a successful save, the tab displays the new name; if saving fails, the name is duplicate, or the name is empty, an error is displayed and the original name remains."
+      ],
+      "state_transitions": [
+        "Refreshing or reopening shows the most recently saved successful name."
+      ],
+      "permissions": [],
+      "persistence": [
+        "Refreshing or reopening shows the most recently saved successful name."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Delete a Worksheet",
+      "requirements": [
+        "REQ-2-1-4"
+      ],
+      "preconditions": [
+        "If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\"."
+      ],
+      "effects": [
+        "Users delete a worksheet through the \"Delete\" command in the worksheet tab menu.",
+        "When deletion is allowed, the system displays a dialog named \"Delete worksheet\" describing the target worksheet, whose visible text includes \"<target worksheet name>\", and providing a \"Delete worksheet\" confirmation button.",
+        "After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh.",
+        "After a pivot-result worksheet is deleted, its corresponding source worksheet is no longer constrained by that pivot table.",
+        "If the target is still a pivot table source worksheet, confirmation is rejected with \"Please delete or rebuild dependent pivot tables first\"; the dialog closes and both source data and pivot results remain unchanged.",
+        "If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\".",
+        "Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh."
+      ],
+      "rejected_effects": [
+        "If the target is still a pivot table source worksheet, confirmation is rejected with \"Please delete or rebuild dependent pivot tables first\"; the dialog closes and both source data and pivot results remain unchanged.",
+        "If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\".",
+        "Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh."
+      ],
+      "state_transitions": [
+        "After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh.",
+        "Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Insert and Delete Rows",
+      "requirements": [
+        "REQ-2-2-1"
+      ],
+      "preconditions": [],
+      "effects": [
+        "Users insert blank rows above or below a target row, or delete the target row, through the row-number menu in the current active worksheet.",
+        "The row-number menu provides \"Insert 1 row above\", \"Insert 1 row below\", and \"Delete row\".",
+        "On insertion, the target row and all subsequent complete records, validation rules, and formula references shift downward together; on deletion, subsequent rows shift upward and rules on the target row are removed.",
+        "Affected formulas display the adjusted original formulas and correct results, and references that cannot be preserved display an explicit error; filters continue to apply to the original data region.",
+        "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+        "If the change overlaps a pivot-table source range, the existing pivot result remains unchanged until \"Refresh pivot table\" is clicked, after which it is recomputed using the adjusted range.",
+        "If the operation fails, an error is displayed and the grid immediately and after refresh retains the pre-operation structure; partial row movement is not allowed."
+      ],
+      "rejected_effects": [
+        "Affected formulas display the adjusted original formulas and correct results, and references that cannot be preserved display an explicit error; filters continue to apply to the original data region.",
+        "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+        "If the change overlaps a pivot-table source range, the existing pivot result remains unchanged until \"Refresh pivot table\" is clicked, after which it is recomputed using the adjusted range.",
+        "If the operation fails, an error is displayed and the grid immediately and after refresh retains the pre-operation structure; partial row movement is not allowed."
+      ],
+      "state_transitions": [
+        "Users insert blank rows above or below a target row, or delete the target row, through the row-number menu in the current active worksheet."
+      ],
+      "permissions": [],
+      "persistence": [
+        "If the change overlaps a pivot-table source range, the existing pivot result remains unchanged until \"Refresh pivot table\" is clicked, after which it is recomputed using the adjusted range.",
+        "If the operation fails, an error is displayed and the grid immediately and after refresh retains the pre-operation structure; partial row movement is not allowed."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Insert and Delete Columns",
+      "requirements": [
+        "REQ-2-2-2"
+      ],
+      "preconditions": [],
+      "effects": [
+        "Users insert a blank column to the left or right of a target column, or delete the target column, through the column-header menu in the current active worksheet.",
+        "The column-header menu provides \"Insert 1 column left\", \"Insert 1 column right\", and \"Delete column\".",
+        "On insertion, all complete data, validation rules, and formula references in the target column and subsequent columns shift right together; on deletion, subsequent columns shift left and rules on the target column are removed.",
+        "Data outside the deleted column is preserved; affected formulas display the adjusted original formulas and correct results, while direct references that cannot be preserved display #REF!; filters continue to apply to the adjusted region.",
+        "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+        "After pivot-table source columns move, existing results remain unchanged until \"Refresh pivot table\" is clicked, after which the moved fields are used.",
+        "If a selected header is deleted, refreshing or opening the pivot table editor displays a visible error requiring the field to be reselected and preserves the last successful result.",
+        "If the operation fails, an error is shown and the grid retains the pre-operation structure immediately and after refresh."
+      ],
+      "rejected_effects": [
+        "Data outside the deleted column is preserved; affected formulas display the adjusted original formulas and correct results, while direct references that cannot be preserved display #REF!; filters continue to apply to the adjusted region.",
+        "If a shifted 0-to-100 numeric validation rule rejects an out-of-range value, the page displays \"Please enter a number from 0 to 100\".",
+        "After pivot-table source columns move, existing results remain unchanged until \"Refresh pivot table\" is clicked, after which the moved fields are used.",
+        "If the operation fails, an error is shown and the grid retains the pre-operation structure immediately and after refresh."
+      ],
+      "state_transitions": [
+        "Users insert a blank column to the left or right of a target column, or delete the target column, through the column-header menu in the current active worksheet."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After pivot-table source columns move, existing results remain unchanged until \"Refresh pivot table\" is clicked, after which the moved fields are used.",
+        "If a selected header is deleted, refreshing or opening the pivot table editor displays a visible error requiring the field to be reselected and preserves the last successful result.",
+        "If the operation fails, an error is shown and the grid retains the pre-operation structure immediately and after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Edit a Cell Through the Grid or Formula Bar",
+      "requirements": [
+        "REQ-3-1-1"
+      ],
+      "preconditions": [],
+      "effects": [
+        "After selecting a cell in the current active worksheet, users can modify its content directly in the grid or formula bar.",
+        "Cells support text, numbers, boolean-like values, date text, and formulas beginning with an equals sign.",
+        "Pressing Enter or clicking another cell commits the change; pressing Escape cancels an uncommitted change.",
+        "Ordinary cells show the same input in the grid and formula bar; formula cells show the calculated result in the grid and the original submitted formula in the formula bar.",
+        "After a source value is committed, directly and indirectly dependent formulas update their results.",
+        "Values, original formulas, and results persist after refresh.",
+        "If a commit fails, an error is displayed, the grid and formula bar continue to show the last successful value or formula, and dependent results remain unchanged."
+      ],
+      "rejected_effects": [
+        "If a commit fails, an error is displayed, the grid and formula bar continue to show the last successful value or formula, and dependent results remain unchanged."
+      ],
+      "state_transitions": [
+        "After selecting a cell in the current active worksheet, users can modify its content directly in the grid or formula bar."
+      ],
+      "permissions": [],
+      "persistence": [
+        "Values, original formulas, and results persist after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Paste Two-Dimensional Table Data",
+      "requirements": [
+        "REQ-3-1-2"
+      ],
+      "preconditions": [
+        "The system applies the entire rectangle, preserves empty fields, and overwrites only the target rectangle; formulas within the target are replaced by the new content and related formulas display recalculated results.",
+        "Silently dropping only some values is not allowed."
+      ],
+      "effects": [
+        "Users paste text containing tab-separated columns and newline-separated rows into a starting cell in the current active worksheet.",
+        "The system applies the entire rectangle, preserves empty fields, and overwrites only the target rectangle; formulas within the target are replaced by the new content and related formulas display recalculated results.",
+        "The full paste either updates every cell in the rectangle and persists after refresh, or displays an error while all target cells retain their original values; when a 0-to-100 numeric validation rule rejects the paste, that error is \"Please enter a number from 0 to 100\".",
+        "Silently dropping only some values is not allowed.",
+        "The grid context menu provides a command using the ARIA menuitem role with the accessible name \"Paste\", and Ctrl+V pastes the same external clipboard content."
+      ],
+      "rejected_effects": [
+        "The full paste either updates every cell in the rectangle and persists after refresh, or displays an error while all target cells retain their original values; when a 0-to-100 numeric validation rule rejects the paste, that error is \"Please enter a number from 0 to 100\".",
+        "Silently dropping only some values is not allowed."
+      ],
+      "state_transitions": [
+        "Users paste text containing tab-separated columns and newline-separated rows into a starting cell in the current active worksheet."
+      ],
+      "permissions": [
+        "The grid context menu provides a command using the ARIA menuitem role with the accessible name \"Paste\", and Ctrl+V pastes the same external clipboard content."
+      ],
+      "persistence": [
+        "The full paste either updates every cell in the rectangle and persists after refresh, or displays an error while all target cells retain their original values; when a 0-to-100 numeric validation rule rejects the paste, that error is \"Please enter a number from 0 to 100\"."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Select a Rectangular Cell Range",
+      "requirements": [
+        "REQ-3-1-3"
+      ],
+      "preconditions": [
+        "The active worksheet must visibly indicate the complete selection; the grid exposes aria-multiselectable=\"true\"; every gridcell inside the rectangle exposes aria-selected=\"true\", while every gridcell outside it exposes aria-selected=\"false\".",
+        "Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent existing data.",
+        "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection."
+      ],
+      "effects": [
+        "Users can click to select a single cell or drag from one corner of a rectangular region to the diagonally opposite cell to select a contiguous rectangle.",
+        "The active worksheet must visibly indicate the complete selection; the grid exposes aria-multiselectable=\"true\"; every gridcell inside the rectangle exposes aria-selected=\"true\", while every gridcell outside it exposes aria-selected=\"false\".",
+        "Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent existing data.",
+        "Selecting another cell or range replaces the previous selection and updates the ARIA state accordingly.",
+        "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection."
+      ],
+      "rejected_effects": [
+        "Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent existing data.",
+        "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection."
+      ],
+      "state_transitions": [
+        "The active worksheet must visibly indicate the complete selection; the grid exposes aria-multiselectable=\"true\"; every gridcell inside the rectangle exposes aria-selected=\"true\", while every gridcell outside it exposes aria-selected=\"false\".",
+        "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection."
+      ],
+      "permissions": [],
+      "persistence": [
+        "Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Copy, Cut, and Paste Cell Ranges",
+      "requirements": [
+        "REQ-3-2-1"
+      ],
+      "preconditions": [
+        "Users select a rectangular range by dragging from one corner to another in the current active worksheet, then copy or cut it and select a target location to paste; only operations within the same worksheet are supported.",
+        "After copy, the source range remains unchanged; after cut, the source range is cleared only after the target range has been displayed completely.",
+        "The source range, target range, and affected formulas must either all update and persist after refresh or all remain in their original state; when a target 0-to-100 numeric validation rule rejects the operation, the page displays \"Please enter a number from 0 to 100\".",
+        "Cells outside these ranges must not change."
+      ],
+      "effects": [
+        "Users select a rectangular range by dragging from one corner to another in the current active worksheet, then copy or cut it and select a target location to paste; only operations within the same worksheet are supported.",
+        "After copy, the source range remains unchanged; after cut, the source range is cleared only after the target range has been displayed completely.",
+        "Values and formulas preserve their two-dimensional layout; when formulas are copied, relative references adjust according to the target offset while absolute references remain unchanged, and the formula bar displays the adjusted original formula.",
+        "The source range, target range, and affected formulas must either all update and persist after refresh or all remain in their original state; when a target 0-to-100 numeric validation rule rejects the operation, the page displays \"Please enter a number from 0 to 100\".",
+        "Cells outside these ranges must not change."
+      ],
+      "rejected_effects": [
+        "After copy, the source range remains unchanged; after cut, the source range is cleared only after the target range has been displayed completely.",
+        "Values and formulas preserve their two-dimensional layout; when formulas are copied, relative references adjust according to the target offset while absolute references remain unchanged, and the formula bar displays the adjusted original formula.",
+        "The source range, target range, and affected formulas must either all update and persist after refresh or all remain in their original state; when a target 0-to-100 numeric validation rule rejects the operation, the page displays \"Please enter a number from 0 to 100\".",
+        "Cells outside these ranges must not change."
+      ],
+      "state_transitions": [
+        "Users select a rectangular range by dragging from one corner to another in the current active worksheet, then copy or cut it and select a target location to paste; only operations within the same worksheet are supported."
+      ],
+      "permissions": [],
+      "persistence": [
+        "The source range, target range, and affected formulas must either all update and persist after refresh or all remain in their original state; when a target 0-to-100 numeric validation rule rejects the operation, the page displays \"Please enter a number from 0 to 100\"."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Undo and Redo Recent Operations",
+      "requirements": [
+        "REQ-3-2-2"
+      ],
+      "preconditions": [
+        "Undo restores the grid values, original formulas, row/column structure, rule ranges, pivot-result validity, and calculation results from before the operation; consecutive undo operations restore changes in reverse order, and redo reapplies the complete operation that was just undone.",
+        "Undo in one workbook must not modify another workbook.",
+        "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening."
+      ],
+      "effects": [
+        "Users can undo recent cell edits, bulk pastes, range moves, and row/column structure changes in the current workbook session.",
+        "The toolbar provides buttons with the accessible names \"Undo\" and \"Redo\";",
+        "Ctrl+Z and Ctrl+Y perform the same operations.",
+        "Undo restores the grid values, original formulas, row/column structure, rule ranges, pivot-result validity, and calculation results from before the operation; consecutive undo operations restore changes in reverse order, and redo reapplies the complete operation that was just undone.",
+        "Undo in one workbook must not modify another workbook.",
+        "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening.",
+        "If a new modification is made after an undo, the \"Redo\" button becomes disabled and Ctrl+Y cannot restore the old branch."
+      ],
+      "rejected_effects": [
+        "Undo in one workbook must not modify another workbook.",
+        "If a new modification is made after an undo, the \"Redo\" button becomes disabled and Ctrl+Y cannot restore the old branch."
+      ],
+      "state_transitions": [
+        "Users can undo recent cell edits, bulk pastes, range moves, and row/column structure changes in the current workbook session.",
+        "Undo restores the grid values, original formulas, row/column structure, rule ranges, pivot-result validity, and calculation results from before the operation; consecutive undo operations restore changes in reverse order, and redo reapplies the complete operation that was just undone.",
+        "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening.",
+        "If a new modification is made after an undo, the \"Redo\" button becomes disabled and Ctrl+Y cannot restore the old branch."
+      ],
+      "permissions": [
+        "Users can undo recent cell edits, bulk pastes, range moves, and row/column structure changes in the current workbook session.",
+        "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening."
+      ],
+      "persistence": [
+        "The state after each undo or redo persists after refresh; the history itself only needs to exist within the current session and may be empty after reopening."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Calculate Basic Expressions and Aggregate Functions",
+      "requirements": [
+        "REQ-4-1-1"
+      ],
+      "preconditions": [
+        "Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required.",
+        "Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero."
+      ],
+      "effects": [
+        "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1.",
+        "Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required.",
+        "The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh.",
+        "Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero."
+      ],
+      "rejected_effects": [],
+      "state_transitions": [],
+      "permissions": [],
+      "persistence": [
+        "The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Copy Formulas and Adjust Relative References",
+      "requirements": [
+        "REQ-4-1-2"
+      ],
+      "preconditions": [],
+      "effects": [
+        "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh.",
+        "If the offset moves a relative reference outside the worksheet bounds, the target formula bar displays =#REF! and the grid displays #REF!."
+      ],
+      "rejected_effects": [
+        "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh."
+      ],
+      "state_transitions": [],
+      "permissions": [],
+      "persistence": [
+        "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Recalculate Dependent Formulas After Source Data Changes",
+      "requirements": [
+        "REQ-4-2-1"
+      ],
+      "preconditions": [
+        "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged."
+      ],
+      "effects": [
+        "After a source-value edit, bulk paste, range move, or row/column structure change succeeds, all directly and indirectly dependent formulas update in dependency order; each formula bar continues to display its original formula while the grid displays the new result or error.",
+        "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged."
+      ],
+      "rejected_effects": [
+        "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged."
+      ],
+      "state_transitions": [
+        "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After refresh or reopening, results remain consistent with the current source values and must not show pre-change results; formulas in other worksheets that do not reference these source cells remain unchanged."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Display and Fix Formula Errors",
+      "requirements": [
+        "REQ-4-2-2"
+      ],
+      "preconditions": [
+        "After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh."
+      ],
+      "effects": [
+        "Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays #ERROR!, and a direct or indirect circular reference displays #REF!.",
+        "When an error cell is selected, the formula bar displays the original formula submitted by the user; after refresh, both the error value and original formula persist.",
+        "An error cell does not block viewing, editing, or recalculating other cells.",
+        "After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh."
+      ],
+      "rejected_effects": [
+        "Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays #ERROR!, and a direct or indirect circular reference displays #REF!.",
+        "An error cell does not block viewing, editing, or recalculating other cells."
+      ],
+      "state_transitions": [],
+      "permissions": [],
+      "persistence": [
+        "When an error cell is selected, the formula bar displays the original formula submitted by the user; after refresh, both the error value and original formula persist.",
+        "After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Sort a Data Range by a Specified Column",
+      "requirements": [
+        "REQ-5-1-1"
+      ],
+      "preconditions": [],
+      "effects": [
+        "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu.",
+        "A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button.",
+        "Options in \"Sort by\" use the header text of the selected range as accessible names;",
+        "\"Order\" provides options named \"Ascending\" and \"Descending\".",
+        "When the first row is declared a header, it does not participate in sorting.",
+        "Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row.",
+        "After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh.",
+        "If sorting fails, an error is displayed and the grid retains its original order."
+      ],
+      "rejected_effects": [
+        "When the first row is declared a header, it does not participate in sorting.",
+        "After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh.",
+        "If sorting fails, an error is displayed and the grid retains its original order."
+      ],
+      "state_transitions": [
+        "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Filter Rows by Value or Condition",
+      "requirements": [
+        "REQ-5-1-2"
+      ],
+      "preconditions": [
+        "Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\".",
+        "\"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box;",
+        "Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered."
+      ],
+      "effects": [
+        "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu.",
+        "Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\".",
+        "The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name.",
+        "The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\".",
+        "\"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box;",
+        "\"Is empty\" and \"Is not empty\" require no value.",
+        "Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered.",
+        "After refresh or reopening, the same rows remain visible.",
+        "CSV export and pivot summarization still include hidden rows within the filtered range.",
+        "\"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged."
+      ],
+      "rejected_effects": [
+        "\"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged."
+      ],
+      "state_transitions": [
+        "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu.",
+        "After refresh or reopening, the same rows remain visible."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After refresh or reopening, the same rows remain visible.",
+        "\"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Set Dropdown or Numeric Validation for a Range",
+      "requirements": [
+        "REQ-5-2-1"
+      ],
+      "preconditions": [
+        "After a valid save succeeds, the dialog closes."
+      ],
+      "effects": [
+        "Users select a target range and click \"Data validation\" in the \"Data\" menu.",
+        "A dialog named \"Data validation\" provides a combo box labeled \"Rule type\";",
+        "\"Dropdown\" uses a text box labeled \"Allowed values\", where comma-separated items are trimmed of leading and trailing spaces;",
+        "\"Number range\" uses text boxes labeled \"Minimum\" and \"Maximum\"; the \"Save\" button applies an inclusive rule.",
+        "After a valid save succeeds, the dialog closes.",
+        "A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name.",
+        "If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\".",
+        "In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\".",
+        "If any target in a bulk operation is invalid, all targets retain their original values.",
+        "Rules remain active after refresh.",
+        "When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values."
+      ],
+      "rejected_effects": [
+        "If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\".",
+        "In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\".",
+        "If any target in a bulk operation is invalid, all targets retain their original values."
+      ],
+      "state_transitions": [
+        "A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name.",
+        "Rules remain active after refresh.",
+        "When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values."
+      ],
+      "permissions": [
+        "A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name."
+      ],
+      "persistence": [
+        "In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\".",
+        "Rules remain active after refresh."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    },
+    {
+      "name": "Create and Refresh a Basic Pivot Table",
+      "requirements": [
+        "REQ-5-3-1"
+      ],
+      "preconditions": [
+        "SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content."
+      ],
+      "effects": [
+        "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu.",
+        "A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created.",
+        "A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button.",
+        "Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names;",
+        "\"Summarize by\" provides options named SUM, COUNT, and AVERAGE.",
+        "The configuration supports one row field, one optional column field, and one value field.",
+        "SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.",
+        "When no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records.",
+        "When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row.",
+        "COUNT displays 0 when a row/column combination has no record with a non-empty value field.",
+        "After a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results.",
+        "The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range.",
+        "If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available.",
+        "Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets.",
+        "When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified."
+      ],
+      "rejected_effects": [
+        "SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.",
+        "COUNT displays 0 when a row/column combination has no record with a non-empty value field.",
+        "Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets."
+      ],
+      "state_transitions": [
+        "After a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results."
+      ],
+      "permissions": [],
+      "persistence": [
+        "After a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results.",
+        "The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range.",
+        "If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available."
+      ],
+      "basis": "verbatim atomic source clauses; fields are source navigation indices, not invented command steps"
+    }
+  ],
+  "notes": "Derived from all 24 Sheet atomic descriptions and inherited parent contracts. The supplied scenarios contain repeated non-actionable requested workflow placeholders, so precise atomic prose controls semantic obligations. Routes/pages/modules are deliberately empty: no URL syntax, API endpoint, internal database identifier, storage engine, framework or unsupported control label is prescribed. Entity fields describe observable shared state, not a mandatory serialization format. The required scope is unauthenticated workbook use; sharing/collaboration, advanced styling/charts/macros, cross-sheet formula references and cross-sheet range transfer are outside core required scope. Requirements do not define generic infrastructure-failure injection, empty-group AVERAGE formatting, displayed numeric precision, or undo-history persistence after reopening; implementations must satisfy stated success/rejection invariants without inventing those as official constraints. This model and the paired tests were source-reviewed; no generated full Sheet product was available for end-to-end execution.",
+  "review_status": "reviewed",
+  "frozen": true,
+  "official": false,
+  "review_kind": "source_review",
+  "runtime_status": "not_run_against_product"
+}

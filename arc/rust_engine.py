@@ -265,12 +265,18 @@ def main(args) -> int:
         tree = legacy.load_requirement_tree(req_dir)
         runtime.traceability.store_requirement_tree(tree)
         tests_dir = legacy.locate_acceptance_tests(tree, BUNDLE_DIR)
+        octos_bin = legacy.find_octos()
+        from frozen_suites import materialize, requested_name
+        suite_name = getattr(args, 'test_suite', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
+        if (suite_name or not tests_dir) and requested_name(tree, suite_name):
+            embedded = materialize(octos_bin, tree, output_dir, suite_name, log)
+            if embedded:
+                tests_dir, _manifest = embedded
         runtime.git.ensure_repo()
         spec_path = output_dir / ".arc" / "runner-spec.json"
         write_runner_spec(spec_path, req_dir=req_dir, output_dir=output_dir, web_port=args.web_port, tests_dir=tests_dir,
                           previous_requirements=previous_path)
         policy_path = Path(os.environ.get("OCTOS_ARC_POLICY") or (BUNDLE_DIR / "arc-policy.toml"))
-        octos_bin = legacy.find_octos()
         log(f"[octos] binary {octos_bin}")
         env = kernel_env()
         env["PORT"] = str(int(os.environ.get("OCTOS_SMOKE_PORT", "3100")))
