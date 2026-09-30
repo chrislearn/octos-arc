@@ -65,6 +65,8 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 生成的测试源现在保存到项目根目录 `derived-tests/`，与 `frontend/`、`backend/` 同级。包含 spec、helpers、来源标记及后续审核记录；开发结束时保留。若同名目录已有用户内容，使用 `derived-tests-2/` 等空闲目录，避免覆盖。运行器从这个目录读取，再复制到 Playwright 安装目录下执行，以保证依赖解析和诊断注入；复制执行不改变可下载的源文件。
 
+内嵌套件的源码同样位于 `arc/derived-tests/`，写入项目也使用 `derived-tests/`。目前 `INTEGRATION-*.spec.ts` 暂停使用：源码和二进制保留这些文件，项目导出只写入 `REQ-*.spec.ts`。导出后的 case-plan、review、计数和哈希都按实际节点测试重新绑定；`suite-origin.json` 记录忽略文件及完整内嵌源的身份。逐节点和最终回归目前只执行导出的节点测试。
+
 测试数据并非一直累积到开发结束：
 
 - 标准脚手架的派生测试每个 `test` 前调用重置接口，恢复 code seed 和已注册的内存重置回调；同一个 test 内的操作、刷新、状态断言不重置。

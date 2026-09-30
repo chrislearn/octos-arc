@@ -12,7 +12,7 @@ use std::{
 };
 
 #[derive(Embed)]
-#[folder = "../../arc/frozen-tests/"]
+#[folder = "../../arc/derived-tests/"]
 struct Suites;
 
 #[derive(Debug, Args)]
@@ -41,6 +41,10 @@ pub struct GenerateTestSuiteCommand {
     /// Original requirements identity supplied by the caller.
     #[arg(long)]
     pub requirements_sha256: String,
+    /// Require the project export that temporarily omits integration specs.
+    /// Passing this also makes older binaries reject the request before writing.
+    #[arg(long)]
+    pub exclude_integration: bool,
 }
 
 fn prompt_suite_name(prompt: &str) -> Option<&'static str> {
@@ -69,6 +73,9 @@ pub fn generate(command: &GenerateTestSuiteCommand) -> Result<Value> {
     let name = prompt_suite_name(&command.prompt)
         .ok_or_else(|| eyre::eyre!("No embedded test suite for the requested task"))?;
     let mut receipt = extract(name, &command.requirements_sha256, &command.output_dir)?;
+    if command.exclude_integration {
+        ensure!(receipt["export_policy"] == "node_specs_only_integration_temporarily_ignored", "Project export policy mismatch");
+    }
     receipt["success"] = json!(true);
     receipt["generation"] = json!("embedded");
     Ok(receipt)
@@ -208,6 +215,51 @@ fn content(name: &str, fingerprint: &str) -> Result<(Value, BTreeMap<String, Vec
     Ok((manifest, output))
 }
 
+/// Keep integration recipes embedded, but omit them from project exports for now.
+/// Review/plan counts and hashes describe the exported subset, never absent specs.
+fn project_content(name: &str, fingerprint: &str) -> Result<(Value, BTreeMap<String, Vec<u8>>)> {
+    let (mut manifest, mut files) = content(name, fingerprint)?;
+    let ignored: Vec<String> = files
+        .keys()
+        .filter(|path| {
+            Path::new(path)
+                .file_name()
+                .is_some_and(|file| file.to_string_lossy().starts_with("INTEGRATION-"))
+                && path.ends_with(".spec.ts")
+        })
+        .cloned()
+        .collect();
+    let source_specs = manifest["spec_count"].clone();
+    let source_cases = manifest["case_count"].clone();
+    let source_hash = hash(&Suites::get(&format!("{name}/suite-origin.json")).unwrap().data);
+    for path in &ignored {
+        files.remove(path);
+    }
+    let mut review: Value = serde_json::from_slice(&files["review.json"])?;
+    let cases = review["cases"].as_array_mut().unwrap();
+    cases.retain(|row| row["file"].as_str().is_some_and(|path| files.contains_key(path)));
+    let exported_cases = cases.len();
+    files.insert("review.json".into(), serde_json::to_vec_pretty(&review)?);
+    let mut plan: Value = serde_json::from_slice(&files["case-plan.json"])?;
+    plan.as_array_mut()
+        .ok_or_else(|| eyre::eyre!("Invalid embedded case plan"))?
+        .retain(|row| row["file"].as_str().is_some_and(|path| files.contains_key(path)));
+    files.insert("case-plan.json".into(), serde_json::to_vec_pretty(&plan)?);
+    files.remove("suite-origin.json");
+    manifest["spec_count"] = json!(files.keys().filter(|path| path.ends_with(".spec.ts")).count());
+    manifest["case_count"] = json!(exported_cases);
+    manifest["integration_spec_count"] = json!(0);
+    manifest["integration_case_count"] = json!(0);
+    manifest["export_policy"] = json!("node_specs_only_integration_temporarily_ignored");
+    manifest["ignored_specs"] = json!(ignored);
+    manifest["source_manifest_sha256"] = json!(source_hash);
+    manifest["source_spec_count"] = source_specs;
+    manifest["source_case_count"] = source_cases;
+    manifest["files"] = json!(files.iter().map(|(path, bytes)| (path.clone(), hash(bytes))).collect::<BTreeMap<_, _>>());
+    files.insert("suite-origin.json".into(), serde_json::to_vec_pretty(&manifest)?);
+    Ok((manifest, files))
+}
+
 fn check_existing(directory: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result<()> {
     ensure!(
         fs::symlink_metadata(directory)?.is_dir(),
@@ -242,7 +294,7 @@ fn check_existing(directory: &Path, files: &BTreeMap<String, Vec<u8>>) -> Result
 
 pub fn extract(name: &str, fingerprint: &str, directory: &Path) -> Result<Value> {
     // Validate every embedded byte before creating or changing the destination.
-    let (manifest, files) = content(name, fingerprint)?;
+    let (manifest, files) = project_content(name, fingerprint)?;
     let parent = directory
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -280,7 +332,7 @@ pub fn extract(name: &str, fingerprint: &str, directory: &Path) -> Result<Value>
         fs::rename(stage.path(), directory).wrap_err("Cannot publish frozen suite directory")?;
     }
     Ok(
-        json!({"name":name,"directory":fs::canonicalize(directory)?,"trusted":true,"trust_scope":["tests","domain_contracts","requirement_contracts","business_model"],"official":false,"review_status":"reviewed","frozen":true,"case_count":manifest["case_count"],"spec_count":manifest["spec_count"],"requirements_sha256":fingerprint,"manifest_sha256":hash(&files["suite-origin.json"])}),
+        json!({"name":name,"directory":fs::canonicalize(directory)?,"trusted":true,"trust_scope":["tests","domain_contracts","requirement_contracts","business_model"],"official":false,"review_status":"reviewed","frozen":true,"case_count":manifest["case_count"],"spec_count":manifest["spec_count"],"requirements_sha256":fingerprint,"manifest_sha256":hash(&files["suite-origin.json"]),"export_policy":manifest["export_policy"],"ignored_specs":manifest["ignored_specs"]}),
     )
 }
 
@@ -325,10 +377,10 @@ pub fn note_for_extracted(directory: &Path, tree: &Value) -> Result<Option<Strin
     if catalogue()?["suites"].get(name).is_none() {
         return Ok(None);
     }
-    let (_, files) = content(name, &requirements_fingerprint(tree))?;
+    let (_, files) = project_content(name, &requirements_fingerprint(tree))?;
     check_existing(directory, &files)?;
     Ok(Some(format!(
-        "SOURCE-REVIEWED FROZEN INTERNAL TEST SUITE at {}. Octos attested trusted=true for tests and contracts; skip spec generation, review, audit and waiting queues. All cases were source-reviewed before this run; do not regenerate or modify them. This is not an official benchmark suite or a measured pass. Requirements remain authoritative. Read {}/fixtures.json and {}/README.md before generation to provision independent public seeds and role accounts; no private/reset API is required. Use the frozen source-reviewed app-design.json, domain-contracts.json, requirement-contracts.json and test-obligations.json in that directory directly; do not regenerate or edit those business models. Their shared schemas are design proposals; implementation paths remain choices.\n",
+        "SOURCE-REVIEWED INTERNAL DERIVED TEST SUITE at {}. Octos attested trusted=true for tests and contracts; skip spec generation, review, audit and waiting queues. All cases were source-reviewed before this run; do not regenerate or modify them. This is not an official benchmark suite or a measured pass. Requirements remain authoritative. Read {}/fixtures.json and {}/README.md before generation to provision independent public seeds and role accounts; no private/reset API is required. Use the frozen source-reviewed app-design.json, domain-contracts.json, requirement-contracts.json and test-obligations.json in that directory directly; do not regenerate or edit those business models. Their shared schemas are design proposals; implementation paths remain choices.\n",
         directory.display(),
         directory.display(),
         directory.display()
@@ -409,6 +461,7 @@ mod tests {
                 ),
                 output_dir: root.path().join(name),
                 requirements_sha256: fingerprint(name),
+                exclude_integration: true,
             };
             let result = generate(&command).unwrap();
             assert_eq!(result["trusted"], true);
@@ -420,6 +473,7 @@ mod tests {
             prompt: "Read /github/requirements.yaml. For task \"unknown\", generate tests.".into(),
             output_dir: absent.clone(),
             requirements_sha256: fingerprint("hackathon--github"),
+            exclude_integration: true,
         };
         assert!(generate(&unknown).is_err());
         assert!(!absent.exists());
@@ -452,6 +506,45 @@ mod tests {
             assert!(directory.join("helpers.ts").is_file());
             assert!(directory.join("fixtures.json").is_file());
             extract(name, &fingerprint(name), &directory).unwrap();
+        }
+    }
+    #[test]
+    fn integration_specs_remain_embedded_but_are_absent_from_project_exports_and_reviews() {
+        for name in ["hackathon--github", "hackathon--sheet"] {
+            let fp = fingerprint(name);
+            let (source, all) = content(name, &fp).unwrap();
+            let (exported, files) = project_content(name, &fp).unwrap();
+            let ignored = exported["ignored_specs"].as_array().unwrap();
+            assert!(!ignored.is_empty());
+            for path in ignored {
+                let path = path.as_str().unwrap();
+                assert!(all.contains_key(path), "integration source must be retained");
+                assert!(!files.contains_key(path), "integration must not reach the project");
+            }
+            for (path, bytes) in &files {
+                if path.ends_with(".spec.ts") || path == "helpers.ts" || path == "fixtures.json" {
+                    assert_eq!(bytes, &all[path], "active spec/support bytes must be preserved");
+                }
+            }
+            let review: Value = serde_json::from_slice(&files["review.json"]).unwrap();
+            let cases = review["cases"].as_array().unwrap();
+            let plan: Value = serde_json::from_slice(&files["case-plan.json"]).unwrap();
+            assert_eq!(plan.as_array().unwrap().len(), cases.len());
+            assert_eq!(json!(cases.len()), exported["case_count"]);
+            assert_eq!(exported["node_case_count"], exported["case_count"]);
+            assert_eq!(exported["node_spec_count"], exported["spec_count"]);
+            assert_eq!(exported["source_case_count"], source["case_count"]);
+            assert_eq!(exported["source_spec_count"], source["spec_count"]);
+            assert_eq!(exported["integration_case_count"], 0);
+            assert_eq!(exported["integration_spec_count"], 0);
+            for case in cases {
+                assert_eq!(case["phase"], "node");
+                let path = case["file"].as_str().unwrap();
+                assert_eq!(case["file_sha256"], hash(&files[path]));
+            }
+            for (path, expected) in exported["files"].as_object().unwrap() {
+                assert_eq!(expected.as_str().unwrap(), hash(&files[path]));
+            }
         }
     }
     #[test]

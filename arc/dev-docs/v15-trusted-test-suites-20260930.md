@@ -1,5 +1,7 @@
 # v15 可信测试套件直接驱动节点生成
 
+当前修订：内嵌和项目生成套件统一使用 `derived-tests` 名称。完整源码保留 GitHub 104 项、Sheet 123 项测试；`INTEGRATION-*` 暂时不写入项目。项目只导出 GitHub 47 份 REQ spec / 98 项用例、Sheet 24 份 REQ spec / 72 项用例，计划、审核记录和哈希均对应实际导出文件。以下原始验证记录保留为历史证据。
+
 `v15` 从当前 `v14` 的 `23e08b94` 切出，合并 worktree 提交 `06993281`，合并提交为 `67f45c3e`。独立 worktree 保留，后续流程修改在 `/home/chris/Works/octos-arc` 的 `v15` 完成。
 
 ## 使用
@@ -19,8 +21,9 @@ Python 发出的调用形如：
 ```bash
 octos arc generate-test-suite \
   --prompt 'Read the requirements in "/task/requirements.yaml". For task "hackathon--github", generate the complete Playwright test suite spec, shared business model, domain contracts, requirement constraints and test obligations. Return whether all generated tests and contracts are trusted.' \
-  --output-dir /output/.arc/frozen-tests/hackathon--github \
-  --requirements-sha256 <original-tree-fingerprint>
+  --output-dir /output/derived-tests \
+  --requirements-sha256 <original-tree-fingerprint> \
+  --exclude-integration
 ```
 
 命令在内部固定解析 GitHub、Sheet 两个任务，不调用模型生成新文件内容。命中时提取已内嵌的整套 specs、fixtures、公共业务模型、领域契约和需求约束，返回 `success: true`、`generation: "embedded"`、`trusted: true`。该可信返回沿用已有的冻结文件、需求指纹和 review 绑定；可信表示测试与契约已源审查并冻结，不是应用通过了这些测试。

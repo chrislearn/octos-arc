@@ -3350,7 +3350,7 @@ class Flow:
     def verify_text(self, total_nodes: int) -> str:
         origin = "generated Playwright specs" if getattr(self, 'derived_as_specs', False) else "official Playwright specs"
         if getattr(self, 'frozen_suite', None):
-            origin = 'source-reviewed frozen internal Playwright specs'
+            origin = 'source-reviewed internal derived Playwright specs'
         return ("Implement the requirement and preserve existing behavior. Do not generate, modify or run tests. "
                 f"The framework owns static/build/start/browser checks and independently reviewed frozen {origin}. "
                 "Use only the frozen failure evidence supplied for a requested repair.\n")
@@ -4191,7 +4191,7 @@ class Flow:
         original_tree = self.original_requirement_tree
         node_ids = [str(node["id"]) for node in ordered]
         self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
-        from frozen_suites import materialize, prefer_embedded
+        from embedded_suites import materialize, prefer_embedded
         self.frozen_suite = None
         self.test_specs_trusted = False
         suite_name = getattr(self, 'test_suite_name', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
@@ -4201,7 +4201,7 @@ class Flow:
             if embedded:
                 self.tests_dir, self.frozen_suite = embedded
                 self.adopt_frozen_business()
-                self.metric('frozen_test_suite', name=self.frozen_suite['name'],
+                self.metric('embedded_derived_tests', name=self.frozen_suite['name'],
                             official=False, review_status='reviewed', frozen=True,
                             runtime_status='not_run', case_count=self.frozen_suite['case_count'])
         if getattr(self, 'test_specs_trusted', False):
@@ -4231,7 +4231,7 @@ class Flow:
                 self.adopt_derived_specs(node_ids)
 
     def adopt_frozen_business(self) -> None:
-        from frozen_suites import load_business, verify_directory
+        from embedded_suites import load_business, verify_directory
         verify_directory(self.tests_dir, self.original_requirement_tree, self.frozen_suite['name'], self.frozen_suite)
         model, contracts, ledger = load_business(self.tests_dir)
         errors = app_design_errors(model, requirement_index(self.original_requirement_tree))
@@ -5520,7 +5520,7 @@ class Flow:
 
     def derived_note(self) -> str:
         if getattr(self, 'frozen_suite', None):
-            from frozen_suites import generation_note
+            from embedded_suites import generation_note
             return generation_note(self.tests_dir)
         return DERIVED_SPECS_NOTE if getattr(self, "derived_as_specs", False) else ""
 
@@ -5614,14 +5614,14 @@ class Flow:
         template = DERIVED_REPAIR_PROMPT if getattr(self, "derived_as_specs", False) else REPAIR_PROMPT
         result = template.format(**fields)
         if getattr(self, 'frozen_suite', None):
-            result = result.replace('official acceptance tests', 'reviewed frozen internal tests').replace('official tests', 'reviewed frozen internal tests')
+            result = result.replace('official acceptance tests', 'reviewed internal derived tests').replace('official tests', 'reviewed internal derived tests')
         return result
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         result = self._tests_prompt_for(node_id, skeleton)
         if getattr(self, 'frozen_suite', None):
-            result = (result.replace('official Playwright specs', 'source-reviewed frozen internal Playwright specs')
-                      .replace('PUBLIC ACCEPTANCE TESTS', 'SOURCE-REVIEWED FROZEN INTERNAL TESTS'))
+            result = (result.replace('official Playwright specs', 'source-reviewed internal derived Playwright specs')
+                      .replace('PUBLIC ACCEPTANCE TESTS', 'SOURCE-REVIEWED INTERNAL DERIVED TESTS'))
         return result
 
     def _tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
@@ -6006,11 +6006,11 @@ class Flow:
         if selected_runner is None:
             return RunSummary(error='acceptance runner unavailable')
         if getattr(self, 'frozen_suite', None):
-            from frozen_suites import verify_directory
+            from embedded_suites import verify_directory
             try:
                 verify_directory(self.tests_dir, self.original_requirement_tree, self.frozen_suite['name'], self.frozen_suite)
             except (OSError, ValueError, KeyError) as exc:
-                return RunSummary(error=f'Frozen suite integrity check failed: {exc}')
+                return RunSummary(error=f'Derived test suite integrity check failed: {exc}')
         if (getattr(self, 'derived_as_specs', False) is True and not basic
                 and (not self.tests_dir or self.tests_dir != getattr(self, "derived_tests_dir", None))):
             return RunSummary(error='generated suite origin mismatch')

@@ -1,0 +1,19 @@
+# Source-reviewed internal derived tests
+
+These tests are derived from the supplied atomic requirements and inherited interaction contracts. Generic or corrupted scenario templates are interpreted using the more precise atomic prose. They are internal acceptance checks, not official ARC evaluation tests or an official score.
+
+All executable cases have completed source review. Frozen hashes in suite-origin.json and review.json bind that review to the exact helper, fixture and spec bytes. Runtime product behavior has not been certified by this source review.
+
+Read app-design.json, domain-contracts.json, requirement-contracts.json and test-obligations.json as the frozen source-reviewed business context before generating code. app-design describes shared identities, source contracts and atomic commands; its implementation schemas are proposals, while original requirements remain authoritative. The obligation ledger is a verbatim clause inventory, not a claim of exhaustive executable test coverage.
+
+Read fixtures.json before generating code. Provision the public records and role relationships as server seeds. Do not create a private test-only API. Every suite invocation starts with fresh server data; within a suite, mutable GitHub records are separate per case and spreadsheet mutations use separate UI-created workbooks or their exclusive seeded workbook. Tests remain enabled if a seed is missing.
+
+Playwright uses E2E_BASE_URL (the harness supplies its isolated smoke server). Both helpers use role/name locators; entry addresses are discovered from the browser and reused across reloads. Source requirements remain authoritative if a conflict is found.
+
+The suite namespace is derived-tests for both embedded recipes and generated project files. REQ-*.spec.ts files are the per-node gates. INTEGRATION-*.spec.ts files describe final acceptance across multiple nodes; never alias them to the first requirement. Integration files are retained in the source suite and binary, but are temporarily omitted when exporting a suite into a project. They are currently unused in project acceptance. The exported suite-origin.json records export_policy, ignored_specs and source manifest identity; its case-plan, review, counts and file hashes describe only the exported REQ cases.
+
+case-plan.json records phase, primary node_id and requires (the contracts explicitly exercised by a case). A node gate cannot require a capability later in the original graph's document-stable topological order. INTEGRATION-deferred-* retains original Sheet cases using later capabilities. The primary ID is for traceability, not early scheduling. Guided cases use test.step to explain state transitions and assert the preserved state as well as the change. These retained source cases are temporarily excluded at export, rather than marked skip or deleted.
+
+Sheet's row-node and column-node cases each own a dedicated seeded workbook so those early gates can test record movement before editing/paste exists. Q3 Sales stays read-only; all other mutations create their own workbooks through UI. Provision the seed fixtures rather than adding a private test API.
+
+Source review and a green browser suite do not certify complete backend authorization or real disk-failure/process-restart handling. Those require a harness controlling the implementation's process/storage and legitimate request construction. Do not prescribe private reset endpoints, a JSON action route or disk paths in these portable suites. Preserve all test assertions when investigating a failure; compare the source requirement before classifying it as a product or spec defect.

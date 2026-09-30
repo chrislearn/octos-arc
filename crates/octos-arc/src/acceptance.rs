@@ -111,6 +111,8 @@ pub fn map_specs_to_nodes(spec_paths: &[String], node_ids: &[String]) -> SpecMap
                 order.push(sid.clone());
             }
             by_spec_id.entry(sid).or_default().push(path.clone());
+        } else if path.ends_with(".spec.ts") {
+            map.unassigned.push(path.clone());
         }
     }
     order.sort_by_key(|sid| version_key(sid));
@@ -1724,6 +1726,23 @@ mod tests {
         assert_eq!(map.specs_for("REQ-1"), ["REQ-1.spec.ts"]);
         assert_eq!(map.specs_for("REQ-2"), ["REQ-2.spec.ts"]);
         assert!(map.unassigned.is_empty() && map.aliases.is_empty());
+    }
+
+    #[test]
+    fn should_keep_cross_node_spec_files_for_final_acceptance_without_node_aliases() {
+        let map = map_specs_to_nodes(
+            &strings(&[
+                "REQ-1.spec.ts",
+                "REQ-2.spec.ts",
+                "INTEGRATION-review-cycle.spec.ts",
+                "support/e2e.ts",
+            ]),
+            &strings(&["REQ-1", "REQ-2"]),
+        );
+        assert_eq!(map.specs_for("REQ-1"), ["REQ-1.spec.ts"]);
+        assert_eq!(map.specs_for("REQ-2"), ["REQ-2.spec.ts"]);
+        assert_eq!(map.unassigned, ["INTEGRATION-review-cycle.spec.ts"]);
+        assert!(map.aliases.is_empty());
     }
 
     #[test]

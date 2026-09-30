@@ -124,16 +124,16 @@ impl Prompts {
             "codegen-repair-suffix",
         ] {
             if let Some(text) = self.texts.get_mut(name) {
-                *text = text.replace("official", "source-reviewed frozen internal");
+                *text = text.replace("official", "source-reviewed internal derived");
             }
         }
-        self.texts.insert("frozen-test-note".into(), note);
+        self.texts.insert("embedded-derived-test-note".into(), note);
         self
     }
 
     pub fn frozen_test_note(&self) -> &str {
         self.texts
-            .get("frozen-test-note")
+            .get("embedded-derived-test-note")
             .map(String::as_str)
             .unwrap_or("")
     }

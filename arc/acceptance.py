@@ -111,6 +111,8 @@ def map_specs_to_nodes(spec_paths: list[str], node_ids: list[str]) -> tuple[dict
     for path in spec_paths:
         sid = spec_node_id(path)
         if sid is None:
+            if path.endswith('.spec.ts'):
+                mapping[None].append(path)
             continue
         by_spec_id.setdefault(sid, []).append(path)
     unmatched_ids = []
