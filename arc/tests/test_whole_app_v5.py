@@ -546,6 +546,42 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.whole_app_startup_repair(
             "frontend: client-side links use history.pushState but only index.html exists"))
 
+    def test_startup_repair_can_regenerate_a_large_named_component(self):
+        flow = self.flow
+        flow.node_timeout = 1200
+        page = self.root / 'frontend/src/pages/PullRequestDetailPage.jsx'
+        page.parent.mkdir(parents=True)
+        page.write_text('const filler = "' + 'a' * 62000 + '";\n'
+                        'function Child() { return reviewerPickerOpen; }\n')
+
+        def repaired(prompt, *args, **kwargs):
+            self.assertIn('--- frontend/src/pages/PullRequestDetailPage.jsx ---', prompt)
+            self.assertIn('function Child() { return reviewerPickerOpen; }', prompt)
+            flow.last_codegen_written = ['frontend/src/pages/PullRequestDetailPage.jsx']
+            return True, 'edit applied'
+
+        flow.whole_app_generation_turn = Mock(side_effect=repaired)
+        flow.turn = Mock()
+        self.assertTrue(flow.whole_app_startup_repair(
+            'Undefined frontend bindings: reviewerPickerOpen '
+            '(src/pages/PullRequestDetailPage.jsx:2)'))
+        flow.turn.assert_not_called()
+
+    def test_startup_repair_quotes_backend_relative_binding_location(self):
+        flow = self.flow
+        route = self.root / 'backend/routes/auth.js'
+        route.parent.mkdir(parents=True)
+        route.write_text("module.exports = app => app.get('/private', requireAuth);\n")
+        def repaired(prompt, *args, **kwargs):
+            self.assertIn('--- backend/routes/auth.js ---', prompt)
+            flow.last_codegen_written = ['backend/routes/auth.js']
+            return True, 'edit applied'
+        flow.whole_app_generation_turn = Mock(side_effect=repaired)
+        flow.turn = Mock()
+        self.assertTrue(flow.whole_app_startup_repair(
+            'Undefined backend bindings (1 references): requireAuth x1 (routes/auth.js:1)'))
+        flow.turn.assert_not_called()
+
     def test_route_conflict_does_not_spend_a_startup_repair_before_first_full_suite(self):
         # v10.0 sheet 819388a5f77b: a route conflict treated as a startup failure blocked
         # measurement; it is a warning attached to failures instead.
@@ -1444,7 +1480,7 @@ class WholeAppTests(unittest.TestCase):
         self.assertTrue(flow.derived_tests_dir.joinpath("helpers.ts").is_file())
         self.assertEqual(flow.derived_spec_map, {})
 
-    def test_ai_planning_without_a_model_proxy_keeps_the_plan_pending(self):
+    def test_ai_planning_without_a_model_proxy_marks_unavailable_once(self):
         flow = self.flow
         flow.tests_dir = None
         nodes = self._derived_nodes()
@@ -1454,7 +1490,7 @@ class WholeAppTests(unittest.TestCase):
         self.assertEqual(flow.augment_derived_tests(nodes), 0)
         plan = m.json.loads((flow.derived_tests_dir / "review" / "plan.json").read_text())
         self.assertTrue(plan["targets"])
-        self.assertTrue(all(row["status"] == "attempted" for row in plan["targets"]))
+        self.assertTrue(all(row["status"] == "unavailable" for row in plan["targets"]))
 
     def test_should_report_derived_check_results_in_the_no_spec_verdict(self):
         passed, detail = m.Flow.no_spec_node_verdict("B", True, True, {}, {"B": False})
@@ -1656,19 +1692,17 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         flow.prepare_derived_spec_batch(nodes[:1])
         plan_path = flow.derived_tests_dir / "review" / "plan.json"
         statuses = {row["node_id"]: row["status"] for row in json.loads(plan_path.read_text())["targets"]}
-        self.assertEqual(statuses, {"A": "attempted", "B": "pending", "C": "pending"})
+        self.assertEqual(statuses, {"A": "unavailable", "B": "pending", "C": "pending"})
         flow.prepare_derived_spec_batch(nodes[1:2])
         statuses = {row["node_id"]: row["status"] for row in json.loads(plan_path.read_text())["targets"]}
-        self.assertEqual(statuses, {"A": "attempted", "B": "attempted", "C": "pending"})
+        self.assertEqual(statuses, {"A": "unavailable", "B": "unavailable", "C": "pending"})
         self.assertTrue((flow.derived_tests_dir / "review" / "batch-1.txt").is_file())
-        # A failed first proposal uses request 2 for the thinking-enabled retry;
-        # the next node's first proposal is therefore request 3.
-        self.assertTrue((flow.derived_tests_dir / "review" / "batch-1-unavailable-retry.txt").is_file())
-        self.assertTrue((flow.derived_tests_dir / "review" / "batch-3.txt").is_file())
+        self.assertFalse((flow.derived_tests_dir / "review" / "batch-1-unavailable-retry.txt").exists())
+        self.assertTrue((flow.derived_tests_dir / "review" / "batch-2.txt").is_file())
         self.assertGreaterEqual(flow.text_turn.call_count, 2)
         self.assertTrue((flow.derived_tests_dir / "review" / "cases.json").is_file())
         flow.prepare_derived_spec_batch(nodes[:1])
-        self.assertLessEqual(flow.derived_augmentation_attempts["A"], 2)
+        self.assertEqual(flow.derived_augmentation_attempts["A"], 1)
 
     def test_mechanical_generation_does_not_announce_all_nodes_designing(self):
         flow = self.flow
@@ -1857,7 +1891,7 @@ class DerivedSuiteVerificationTests(WholeAppTests):
         self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
         self.assertEqual(flow.spec_map["A"], ["A.spec.ts"])
 
-    def test_model_review_retries_a_rejected_proposal_once_with_the_reason(self):
+    def test_model_review_rejects_bad_proposal_without_retry(self):
         flow = self.flow
         nodes = self._derived()
         nodes[1]["scenarios"][0]["steps"][1]["content"] = "The visitor opens B somehow and clicks “Open B”."
@@ -1870,12 +1904,11 @@ class DerivedSuiteVerificationTests(WholeAppTests):
         flow.text_turn = Mock(side_effect=[(True, bad), (True, good)])
         flow.remaining = Mock(return_value=4000)
         flow.final_phase_reserve = Mock(return_value=0)
-        self.assertEqual(flow.augment_derived_tests(nodes), 1)
-        self.assertEqual(flow.text_turn.call_count, 2)
-        retry = flow.text_turn.call_args.args[0]
-        self.assertIn("Invented", retry)
-        self.assertIn("not an allowed literal", retry)
-        self.assertIn("[model]", (flow.derived_tests_dir / "B.spec.ts").read_text())
+        self.assertEqual(flow.augment_derived_tests(nodes), 0)
+        self.assertEqual(flow.text_turn.call_count, 1)
+        self.assertNotIn("[model]", (flow.derived_tests_dir / "B.spec.ts").read_text())
+        plan = json.loads((flow.derived_tests_dir / 'review' / 'plan.json').read_text())
+        self.assertEqual(plan['targets'][0]['status'], 'rejected')
 
 
 class RollbackAttributionTests(WholeAppTests):
@@ -1921,7 +1954,6 @@ class RollbackAttributionTests(WholeAppTests):
             "A", "restored source before-node: 1/1 measured")
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class CompletenessPassTests(WholeAppTests):
     """hackathon--sheet run ef2ab916a57d: 24 reach checks passed, the run ended after
     91 of 1175 available minutes, the grader passed 0/100. Leaves whose derived spec

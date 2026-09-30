@@ -18,6 +18,10 @@ module.exports = class ActionErrors {
           if (message.startsWith('Page URL at failure:'))
             errors.unshift({order:-2, duration:Number.MAX_SAFE_INTEGER,
               text:'Browser observation (diagnostic only):\n'+clip(message,1600)});
+          else if (message.startsWith('Shortcut keydown events before failure:')
+                   || message.startsWith('Same-origin /api mutation requests after final shortcut keydown:'))
+            errors.unshift({order:-1, duration:Number.MAX_SAFE_INTEGER,
+              text:'Browser observation (diagnostic only):\n'+clip(message,1600)});
           else if (errors.length < 8)
             errors.push({order:errors.length, duration:Number.MAX_SAFE_INTEGER,
               text:'Browser observation (diagnostic only):\n'+clip(message,1600)});

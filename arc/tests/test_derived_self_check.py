@@ -97,8 +97,16 @@ class AuthenticationInvariantTests(unittest.TestCase):
             self.assertTrue(all(not flow.trusted_derived_case("AUTH", t) for t in titles))
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class AuditCorrectionTests(unittest.TestCase):
+    def test_named_reach_check_is_smoke_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, path = self.setup_flow(Path(folder))
+            path.write_text("test('" + target['title'] + " [reach] Create', async ({ page }) => {\n"
+                            "  await h.expectReachable(page, 'Create');\n});\n")
+            rows = collect_cases(flow.derived_tests_dir, [target], {'A'})
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['status'], 'approved_smoke_only')
+
     def test_static_audit_keeps_harness_helpers_and_isolates_shortcut_case(self):
         with tempfile.TemporaryDirectory() as folder:
             flow, target, path = self.setup_flow(Path(folder))
@@ -137,7 +145,7 @@ class AuditCorrectionTests(unittest.TestCase):
         self.assertEqual(restored['test_quote'], quotes['T1'])
         self.assertEqual(restore_review_quote_ids({'test_quote': 'T99'}, quotes)['test_quote'], 'T99')
 
-    def test_quote_invalid_gets_one_bounded_rereview_with_full_validation(self):
+    def test_quote_invalid_is_not_rereviewed_or_admitted(self):
         with tempfile.TemporaryDirectory() as folder:
             flow, target, _ = self.setup_flow(Path(folder))
             calls = []
@@ -157,14 +165,42 @@ class AuditCorrectionTests(unittest.TestCase):
             flow.text_turn = Mock(side_effect=audit)
             flow.review_derived_cases({'A'})
             record = next(iter(flow.derived_case_reviews.values()))
-            self.assertEqual(record['status'], 'approved_behavior')
-            self.assertTrue(record['quote_rereview_attempted'])
-            self.assertEqual(len(calls), 2)
-            self.assertTrue(flow.trusted_derived_case('A', target['title'] + ' [model]'))
+            self.assertEqual(record['status'], 'unreviewed')
+            self.assertTrue(record['review_attempted'])
+            self.assertEqual(len(calls), 1)
+            self.assertFalse(flow.trusted_derived_case('A', target['title'] + ' [model]'))
+            flow.review_derived_cases({'A'})
+            self.assertEqual(len(calls), 1)
+
+    def test_unchanged_skip_retains_its_decision_and_changed_reason_needs_audit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            flow, target, path = self.setup_flow(Path(folder))
+            path.write_text('')
+            review = flow.derived_tests_dir / 'review'
+            review.mkdir()
+            entry = {'id': target['id'], 'status': 'skipped_unreviewed',
+                     'skip_reason': 'The stated setup has no reproducible declared seed.',
+                     'skip_category': 'ambiguous_source'}
+            (review / 'plan.json').write_text(json.dumps({'targets': [entry]}))
+            def audit(prompt, *args, **kwargs):
+                shown = json.loads(prompt.split('\nCases: ')[1])[0]
+                return True, json.dumps([{'id': shown['id'], 'status': 'skipped_with_reason',
+                    'requirement_quote': shown['requirement'],
+                    'reason': 'The requirement lacks the declared setup needed to reproduce this branch.'}])
+            flow.text_turn = Mock(side_effect=audit)
+            flow.review_derived_cases({'A'})
+            flow.review_derived_cases({'A'})
+            record = flow.derived_case_reviews[('A', target['title'] + ' [skip]')]
+            self.assertEqual(record['status'], 'skipped_with_reason')
+            self.assertEqual(flow.text_turn.call_count, 1)
+            entry['skip_reason'] = 'A different fixture claim now needs its own audit.'
+            (review / 'plan.json').write_text(json.dumps({'targets': [entry]}))
+            flow.review_derived_cases({'A'})
+            self.assertEqual(flow.text_turn.call_count, 2)
     def test_case_status_enum_separates_approval_repair_invalid_and_dispute(self):
         self.assertEqual({status.value for status in CaseStatus}, {
-            'unreviewed', 'needs_correction', 'approved_behavior', 'approved_smoke_only',
-        'invalid', 'disputed', 'skip_review', 'skipped_unreviewed', 'skipped_with_reason', 'unverified_gap'})
+            'unreviewed', 'needs_correction', 'approved_behavior', 'approved_basic', 'approved_smoke_only',
+        'invalid', 'disputed', 'skipped_unreviewed', 'skipped_with_reason', 'unverified_gap'})
 
     def test_approved_case_with_improvement_suggestion_remains_runnable(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -228,7 +264,7 @@ class AuditCorrectionTests(unittest.TestCase):
             self.assertEqual(excluded, {path.name: {target['title'] + ' [model]'}})
             self.assertTrue(flow.trusted_derived_case('A', target['title'] + ' [case 2] [model]'))
 
-    def test_preparation_orders_generation_audit_correction_reaudit_and_adoption(self):
+    def test_preparation_orders_generation_single_audit_and_adoption(self):
         with tempfile.TemporaryDirectory() as folder:
             flow, _, _ = self.setup_flow(Path(folder))
             order = []
@@ -239,8 +275,9 @@ class AuditCorrectionTests(unittest.TestCase):
             with patch.dict("os.environ", {"OCTOS_ARC_DERIVED_LLM": "1", "OCTOS_ARC_DRYRUN": "0",
                                            "OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS": "2"}):
                 flow.prepare_derived_spec_batch(flow.derived_nodes)
-            self.assertEqual(order, ["generate", "audit", "correct", "audit", "adopt"])
-            self.assertEqual(flow.review_derived_cases.call_args_list[0].kwargs, {"reserve_requests": 1})
+            self.assertEqual(order, ["generate", "audit", "adopt"])
+            flow.correct_derived_cases.assert_not_called()
+            self.assertEqual(flow.review_derived_cases.call_args_list[0].kwargs, {})
 
     def setup_flow(self, root):
         flow = Flow(argparse.Namespace(web_port=3000), root, root)
@@ -313,7 +350,7 @@ class AuditCorrectionTests(unittest.TestCase):
             self.assertEqual(flow.correct_derived_cases({"A"}), set())
             flow.text_turn.assert_not_called()
 
-    def test_case_audit_batches_same_phase_and_retries_only_missing_ids(self):
+    def test_case_audit_batches_same_phase_without_retrying_missing_ids(self):
         with tempfile.TemporaryDirectory() as folder:
             flow, _, _ = self.setup_flow(Path(folder))
             rows = [{"id": f"case-{index}", "node_id": "A", "title": f"Case {index}",
@@ -335,9 +372,11 @@ class AuditCorrectionTests(unittest.TestCase):
             with patch("main.collect_cases", return_value=rows), \
                     patch.dict("os.environ", {"OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH": "3"}):
                 flow.review_derived_cases({"A"})
-            self.assertEqual(shown_batches, [["case-0", "case-1", "case-2"], ["case-2"]])
-            self.assertEqual(flow.derived_case_review_requests, 2)
-            self.assertTrue(all(row["status"] == "needs_correction" for row in rows))
+            self.assertEqual(shown_batches, [["case-0", "case-1", "case-2"]])
+            self.assertEqual(flow.derived_case_review_requests, 1)
+            self.assertEqual([row['status'] for row in rows],
+                             ['needs_correction', 'needs_correction', 'unreviewed'])
+            self.assertTrue(all(row['review_attempted'] for row in rows))
 
     def test_case_audit_splits_oversized_batch_before_model_call(self):
         with tempfile.TemporaryDirectory() as folder:

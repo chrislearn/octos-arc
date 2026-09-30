@@ -120,7 +120,6 @@ class OrderedRequestsTests(unittest.TestCase):
         self.assertEqual([reply.text if reply else None for reply in pool.ordered(map(job, "AB"))], ["A", None])
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class ScenarioCommitTests(unittest.TestCase):
     def test_proposal_batch_never_mixes_category_contexts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -140,18 +139,16 @@ class ScenarioCommitTests(unittest.TestCase):
             flow.final_phase_reserve = Mock(return_value=0)
             flow.text_turn = Mock(return_value=(False, "provider unavailable"))
             flow.augment_derived_tests(nodes)
-            self.assertEqual(flow.text_turn.call_count, 4)
+            self.assertEqual(flow.text_turn.call_count, 2)
             prompts = [call.args[0] for call in flow.text_turn.call_args_list]
             self.assertIn("A: Scenario 1", prompts[0])
-            self.assertIn("A: Scenario 1", prompts[1])
             self.assertNotIn("B: Scenario 1", prompts[0])
-            self.assertIn("B: Scenario 1", prompts[2])
-            self.assertIn("B: Scenario 1", prompts[3])
-            self.assertNotIn("A: Scenario 1", prompts[2])
+            self.assertIn("B: Scenario 1", prompts[1])
+            self.assertNotIn("A: Scenario 1", prompts[1])
             self.assertEqual([call.args[2] for call in flow.text_turn.call_args_list],
-                             ['derived scenario review', 'derived scenario review (retry)'] * 2)
+                             ['derived scenario review'] * 2)
 
-    def test_one_leaf_uses_at_most_two_proposal_requests_including_retry(self):
+    def test_one_scenario_uses_one_proposal_request_without_retry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
@@ -166,13 +163,13 @@ class ScenarioCommitTests(unittest.TestCase):
             flow.final_phase_reserve = Mock(return_value=0)
             flow.text_turn = Mock(return_value=(True, '{"scenarios":[]}'))
             flow.augment_derived_tests([node])
-            self.assertEqual(flow.text_turn.call_count, 2)
-            self.assertEqual(flow.derived_augmentation_attempts["A"], 2)
-            self.assertEqual(flow.derived_review_requests, 2)
+            self.assertEqual(flow.text_turn.call_count, 1)
+            self.assertEqual(flow.derived_augmentation_attempts["A"], 1)
+            self.assertEqual(flow.derived_review_requests, 1)
             flow.augment_derived_tests([node])
-            self.assertEqual(flow.text_turn.call_count, 2)
+            self.assertEqual(flow.text_turn.call_count, 1)
 
-    def test_parallel_chunks_reserve_two_requests_per_leaf_before_retry(self):
+    def test_parallel_chunks_attempt_each_scenario_once(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(
                 os.environ, {"OCTOS_ARC_DERIVED_LLM_BATCH": "1"}):
             root = Path(directory)
@@ -199,14 +196,15 @@ class ScenarioCommitTests(unittest.TestCase):
                                            lambda request, _reply: flow.note_turn(request.label), on_submit)
             flow.isolated_spec_requests = make_pool
             flow.augment_derived_tests([node])
-            self.assertEqual(len(submitted), 2)
-            self.assertEqual(flow.derived_augmentation_attempts["A"], 2)
-            self.assertEqual(flow.derived_review_requests, 2)
+            self.assertEqual(len(submitted), 3)
+            self.assertEqual(flow.derived_augmentation_attempts["A"], 3)
+            self.assertEqual(flow.derived_review_requests, 3)
             flow.augment_derived_tests([node])
-            self.assertEqual(len(submitted), 2)
+            self.assertEqual(len(submitted), 3)
 
-    def test_obligation_extractions_overlap_and_independent_reviews_stay_ordered(self):
-        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"OCTOS_ARC_OBLIGATION_BATCH_LEAVES": "1"}):
+    def test_obligation_extractions_are_once_per_leaf_without_a_second_review_pass(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "OCTOS_ARC_OBLIGATION_BATCH_LEAVES": "1"}):
             root = Path(directory)
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
             nodes = [{"id": name, "description": f"The saved {name} record remains visible after refresh."}
@@ -220,7 +218,6 @@ class ScenarioCommitTests(unittest.TestCase):
             flow.review_budget_spent = Mock(return_value=False)
             flow.derived_preflight_tokens_spent = Mock(return_value=False)
             flow.metric = Mock()
-            barrier = threading.Barrier(2, timeout=2)
             def reply_for(prompt):
                 ancestry = json.loads(prompt.split("LEAF ANCESTRY (every listed source needs coverage):\n")[1].split("\nIndependently review")[0])
                 name = next(iter(ancestry))
@@ -229,21 +226,11 @@ class ScenarioCommitTests(unittest.TestCase):
                                 "branch": "success", "outcome": "The saved record remains visible after refresh."}
                                for owner in ("ROOT", name)]
                 return json.dumps({"obligations": obligations, "gaps": []})
-            def execute(request):
-                name = next(iter(json.loads(request.prompt.split(
-                    "LEAF ANCESTRY (every listed source needs coverage):\n")[1])))
-                if name != "A":
-                    barrier.wait()
-                return SpecReply(True, reply_for(request.prompt), tokens=100)
             flow.text_turn = Mock(side_effect=lambda prompt, *_args, **_kwargs: (True, reply_for(prompt)))
-            def make_pool(_count, *, allowed):
-                return OrderedSpecRequests(2, execute, lambda request, _reserved, _count: allowed(request),
-                                           lambda request, _reply: flow.note_turn(request.label))
-            flow.isolated_spec_requests = make_pool
             prepare_obligations(flow, nodes)
             self.assertEqual(flow.text_turn.call_count, 3)
             self.assertEqual([flow.derived_obligation_status[name]["status"] for name in "ABC"],
-                             ["reviewed"] * 3)
+                             ["source_grounded"] * 3)
             self.assertEqual({row["applies_to"][0] for row in flow.derived_obligations}, set("ABC"))
 
     def test_parallel_proposals_write_separate_leaf_files_in_dispatch_order(self):

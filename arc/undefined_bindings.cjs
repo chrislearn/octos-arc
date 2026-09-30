@@ -11,19 +11,34 @@ try {
   parser = fromFrontend('@babel/parser');
   traverse = fromFrontend('@babel/traverse').default;
 } catch (error) {
-  process.stdout.write(JSON.stringify({ status: 'unknown', reason: `Babel parser unavailable: ${error.message}` }));
-  process.exit(0);
+  try {
+    // Small applications do not necessarily depend on React/Vite. The
+    // framework installs these pinned analysis tools outside application code.
+    const fromHarness = createRequire(path.join(frontend, '../.arc/static-tools/package.json'));
+    parser = fromHarness('@babel/parser');
+    traverse = fromHarness('@babel/traverse').default;
+  } catch (_) {
+    process.stdout.write(JSON.stringify({ status: 'unknown', reason: `Babel parser unavailable: ${error.message}` }));
+    process.exit(0);
+  }
 }
 
-const allowed = new Set([...Object.getOwnPropertyNames(globalThis),
+const allowed = new Set(Object.getOwnPropertyNames(globalThis));
+if (!backend) for (const name of [
   'window', 'document', 'navigator', 'location', 'history', 'localStorage', 'sessionStorage',
   'alert', 'confirm', 'prompt', 'File', 'FileReader', 'Blob', 'Image', 'ResizeObserver',
   'IntersectionObserver', 'MutationObserver', 'HTMLElement', 'HTMLInputElement',
+  'HTMLTextAreaElement', 'HTMLSelectElement', 'HTMLButtonElement', 'HTMLFormElement',
+  'HTMLAnchorElement', 'HTMLTableElement', 'HTMLTableCellElement', 'HTMLDivElement',
+  'HTMLImageElement', 'HTMLCanvasElement', 'HTMLDialogElement', 'HTMLIFrameElement',
+  'HTMLMediaElement', 'HTMLVideoElement', 'HTMLAudioElement', 'SVGElement', 'Element',
+  'EventTarget', 'InputEvent', 'FocusEvent', 'PointerEvent', 'ClipboardEvent',
+  'DataTransfer', 'DOMException', 'Document', 'DocumentFragment', 'Range', 'Selection',
   'CustomEvent', 'Event', 'KeyboardEvent', 'MouseEvent', 'URL', 'URLSearchParams',
   'requestAnimationFrame', 'cancelAnimationFrame', 'atob', 'btoa', 'crypto', 'performance',
   'indexedDB', 'matchMedia', 'getComputedStyle', 'FormData', 'TextEncoder', 'TextDecoder',
   'AbortController', 'fetch', 'WebSocket', 'Worker', 'CSS', 'DOMParser', 'Node', 'NodeFilter',
-  'process', 'Buffer', 'global']);
+  'process', 'Buffer', 'global']) allowed.add(name);
 if (backend) for (const name of ['require', 'module', 'exports', '__dirname', '__filename']) allowed.add(name);
 
 const diagnostics = [];

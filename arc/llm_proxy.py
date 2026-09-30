@@ -1016,6 +1016,7 @@ class LlmProxy:
         # the flow can take the shell away for one-turn tasks and give it back).
         self.extra_drop_tools: set[str] = set(extra_drop_tools or ())
         self.no_tools = False  # codegen turns: strip every tool schema
+        self.single_attempt = False  # optional spec work stops on its first failed request
         self.system_override: str | None = None  # codegen turns: replace the kernel system prompt
         # Per-turn request cap (0 = unlimited); the flow calls begin_turn().
         self.turn_budget = 0
@@ -1072,6 +1073,7 @@ class LlmProxy:
 
             def _forward(self, method: str) -> None:
                 import uuid
+                single_attempt = proxy.single_attempt
                 request_id = uuid.uuid4().hex
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
@@ -1148,9 +1150,10 @@ class LlmProxy:
                         # Do not hide auth, quota, URL or unrelated 404 errors.
                         with proxy._lock:
                             proxy.routes = [r for r in proxy.routes if r["model"] != selected]
-                        headers["Content-Length"] = str(len(unrouted))
-                        proxy._dump(unrouted)
-                        status, payload, resp_headers = proxy._request_upstream(method, path, unrouted, headers, request_id=request_id + "-fallback")
+                        if not single_attempt:
+                            headers["Content-Length"] = str(len(unrouted))
+                            proxy._dump(unrouted)
+                            status, payload, resp_headers = proxy._request_upstream(method, path, unrouted, headers, request_id=request_id + "-fallback")
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 if was_streaming and status == 200:
                     payload, ctype = to_sse(payload), "text/event-stream; charset=utf-8"
@@ -1277,7 +1280,8 @@ class LlmProxy:
             from context_ledger import context_metrics
             meta["request_id"] = request_id
             self.ledger({"event": "context", **meta, **context_metrics(body)})
-            for upstream_attempt in range(2):
+            upstream_attempts = 1 if self.single_attempt else 2
+            for upstream_attempt in range(upstream_attempts):
                 if getattr(self, "_stopped", False):
                     result = 503, b'{"error":{"code":"interrupted"}}', {}
                     self.ledger({"event": "request_interrupted", "request_id": request_id, "usage_status": "unknown"})
@@ -1322,7 +1326,8 @@ class LlmProxy:
                         self._provider_headers = {k: v for k, v in headers.items()
                                                   if k.lower() in {'authorization', 'x-api-key', 'api-key',
                                                                    'openai-organization', 'openai-project'}}
-                if not failure or upstream_attempt or (deadline and deadline - time.monotonic() < 5):
+                if (not failure or upstream_attempt + 1 >= upstream_attempts
+                        or (deadline and deadline - time.monotonic() < 5)):
                     break
                 self._log(result[1], int((time.monotonic() - attempt_started) * 1000), body, len(body), len(result[1]),
                           status=result[0], meta=dict(meta))

@@ -7,7 +7,9 @@
 
 生成项目的 `.arc/design/` 保存共享模型、命令契约和独立审核结果；`.arc/browser-health/` 保存独立浏览器诊断；`.arc/acceptance-evidence/` 保存每次测试原始证据。`.arc/quality-summary.json` 分开显示执行、交付就绪与业务验证状态。
 
-生成测试默认使用 `OCTOS_ARC_TEST_MODE=full`：生成后进行独立审核，合格的行为用例才进入验收与修复。显式设置 `OCTOS_ARC_TEST_MODE=fast` 可使用快速模式：通过结构校验的用例标为 `skip_review` 并直接执行；失败后对需求、代码和该用例审核一次，最多做一轮代码修复。修复引入构建、启动或运行时系统错误时回退；可启动但仍失败的修复保留，失败用例单独隔离。
+生成测试使用统一权威流程：基础测试经独立审核并冻结后逐节点测试，通过前不写下一节点；复杂业务测试可后台生成审核并按节点冻结，全部节点基础通过后持续执行。业务异议直接终止，认可失败最多修复两次；保留代码必须通过原有基础与静态、构建和运行健康检查。初期需求、模型和契约完整快照保存在项目 design/initial/。
+
+平台入口 `main.py` 统一使用 Python 协调器和 Octos 内核；原 Rust 引擎入口设置也不能绕过节点基础门。直接运行内核的 `octos arc run` 尚未迁移整个分层协调流程。基础候选模板支持明确的 UI 控件、场景入口、首页展示和字面 GET 接口；无法机械表达的入口会记录缺口并阻塞节点，空套件不能放行。
 
 `.arc/request-ledger.jsonl` 关联请求、重试和用量，`.arc/context-reads/` 保留压缩前原始读取，`.arc/terminal-state.json` 记录正常或中断终态。unknown 不表示零费用，也不表示通过。
 
@@ -18,6 +20,15 @@ python3 arc/integration/v115_runtime.py --playwright-root arc/local-grader --evi
 ```
 
 此回归包含一个故意错误的 HTTP 状态断言；脚本检查它必须失败。依赖已有正式模型任务另行评估实际产出质量。
+
+分层流程的真实 Playwright 回归及输入规模探测（不调用模型，静态检查工具首次使用可能由框架安装）：
+
+```sh
+PYTHONPATH=arc python3 arc/integration/layered_runtime.py --playwright-root arc/local-grader --evidence /tmp/layered-evidence
+PYTHONPATH=arc python3 arc/integration/layered_input_sizes.py --evidence /tmp/layered-input-sizes.json
+```
+
+前者验证逐节点阻塞、既有基础回归与回退、业务阶段门及冻结用例筛选；固定审核回复只用于验证编排，不衡量模型审核质量。后者记录实际模板候选数量、缺口和审核证据字符量，不把字符缩减当模型耗时缩减。
 
 ## 五步
 
@@ -63,15 +74,17 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 当前重置 helper 会忽略请求失败。对于未接入重置接口、未注册内存 reset hook、外部存储或忽略文件中的数据，不能保证完整用例隔离；不能将上述机制描述成任意应用都得到严格清库。
 
-## 没有官方测试 spec 时的测试自检
+## 没有官方测试 spec 时的独立测试审核
 
-测试套件在应用代码生成前建立：先机械编译需求场景，再由 AI 补充行为测试，随后用独立 AI 回合审查前置条件、动作顺序、结果断言和用例隔离。审查不会读取应用代码或测试运行结果。标为 `needs_correction` 的场景会在预算内重新生成一次，并再次独立审查；原文件保存在 `derived-tests/review/before-correction-*.ts`。无效修正不会覆盖原测试，修正后的测试不会沿用旧审批。Playwright 加载检查和运行失败后的测试审查仍保留。
+初期设计完成后机械生成每个节点的最小基础入口候选，提前独立审核并冻结到 `.arc/basic-tests/`；应用代码写完须通过本节点与已完成节点的基础测试及框架健康门。复杂业务用例复用初期需求义务，覆盖不足时只补提取缺口，再生成短 DSL 并独立审核，按节点获批即冻结到 `derived-tests/published/`。业务生成、审核可以在代码期间推进，执行必须等全部节点基础通过。
+
+审核不读取应用代码或测试结果。标为 `needs_correction` 的候选可在预算内生成一个修正版并独立审核，原文件保存在 `derived-tests/review/before-correction-*.ts`；修正版不能沿用旧审批。已冻结业务用例失败后的程序员异议直接记争议，不再进入失败复审或实现；认可的失败最多两次修复。Playwright 加载检查继续保留，加载失败不发布。
 
 需求明确提供密码登录时，套件额外建立“未注册账号不能登录”和“已注册账号使用错误密码不能登录”两个基础不变量；后者需要有真实的种子凭据。邮箱登录使用合法邮箱，检查包括提交凭据后和回到首页刷新后的匿名状态，不要求某句特定错误文案。它们即使在 AI 规划关闭或预算不足时也会生成，但必须经过独立审查才能指导应用修复。无登录、免密或游客登录需求不会自动套用这些规则。
 
 AI 规划提示还要求按当前需求补充必填校验、取消不改已保存数据、刷新后持久化、失败操作不产生副作用和已声明的访问限制。控件、断言和前置数据仍由 DSL 校验；无法建立的条件会留下覆盖缺口。推导的不变量在 `review/cases.json` 和 `.arc/derived-coverage.json` 中标为 `baseline_invariant`，不会冒充官方测试或官方分数。
 
-自检修正默认最多请求 2 批，每个场景至多一轮修正；`OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS=0` 可关闭。独立审查仍受原有请求、累计时间和预检 token 预算限制，修正前预留一次再审查请求。预算耗尽的用例保持未验证，不阻塞应用代码生成。
+业务候选修正默认最多请求 2 批，每个场景至多一轮修正；`OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS=0` 可关闭。独立审核仍受原有请求、累计时间和 token 预算限制，修正前预留一次独立审核请求。业务缺口保持未验证并继续统计；基础未冻结、失败或测量不完整时必须阻塞后续节点。
 
 ## 改了内核怎么让平台用上
 

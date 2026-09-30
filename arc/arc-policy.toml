@@ -35,8 +35,7 @@
 [mode]
 codegen = true              # OCTOS_ARC_CODEGEN — one-request codegen turns for small trees
 codegen_max_nodes = 999      # OCTOS_ARC_CODEGEN_MAX_NODES — round 35: every node of any tree takes the single-request path (a node whose spec does not fit the context budget uses tool mode)
-small_task_nodes = 2        # OCTOS_SMALL_TASK_NODES — trees up to this size get the minimal self-verification text
-verify_mode = "auto"        # OCTOS_VERIFY_MODE — auto | minimal | full
+small_task_nodes = 2        # OCTOS_SMALL_TASK_NODES — small implementation request budget threshold
 skeleton_min_nodes = 3      # OCTOS_SKELETON_MIN_NODES — separate skeleton turn only for trees at least this big
 skeleton_always = false     # OCTOS_SKELETON_ALWAYS
 design_turn = true          # OCTOS_DESIGN_TURN
@@ -92,7 +91,7 @@ implement_override = ""    # OCTOS_ARC_IMPLEMENT_REASONING — first implement t
 max_tokens_min = 32768     # OCTOS_ARC_MAX_TOKENS — minimum max_tokens on chat requests
 destream = true            # OCTOS_ARC_DESTREAM — one JSON response upstream instead of SSE
 trim_prompt = true         # OCTOS_ARC_TRIM_PROMPT — drop ARC-irrelevant prompt sections / tool schemas (tool mode)
-drop_shell = true          # OCTOS_ARC_DROP_SHELL — no shell tools in minimal-verification turns
+drop_shell = true          # OCTOS_ARC_DROP_SHELL — omit shell tools from implementation turns
 transient_retries = 3      # retries of a turn on provider hiccups (503/429/timeouts)
 transient_backoff_seconds = 30
 probe_patience_seconds = 600  # wait for the endpoint to answer the start-up probe

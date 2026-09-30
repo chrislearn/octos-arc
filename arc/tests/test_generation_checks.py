@@ -415,6 +415,30 @@ class GenerationChecksTests(TestCase):
         self.assertEqual(run.call_args.args[0], ['npm', 'run', 'build'])
         self.assertEqual(result['checked'], ['frontend build'])
 
+    def test_generated_frontend_scope_error_is_caught_before_final_rehearsal(self):
+        page = self.root / 'frontend/src/pages/PullRequestDetailPage.jsx'
+        page.parent.mkdir(parents=True)
+        page.write_text('function Child() { return reviewerPickerOpen; }\n')
+        bindings = {'status': 'failed', 'total': 1, 'diagnostics': [
+            {'kind': 'undefined_binding', 'name': 'reviewerPickerOpen',
+             'file': 'src/pages/PullRequestDetailPage.jsx', 'line': 1}]}
+        with patch('runtime_diagnostics.frontend_binding_health', return_value=bindings):
+            result = check_batch(self.root, ['frontend/src/pages/PullRequestDetailPage.jsx'])
+        self.assertTrue(any('reviewerPickerOpen' in error for error in result['errors']))
+        self.assertIn('frontend bindings', result['checked'])
+
+    def test_generated_backend_scope_error_is_caught_before_final_rehearsal(self):
+        route = self.root / 'backend/routes/auth.js'
+        route.parent.mkdir(parents=True)
+        route.write_text('module.exports = app => app.get("/private", requireAuth);\n')
+        bindings = {'status': 'failed', 'total': 1, 'diagnostics': [
+            {'kind': 'undefined_binding', 'name': 'requireAuth',
+             'file': 'routes/auth.js', 'line': 1}]}
+        with patch('runtime_diagnostics.backend_binding_health', return_value=bindings):
+            result = check_batch(self.root, ['backend/routes/auth.js'])
+        self.assertTrue(any('requireAuth' in error for error in result['errors']))
+        self.assertIn('backend bindings', result['checked'])
+
     def test_timeout_is_not_misrepresented_as_code_failure(self):
         (self.root / 'backend/server.js').write_text('')
         with patch('generation_checks._bounded_run', side_effect=subprocess.TimeoutExpired('node', 1)):

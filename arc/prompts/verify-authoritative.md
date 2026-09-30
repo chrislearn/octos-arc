@@ -1,0 +1,1 @@
+Implement the requirement and preserve existing behavior. Do not generate, modify or run tests. The framework owns static checks, builds, service startup, browser health and frozen authoritative tests. Use the supplied frozen failure evidence for repairs.

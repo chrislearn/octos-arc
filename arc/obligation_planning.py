@@ -252,153 +252,159 @@ def obligation_prompt(sources, ancestry):
             + '\nLEAF ANCESTRY (every listed source needs coverage):\n' + json.dumps(ancestry))
 
 
+_COMPLEX_SOURCE = re.compile(
+    r'\b(?:if|unless|except|otherwise|either|both|before|after|without|and|or|not|never|'
+    r'cannot|can.t|won.t|doesn.t|isn.t|only|requires?|must|shall|'
+    r'fail\w*|reject\w*|den(?:y|ied|ies)\w*|'
+    r'permission\w*|authoriz\w*|persist\w*|atomic|transaction\w*|import|export|format|csv|json|'
+    r'error\w*|invalid|role|access|limit\w*)\b|[;,；，、]|如果|否则|当.+时|不能|不会|不得|'
+    r'不可|仅|只有|必须|禁止|失败|拒绝|权限|保存后|刷新后|同时|以及|\n\s*\S', re.I)
+
+
+def _uncovered_source_clauses(leaf, sources, ancestry, rows):
+    uncovered = []
+    for owner in ancestry.get(leaf, []):
+        for line in sources.get(owner, '').splitlines():
+            for clause in re.split(r'(?<=[.!?。！？])\s+', line.strip()):
+                clause = clause.strip()
+                if (len(clause) >= 12 and not _SCOPE_ONLY.search(clause)
+                        and not any(leaf in row.get('applies_to', []) and row.get('requirement_id') == owner
+                                    and clause in row.get('quote', '') for row in rows)):
+                    uncovered.append(f'{owner}: source clause not represented: {clause[:100]}')
+    return uncovered
+
+
+def _simple_obligations(sources, ancestry):
+    """Compile only unambiguous, single-clause source text without an LLM."""
+    proposals = []
+    for leaf, chain in ancestry.items():
+        for owner in chain:
+            quote = sources.get(owner, '').strip()
+            if not quote:
+                continue
+            if (len(quote) < 12 or len(quote) > 240 or _COMPLEX_SOURCE.search(quote)
+                    or len(re.findall(r'[.!?。！？]', quote)) > 1):
+                return None
+            proposals.append(dict(requirement_id=owner, applies_to=[leaf], quote=quote,
+                                  branch='success', outcome=quote))
+    rows, by_leaf, errors = parse_obligation_details(
+        json.dumps({'obligations': proposals, 'gaps': []}, ensure_ascii=False), sources, ancestry)
+    if errors or any(by_leaf.values()) or not rows:
+        return None
+    return rows
+
+
 def prepare_obligations(flow, nodes):
-    """Two bounded turns per small batch, with leaf-local admission."""
+    """One source-grounded planning pass; no model self-review or retry.
+
+    The independent *case* audit remains mandatory. A missing or ambiguous
+    obligation plan is debt, never permission to run an unreviewed test.
+    """
     tree = getattr(flow, 'requirement_tree', None)
     if not tree or not nodes:
         return
-    if not hasattr(flow, 'derived_obligation_status'):
-        flow.derived_obligation_status = {}
-    if not hasattr(flow, 'derived_obligations'):
-        flow.derived_obligations = []
-    max_attempts = 3 if getattr(flow, '_completeness_active', False) else 2
-    pending = [n for n in nodes if flow.derived_obligation_status.get(str(n['id']), {}).get('status') != 'reviewed'
-               and flow.derived_obligation_status.get(str(n['id']), {}).get('attempts', 0) < max_attempts]
+    flow.derived_obligation_status = getattr(flow, 'derived_obligation_status', {})
+    flow.derived_obligations = getattr(flow, 'derived_obligations', [])
+    pending = [node for node in nodes if str(node.get('id')) not in flow.derived_obligation_status
+               or flow.derived_obligation_status[str(node.get('id'))].get('attempts', 0) == 0]
     if not pending:
         return
-    path = flow.output_dir / 'derived-tests' / 'review' / 'obligations.json'
+    suite = getattr(flow, 'derived_tests_dir', None) or flow.output_dir / 'derived-tests'
+    path = suite / 'review' / 'obligations.json'
     path.parent.mkdir(parents=True, exist_ok=True)
-    for node in pending:
-        flow.derived_obligation_status.setdefault(str(node['id']), {'status': 'incomplete', 'errors': ['not yet reviewed'], 'attempts': 0})
-    phase_left = getattr(flow, 'derived_preflight_deadline', float('inf')) - time.monotonic()
-    # Two independent turns took about 200 seconds for one leaf in 8ea2.
-    # Keep a per-leaf allowance; the global and final-phase deadlines still win.
-    cap = max(0, int(os.environ.get('OCTOS_ARC_OBLIGATION_SECONDS',
-                                str(max(2400, len(getattr(flow, 'derived_nodes', nodes)) * 210)))))
-    spent = getattr(flow, 'derived_obligation_seconds', 0.0)
-    deadline = time.monotonic() + max(0, min(cap - spent, phase_left * .30,
-                                           flow.remaining() - flow.final_phase_reserve() - 600))
     started = time.monotonic()
-    parallel_results = None
-    try:
-        batch_size = max(1, min(6, int(os.environ.get('OCTOS_ARC_OBLIGATION_BATCH_LEAVES', '3'))))
-        batch_count = (len(pending) + batch_size - 1) // batch_size
-        batches = []
-        for offset in range(0, len(pending), batch_size):
-            batch = pending[offset:offset + batch_size]
-            ids = [str(n['id']) for n in batch]
-            sources, ancestry = source_scope(tree, ids)
-            batches.append((batch, ids, sources, ancestry, obligation_prompt(sources, ancestry)))
-        from spec_parallel import SpecRequest, reservation_tokens
-        jobs = []
-        jobs_by_batch = {}
-        for index, (_, ids, _, ancestry, prompt) in enumerate(batches):
-            if not ancestry or len(prompt) > flow.codegen_context_chars():
-                continue
-            job = SpecRequest(prompt, min(300, max(30, int((deadline - started) / max(1, 2 * batch_count)))),
-                              'derived obligation extraction',
-                              'You audit requirement contracts. Return one JSON object only.',
-                              reservation_tokens(prompt), deadline)
-            jobs.append(job)
-            jobs_by_batch[index] = job
-        pool = (flow.isolated_spec_requests(
-            len(jobs), allowed=lambda _job: deadline - time.monotonic() >= 60 and not flow.wound_down())
-            if hasattr(flow, 'isolated_spec_requests') else None)
-        parallel_results = pool.ordered(jobs) if pool is not None else None
-        first_parallel_reply = next(parallel_results) if parallel_results is not None else None
-        parallel_fallback = first_parallel_reply is None and parallel_results is not None
-        for batch_index, offset in enumerate(range(0, len(pending), batch_size)):
-            batch, ids, sources, ancestry, prompt = batches[batch_index]
-            if (deadline - time.monotonic() < 60 or flow.wound_down() or flow.review_budget_spent() or flow.derived_preflight_tokens_spent()
-                    or not ancestry):
-                continue
-            if len(prompt) > flow.codegen_context_chars():
-                for leaf in ids:
-                    flow.derived_obligation_status[leaf]['errors'] = ['insufficient_context']
-                continue
-            batch_deadline = min(deadline, time.monotonic() +
-                                 max(0, deadline - time.monotonic()) / (batch_count - batch_index))
-            flow.start_derived_designs(ids, 'extracting business test obligations')
-            replies, first_rows, rows = [], [], []
-            by_leaf, global_errors = {leaf: [] for leaf in ids}, []
-            first_parseable = False
-            for turn in range(2):
-                left = batch_deadline - time.monotonic()
-                if left < 30 or flow.derived_preflight_tokens_spent() or flow.wound_down() or flow.review_budget_spent():
-                    break
-                # A slow batch must not consume the review window of every
-                # sibling. Smaller output also avoids giant truncated JSON.
-                per_turn = min(300, max(30, left / (2 - turn)))
+    batch_size = max(1, min(6, int(os.environ.get('OCTOS_ARC_OBLIGATION_BATCH_LEAVES', '3'))))
+    for offset in range(0, len(pending), batch_size):
+        batch = pending[offset:offset + batch_size]
+        ids = [str(node.get('id')) for node in batch]
+        sources, ancestry = source_scope(tree, ids)
+        initial = getattr(flow, 'initial_test_planning_index', None) or {}
+        current_hash = hashlib.sha256(json.dumps(tree, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        imported = []
+        if initial.get('requirements_hash') == current_hash:
+            for item in initial.get('obligations', []):
+                if not isinstance(item, dict):
+                    continue
+                owner, quote = item.get('requirement_id'), item.get('quote')
+                if not isinstance(quote, str) or len(re.findall(r'[.!?。！？](?:\s|$)', quote)) > 1:
+                    continue  # whole paragraphs are not atomic reusable obligations
+                applies = item.get('applies_to') or [leaf for leaf, chain in ancestry.items() if owner in chain]
+                imported.append({**item, 'applies_to': applies})
+        seeded, seed_errors, seed_global = parse_obligation_details(
+            json.dumps({'obligations': imported, 'gaps': []}), sources, ancestry) if imported else ([], {}, [])
+        reused = bool(seeded) and not seed_global and not any(seed_errors.values()) and not any(
+            _uncovered_source_clauses(leaf, sources, ancestry, seeded) for leaf in ids)
+        rows = seeded if reused else _simple_obligations(sources, ancestry) if len(ancestry) == len(ids) else None
+        errors = {leaf: [] for leaf in ids}
+        global_errors = []
+        replies = []
+        if rows is None:
+            prompt = obligation_prompt(sources, ancestry)
+            if seeded:
+                prompt += ('\nALREADY SOURCE-GROUNDED OBLIGATIONS (retained by the harness):\n'
+                           + json.dumps(seeded, ensure_ascii=False)
+                           + '\nExtract only missing outcomes/branches and source clauses. Do not repeat retained obligations. '
+                             'They are merged before the same complete-source validation; report unresolved gaps.')
+            left = min(getattr(flow, 'derived_preflight_deadline', float('inf')) - time.monotonic(),
+                       flow.remaining() - flow.final_phase_reserve() - 600)
+            if (left >= 30 and len(prompt) <= flow.codegen_context_chars()
+                    and not flow.wound_down() and not flow.review_budget_spent()
+                    and not flow.derived_preflight_tokens_spent()):
+                flow.start_derived_designs(ids, 'extracting business test obligations')
                 flow.snapshot_protected()
-                prefetched = None
-                job = jobs_by_batch.get(batch_index) if not parallel_fallback and turn == 0 else None
-                if job is not None and parallel_results is not None:
-                    prefetched = first_parallel_reply if job is jobs[0] else next(parallel_results)
-                    if prefetched is None:
-                        parallel_fallback = True
-                if prefetched is not None:
-                    ok, reply = prefetched.ok, prefetched.text
-                else:
-                    ok, reply = flow.text_turn(prompt, per_turn,
-                        'derived obligation extraction' if turn == 0 else 'derived obligation independent review',
-                        system='You audit requirement contracts. Return one JSON object only.', spec_chars=len(prompt))
+                ok, reply = flow.text_turn(prompt, min(300, left), 'derived obligation extraction',
+                                           system='You audit requirement contracts. Return one JSON object only.',
+                                           spec_chars=len(prompt))
                 replies.append(str(reply))
-                rows, by_leaf, global_errors = (parse_obligation_details(reply, sources, ancestry) if ok else
-                                                ([], {leaf: [] for leaf in ids}, ['request unavailable']))
-                if turn == 0:
-                    first_rows = rows
-                    first_parseable = ok and bool(rows) and not any(error in global_errors for error in
-                        ('invalid JSON object', 'invalid JSON envelope', 'missing obligations array'))
-                    prompt += ('\nIndependently review and correct the SOURCE-GROUNDED CANDIDATES below. '
-                               'Compare every source clause for omissions, invented rules, merged error branches '
-                               'and lost format details. Return a COMPLETE corrected ledger in the same schema. '
-                               'An omitted ancestor or leaf is a coverage gap.\nCANDIDATES:\n'
-                               + json.dumps(first_rows, ensure_ascii=False)
-                               + '\nVALIDATION ERRORS:\n'
-                               + json.dumps(global_errors + [e for part in by_leaf.values() for e in part], ensure_ascii=False))
-                    if len(prompt) > flow.codegen_context_chars():
-                        global_errors.append('insufficient_context for independent review'); break
-            # Commit candidate rows before approving a leaf. If merging fails,
-            # exception recovery must not preserve a reviewed status without
-            # the corresponding obligation records.
-            if len(replies) == 2 and rows:
-                flow.derived_obligations = [row for row in flow.derived_obligations if not set(row['applies_to']) & set(ids)] + rows
-            for leaf in ids:
-                errors = global_errors + by_leaf.get(leaf, [])
-                warnings = [f'{source_id}: identical scenario outcome repeated in source'
-                            for source_id in ancestry.get(leaf, [])
-                            if repeated_source_text(sources.get(source_id, ''))]
-                if leaf not in ancestry:
-                    errors = [f'{leaf}: missing from requirement tree'] + errors
-                if not first_parseable:
-                    errors = ['initial extraction invalid or unavailable'] + errors
-                if len(replies) != 2:
-                    errors = ['independent review unavailable'] + errors
-                reviewed = len(replies) == 2 and first_parseable and not errors and bool(rows)
-                previous = flow.derived_obligation_status.get(leaf, {})
-                flow.derived_obligation_status[leaf] = {
-                    'status': 'reviewed' if reviewed else 'incomplete',
-                    'errors': errors, 'warnings': warnings,
-                    'attempts': previous.get('attempts', 0) + 1,
-                    'candidate_obligations': sum(leaf in row['applies_to'] for row in rows)}
-            # Sourced candidates remain visible as debt; only a fully audited
-            # leaf can execute them or use them as repair authority.
-            errors = global_errors + [e for part in by_leaf.values() for e in part]
-            (path.parent / ('obligation-' + hashlib.sha256('|'.join(ids).encode()).hexdigest()[:12] + '.json')).write_text(
-                json.dumps({'leaves': ids, 'replies': replies, 'errors': errors,
-                            'node_status': {leaf: flow.derived_obligation_status[leaf] for leaf in ids}},
-                           ensure_ascii=False, indent=2))
-            flow.metric('derived_obligations', nodes=ids,
-                        reviewed=[leaf for leaf in ids if flow.derived_obligation_status[leaf]['status'] == 'reviewed'],
-                        obligations=len(rows), errors=errors)
-    finally:
-        if parallel_results is not None:
-            parallel_results.close()
-        flow.derived_obligation_seconds = spent + time.monotonic() - started
-        report = json.dumps({'version': 1, 'obligations': flow.derived_obligations,
-            'nodes': flow.derived_obligation_status, 'seconds': flow.derived_obligation_seconds}, ensure_ascii=False, indent=2)
-        path.write_text(report)
-        design_dir = flow.output_dir / 'design'
-        design_dir.mkdir(exist_ok=True)
-        (design_dir / 'test-obligations.json').write_text(report)
-        flow.snapshot_protected()
+                if ok:
+                    if seeded:
+                        try:
+                            raw = str(reply).strip()
+                            if raw.startswith('```'):
+                                raw = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw)
+                            body = json.loads(raw)
+                            if isinstance(body, dict) and isinstance(body.get('obligations'), list):
+                                body['obligations'] = seeded + body['obligations']
+                                reply = json.dumps(body, ensure_ascii=False)
+                        except (ValueError, TypeError):
+                            pass
+                    rows, parsed_errors, global_errors = parse_obligation_details(reply, sources, ancestry)
+                    errors.update(parsed_errors)
+                else:
+                    global_errors = ['request unavailable']
+            else:
+                global_errors = ['insufficient planning budget or context']
+        valid_rows = rows or []
+        # Commit sourced candidates, even when one leaf has an explicit gap.
+        flow.derived_obligations = [row for row in flow.derived_obligations
+                                    if not set(row.get('applies_to') or []).intersection(ids)] + valid_rows
+        for leaf in ids:
+            issues = global_errors + errors.get(leaf, [])
+            if leaf not in ancestry:
+                issues = ['missing from requirement tree'] + issues
+            selected = [row for row in valid_rows if leaf in row.get('applies_to', [])]
+            if not selected:
+                issues = ['no source-grounded obligations'] + issues
+            issues.extend(_uncovered_source_clauses(leaf, sources, ancestry, valid_rows))
+            flow.derived_obligation_status[leaf] = {
+                'status': 'source_grounded' if not issues else 'incomplete',
+                'errors': issues, 'attempts': 1, 'candidate_obligations': len(selected),
+                'method': ('reused_initial' if reused else 'mechanical' if not replies and rows is not None else
+                           'model_once' if replies else 'not_attempted'),
+            }
+        (path.parent / ('obligation-' + hashlib.sha256('|'.join(ids).encode()).hexdigest()[:12] + '.json')).write_text(
+            json.dumps({'leaves': ids, 'replies': replies, 'errors': global_errors,
+                        'node_status': {leaf: flow.derived_obligation_status[leaf] for leaf in ids}},
+                       ensure_ascii=False, indent=2))
+        flow.metric('derived_obligations', nodes=ids,
+                    grounded=[leaf for leaf in ids if flow.derived_obligation_status[leaf]['status'] == 'source_grounded'],
+                    obligations=len(valid_rows), errors=global_errors)
+    flow.derived_obligation_seconds = getattr(flow, 'derived_obligation_seconds', 0.0) + time.monotonic() - started
+    report = json.dumps({'version': 1, 'obligations': flow.derived_obligations,
+                         'nodes': flow.derived_obligation_status, 'seconds': flow.derived_obligation_seconds},
+                        ensure_ascii=False, indent=2)
+    path.write_text(report)
+    design_dir = flow.output_dir / 'design'
+    design_dir.mkdir(exist_ok=True)
+    (design_dir / 'test-obligations.json').write_text(report)
+    flow.snapshot_protected()

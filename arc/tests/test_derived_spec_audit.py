@@ -111,7 +111,6 @@ class GeneratedSpecRepairTests(unittest.TestCase):
         self.assertEqual(fixed.source, source)
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class FlowAuditTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()

@@ -155,6 +155,8 @@ class TestOutcome:
     action_errors: list[str] = field(default_factory=list)
     context_path: str = ""  # Playwright's error-context.md for this failure
     rendered_page: str = ""  # its accessibility snapshot, filled in by the runner
+    spec_path: str = ""     # full relative spec path, including immutable publication version
+    spec_line: int | None = None  # declaration line; error location is kept separately above
 
 
 @dataclass
@@ -231,6 +233,8 @@ def summarize_report(report: dict) -> RunSummary:
                     title=spec.get("title", "?"), ok=ok, status=last.get("status", "unknown"),
                     duration_ms=int(sum(r.get("duration", 0) for r in results)),
                     file=Path(spec.get("file") or file or loc_file or "").name,
+                    spec_path=str(spec.get("file") or file or loc_file or ""),
+                    spec_line=spec.get("line"),
                     line=loc.get("line"),
                     location=f"{loc_file}:{loc.get('line')}" if loc_file and loc.get("line") else loc_file,
                     message=_ANSI.sub("", str(err.get("message") or "") + "\n" + "\n".join(
@@ -1290,11 +1294,22 @@ class AcceptanceRunner:
                       and digest(block) == row["test_hash"]}
             if policy is not None and self.tests_dir.resolve() == policy.directory:
                 titles.update(getattr(self, "case_exclusions", {}).get(rel, ()))
+            includes = getattr(self, "case_inclusions", {}).get(rel)
             if titles:
                 self._quarantined[rel] = titles
                 source += ("\ntest.beforeEach(({}, info) => { test.skip("
                            + json.dumps(sorted(titles)) + ".includes(info.title), "
                            + json.dumps("Harness: generated case excluded from execution") + "); });\n")
+            if includes is not None:
+                # Bind selection to Playwright's actual discovery, including
+                # nested suites and parametrized/double-quoted declarations.
+                alias = "__arcFrozenSelection"
+                while alias in source:
+                    alias += "_"
+                source += (f"\nimport {{ test as {alias} }} from '@playwright/test';\n"
+                           + f"{alias}.beforeEach(({{}}, info) => {{ {alias}.skip(!"
+                           + json.dumps(includes) + ".some(row => row.title === info.title && "
+                           + "(row.line == null || row.line === info.line)), 'Harness: outside frozen selection'); });\n")
             alias = "__octosObservePageErrors"
             while alias in source:
                 alias += "_"
@@ -1359,6 +1374,38 @@ class AcceptanceRunner:
             return False, f"playwright could not start: {exc}"
         tail = _ANSI.sub("", (r.stdout or "") + (r.stderr or ""))[-1500:]
         return r.returncode == 0, "" if r.returncode == 0 else tail
+
+    def discover_cases(self, spec_rel_paths: list[str], wall_timeout: int = 120) -> tuple[list[dict], str]:
+        """Discover the exact immutable selection without executing any tests."""
+        config = self._prepare(1)
+        cmd = [str(self.root / "node_modules/.bin/playwright"), "test", "-c", str(config),
+               "--list", "--reporter=json", *[str(self.work_dir / "tests" / p) for p in spec_rel_paths]]
+        env = dict(os.environ, E2E_BASE_URL="http://127.0.0.1:1", CI="1",
+                   NODE_PATH=str(self.root / "node_modules"), **self.env_extra)
+        env.pop("FORCE_COLOR", None)
+        try:
+            result = subprocess.run(cmd, cwd=self.work_dir, env=env, capture_output=True,
+                                    text=True, timeout=wall_timeout)
+            if result.returncode:
+                return [], _ANSI.sub("", result.stdout + result.stderr)[-1500:]
+            report = json.loads(result.stdout)
+            if report.get("errors"):
+                return [], str(report["errors"])[-1500:]
+            rows = []
+            def visit(suites, inherited=""):
+                for suite in suites:
+                    file = suite.get("file") or inherited
+                    for spec in suite.get("specs", []):
+                        path = str(spec.get("file") or file).replace("\\", "/")
+                        rel = next((p for p in spec_rel_paths if path == p or path.endswith("/" + p)), None)
+                        if rel is None:
+                            raise ValueError("discovery returned a spec outside the requested manifest")
+                        rows.append({"file": rel, "title": spec["title"], "line": spec.get("line")})
+                    visit(suite.get("suites", []), file)
+            visit(report.get("suites", []))
+            return (rows, "") if rows else ([], "Playwright discovered no cases")
+        except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
+            return [], f"Playwright discovery unavailable: {exc}"
 
     def run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900,
             workers: int | None = None) -> RunSummary:
@@ -1425,6 +1472,13 @@ class AcceptanceRunner:
                 if matches and row.status == "skipped":
                     summary.results[i] = replace(row, ok=False, status="quarantined",
                                                 message="Invalid generated test; not a pass")
+                includes = getattr(self, "case_inclusions", {})
+                rel = next((p for p in includes if row.spec_path == p or row.spec_path.endswith("/" + p)), None)
+                if rel is not None and row.status == "skipped" and not any(
+                        item['title'] == row.title and (item.get('line') is None or item['line'] == row.spec_line)
+                        for item in includes[rel]):
+                    summary.results[i] = replace(row, ok=False, status="quarantined",
+                                                message="Harness: outside frozen selection")
             summary.passed = sum(row.ok for row in summary.results)
         except (OSError, json.JSONDecodeError) as exc:
             return RunSummary(error=f"unreadable playwright report: {exc}")

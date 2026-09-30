@@ -1,4 +1,4 @@
-//! Mode selection for a run (`Flow.codegen_mode`, `minimal_mode`, skeleton
+//! Mode selection for a run (`Flow.codegen_mode`, implementation budgets, skeleton
 //! and design gates, reasoning auto level, contract keyword gates).
 
 use eyre::{Result, bail};
@@ -14,8 +14,6 @@ pub struct RunPlan {
     pub evolution: bool,
     /// One-request codegen turns for the whole tree.
     pub codegen: bool,
-    /// Minimal self-verification text / no shell in tool turns.
-    pub minimal_verify: bool,
     pub wants_skeleton: bool,
     pub design_enabled: bool,
     pub design_inline: bool,
@@ -44,8 +42,6 @@ impl RunPlan {
         let text = serde_json::to_string(tree)
             .unwrap_or_default()
             .to_lowercase();
-        let minimal_verify = policy.mode.verify_mode == "minimal"
-            || (policy.mode.verify_mode != "full" && n_nodes <= policy.mode.small_task_nodes);
         let design_enabled = policy.mode.design_turn && n_nodes >= policy.mode.design_min_nodes;
         let codegen = policy.mode.codegen && n_nodes <= policy.mode.codegen_max_nodes;
         let mut plan = Self {
@@ -53,7 +49,6 @@ impl RunPlan {
             nodes_to_implement,
             evolution,
             codegen,
-            minimal_verify,
             // Round 35: in codegen mode the harness manifests replace the skeleton turn.
             wants_skeleton: !evolution
                 && (n_nodes >= policy.mode.skeleton_min_nodes || policy.mode.skeleton_always)
@@ -95,12 +90,13 @@ impl RunPlan {
         } else {
             parse_mode(&policy.reasoning.mode)?
         };
-        self.implement_reasoning =
-            if !policy.reasoning.implement_override.is_empty() && self.minimal_verify {
-                parse_mode(&policy.reasoning.implement_override)?
-            } else {
-                self.base_reasoning
-            };
+        self.implement_reasoning = if !policy.reasoning.implement_override.is_empty()
+            && self.n_nodes <= policy.mode.small_task_nodes
+        {
+            parse_mode(&policy.reasoning.implement_override)?
+        } else {
+            self.base_reasoning
+        };
         Ok(())
     }
 
@@ -125,9 +121,7 @@ mod tests {
         let policy = Policy::default();
         let tree = json!({"id": "ROOT", "children": [{"id": "REQ-1", "description": "a counter"}]});
         let plan = RunPlan::new(&policy, &tree, 1, 1, false).unwrap();
-        assert!(
-            plan.codegen && plan.minimal_verify && !plan.wants_skeleton && !plan.design_enabled
-        );
+        assert!(plan.codegen && !plan.wants_skeleton && !plan.design_enabled);
         assert_eq!(plan.base_reasoning, ReasoningMode::Disabled);
         assert_eq!(
             plan.reasoning_for("REQ-1 implement"),
@@ -144,7 +138,7 @@ mod tests {
         policy.reasoning.implement_override = "none".into();
         let tree = json!({"id": "ROOT", "children": [{"id": "REQ-1", "description": "登录 with a dropdown"}, {"id": "REQ-2"}]});
         let plan = RunPlan::new(&policy, &tree, 2, 2, false).unwrap();
-        assert!(plan.codegen && plan.minimal_verify);
+        assert!(plan.codegen);
         assert_eq!(plan.base_reasoning, ReasoningMode::Low);
         assert_eq!(
             plan.reasoning_for("REQ-1 implement"),
@@ -165,13 +159,7 @@ mod tests {
             ReasoningMode::Disabled
         );
         // Round 35: every tree size takes codegen; the manifests replace the skeleton turn.
-        assert!(
-            plan.codegen
-                && !plan.minimal_verify
-                && !plan.wants_skeleton
-                && plan.design_enabled
-                && plan.design_inline
-        );
+        assert!(plan.codegen && !plan.wants_skeleton && plan.design_enabled && plan.design_inline);
         let mut tool_policy = Policy::default();
         tool_policy.mode.codegen_max_nodes = 2;
         let tool = RunPlan::new(&tool_policy, &tree, 32, 32, false).unwrap();

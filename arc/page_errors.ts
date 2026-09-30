@@ -2,6 +2,19 @@
 import { test } from '@playwright/test';
 export function register() {
   test.use({ context: async ({ context }, use, testInfo) => {
+    // Keep only modifier shortcuts, never typed text or clipboard contents.
+    // This runs before the app installs its handlers and does not cancel events.
+    await context.addInitScript(() => {
+      const shortcuts: Array<{ key: string; ctrl: boolean; meta: boolean; target: string; at: number }> = [];
+      (window as any).__octosShortcutEvents = shortcuts;
+      document.addEventListener('keydown', event => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        if (!['c', 'x', 'v', 'z', 'y'].includes(event.key.toLowerCase())) return;
+        shortcuts.push({ key: event.key, ctrl: event.ctrlKey, meta: event.metaKey,
+          target: event.target instanceof Element ? event.target.tagName : '', at: Date.now() });
+        if (shortcuts.length > 8) shortcuts.shift();
+      }, true);
+    });
     const observations: any[] = [];
     const counts = new Map<string, number>();
     const observe = (kind, page, message, extra = {}) => {
@@ -16,6 +29,7 @@ export function register() {
     let remaining = 8;
     const responseShapes = new Map();
     const listeners = new Map();
+    const mutationRequests = new Map();
     const attach = page => {
       if (listeners.has(page)) return;
       const report = message => {
@@ -24,6 +38,18 @@ export function register() {
       const onError = error => { observe('pageerror', page, error.stack || error); report(error.stack || error); };
       const onRequestFailed = request => observe('request_failed', page,
         request.failure()?.errorText || 'request failed', { resourceType: request.resourceType() });
+      const onRequest = request => {
+        if (!['PUT', 'POST', 'PATCH', 'DELETE'].includes(request.method())
+            || !['fetch', 'xhr'].includes(request.resourceType())) return;
+        try {
+          const url = new URL(request.url());
+          if (!url.pathname.startsWith('/api/') || url.origin !== new URL(page.url()).origin) return;
+          const recent = mutationRequests.get(page) || [];
+          recent.push({ at: Date.now(), method: request.method(), path: url.pathname });
+          if (recent.length > 16) recent.shift();
+          mutationRequests.set(page, recent);
+        } catch (_) { /* The page may be navigating. */ }
+      };
       // A generated app does most of its work over fetch/XHR, so a failing API
       // call is what empties a list; reporting navigations alone said nothing
       // about it. One line per distinct method+status+path: a view that reloads
@@ -77,8 +103,9 @@ export function register() {
         reported.add(text);
         report('Console error: ' + text);
       };
-      listeners.set(page, { onError, onResponse, onConsole, onRequestFailed });
+      listeners.set(page, { onError, onResponse, onConsole, onRequestFailed, onRequest });
       page.on('pageerror', onError);
+      page.on('request', onRequest);
       page.on('response', onResponse);
       page.on('console', onConsole);
       page.on('requestfailed', onRequestFailed);
@@ -99,6 +126,19 @@ export function register() {
             console.error('__OCTOS_PAGE_ERROR__' + JSON.stringify(
               `Page URL at failure: ${url.origin}${url.pathname}`));
           } catch (_) { /* A page may already have closed. */ }
+          try {
+            const shortcuts = await page.evaluate(() => (window as any).__octosShortcutEvents || []);
+            if (shortcuts.length) {
+              console.error('__OCTOS_PAGE_ERROR__' + JSON.stringify(
+                `Shortcut keydown events before failure: ${JSON.stringify(shortcuts.map(
+                  ({at, ...event}) => event))}`));
+              const after = (mutationRequests.get(page) || []).filter(
+                request => request.at >= shortcuts[shortcuts.length - 1].at);
+              console.error('__OCTOS_PAGE_ERROR__' + JSON.stringify(
+                `Same-origin /api mutation requests after final shortcut keydown: ${after.length
+                  ? after.map(({method, path}) => `${method} ${path}`).join(', ') : 'none'}`));
+            }
+          } catch (_) { /* Optional diagnostics cannot change the verdict. */ }
         }
         for (const shape of responseShapes.values()) {
           if (shape && remaining-- > 0) console.error('__OCTOS_PAGE_ERROR__' + JSON.stringify(shape));
@@ -107,6 +147,7 @@ export function register() {
       context.off('page', attach);
       for (const [page, listener] of listeners) {
         page.off('pageerror', listener.onError);
+        page.off('request', listener.onRequest);
         page.off('response', listener.onResponse);
         page.off('console', listener.onConsole);
         page.off('requestfailed', listener.onRequestFailed);

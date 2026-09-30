@@ -6,7 +6,7 @@ and install them into the protected test suite.
 from __future__ import annotations
 
 from queue import Empty, Queue
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 import time
 from typing import Callable, Iterable
 
@@ -15,6 +15,8 @@ class DerivedSpecPipeline:
     def __init__(self, batches: Iterable[list[dict]], run_batch: Callable[[list[dict]], dict]):
         self._ready: Queue[dict] = Queue()
         self._stop = Event()
+        self._batch_lock = Lock()
+        self._started_ids: set[str] = set()
         self._resume = Event()
         self._resume.set()
         self._batches = list(batches)
@@ -26,10 +28,19 @@ class DerivedSpecPipeline:
     def stopping(self) -> bool:
         return self._stop.is_set()
 
+    @property
+    def started_ids(self) -> set[str]:
+        with self._batch_lock:
+            return set(self._started_ids)
+
     def _run(self) -> None:
         for batch in self._batches:
             if not self.wait_until_resumed(float('inf')):
                 break
+            with self._batch_lock:
+                if self._stop.is_set():
+                    break
+                self._started_ids.update(str(node.get('id')) for node in batch)
             try:
                 result = self._run_batch(batch)
             except Exception as exc:
@@ -62,6 +73,7 @@ class DerivedSpecPipeline:
         return not self._thread.is_alive()
 
     def close(self, timeout: float = 0.0) -> None:
-        self._stop.set()
+        with self._batch_lock:
+            self._stop.set()
         self._resume.set()
         self._thread.join(max(0.0, timeout))

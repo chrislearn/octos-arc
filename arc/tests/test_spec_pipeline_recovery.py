@@ -27,7 +27,6 @@ def case():
                                       {'op': 'expect_visible', 'target': 'Completed result'}]}
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class PipelineRecovery(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
@@ -88,38 +87,38 @@ class PipelineRecovery(unittest.TestCase):
         self.assertEqual({tuple(row['applies_to']) for row in rows}, {('A',)})
         self.flow.text_turn = Mock(return_value=(True, json.dumps(reply)))
         prepare_obligations(self.flow, [self.tree['children'][0]])
-        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'reviewed')
+        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'source_grounded')
         self.assertNotIn('C', self.flow.derived_obligation_status)
         self.assertTrue(reviewed_obligations_intact(self.flow, 'A'))
 
-    def test_two_independent_turns_feed_parent_and_leaf_obligations_to_tests(self):
+    def test_one_extraction_feeds_parent_and_leaf_obligations_to_independent_case_audit(self):
         self.flow.text_turn = Mock(return_value=(True, self.reply()))
         prepare_obligations(self.flow, self.tree['children'])
-        self.assertEqual(self.flow.text_turn.call_count, 2)
-        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'reviewed')
+        self.assertEqual(self.flow.text_turn.call_count, 1)
+        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'source_grounded')
         self.assertEqual(len(applicable_obligations(self.flow, 'A')), 2)
         saved = json.loads((self.root/'derived-tests/review/obligations.json').read_text())
         self.assertEqual(len(saved['obligations']), 2)
         prepare_obligations(self.flow, self.tree['children'])
-        self.assertEqual(self.flow.text_turn.call_count, 2)
+        self.assertEqual(self.flow.text_turn.call_count, 1)
 
-    def test_failed_independent_review_retains_gap_and_never_approves_proposal(self):
-        self.flow.text_turn = Mock(side_effect=[(True, self.reply()), (False, 'timeout')])
+    def test_failed_extraction_retains_gap_and_never_approves_proposal(self):
+        self.flow.text_turn = Mock(return_value=(False, 'timeout'))
         prepare_obligations(self.flow, self.tree['children'])
         self.assertEqual(self.flow.derived_obligations, [])
         self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
 
-    def test_partial_independent_review_keeps_valid_sourced_candidates_as_debt(self):
+    def test_partial_extraction_keeps_valid_sourced_candidates_as_debt(self):
         proposal = json.loads(self.reply())
         proposal['gaps'] = ['unresolved status for malformed request']
-        self.flow.text_turn = Mock(side_effect=[(True, self.reply()), (True, json.dumps(proposal))])
+        self.flow.text_turn = Mock(return_value=(True, json.dumps(proposal)))
         prepare_obligations(self.flow, self.tree['children'])
         self.assertEqual(len(self.flow.derived_obligations), 2)
         self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
         self.assertIn('semantic gap', self.flow.derived_obligation_status['A']['errors'][0])
 
-    def test_bad_sibling_does_not_veto_reviewed_leaf_or_change_its_ids_on_retry(self):
-        tree = {'id': 'ROOT', 'description': 'Every saved record survives a page refresh.', 'children': [
+    def test_bad_sibling_does_not_veto_sourced_leaf_or_trigger_another_extraction(self):
+        tree = {'id': 'ROOT', 'description': 'Every saved record must survive a page refresh.', 'children': [
             {'id': 'A', 'description': 'Creating a record shows it in the list.'},
             {'id': 'B', 'description': 'Deleting a record removes it from the list.'}]}
         self.flow.requirement_tree = tree
@@ -136,21 +135,20 @@ class PipelineRecovery(unittest.TestCase):
             if only_b:
                 rows = [{**rows[0], 'applies_to': ['B']}, rows[2]]
             return json.dumps({'obligations': rows, 'gaps': []})
-        self.flow.text_turn = Mock(side_effect=[(True, ledger()), (True, ledger(True)),
-                                                (True, ledger(only_b=True)), (True, ledger(only_b=True))])
+        self.flow.text_turn = Mock(return_value=(True, ledger(True)))
         prepare_obligations(self.flow, tree['children'])
-        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'reviewed')
+        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'source_grounded')
         self.assertEqual(self.flow.derived_obligation_status['B']['status'], 'incomplete')
         a_ids = {row['id'] for row in applicable_obligations(self.flow, 'A')}
         self.assertEqual(len(a_ids), 2)
         prepare_obligations(self.flow, tree['children'])
-        self.assertEqual(self.flow.derived_obligation_status['B']['status'], 'reviewed')
+        self.assertEqual(self.flow.derived_obligation_status['B']['status'], 'incomplete')
         self.assertEqual({row['id'] for row in applicable_obligations(self.flow, 'A')}, a_ids)
-        self.assertEqual(len(applicable_obligations(self.flow, 'B')), 2)
-        self.assertEqual(self.flow.text_turn.call_count, 4)
+        self.assertEqual(len(applicable_obligations(self.flow, 'B')), 1)
+        self.assertEqual(self.flow.text_turn.call_count, 1)
 
     def test_leaf_scoped_gap_does_not_block_unrelated_leaf(self):
-        tree = {'id': 'ROOT', 'description': 'Every saved record survives a page refresh.', 'children': [
+        tree = {'id': 'ROOT', 'description': 'Every saved record must survive a page refresh.', 'children': [
             {'id': 'A', 'description': 'Creating a record shows it in the list.'},
             {'id': 'B', 'description': 'Deleting a record removes it from the list.'}]}
         self.flow.requirement_tree = tree
@@ -161,24 +159,24 @@ class PipelineRecovery(unittest.TestCase):
             'gaps': [{'applies_to': ['B'], 'reason': 'Unresolved deletion permission behavior'}]})
         self.flow.text_turn = Mock(return_value=(True, reply))
         prepare_obligations(self.flow, tree['children'])
-        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'reviewed')
+        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'source_grounded')
         self.assertEqual(self.flow.derived_obligation_status['B']['status'], 'incomplete')
         self.assertTrue(any('semantic gap' in error for error in self.flow.derived_obligation_status['B']['errors']))
 
     def test_missing_tree_leaf_cannot_inherit_siblings_review(self):
         self.flow.text_turn = Mock(return_value=(True, self.reply()))
         prepare_obligations(self.flow, [self.tree['children'][0], {'id': 'Z'}])
-        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'reviewed')
+        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'source_grounded')
         self.assertEqual(self.flow.derived_obligation_status['Z']['status'], 'incomplete')
-        self.assertIn('missing from requirement tree', self.flow.derived_obligation_status['Z']['errors'][0])
+        self.assertIn('missing from requirement tree', self.flow.derived_obligation_status['Z']['errors'])
 
-    def test_row_merge_failure_cannot_publish_reviewed_status(self):
+    def test_unrelated_broken_prior_row_does_not_approve_missing_leaf(self):
         self.flow.derived_obligation_status = {'A': {'status': 'incomplete', 'errors': [], 'attempts': 0}}
         self.flow.derived_obligations = [{'broken': 'prior artifact'}]
-        self.flow.text_turn = Mock(return_value=(True, self.reply()))
-        with self.assertRaises(KeyError):
-            prepare_obligations(self.flow, self.tree['children'])
+        self.flow.text_turn = Mock(return_value=(False, 'unavailable'))
+        prepare_obligations(self.flow, self.tree['children'])
         self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
+        self.assertFalse(reviewed_obligations_intact(self.flow, 'A'))
 
     def test_reviewed_flag_without_source_rows_does_not_open_test_gate(self):
         self.flow.derived_as_specs = True
@@ -200,22 +198,22 @@ class PipelineRecovery(unittest.TestCase):
 
     def test_zero_budget_marks_missing_plan_without_model_call(self):
         self.flow.text_turn = Mock()
-        with patch.dict(os.environ, {'OCTOS_ARC_OBLIGATION_SECONDS': '0'}):
+        with patch.object(self.flow, 'remaining', return_value=0):
             prepare_obligations(self.flow, self.tree['children'])
         self.flow.text_turn.assert_not_called()
         self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
 
-    def test_obligation_retry_is_bounded_and_debt_remains_visible(self):
+    def test_obligation_extraction_is_once_and_debt_remains_visible(self):
         self.flow.text_turn = Mock(return_value=(True, '{"obligations":[],"gaps":[]}'))
         for _ in range(3):
             prepare_obligations(self.flow, self.tree['children'])
-        self.assertEqual(self.flow.text_turn.call_count, 4)
-        self.assertEqual(self.flow.derived_obligation_status['A']['attempts'], 2)
+        self.assertEqual(self.flow.text_turn.call_count, 1)
+        self.assertEqual(self.flow.derived_obligation_status['A']['attempts'], 1)
         self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
         self.flow._completeness_active = True
         prepare_obligations(self.flow, self.tree['children'])
-        self.assertEqual(self.flow.text_turn.call_count, 6)
-        self.assertEqual(self.flow.derived_obligation_status['A']['attempts'], 3)
+        self.assertEqual(self.flow.text_turn.call_count, 1)
+        self.assertEqual(self.flow.derived_obligation_status['A']['attempts'], 1)
 
     def test_valid_sibling_retained_but_partial_scenario_never_covers(self):
         t = target(); proposal = {'id': 'S1', 'cases': [case(), {'skip': 'missing fixture'}]}
@@ -273,14 +271,14 @@ class PipelineRecovery(unittest.TestCase):
     def test_review_count_budget_can_audit_all_branches_but_honors_explicit_cap(self):
         self.flow.derived_as_specs = True; self.flow.max_turns = 188
         self.flow.planned_derived_scenarios = Mock(return_value=[target()] * 89)
-        self.assertGreaterEqual(self.flow.case_review_cap(), 89 * 8 * 2)
+        self.assertGreaterEqual(self.flow.case_review_cap(), (89 * 8 + 2) // 3)
         self.flow.review_turn_count = 188
         self.assertFalse(self.flow.review_budget_spent())
         with patch.dict(os.environ, {'OCTOS_ARC_REVIEW_TURNS': '188'}):
             self.assertTrue(self.flow.review_budget_spent())
         with patch.dict(os.environ, {'OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS': '5'}):
             self.assertEqual(self.flow.case_review_cap(), 5)
-        self.assertLessEqual(self.flow.case_review_seconds(), 10800)
+        self.assertLessEqual(self.flow.case_review_seconds(), 7200)
 
     def test_reviewed_rejection_only_ledger_does_not_demand_invented_success_branch(self):
         sources, ancestry = source_scope(self.tree, ['A'])
@@ -492,10 +490,11 @@ class PipelineRecovery(unittest.TestCase):
         self.assertFalse(reviewed_obligations_intact(self.flow, 'B'))
         self.flow.text_turn = Mock(return_value=(True, self.reply()))
         prepare_obligations(self.flow, [nodes[0]])
-        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'reviewed')
+        self.flow.text_turn.assert_not_called()  # prior failed planning remains once-only
+        self.assertEqual(self.flow.derived_obligation_status['A']['status'], 'incomplete')
         self.assertEqual(self.flow.derived_obligation_status['B']['status'], 'incomplete')
 
-    def test_initial_audit_leaves_time_for_correction_and_reaudit(self):
+    def test_initial_audit_uses_remaining_window_without_correction(self):
         nodes = self.tree['children']; observed = []
         self.flow.derived_as_specs = True; self.flow.derived_nodes = nodes
         self.flow.derived_tests_dir = self.root/'derived-tests'
@@ -507,10 +506,8 @@ class PipelineRecovery(unittest.TestCase):
         self.flow.correct_derived_cases = Mock(side_effect=lambda *a: observed.append(self.flow.derived_preflight_deadline) or {'A'})
         with patch('main.prepare_obligations'), patch.dict(os.environ, {'OCTOS_ARC_DRYRUN': '0', 'OCTOS_ARC_DERIVED_LLM': '1'}):
             self.flow.prepare_derived_spec_batch(nodes)
-        self.assertEqual(len(observed), 3)
-        self.assertLess(observed[0], deadline - 400)
-        self.assertLess(observed[1], deadline - 300)
-        self.assertEqual(observed[2], deadline)
+        self.assertEqual(observed, [deadline])
+        self.flow.correct_derived_cases.assert_not_called()
         self.assertEqual(self.flow.derived_preflight_deadline, deadline)
 
 

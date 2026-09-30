@@ -27,7 +27,7 @@ pub struct Policy {
     pub debug: DebugPolicy,
 }
 
-/// Which turn shapes a tree gets (`Flow.codegen_mode`, `minimal_mode`,
+/// Which turn shapes a tree gets (`Flow.codegen_mode`,
 /// skeleton/design gates in `arc/main.py`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -36,10 +36,8 @@ pub struct ModePolicy {
     pub codegen: bool,
     /// Trees up to this many ATOMIC nodes use codegen (`OCTOS_ARC_CODEGEN_MAX_NODES`).
     pub codegen_max_nodes: usize,
-    /// Trees up to this size get the minimal self-verification text (`OCTOS_SMALL_TASK_NODES`).
+    /// Trees up to this size use the small implementation request budget (`OCTOS_SMALL_TASK_NODES`).
     pub small_task_nodes: usize,
-    /// auto | minimal | full (`OCTOS_VERIFY_MODE`).
-    pub verify_mode: String,
     /// Separate skeleton turn only for trees with at least this many nodes (`OCTOS_SKELETON_MIN_NODES`).
     pub skeleton_min_nodes: usize,
     /// Always run the skeleton turn (`OCTOS_SKELETON_ALWAYS`).
@@ -62,7 +60,6 @@ impl Default for ModePolicy {
             codegen: true,
             codegen_max_nodes: 999,
             small_task_nodes: 2,
-            verify_mode: "auto".into(),
             skeleton_min_nodes: 3,
             skeleton_always: false,
             design_turn: true,
@@ -423,7 +420,6 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("OCTOS_ARC_CODEGEN", "mode.codegen"),
     ("OCTOS_ARC_CODEGEN_MAX_NODES", "mode.codegen_max_nodes"),
     ("OCTOS_SMALL_TASK_NODES", "mode.small_task_nodes"),
-    ("OCTOS_VERIFY_MODE", "mode.verify_mode"),
     ("OCTOS_SKELETON_MIN_NODES", "mode.skeleton_min_nodes"),
     ("OCTOS_SKELETON_ALWAYS", "mode.skeleton_always"),
     ("OCTOS_DESIGN_TURN", "mode.design_turn"),
@@ -564,7 +560,6 @@ impl Policy {
             "mode.codegen" => self.mode.codegen = parse_bool(raw)?,
             "mode.codegen_max_nodes" => self.mode.codegen_max_nodes = parse(raw, key)?,
             "mode.small_task_nodes" => self.mode.small_task_nodes = parse(raw, key)?,
-            "mode.verify_mode" => self.mode.verify_mode = raw.trim().into(),
             "mode.skeleton_min_nodes" => self.mode.skeleton_min_nodes = parse(raw, key)?,
             "mode.skeleton_always" => self.mode.skeleton_always = parse_bool(raw)?,
             "mode.design_turn" => self.mode.design_turn = parse_bool(raw)?,
@@ -650,10 +645,6 @@ impl Policy {
     }
 
     pub fn validate(&self) -> Result<()> {
-        ensure!(
-            matches!(self.mode.verify_mode.as_str(), "auto" | "minimal" | "full"),
-            "mode.verify_mode must be auto, minimal or full"
-        );
         ensure!(
             matches!(self.mode.design_mode.as_str(), "inline" | "separate"),
             "mode.design_mode must be inline or separate"
@@ -779,7 +770,6 @@ mod tests {
         "OCTOS_SMALL_TASK_NODES",
         "OCTOS_SMOKE_PORT",
         "OCTOS_TIME_BUDGET",
-        "OCTOS_VERIFY_MODE",
     ];
 
     #[test]
@@ -877,7 +867,6 @@ mod tests {
     #[test]
     fn should_reject_unknown_fields_and_invalid_values() {
         assert!(Policy::parse_toml("[mode]\nbogus = 1\n").is_err());
-        assert!(Policy::parse_toml("[mode]\nverify_mode = \"loud\"\n").is_err());
         let mut policy = Policy::default();
         assert!(policy.set("mode.codegen", "maybe").is_err());
         assert!(policy.set("nope", "1").is_err());

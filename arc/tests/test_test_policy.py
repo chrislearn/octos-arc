@@ -159,7 +159,6 @@ class GenerationRegressionTests(unittest.TestCase):
         proxy.turn_extension_limit = 20
         proxy.maybe_extend_turn(); self.assertEqual(proxy.turn_budget, 12)
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class OracleWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)

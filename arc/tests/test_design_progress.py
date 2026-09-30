@@ -8,7 +8,6 @@ from unittest.mock import Mock, patch
 import test_whole_app_v5 as fixtures
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class DesignProgressTests(unittest.TestCase):
     def setUp(self):
         fixture = fixtures.DerivedSpecsAsAcceptanceTests()

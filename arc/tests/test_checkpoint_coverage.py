@@ -13,7 +13,6 @@ def observed(specs, failing=()):
     return RunSummary(passed=sum(r.ok for r in rows), total=len(rows), results=rows)
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class CoverageTests(unittest.TestCase):
     def flow(self):
         f = helpers.CheckpointRepairTests()._flow([])

@@ -149,7 +149,6 @@ class OracleSemantics(unittest.TestCase):
         self.assertEqual(sources, {}); self.assertIn('unresolved, not quarantined', dropped[0]); self.assertFalse(retryable)
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class FlowRegression(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -158,6 +157,51 @@ class FlowRegression(unittest.TestCase):
         self.flow.metric = Mock(); self.flow.save_rejected_reply = Mock(); self.flow.remember_repair = Mock()
         self.flow.generation_batch_check = Mock(); self.flow.remaining = Mock(return_value=4000)
         self.flow.wound_down = Mock(return_value=False)
+
+    def test_shortcut_evidence_budgets_the_repair_without_trusting_a_key_press_alone(self):
+        evidence = ('Steps: Press "Control+V"\nShortcut keydown events before failure: '
+                    '[{"key":"V","ctrl":true,"target":"TD"}]')
+        self.assertEqual(Flow.node_repair_request_cap(evidence), 12)
+        self.assertEqual(Flow.node_repair_request_cap('Press Control+V'), 36)
+        self.assertEqual(Flow.node_repair_request_cap('Shortcut keydown events before failure: []'), 36)
+        self.assertEqual(Flow.node_repair_request_cap('other failure', applied=True), 60)
+        with patch.dict(os.environ, {'OCTOS_ARC_REPAIR_ROUND_REQUESTS': '7'}):
+            self.assertEqual(Flow.node_repair_request_cap(evidence), 7)
+
+    def test_node_repair_reports_the_actual_codegen_fallback_reason(self):
+        f = self.flow
+        f.codegen_mode = Mock(return_value=True)
+        f.codegen_repair_prompt = Mock(return_value=None)
+        f.codegen_repair_unavailable_reason = 'prompt_unavailable:required_source_or_context_budget'
+        f.compact_tool_repair_prompt = Mock(return_value='focused tool prompt')
+        f.repair_tool_turn = Mock()
+        f.llm_proxy = None
+        evidence = ('Steps: Press "Control+V"\nShortcut keydown events before failure: '
+                    '[{"key":"V","ctrl":true,"target":"TD"}]')
+        with patch('main.log') as log:
+            self.assertTrue(f.node_repair_turn('A', evidence, 120, 'A repair 1/3', lambda: 'failure prompt'))
+        f.repair_tool_turn.assert_called_once()
+        self.assertEqual(f.repair_tool_turn.call_args.kwargs['request_budget'], 12)
+        self.assertTrue(any('codegen prompt_unavailable:required_source_or_context_budget' in
+                            str(call.args[0]) for call in log.call_args_list))
+        self.assertEqual(f.metric.call_args.kwargs['codegen_outcome'],
+                         'prompt_unavailable:required_source_or_context_budget')
+
+    def test_structured_repair_has_short_initial_budget_and_one_measured_extension(self):
+        from types import SimpleNamespace
+        f = self.flow
+        f.llm_proxy = SimpleNamespace(extra_drop_tools=set(), tool_max_tokens=0,
+                                      compact_reads=False, bounded_edits=False)
+        observed = []
+        def turn(prompt, timeout, label, **kwargs):
+            observed.append((kwargs['request_budget'], f.llm_proxy.turn_extension_limit))
+            self.assertFalse(f.llm_proxy.turn_progress())
+            return False, 'bounded repair ended'
+        f.turn = Mock(side_effect=turn)
+        f.structured_edit_turn('repair the active failure', 120, 'A repair 1/3')
+        self.assertEqual(observed, [(12, 20)])
+        self.assertIsNone(f.llm_proxy.turn_progress)
+        self.assertEqual(f.llm_proxy.turn_extension_limit, 0)
 
     def test_invalid_design_has_exact_schema_path_and_preserves_raw_object(self):
         invalid = {'pages': [{'path': '/'}], 'modules': [{'path': 'frontend/src/App.jsx', 'owns': 'routing'}]}

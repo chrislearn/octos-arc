@@ -111,8 +111,8 @@ class OrderedSpecRequests:
         return reply
 
 
-def reservation_tokens(prompt: str, requests_per_turn: int = 3, output_cap: int = 32768) -> int:
-    """Conservative input plus advertised output for every possible retry."""
+def reservation_tokens(prompt: str, requests_per_turn: int = 1, output_cap: int = 32768) -> int:
+    """Conservative input plus advertised output for the single spec request."""
     return requests_per_turn * (len(prompt.encode("utf-8")) + 8192 + output_cap)
 
 

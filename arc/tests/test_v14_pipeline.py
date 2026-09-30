@@ -18,8 +18,8 @@ from derived_case_review import collect_cases, sha as case_sha
 from derived_pipeline import DerivedSpecPipeline
 from llm_proxy import LlmProxy
 import main
-from main import Flow, phase_design_for_tests, source_contracts_for_tests
-from quality_control import helper_evidence_hash
+from main import Flow, fit_derived_prompt_chunks, phase_design_for_tests, source_contracts_for_tests
+from quality_control import export_contracts, helper_evidence_hash
 from scenario_review import review_targets, validate_proposal
 from scenario_tests import Fixtures, suite_fixtures
 from visual_requirements import (parse_observations, read_reference, references,
@@ -27,6 +27,43 @@ from visual_requirements import (parse_observations, read_reference, references,
 
 
 class PipelineTests(unittest.TestCase):
+    def test_oversized_derived_prompt_splits_without_losing_scenarios(self):
+        items = [{'id': letter, 'node_id': 'A'} for letter in 'abcd']
+        render = lambda chunk: '|'.join(item['id'] for item in chunk)
+        accepted, oversized, deferred = fit_derived_prompt_chunks([items], render, 3, {'A': 2})
+        self.assertEqual([[item['id'] for item in chunk] for chunk, _ in accepted], [['a', 'b'], ['c', 'd']])
+        self.assertEqual(oversized, [])
+        self.assertEqual(deferred, [])
+        accepted, oversized, deferred = fit_derived_prompt_chunks(
+            [items], render, 1, {'A': 2})
+        self.assertEqual([chunk[0]['id'] for chunk, _ in accepted], ['a', 'b'])
+        self.assertEqual([item['id'] for item in deferred], ['c', 'd'])
+        accepted, oversized, deferred = fit_derived_prompt_chunks(
+            [[{'id': 'large', 'node_id': 'A'}]], render, 1, {'A': 2})
+        self.assertEqual((accepted, [(item['id'], chars) for item, chars in oversized], deferred),
+                         ([], [('large', 5)], []))
+
+    def test_refresh_after_internal_contract_export_preserves_it_and_protects_yaml(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            requirements = root / 'requirements'
+            requirements.mkdir()
+            source = requirements / 'requirements.yaml'
+            source.write_text('id: ORIGINAL\n')
+            flow = Flow(argparse.Namespace(web_port=3000), root, requirements)
+            flow.snapshot_protected()
+            export_contracts(root, {'id': 'ORIGINAL', 'type': 'ATOMIC',
+                                    'description': 'A record can be saved.'}, None, 'ready_for_implementation')
+            contract = requirements / 'obligations.json'
+            exported = contract.read_text()
+            flow.snapshot_protected()
+            source.write_text('id: CHANGED\n')
+            contract.write_text('{"source":"model"}\n')
+            self.assertTrue(flow.restore_protected())
+            self.assertEqual(source.read_text(), 'id: ORIGINAL\n')
+            self.assertEqual(contract.read_text(), exported)
+            self.assertEqual(json.loads((requirements / 'original.json').read_text())['id'], 'ORIGINAL')
+
     def test_test_source_contracts_keep_ancestors_and_transitive_dependencies_only(self):
         tree = {'id': 'ROOT', 'type': 'FOLDER', 'description': 'Shared shell', 'children': [
             {'id': 'GROUP', 'type': 'FOLDER', 'description': 'Group context', 'children': [
@@ -74,7 +111,7 @@ class PipelineTests(unittest.TestCase):
             def __init__(self, config_dir):
                 self.env = {'OCTOS_CONFIG_DIR': str(config_dir)}
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,
-                {'OCTOS_ARC_BACKGROUND_SPECS': '1', 'OCTOS_ARC_TEST_MODE': 'full'}):
+                {'OCTOS_ARC_BACKGROUND_SPECS': '1'}):
             root = Path(folder)
             config = root / 'config'
             config.mkdir()
@@ -240,6 +277,20 @@ class PipelineTests(unittest.TestCase):
             flow.poll_background_specs()
             self.assertNotIn(('A', row['title']), flow.derived_case_reviews)
             self.assertEqual(flow._background_pending_specs, set())
+            invalid_source = source.replace('await h.expectTextsVisible',
+                                            "await page.goto('/internal');\n  await h.expectTextsVisible")
+            (suite / 'A.spec.ts').write_text(invalid_source)
+            invalid = collect_cases(suite, [target], {'A'})[0]
+            self.assertEqual(invalid['status'], 'invalid')
+            incoming = flow._derived_background_pipeline.poll_ready.return_value[0]
+            incoming['before'] = {'A': case_sha(invalid_source)}
+            incoming['files'] = {'A': invalid_source}
+            incoming['case_reviews'] = [{**invalid, 'status': 'approved_behavior',
+                'helper_hash': helper_evidence_hash(suite),
+                'fixture_hash': case_sha(str(suite_fixtures([node])))}]
+            flow.poll_background_specs()
+            self.assertEqual(flow.derived_case_reviews[('A', invalid['title'])]['status'], 'invalid')
+            self.assertEqual(flow._background_pending_specs, set())
 
     def test_private_batches_complete_without_polling_and_close_keeps_results(self):
         seen = []
@@ -251,6 +302,32 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(seen, ['A', 'B'])
         pipeline.close()
         self.assertEqual([row['node_ids'] for row in pipeline.poll_ready()], [['A'], ['B']])
+
+    def test_background_close_releases_only_unstarted_leaves(self):
+        started, release = threading.Event(), threading.Event()
+        seen = []
+        def run(batch):
+            seen.append(batch[0]['id'])
+            started.set()
+            release.wait(1)
+            return {'node_ids': [batch[0]['id']]}
+        pipeline = DerivedSpecPipeline([[{'id': 'A'}], [{'id': 'B'}]], run)
+        self.assertTrue(started.wait(1))
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,
+                {'OCTOS_ARC_BACKGROUND_DRAIN_SECONDS': '0'}):
+            flow = Flow(argparse.Namespace(web_port=3000), Path(folder), Path(folder))
+            flow._derived_background_pipeline = pipeline
+            flow._background_spec_scheduled_ids = {'A', 'B'}
+            flow.remaining = Mock(return_value=1000)
+            flow.derived_review_reserve = Mock(return_value=0)
+            flow.poll_background_specs = Mock()
+            flow.metric = Mock()
+            flow.close_background_specs()
+            self.assertEqual(flow._background_spec_scheduled_ids, {'A'})
+            flow.metric.assert_any_call('derived_background', outcome='released_unstarted', nodes=['B'])
+        release.set()
+        self.assertTrue(pipeline.wait(1))
+        self.assertEqual(seen, ['A'])
 
     def test_paused_pipeline_resumes_after_first_batch(self):
         started, release = threading.Event(), threading.Event()

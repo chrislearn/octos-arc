@@ -996,6 +996,43 @@ def check_batch(root: Path, changed, budget=30, sources=None):
             run(['node', '--check', str(path.resolve())], root, 'syntax ' + rel)
     frontend = root / 'frontend'
     config = configs.get('frontend', {})
+    # A successful Vite build does not catch references that resolve only when
+    # a component renders. Catch those during generation, while the owning
+    # source is still in the active repair window.
+    if any(p.startswith('frontend/') and p.endswith(('.js', '.jsx', '.mjs', '.cjs'))
+           and (root / p).is_file() for p in changed):
+        left = deadline - time.monotonic()
+        if left < 1:
+            deferred.append('frontend bindings: check budget exhausted')
+        else:
+            from runtime_diagnostics import frontend_binding_health, binding_failure_observation
+            bindings = frontend_binding_health(frontend, timeout=max(1, min(15, int(left))))
+            if bindings.get('status') == 'failed':
+                observation = binding_failure_observation(bindings)
+                if observation:
+                    errors.append('frontend bindings: ' + observation['message'])
+                checked.append('frontend bindings')
+            elif bindings.get('status') == 'passed':
+                checked.append('frontend bindings')
+            else:
+                deferred.append('frontend bindings: ' + str(bindings.get('reason') or 'check unavailable')[:200])
+    if any(p.startswith('backend/') and p.endswith(('.js', '.jsx', '.mjs', '.cjs'))
+           and (root / p).is_file() for p in changed):
+        left = deadline - time.monotonic()
+        if left < 1:
+            deferred.append('backend bindings: check budget exhausted')
+        else:
+            from runtime_diagnostics import backend_binding_health, binding_failure_observation
+            bindings = backend_binding_health(root, timeout=max(1, min(15, int(left))))
+            if bindings.get('status') == 'failed':
+                observation = binding_failure_observation(bindings, 'Backend')
+                if observation:
+                    errors.append('backend bindings: ' + observation['message'])
+                checked.append('backend bindings')
+            elif bindings.get('status') == 'passed':
+                checked.append('backend bindings')
+            else:
+                deferred.append('backend bindings: ' + str(bindings.get('reason') or 'check unavailable')[:200])
     if any(p.startswith('frontend/') for p in changed) and config.get('scripts', {}).get('build'):
         stamp = frontend / 'node_modules/.arc-manifest-sha256'
         lock = frontend / 'package-lock.json'

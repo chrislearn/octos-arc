@@ -1033,6 +1033,37 @@ def positive_contract_evidence(source: str, title: str, literal: str) -> bool:
     return False
 
 
+def compact_source_references(prompt: str, targets: list[dict]) -> str:
+    """Lossless within-request references; never truncate or summarize evidence."""
+    candidates = set()
+    for target in targets:
+        for key in ('description', 'controls', 'obligations', 'api_contracts', 'allowed',
+                    'dependency_literals', 'contract_outcomes', 'semantic_contracts', 'negative_contracts', 'seed_cells'):
+            value = target.get(key)
+            if value:
+                candidates.add(value if isinstance(value, str) else json.dumps(
+                    value, ensure_ascii=False, sort_keys=(key == 'seed_cells')))
+    prefix = '@@SOURCE_' + hashlib.sha256(prompt.encode()).hexdigest()[:16] + '_'
+    while prefix in prompt:
+        prefix += 'X'
+    compact, sources = prompt, {}
+    for value in sorted(candidates, key=lambda text: (-len(text), text)):
+        marker = prefix + str(len(sources) + 1) + '@@'
+        count = compact.count(value)
+        if len(value) >= 80 and count >= 2 and count * (len(value) - len(marker)) > len(
+                json.dumps({marker: value}, ensure_ascii=False)):
+            compact = compact.replace(value, marker)
+            sources[marker] = value
+    if not sources:
+        return prompt
+    restored = re.sub(re.escape(prefix) + r'\d+@@', lambda match: sources[match[0]], compact)
+    if restored != prompt:
+        raise ValueError('source reference expansion changed evidence')
+    result = compact + '\nEXACT SOURCE TABLE (expand references before interpreting evidence):\n' + json.dumps(
+        sources, ensure_ascii=False)
+    return result if len(result) < len(prompt) else prompt
+
+
 def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "") -> str:
     parts = ["Plan and write one behavioural check per scenario below, as JSON: "
              "{\"scenarios\": [ ... ]}. Each check must perform the WHEN operation and verify the "
@@ -1121,7 +1152,7 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
                      + ("\nUNVERIFIED GIVEN ACTOR: " + target["actor_precondition"]
                         + "; use skip or a grounded validator dispute, not a different account."
                         if target.get("actor_precondition") else ""))
-    return "\n".join(parts)
+    return compact_source_references("\n".join(parts), targets)
 
 
 def parse_reply(text: str) -> list[dict] | None:

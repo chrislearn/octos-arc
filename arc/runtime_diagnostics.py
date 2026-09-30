@@ -108,6 +108,21 @@ def frontend_binding_health(frontend: Path, *, timeout: int = 20) -> dict:
         return {'status': 'unknown', 'reason': str(exc)[:300]}
 
 
+def ensure_binding_tools(project: Path, *, timeout: int = 60) -> dict:
+    """Prepare pinned harness-only static tools; never edit app dependencies."""
+    directory = project / '.arc/static-tools'
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        completed = subprocess.run(['npm', 'install', '--prefix', str(directory), '--ignore-scripts',
+                                    '--no-audit', '--no-fund', '--save-exact',
+                                    '@babel/parser@7.28.4', '@babel/traverse@7.28.4'],
+                                   capture_output=True, text=True, timeout=timeout, check=False)
+        return {'status': 'ready' if completed.returncode == 0 else 'unavailable',
+                'reason': (completed.stdout + completed.stderr)[-800:]}
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {'status': 'unavailable', 'reason': str(exc)[:300]}
+
+
 def backend_binding_health(project: Path, *, timeout: int = 20) -> dict:
     """Check backend source with the same scope analysis after frontend install."""
     frontend = project / 'frontend'

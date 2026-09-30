@@ -22,8 +22,22 @@ class EvidenceTests(TestCase):
         self.assertEqual(failure_triage('Unknown failure'), '')
         self.assertIn('BUILD/LOAD', failure_triage('SyntaxError: invalid token'))
         self.assertIn('HTTP', failure_triage('HTTP 404'))
+        shortcut = 'Shortcut keydown events before failure: [{"key":"V","ctrl":true,"target":"TD"}]'
+        self.assertIn('compare the observed event.key', failure_triage(shortcut))
+        self.assertIn(shortcut, diagnosed_failure_evidence(shortcut, 6000))
         for limit in (0, 1, 4, 20, 100, 1000):
             self.assertLessEqual(len(diagnosed_failure_evidence('TypeError: bad' * 1000, limit)), limit)
+
+    def test_long_failure_keeps_shortcut_case_and_missing_api_write(self):
+        text = ('- Feature: paste\n  Observation: D1 is empty\n' + 'locator call log\n' * 700
+                + '  Browser diagnostics:\n'
+                + 'Shortcut keydown events before failure: [{"key":"V","ctrl":true,"target":"TD"}]\n'
+                + 'Same-origin /api mutation requests after final shortcut keydown: none\n'
+                + '  Page at failure:\n' + 'gridcell D1\n' * 700)
+        result = diagnosed_failure_evidence(text, 6000)
+        self.assertIn('"key":"V"', result)
+        self.assertIn('mutation requests after final shortcut keydown: none', result)
+        self.assertLessEqual(len(result), 6000)
 
     def test_every_failure_precedes_large_dom(self):
         evidence = ''.join(f'- Feature: REQ-{i}\n  Location: test-{i}:12\n  Observation: failure-{i}\n'

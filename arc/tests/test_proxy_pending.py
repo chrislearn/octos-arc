@@ -4,7 +4,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from llm_proxy import LlmProxy
 
@@ -51,6 +51,47 @@ class PendingCompletionTests(unittest.TestCase):
         self.assertEqual(upstream.call_count, 2)
         self.assertEqual(proxy.turn_upstream_requests, 1)
         self.assertFalse(proxy.provider_unavailable)
+
+    def test_optional_spec_transport_failure_is_not_retried(self):
+        proxy = LlmProxy('http://unused/v1', 'none')
+        self.addCleanup(proxy.server.server_close)
+        proxy.single_attempt = True
+        proxy.begin_turn(1)
+        with patch('llm_proxy.urllib.request.urlopen', side_effect=TimeoutError('temporary')) as upstream:
+            status, _, _ = proxy._request_upstream('POST', '/chat/completions', b'{}', {})
+        self.assertEqual(status, 502)
+        upstream.assert_called_once()
+
+    def test_optional_spec_removes_a_missing_route_without_replaying_the_request(self):
+        import urllib.error
+        import urllib.request
+        proxy = LlmProxy('http://unused/v1', 'none').start()
+        self.addCleanup(proxy.stop)
+        proxy.single_attempt = True
+        proxy.routes = [{'model': 'missing'}]
+        missing = json.dumps({'error': {'code': 'model_not_found',
+                                      'message': 'Model missing not found'}}).encode()
+        success = b'{"choices":[]}'
+        def complete_late(*args, **kwargs):
+            # A caller may already have restored its next-turn policy while
+            # the preceding provider response is still in flight.
+            proxy.single_attempt = False
+            return 404, missing, {}
+        proxy._request_upstream = Mock(side_effect=complete_late)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        body = json.dumps({'model': 'base', 'messages': []}).encode()
+        request = lambda: urllib.request.Request(proxy.base_url + '/chat/completions', data=body)
+        with self.assertRaises(urllib.error.HTTPError) as missing_response:
+            opener.open(request(), timeout=5)
+        missing_response.exception.close()
+        self.assertEqual(proxy._request_upstream.call_count, 1)
+        self.assertEqual(proxy.routes, [])
+        proxy._request_upstream.side_effect = None
+        proxy._request_upstream.return_value = (200, success, {})
+        with opener.open(request(), timeout=5) as response:
+            self.assertEqual(response.status, 200)
+        self.assertEqual(proxy._request_upstream.call_count, 2)
+        self.assertEqual(json.loads(proxy._request_upstream.call_args.args[2])['model'], 'base')
 
     def test_missing_usage_reserves_tokens_for_the_cost_guard(self):
         proxy = LlmProxy('http://unused/v1', 'none')

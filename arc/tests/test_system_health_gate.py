@@ -157,6 +157,26 @@ class HealthGateTests(unittest.TestCase):
                 'const { action }', 'const { action, range, type }'))
             self.assertEqual(backend_binding_health(project)['status'], 'passed')
 
+    def test_browser_dom_constructor_is_valid_but_backend_window_is_not(self):
+        modules = Path(os.environ.get('OCTOS_ARC_TEST_BABEL_MODULES') or
+                       Path(__file__).parents[1] / 'local-grader/node_modules')
+        if not (modules / '@babel/parser').exists():
+            self.skipTest('Babel is not installed locally')
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            frontend, backend = project / 'frontend', project / 'backend'
+            (frontend / 'src').mkdir(parents=True)
+            backend.mkdir()
+            (frontend / 'package.json').write_text('{}')
+            (frontend / 'node_modules').symlink_to(modules.resolve(), target_is_directory=True)
+            (frontend / 'src/focus.js').write_text(
+                'export const editable = target => target instanceof HTMLTextAreaElement;\n')
+            self.assertEqual(frontend_binding_health(frontend)['status'], 'passed')
+            (backend / 'server.js').write_text('module.exports = () => window.location.href;\n')
+            report = backend_binding_health(project)
+            self.assertEqual(report['status'], 'failed')
+            self.assertEqual({row['name'] for row in report['diagnostics']}, {'window'})
+
     def test_module_load_failure_shows_startup_fallback_and_fails_health(self):
         playwright_root = Path(__file__).parents[1] / 'local-grader'
         if not (playwright_root / 'node_modules' / '@playwright' / 'test').exists():

@@ -68,8 +68,7 @@ pub const BUILTIN: &[(&str, &str)] = builtin!(
     "ui-contract-core",
     "ui-contract-data",
     "ui-contract-session",
-    "verify-full",
-    "verify-minimal",
+    "verify-authoritative",
 );
 
 #[derive(Debug, Clone)]

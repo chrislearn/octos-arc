@@ -203,14 +203,128 @@ class MeasuredRepairTests(TestCase):
         f.commit = Mock()
         f.last_turn_changed = False
         f.restore_startable_commit = Mock(return_value=False)
+        f.whole_app_startup_repair = Mock(return_value=False)
         f.derived_as_specs = True
         self.assertFalse(f.rehearsal(preserve_seconds=180, restore_on_failure=False))
         f.turn.assert_not_called()
         f.remaining = lambda: 300
         self.assertFalse(f.rehearsal(preserve_seconds=180, restore_on_failure=False))
-        self.assertEqual(f.turn.call_args.args[1], 120)
+        self.assertAlmostEqual(f.turn.call_args.args[1], 120, delta=1)
         self.assertIn('do not read, search, run, or modify generated tests', f.turn.call_args.args[0])
         f.restore_startable_commit.assert_not_called()
+
+    def test_rehearsal_continues_past_three_distinct_source_errors(self):
+        f = self.flow
+        version = [0]
+        f.remaining = Mock(return_value=3600)
+        f.repair_minimum = Mock(return_value=60)
+        f.wound_down = Mock(return_value=False)
+        f.app_source_digest = Mock(side_effect=lambda: str(version[0]))
+        f.measure_rehearsal_server = Mock(side_effect=[
+            'frontend/src/A.jsx: SyntaxError', 'frontend/src/B.jsx: SyntaxError',
+            'backend/routes/auth.js: ReferenceError', 'Undefined frontend bindings', None])
+        f.repair_spa_entry_from_blueprint = Mock(return_value=False)
+        f.restore_startable_commit = Mock(return_value=False)
+        f.test_verdict = {'A': True}
+        f.commit = Mock()
+
+        def repair(*args, **kwargs):
+            version[0] += 1
+            f.last_turn_changed = True
+            return True, 'edited'
+
+        f.turn = Mock(side_effect=repair)
+        self.assertTrue(f.rehearsal())
+        self.assertEqual(f.turn.call_count, 4)
+        self.assertEqual(f.measure_rehearsal_server.call_count, 5)
+        self.assertEqual(f.turn.call_args.kwargs['request_budget'], 32)
+        self.assertEqual(f.test_verdict, {'A': None})
+
+    def test_rehearsal_stops_after_action_limit_even_when_source_keeps_changing(self):
+        f = self.flow
+        version = [0]
+        f.remaining = Mock(return_value=3600)
+        f.repair_minimum = Mock(return_value=60)
+        f.wound_down = Mock(return_value=False)
+        f.app_source_digest = Mock(side_effect=lambda: str(version[0]))
+        f.measure_rehearsal_server = Mock(return_value='frontend/src/A.jsx: SyntaxError')
+        f.repair_spa_entry_from_blueprint = Mock(return_value=False)
+        f.restore_startable_commit = Mock(return_value=False)
+        f.commit = Mock()
+
+        def repair(*args, **kwargs):
+            version[0] += 1
+            f.last_turn_changed = True
+            return True, 'edited'
+
+        f.turn = Mock(side_effect=repair)
+        with patch.dict('os.environ', {'OCTOS_ARC_REHEARSAL_REPAIR_ACTIONS': '4'}):
+            self.assertFalse(f.rehearsal())
+        self.assertEqual(f.turn.call_count, 4)
+        self.assertEqual(f.measure_rehearsal_server.call_count, 5)
+
+    def test_rehearsal_time_limit_zero_admits_no_repair(self):
+        f = self.flow
+        f.remaining = Mock(return_value=3600)
+        f.measure_rehearsal_server = Mock(return_value='frontend/src/A.jsx: SyntaxError')
+        f.repair_spa_entry_from_blueprint = Mock(return_value=False)
+        f.restore_startable_commit = Mock(return_value=False)
+        f.turn = Mock()
+        with patch.dict('os.environ', {'OCTOS_ARC_REHEARSAL_REPAIR_SECONDS': '0'}):
+            self.assertFalse(f.rehearsal())
+        f.turn.assert_not_called()
+        f.repair_spa_entry_from_blueprint.assert_not_called()
+
+    def test_blueprint_repair_invalidates_previous_acceptance_verdicts(self):
+        f = self.flow
+        f.measure_rehearsal_server = Mock(side_effect=[
+            'SPA entry frontend/dist/index.html is missing', None])
+        f.repair_spa_entry_from_blueprint = Mock(return_value=True)
+        f.test_verdict = {'A': True, 'B': False}
+        self.assertTrue(f.rehearsal())
+        self.assertEqual(f.test_verdict, {'A': None, 'B': None})
+
+    def test_rehearsal_regenerates_a_stalled_source_then_remeasures(self):
+        f = self.flow
+        version = [0]
+        f.remaining = Mock(return_value=3600)
+        f.repair_minimum = Mock(return_value=60)
+        f.wound_down = Mock(return_value=False)
+        f.app_source_digest = Mock(side_effect=lambda: str(version[0]))
+        f.measure_rehearsal_server = Mock(side_effect=['Undefined frontend bindings'] * 2 + [None])
+        f.repair_spa_entry_from_blueprint = Mock(return_value=False)
+        f.turn = Mock(return_value=(False, 'local_turn_budget_exhausted'))
+        f.last_turn_changed = False
+        f.commit = Mock()
+        f.test_verdict = {'A': True}
+
+        def regenerate(*args, **kwargs):
+            version[0] += 1
+            return True
+
+        f.whole_app_startup_repair = Mock(side_effect=regenerate)
+        self.assertTrue(f.rehearsal())
+        f.whole_app_startup_repair.assert_called_once()
+        self.assertEqual(f.turn.call_count, 1)
+        self.assertEqual(f.test_verdict, {'A': None})
+
+    def test_rehearsal_stops_after_tools_and_regeneration_make_no_progress(self):
+        f = self.flow
+        f.remaining = Mock(return_value=3600)
+        f.repair_minimum = Mock(return_value=60)
+        f.wound_down = Mock(return_value=False)
+        f.app_source_digest = Mock(return_value='unchanged')
+        f.measure_rehearsal_server = Mock(return_value='Undefined frontend bindings')
+        f.repair_spa_entry_from_blueprint = Mock(return_value=False)
+        f.turn = Mock(return_value=(False, 'no edit'))
+        f.last_turn_changed = False
+        f.commit = Mock()
+        f.whole_app_startup_repair = Mock(return_value=False)
+        f.restore_startable_commit = Mock(return_value=False)
+        self.assertFalse(f.rehearsal())
+        self.assertEqual(f.measure_rehearsal_server.call_count, 4)
+        self.assertEqual(f.turn.call_count, 2)
+        f.whole_app_startup_repair.assert_called_once()
 
     def test_source_changed_by_final_rehearsal_reopens_one_measured_suite(self):
         f = self.flow

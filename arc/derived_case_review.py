@@ -61,10 +61,10 @@ class CaseStatus(str, Enum):
     UNREVIEWED = "unreviewed"
     NEEDS_CORRECTION = "needs_correction"
     APPROVED_BEHAVIOR = "approved_behavior"
+    APPROVED_BASIC = "approved_basic"
     APPROVED_SMOKE_ONLY = "approved_smoke_only"
     INVALID = "invalid"
     DISPUTED = "disputed"
-    SKIP_REVIEW = "skip_review"
     SKIPPED_UNREVIEWED = "skipped_unreviewed"
     SKIPPED_WITH_REASON = "skipped_with_reason"
     UNVERIFIED_GAP = "unverified_gap"
@@ -233,7 +233,7 @@ def collect_cases(directory: Path, targets: list[dict], node_ids: set[str],
                 structural = any(semantic_contract_evidence(source, title, contract["kind"])
                                  for contract in target["semantic_contracts"])
             status = ("invalid" if static_issues else "unreviewed" if structural
-                      else "approved_smoke_only" if title.endswith((" [entry]", " [reach]"))
+                      else "approved_smoke_only" if re.search(r" \[(?:entry|reach)\](?:\s|$)", title)
                       else "needs_correction")
             rows.append({"id": sha([node_id, title])[:24], "node_id": node_id,
                          "scenario_id": str(target.get("id") or "") if target else "",

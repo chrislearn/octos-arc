@@ -61,7 +61,6 @@ class ReviewBoundaryTests(unittest.TestCase):
         self.assertTrue(validate_review(row, verdict))
 
 
-@patch.dict(os.environ, {"OCTOS_ARC_TEST_MODE": "full"})
 class DerivedPreflightTests(unittest.TestCase):
     def test_review_queue_reserves_a_cross_leaf_final_measurement(self):
         from types import SimpleNamespace
@@ -117,31 +116,7 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.derived_as_specs = False
             self.assertEqual(flow.final_rehearsal_reserve(), 120)
 
-    def test_final_stage_corrected_case_gets_one_bounded_independent_rereview(self):
-        from unittest.mock import Mock
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            flow = Flow(argparse.Namespace(web_port=3000), root, root)
-            flow.derived_as_specs = True
-            ready = {'A': False}
-            flow.derived_review_needed = lambda node_id: not ready[node_id]
-            flow.remaining = Mock(return_value=1000)
-            flow.final_measurement_reserve = lambda: 120
-            flow.repair_minimum = lambda: 60
-            flow.metric = Mock()
-            flow.write_derived_handoff = Mock()
-            flow.snapshot_protected = Mock()
-            flow.review_derived_cases = Mock(side_effect=lambda nodes: ready.__setitem__('A', True))
-            self.assertTrue(flow.rereview_corrected_derived_leaf('A'))
-            flow.review_derived_cases.assert_called_once_with({'A'})
-            # One measurement plus repair is insufficient: correction needs
-            # a validation run and still leaves a final measurement window.
-            flow.remaining.return_value = 320
-            ready['A'] = False
-            self.assertFalse(flow.rereview_corrected_derived_leaf('A'))
-            flow.review_derived_cases.assert_called_once()
-
-    def test_final_derived_acceptance_rechecks_corrected_spec_before_repair(self):
+    def test_final_derived_acceptance_does_not_reaudit_corrected_spec(self):
         from types import SimpleNamespace
         from unittest.mock import Mock
         from acceptance import RunSummary, TestOutcome
@@ -179,10 +154,9 @@ class DerivedPreflightTests(unittest.TestCase):
                     return None
                 return True
             flow.acceptance_loop = Mock(side_effect=accept)
-            flow.rereview_corrected_derived_leaf = Mock(side_effect=lambda node_id: ready.__setitem__(node_id, True) or True)
             flow.final_acceptance_passes()
-            self.assertEqual(flow.acceptance_loop.call_count, 2)
-            flow.rereview_corrected_derived_leaf.assert_called_once_with('A')
+            self.assertEqual(flow.acceptance_loop.call_count, 1)
+            self.assertFalse(ready['A'])
             self.assertEqual(flow.run_specs.call_count, 2)
             self.assertEqual(flow.run_specs.call_args.args[0], ['A.spec.ts'])
 
@@ -262,7 +236,7 @@ class DerivedPreflightTests(unittest.TestCase):
             self.assertLess(deadlines[0], deadlines[1])
             self.assertLess(deadlines[1], deadlines[2])
 
-    def test_unused_preflight_time_revisits_only_partially_covered_category(self):
+    def test_unused_preflight_time_does_not_retry_partial_category(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             flow = Flow(argparse.Namespace(web_port=3000), root, root)
@@ -287,7 +261,7 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.prepare_derived_spec_batch = prepare
             with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_PREFLIGHT_CATEGORIES': '0'}):
                 flow.preflight_derived_specs([{'id': 'a'}, {'id': 'b'}])
-            self.assertEqual(calls, ['a', 'b', 'a'])
+            self.assertEqual(calls, ['a', 'b'])
 
     def test_default_preflight_starts_code_after_first_leaf_and_jit_is_bounded(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -551,8 +525,10 @@ class DerivedPreflightTests(unittest.TestCase):
             flow.metric = Mock()
             with patch('main.prepare_obligations'):
                 flow.prepare_derived_spec_batch(flow.derived_nodes)
-            flow.augment_derived_tests.assert_not_called()
-            flow.review_derived_cases.assert_called_once_with({'a'}, reserve_requests=1)
+            flow.augment_derived_tests.assert_called_once_with(flow.derived_nodes)
+            flow.review_derived_cases.assert_called_once()
+            flow.review_derived_cases.assert_called_once_with({'a'})
+            flow.correct_derived_cases.assert_not_called()
 
     def test_no_preflight_time_never_blocks_code(self):
         with tempfile.TemporaryDirectory() as temp:

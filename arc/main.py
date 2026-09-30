@@ -23,7 +23,6 @@ skip the skeleton, diff the requirement tree against the previous run's
 regression-test the unchanged ones.
 
 Environment (all optional):
-    OCTOS_ARC_TEST_MODE       full (default: independently review generated behavior tests before
                               admission) | fast (skip pre-run review; audit failed cases once,
                               then at most one code repair)
     OPENAI_API_KEY / OPENAI_BASE_URL / MODEL   OpenAI-compatible endpoint
@@ -45,14 +44,13 @@ Environment (all optional):
     OCTOS_ARC_FINAL_WORKERS    internal full-suite override (default GRADER_WORKERS; larger values are stress tests)
     OCTOS_ARC_SHARED_REPAIR    "0" disables the single shared runtime-error repair before leaf cycles
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
-    OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
-    OCTOS_VERIFY_MODE         auto (default) | minimal | full
+    OCTOS_SMALL_TASK_NODES    small-task implementation request budgeting threshold (2)
     OCTOS_ARC_REASONING       low (default for all models/stages) | none | auto | medium | high | passthrough
     OCTOS_ARC_IMPLEMENT_REASONING  optional override for first implement turns of small tasks (default: base mode)
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
-    OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
+    OCTOS_ARC_DROP_SHELL      legacy shell-tool pruning preference; application tests belong to the framework
     OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (20 for small tasks; 0 for large tasks = off)
     OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
     OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (default codegen budget; 0 = off)
@@ -108,7 +106,7 @@ import argparse
 import base64
 import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import os
@@ -1794,6 +1792,16 @@ class OctosDriver:
         self.monitor: TurnMonitor | None = None
         self.hooks: list = []  # profile hooks (protected-directory deny), set by the flow
         self.tools_disabled = False
+        self.retry_attempts = 3
+
+    @contextmanager
+    def without_retries(self):
+        previous = self.retry_attempts
+        self.retry_attempts = 1
+        try:
+            yield
+        finally:
+            self.retry_attempts = previous
 
     @contextmanager
     def without_tools(self):
@@ -1848,7 +1856,8 @@ class OctosDriver:
         else:
             fn = lambda remaining: self._run_stdio(prompt, remaining)  # noqa: E731
         try:
-            ok, text = self._run_with_heartbeat(lambda: self._run_with_retries(fn, timeout))
+            ok, text = self._run_with_heartbeat(lambda: self._run_with_retries(
+                fn, timeout, attempts=getattr(self, 'retry_attempts', 3)))
         finally:
             self.monitor = None
             if self.session_scope == "turn":
@@ -2011,7 +2020,7 @@ UI behavior follows the requirement and the current application:
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
 # with another version is regenerated, not reused.
-APP_DESIGN_PROMPT_VERSION = "24-category-delta"
+APP_DESIGN_PROMPT_VERSION = "25-category-sourced-obligations"
 
 COLLECTION_MIGRATION_CONTRACT = (
     "Installed helper interfaces are fixed: backend/lib/store exports read, write, update, migrate, onReset, reset; "
@@ -2045,8 +2054,10 @@ Reply with ONE complete, compact JSON object (no prose) that every requirement w
  "contracts": [{{"requirements": ["REQ-..."], "invariants": ["ownership/key scope", "command: preconditions -> atomic effects and undo", "draft/save/cancel semantics", "date-only/clock/deadline rules", "control and validation semantics"]}}],
  "domain_contracts": [{{"entity":"collection", "identity":"stable ID and scope", "storage":"authoritative module/store", "producers":["writer module"], "consumers":["reader module"], "requirements":["REQ-..."]}}],
  "commands": [{{"name":"business action", "requirements":["REQ-..."], "preconditions":[], "effects":[], "rejected_effects":[], "state_transitions":[], "permissions":[], "persistence":"commit and reload contract"}}],
- "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions"}}
+ "notes": "session handling, seed data, versioned migrations, validation conventions, naming conventions",
+ "obligations": [{{"id":"unique source outcome ID", "requirement_id":"REQ-...", "quote":"exact original requirement clause", "outcome":"observable required result", "branch":"success|rejection|mixed"}}]}}
 Name every collection, field, route and page once and consistently; requirements that share data must share the record shape. For each HTTP method, place literal paths before overlapping parameter paths (for example, DELETE /api/items/trash before DELETE /api/items/:id). In notes, state the shared interaction lifecycle: when controls become usable, what commits an edit, and when the list reflects the committed record. Do not enumerate test-only cases.
+The optional obligations array preserves source outcomes already extracted while designing these contracts, including supported rejection and unchanged-state rules. Use one exact original clause per outcome, its true owning requirement ID (including ancestor IDs), a unique ID, and the observable result. Do not create test steps, re-extract the entire test catalogue, or claim complete test coverage. Unrepresented or uncertain clauses remain explicit downstream planning gaps. Independent test review still reads original sources; this array is reusable context, not approval of a test or business oracle.
 For each state-changing route, trace the business flow from preconditions through the atomic state change to the resulting UI read and persistence check. Include separately reproducible invalid-input, missing-resource, authentication, authorization and conflict branches that the requirement supports. Each error entry names its condition, category and HTTP status; omit categories that the requirement and route do not support. Use 400 for malformed requests, 401 for absent/invalid authentication (with a WWW-Authenticate challenge), 403 for forbidden actions (or 404 when deliberately concealing a resource), 404 for missing resources, 409 for conflicts such as duplicates/stale versions, and a consistent 400 or 422 for well-formed requests rejected by field validation. Unexpected server faults are 500 and must not expose internals. Never return 200 for a rejected mutation or change persisted state on an error. Explicit requirement status codes take precedence; do not infer an HTTP route from a browser-only scenario.
 For each lifecycle view, specify which records the API returns and which filters the client applies; a client cannot recover records already excluded by the server. Specify absent versus false query values, compatible filter combinations, and inverse transitions (remove/restore, assign/unassign). For composite editors, state whether selection commits immediately or on Save, how Done/Cancel/Escape behave, and which owner retains the draft after a failed save. Do not invent lifecycle states not required by the task.
 In contracts, identify required built-in records and stable accessible destinations separately from user-editable records. For nested menus/dialogs, assign ownership of Escape, outside click and focus changes; closing a child must not commit or dismiss its parent unless explicitly required. Include a short interaction sequence that a full-suite run should preserve after another feature mutates shared state.
@@ -2060,7 +2071,7 @@ APP_DESIGN_CATEGORY_PROMPT = APP_DESIGN_PROMPT.replace(
     "Reply with ONE compact JSON object (no prose) containing only additions for the category requirements. Use the same schema; omit unchanged accepted entries:")
 
 CODEGEN_SYSTEM = """You write complete, minimal web apps. Reply with FILE creation/replacement blocks, exact anchored EDIT blocks, one NEEDS_CONTEXT request, or exactly <<<NO CHANGE>>> when already satisfied. Follow the supplied protocol delimiters; do not mix context requests with changes.
-Create new files with complete FILE blocks; prefer exact anchored EDIT blocks for localized changes to existing quoted source. Never use FILE and EDIT for the same path or emit unchanged files. No diffs or iterative self-review. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Preserve existing behavior. Stop immediately when complete."""
+Create new files with complete FILE blocks; prefer exact anchored EDIT blocks for localized changes to existing quoted source. Never use FILE and EDIT for the same path or emit unchanged files. No diffs or iterative self-review. Implement the active requirements and their prerequisites; the shared design is a contract, not a request to regenerate every other feature. Preserve existing behavior. During a frozen authoritative repair, the supplied TEST_DISPUTE, KEEP CODE and ROLLBACK CODE protocols are also allowed; preserve those markers in the reply alongside any necessary changes. Stop immediately when complete."""
 
 CODEGEN_RULES = """\
 Files: frontend/src/index.html is a small shell; put substantial CSS/JS in local modules. backend/server.js serves ../frontend/dist on process.env.PORT||{port}; put routes in backend/routes/<area>.js.{ports} Keep the entry stable. For each HTTP method, register literal paths before overlapping :parameter paths (DELETE /api/items/trash before DELETE /api/items/:id). For pushState links set frontend/package.json arc.spa=true. Preserve the installed frontend stack, exact dependency versions and lockfile; add task-required packages to the correct package.json. Local assets only: no CDN URLs or remote browser imports. npm install may download packages. JSX/TSX must be bundled, not copied to dist.
@@ -2082,7 +2093,8 @@ Frontend ./shared/request.js exports requestJson(url,options): raw parsed JSON (
 """
 
 # Text-only turns outside the build-turn cap (see Flow.note_turn).
-NON_BUILD_TURN_LABELS = ("derived scenario review", "derived failed-spec review", "application design",
+NON_BUILD_TURN_LABELS = ("basic independent review", "basic entry contract completion", "business exhausted retention decision",
+                         "derived scenario review", "derived failed-spec review", "application design",
                          "derived obligation", "derived case independent review", "derived case quote rereview",
                          "visual reference preflight", "shared domain contract review")
 
@@ -2238,22 +2250,8 @@ Runtime integration:
 - Handle expected request errors with appropriate responses, including 404 for missing resources. Log unexpected failures; do not suppress uncaught exceptions and continue serving potentially corrupt state. Preserve data integrity and use the runtime's recovery mechanism.
 """
 
-VERIFY_FULL = """\
-Verify briefly before you finish — the harness runs the official acceptance tests for this node right after your turn and hands you the failures, so do not build your own test suite: `npm run build` in frontend/, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, one curl per new endpoint (one success, one error case), stop the server.
-"""
-
-VERIFY_MINIMAL = """\
-You have no shell in this turn. The harness runs `npm run build`, starts the backend and runs the official Playwright specs after your turn, then supplies any failures. Work within the configured request and output budgets. Preserve the existing application structure and create or edit the files needed by the requirements; do not combine unrelated modules merely to reduce file count. Use the supplied file listing and source evidence first, and inspect additional files when needed to resolve uncertainty. Batch independent small edits where practical, split changes that would exceed the response budget, and avoid rereading unchanged files without a reason. Check syntax and imports before finishing, then give a brief summary.
-"""
-
 PORT_RULES = """\
-Ports: run your own smoke servers ONLY with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start` (port {smoke}). NEVER bind port {port} — the runner watches it and terminates the run. Stop every server you started before you finish. Do not run git; the harness commits.
-For a background server in a one-shot shell, redirect the entire command group, including stdin, so descendants cannot hold the tool's capture pipes open:
-```sh
-(cd backend && exec env ARC_EXTRA_PORTS=0 PORT={smoke} npm start) < /dev/null > smoke-server.log 2>&1 &
-echo $!
-```
-Set the shell tool workdir to the application directory and run this command unchanged. Keep every cd inside the redirected parentheses; prepending cd ... && outside them creates another background shell that retains the capture pipes. Retain the printed PID for cleanup; inspect smoke-server.log and confirm HTTP readiness before testing. Do not assume a successful background launch means the app is ready. Rebuild frontend/ after source changes. Stop your server before ending the turn so the harness can start its own.
+The framework owns builds, service startup and test execution. Do not start smoke servers or run tests. Never bind port {port}; the runner owns it. Do not run git; the framework commits changes.
 """
 
 SKELETON_PROMPT = """\
@@ -2261,7 +2259,7 @@ Build the skeleton of a full-stack web application in the current working direct
 
 """ + ARCHITECTURE_CONTRACT + """
 {tests}
-Steps: create frontend/ and backend/ as specified with a home page and a health endpoint, seed the JSON store, run `npm run build` in frontend/, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, `curl http://127.0.0.1:{smoke}/` to confirm the page is served, then stop it.
+Create frontend/ and backend/ as specified with a home page, health endpoint and source-grounded seed data. The framework checks this scaffold; do not run tests or servers.
 """ + PORT_RULES
 
 NUDGE_PROMPT = """\
@@ -2699,7 +2697,7 @@ class Flow:
                                "status": "integrated_startable_unverified" if plausible == len(leaves) and startable else
                                "integrated_unverified" if plausible == len(leaves) else "incomplete_or_unattributed"})
         summary = {"version": 3, "source_hash": current_source,
-                   "execution_state": "completed",
+                   "execution_state": "blocked" if getattr(self, 'layered', None) is not None and self.layered.state.data.get('termination') else "completed",
                    "verification_state": "verified" if node_ids and all(self.test_verdict.get(n) is True for n in node_ids) and startable else "incomplete",
                    "delivery_state": "browser_ready" if startable else "not_ready",
                    "browser_health": getattr(self, "_last_browser_health", {"status": "unknown"}),
@@ -2738,6 +2736,14 @@ class Flow:
                             "Shared waves remain implemented_unverified until attributed or measured. "
                             "Derived tests are internal diagnostics, not official benchmark scores.")}
         path = self.output_dir / ".arc" / "quality-summary.json"
+        layered = getattr(self, 'layered', None)
+        if layered is not None:
+            data = layered.state.data
+            summary['layered_tests'] = {'control': str(layered.state.path.relative_to(self.output_dir)),
+                'phase': data['phase'], 'nodes': data['nodes'], 'business_tasks': data['business_tasks'],
+                'business_producer_done': layered.business_producer_done,
+                'business_cases': data['cases'], 'stop_counters': data['stops'],
+                'termination': data.get('termination')}
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -2939,9 +2945,8 @@ class Flow:
     def review_budget_spent(self) -> bool:
         default = self.max_turns
         if getattr(self, "derived_as_specs", False) and default > 0:
-            # Reviews have their own ceiling; an eight-case scenario can need
-            # eight initial audits and eight audits after correction.
-            default = max(default, self.case_review_cap() + 4 * len(self.planned_derived_scenarios()))
+            # Text-only audits have their own ceiling, with no correction pass.
+            default = max(default, self.case_review_cap() + len(self.planned_derived_scenarios()))
         cap = int(os.environ.get("OCTOS_ARC_REVIEW_TURNS", str(default)))
         reserved = getattr(getattr(self, "llm_proxy", None), "external_reserved_turns", 0)
         if not isinstance(reserved, (int, float)):
@@ -2949,15 +2954,16 @@ class Flow:
         return cap > 0 and getattr(self, "review_turn_count", 0) + reserved >= cap
 
     def case_review_cap(self) -> int:
-        # The DSL permits eight cases per scenario. Count limits must allow
-        # initial and correction audits even with the default one-case batch.
-        # Category deadlines, token limits and code reserves still apply.
+        # The DSL permits eight cases per scenario. One audit per case batch;
+        # rejected cases do not reserve correction or re-audit turns.
         count = len(self.planned_derived_scenarios())
-        return max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS", str(max(90, count * 16)))))
+        batch = max(1, min(6, int(os.environ.get('OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH', '3'))))
+        default = max(12, (count * 8 + batch - 1) // batch)
+        return max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_REQUESTS", str(default))))
 
     def case_review_seconds(self) -> int:
         return max(0, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_WALL_SECONDS",
-                                         str(min(10800, max(3600, len(self.planned_derived_scenarios()) * 120))))))
+                                         str(min(7200, max(1800, len(self.planned_derived_scenarios()) * 75))))))
 
     def wound_down(self) -> bool:
         """True once the run has spent its token or turn allowance: no more repair
@@ -3183,11 +3189,10 @@ class Flow:
             self.last_turn_changed = False
             return False, "turn time allowance exhausted before execution"
         proxy = getattr(self, "llm_proxy", None)
-        # `verify_text` has the proxy drop the shell tools in minimal mode. A turn
-        # that cannot run a command must not then be told off for not running one.
+        # The framework, rather than the author, owns verification in the layered flow.
         no_shell = bool(getattr(proxy, "extra_drop_tools", None))
         monitor = TurnMonitor(self.protected_prefixes(),
-                              expect_verification=expect_verification and not no_shell,
+                              expect_verification=expect_verification and not no_shell and getattr(self, "layered", None) is None,
                               allowed_prefixes=[".arc/design/", str(self.output_dir / ".arc" / "design")])
         if proxy is not None:
             # Per-turn reasoning: OCTOS_ARC_IMPLEMENT_REASONING (e.g. "none") applies
@@ -3197,14 +3202,14 @@ class Flow:
             is_implement = label.endswith(" implement") or label.startswith("skeleton")
             impl_all = os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL') == '1'
             proxy.mode = impl_mode if (impl_mode and is_implement and
-                                       (impl_all or self.minimal_mode(getattr(self, "n_nodes", 99)))) else base_mode
+                                       (impl_all or (getattr(self, "n_nodes", 99) <= self.small_task_nodes))) else base_mode
             current_model = os.environ.get("OCTOS_MODEL") or os.environ.get("MODEL", "")
             if proxy.mode == default_reasoning_for_model(current_model):
                 proxy.mode = turn_reasoning_for_model(current_model, label)
             if request_budget is None:
                 # Repairs are measured after bounded work, not allowed unlimited
                 # context growth. Creation keeps its independent default.
-                default = "12" if "repair" in label else "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"
+                default = "12" if "repair" in label else "20" if (getattr(self, "n_nodes", 99) <= self.small_task_nodes) else "0"
                 request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", default)) if "repair" in label else \
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", default))
             proxy.label = label
@@ -3320,30 +3325,12 @@ class Flow:
 
     SHELL_TOOLS = {"bash", "shell", "exec_command"}
 
-    def minimal_mode(self, total_nodes: int) -> bool:
-        mode = os.environ.get("OCTOS_VERIFY_MODE", "auto")
-        return mode == "minimal" or (mode != "full" and total_nodes <= self.small_task_nodes)
 
     def verify_text(self, total_nodes: int) -> str:
-        minimal = self.minimal_mode(total_nodes)
-        # Prompt budgets alone are ignored often enough (v9-tb-a: 41 tool calls
-        # incl. servers in a "no shell" repair turn); in minimal mode the proxy
-        # removes the shell tools so commands are impossible, the harness builds.
-        proxy = getattr(self, "llm_proxy", None)
-        if proxy is not None and os.environ.get("OCTOS_ARC_DROP_SHELL", "1") != "0":
-            proxy.extra_drop_tools = set(self.SHELL_TOOLS) if minimal else set()
-        guidance = VERIFY_MINIMAL if minimal else VERIFY_FULL.format(smoke=self.smoke_port)
-        if getattr(self, "derived_as_specs", False):
-            if getattr(self, '_generation_active', False):
-                return ("Check the application build and startup, then exercise the requirement's own "
-                        "success and rejection flows with direct browser or HTTP checks where time permits. "
-                        "Generated Playwright candidates are awaiting independent review and must not be "
-                        "used as the basis for implementation or repair.\n")
-            guidance = (guidance.replace("official acceptance tests", "generated acceptance tests")
-                        .replace("official Playwright specs", "generated Playwright specs"))
-            guidance += (" The generated specs are checked against requirements.yaml if they fail; "
-                         "requirements.yaml determines the required behavior.\n")
-        return guidance
+        origin = "generated Playwright specs" if getattr(self, 'derived_as_specs', False) else "official Playwright specs"
+        return ("Implement the requirement and preserve existing behavior. Do not generate, modify or run tests. "
+                f"The framework owns static/build/start/browser checks and independently reviewed frozen {origin}. "
+                "Use only the frozen failure evidence supplied for a requested repair.\n")
 
     def codegen_mode(self, *, node_block: bool = True) -> bool:
         """One-request generation per node (OCTOS_ARC_CODEGEN=0 disables; OCTOS_ARC_CODEGEN_MAX_NODES caps the
@@ -3620,8 +3607,10 @@ class Flow:
             f"limit={budget.get('limit', '?')} reason={budget.get('reason') or 'unrecorded'}")
 
     def codegen_repair_prompt(self, node_id: str, prompt: str, failures: str = "") -> str | None:
+        self.codegen_repair_unavailable_reason = ""
         spec = self.spec_bodies(node_id)
         if not spec or spec == "(none)":
+            self.codegen_repair_unavailable_reason = "missing_spec"
             return None
         if failures and failures in prompt:
             prompt = prompt.replace(failures, balanced_failure_evidence(failures, 6000), 1)
@@ -3636,10 +3625,16 @@ class Flow:
         # evidence -- before giving the node to tools.
         node = getattr(self, "requirement_nodes", {}).get(node_id)
         if node is None:
+            self.codegen_repair_unavailable_reason = "missing_requirement_node"
             return None
         evidence = ("The current application fails these acceptance checks; fix them without breaking the "
                     "passing ones:\n" + balanced_failure_evidence(failures or "(no detail)", 6000) + "\n")
-        return self.codegen_implement_prompt(node, spec, "", evidence=evidence)
+        fallback = self.codegen_implement_prompt(node, spec, "", evidence=evidence)
+        if fallback is None:
+            budget = getattr(self, "codegen_budget", {}) or {}
+            reason = str(budget.get("reason") or "required_source_or_context_budget")
+            self.codegen_repair_unavailable_reason = "prompt_unavailable:" + re.sub(r"[^a-zA-Z0-9_-]", "_", reason)[:80]
+        return fallback
 
     def _patched_repair_prompt(self, node_id: str, spec: str, prompt: str) -> str | None:
         # Tool-free repairs must see the source instead of instructions to read it.
@@ -3741,6 +3736,12 @@ class Flow:
             return False, "model proxy unavailable"
         proxy.no_tools = True
         proxy.system_override = system
+        single_spec = label in {'basic independent review', 'basic entry contract completion',
+                               'business exhausted retention decision', 'derived obligation extraction', 'derived scenario review',
+                               'derived case independent review'}
+        saved_single_attempt = getattr(proxy, 'single_attempt', False)
+        if single_spec:
+            proxy.single_attempt = True
         mode_override = self.codegen_reasoning(spec_chars)
         saved_cap = getattr(proxy, "codegen_max_tokens", 0)
         phase = phase_for_label(label)
@@ -3758,6 +3759,8 @@ class Flow:
         recovery_cap = self.generation_recovery_cap() if recovering and phase == "implement" else (
             max(0, int(os.environ.get("OCTOS_ARC_DEGENERATE_MAX_TOKENS", "8192"))) if recovering else 0)
         proxy.codegen_max_tokens = min([cap for cap in (phase_cap, recovery_cap) if cap] or [0])
+        if label in {'basic independent review', 'basic entry contract completion', 'business exhausted retention decision'}:
+            proxy.codegen_max_tokens = 2048
         recovery_mode = os.environ.get("OCTOS_ARC_RECOVERY_REASONING", "none")
         if recovering and recovery_mode in {"low", "medium", "high"}:
             mode_override = recovery_mode  # opt-in; otherwise retain the base effort
@@ -3766,9 +3769,13 @@ class Flow:
             self.base_reasoning_mode = mode_override
         try:
             turn_budget = int(os.environ.get("OCTOS_ARC_CODEGEN_REQUESTS", "3"))
+            if single_spec:
+                turn_budget = 1
             if request_budget is not None:
                 turn_budget = min(turn_budget, max(1, request_budget))
-            with self.driver.without_tools():
+            retry_scope = (self.driver.without_retries()
+                           if single_spec and isinstance(self.driver, OctosDriver) else nullcontext())
+            with retry_scope, self.driver.without_tools():
                 return self.turn(prompt, timeout, label, expect_verification=False,
                                  request_budget=turn_budget)
         finally:
@@ -3776,6 +3783,7 @@ class Flow:
             proxy.system_override = None
             self.base_reasoning_mode = saved_base
             proxy.codegen_max_tokens = saved_cap
+            proxy.single_attempt = saved_single_attempt
 
     def isolated_spec_requests(self, count: int, *, on_submit=None,
                                allowed=None, force_single: bool = False,
@@ -3829,12 +3837,13 @@ class Flow:
                 proxy.routes = copy.deepcopy(worker_routes)
                 proxy.model_contexts = dict(worker_contexts)
                 proxy.no_tools = True
+                proxy.single_attempt = True
                 proxy.system_override = job.system
-                proxy.codegen_max_tokens = 32768
+                proxy.codegen_max_tokens = 2048 if job.label in {'basic independent review', 'basic entry contract completion'} else 32768
                 proxy.label = job.label
                 proxy.phase = phase_for_label(job.label)
                 proxy.max_total_tokens_abs = job.reservation
-                proxy.begin_turn(3)
+                proxy.begin_turn(1)
                 proxy.turn_deadline = time.monotonic() + turn_timeout
                 proxy.start()
                 isolated = None
@@ -3851,6 +3860,7 @@ class Flow:
                     env.pop("OCTOS_ARC_EDIT_ARGUMENTS_DIR", None)
                     isolated = OctosDriver(octos_bin, workspace, env, data_dir, max_iterations,
                                            events_log=root / "events.jsonl")
+                    isolated.retry_attempts = 1
                     with isolated.without_tools():
                         ok, reply = isolated.run(job.prompt, turn_timeout)
                     if proxy.hard_budget_exhausted or proxy.interrupted_reply:
@@ -4080,6 +4090,12 @@ class Flow:
         fresh build called app_design, so a rerun over an existing app -- which
         is every rerun -- could never reuse the design it had stored; app_design
         itself only ever generates on a fresh build."""
+        if getattr(self, "layered", None) is not None:
+            self._initial_design_required = True
+            try:
+                self.app_design(tree, ordered)
+            finally:
+                self._initial_design_required = False
         self.prepare_visual_evidence()
         build_dir = getattr(self, "output_dir", None)
         if (not self.evolution and build_dir is not None and not app_source_files(build_dir) and self.codegen_mode()
@@ -4154,8 +4170,8 @@ class Flow:
         an existing app IS its design, and tool-mode nodes read the code.
         The document is kept on the flow and in .arc/design/app.json; a reply
         without a JSON object just leaves the run without one."""
-        if os.environ.get("OCTOS_ARC_APP_DESIGN", "1") == "0" or not self.codegen_mode() \
-                or len(ordered) < self.design_min_nodes:
+        if not getattr(self, "_initial_design_required", False) and (os.environ.get("OCTOS_ARC_APP_DESIGN", "1") == "0" or not self.codegen_mode()
+                or len(ordered) < self.design_min_nodes):
             return None
         outline = tree_outline(tree, int(os.environ.get("OCTOS_ARC_APP_DESIGN_OUTLINE_CHARS", "60000")))
         # Cache identity includes omitted detail too, not just a budgeted outline.
@@ -4173,10 +4189,22 @@ class Flow:
             self._design_semantics_reviewed = reviewed
             self._design_blocked = ((wanted - app_design_coverage(stored)) |
                                    blocked_design_owners(tree, stored, wanted, reviewed))
+            if self._design_blocked and getattr(self, '_initial_design_required', False):
+                stored = self.recover_category_design(tree, ordered, accepted=stored) or stored
+                stored = self.review_domain_design(tree, stored)
+                self.app_design_doc = stored
+                self._design_blocked = ((wanted - app_design_coverage(stored)) | blocked_design_owners(
+                    tree, stored, wanted, getattr(self, '_design_semantics_reviewed', False)))
+                directory = self.output_dir / '.arc/design'
+                (directory / 'app.json').write_text(json.dumps(stored, ensure_ascii=False, indent=2))
+                (directory / 'domain-contracts.json').write_text(json.dumps(contract_manifest(tree, stored), ensure_ascii=False, indent=2))
+                meta = json.loads((directory / 'app.meta.json').read_text())
+                meta['design_sha256'] = hashlib.sha256(json.dumps(stored, sort_keys=True).encode()).hexdigest()
+                (directory / 'app.meta.json').write_text(json.dumps(meta, indent=2))
             export_contracts(self.output_dir, tree, stored, 'partial' if self._design_blocked else 'ready_for_implementation')
             log("[flow] application design: reused .arc/design/app.json (same requirement tree and prompt version)")
             return stored
-        if self.evolution:
+        if self.evolution and not getattr(self, "_initial_design_required", False):
             # An existing app is its own design; only a stored design made for
             # this exact tree is trusted over the code.
             return None
@@ -4271,7 +4299,7 @@ class Flow:
                 export_contracts(self.output_dir, tree, None, "design_recovery_blocked")
                 log("[flow] application design unavailable; dependent implementation remains unverified")
                 return None
-        if design and len(wanted) >= coverage_floor and wanted - app_design_coverage(design):
+        if design and (getattr(self, '_initial_design_required', False) or len(wanted) >= coverage_floor) and wanted - app_design_coverage(design):
             design = self.recover_category_design(tree, ordered, accepted=design) or design
         design = self.review_domain_design(tree, design)
         self.app_design_doc = design
@@ -4314,7 +4342,8 @@ class Flow:
             left = min(recovery_deadline - time.monotonic(), self.remaining() - self.final_phase_reserve())
             if left < 60 or self.wound_down():
                 break
-            requirements = [by_id[x] for x in phase["leaves"] if x in by_id]
+            requirements = [by_id[x] for x in phase["leaves"] if x in by_id
+                            and (not accepted or x not in app_design_coverage(aggregate))]
             prompt = (APP_DESIGN_CATEGORY_PROMPT.format(outline=json.dumps(requirements, ensure_ascii=False))
                       + DOMAIN_GUIDANCE + BUSINESS_QUALITY_GUIDANCE
                       + "\nReturn a JSON design containing only additions for this category. "
@@ -4914,6 +4943,7 @@ class Flow:
         ok, text = self.text_turn((prompt + "\n" + format_instructions) if format_instructions else prompt,
                                   timeout, label, system=system, spec_chars=spec_chars,
                                   request_budget=request_budget)
+        self.last_programmer_reply = text
         # Dependency discovery is a bounded read loop, not a failed code edit.
         if context_state is None:
             context_state = {"versions": {}, "rounds": 0}
@@ -5295,22 +5325,29 @@ class Flow:
         proxy.tool_max_tokens = max(1024, int(os.environ.get("OCTOS_ARC_EDIT_MAX_TOKENS", "16384")))
         started = time.monotonic()
         try:
+            repair_phase = phase_for_label(label) == 'repair'
             configured = os.environ.get("OCTOS_ARC_EDIT_REQUESTS")
             if configured is None and phase_for_label(label) == 'implement':
                 configured = os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS")
             if configured is not None:
                 turn_budget = int(configured)
             else:
-                turn_budget = 24
+                turn_budget = 12 if repair_phase else 24
             if request_budget is not None:
                 turn_budget = min(turn_budget, max(1, request_budget))
             before_progress = self.app_source_digest()
             proxy.turn_progress = (lambda: self.app_source_digest() != before_progress) if configured is None else None
-            extension_cap = max(24, int(os.environ.get("OCTOS_ARC_NO_SPEC_EDIT_REQUESTS", "60")))
+            # A repair with no source edit returns to acceptance quickly. An
+            # effective edit buys one bounded continuation for related files;
+            # implementation keeps its larger, independent creation budget.
+            default_extension = 20 if repair_phase else 60
+            extension_cap = max(turn_budget, int(os.environ.get(
+                "OCTOS_ARC_NO_SPEC_EDIT_REQUESTS", str(default_extension))))
             proxy.turn_extension_limit = (min(extension_cap, request_budget) if request_budget is not None
                                           else extension_cap) if configured is None else 0
             ok, text = self.turn(prompt, timeout, label + " (structured edits)", expect_verification=False,
                                  request_budget=max(1, turn_budget))
+            self.last_programmer_reply = text
         finally:
             proxy.turn_progress = None
             proxy.turn_extension_limit = 0
@@ -5640,7 +5677,9 @@ class Flow:
         self.protected_snapshots = []
         control = self.output_dir / '.arc' / 'test-control'
         control.mkdir(parents=True, exist_ok=True)
-        for live in dict.fromkeys((self.tests_dir, getattr(self, "derived_tests_dir", None), self.req_dir, control)):
+        for live in dict.fromkeys((self.tests_dir, getattr(self, "derived_tests_dir", None),
+                                  getattr(self, "basic_tests_dir", None), self.req_dir, control,
+                                  self.output_dir / "design/initial")):
             if not live or not live.is_dir():
                 continue
             snap = Path(tempfile.mkdtemp(prefix="octos-protected-"))
@@ -5659,6 +5698,16 @@ class Flow:
                 log(f"[guard] restored {len(fixed)} protected file(s) under {live}: {fixed[:5]}")
                 fixed_all.extend(f"{live}/{rel}" for rel in fixed)
         return fixed_all
+
+    def refresh_protected_control(self) -> None:
+        """Keep authoritative stop counters newer than the author preimage."""
+        control = self.output_dir / '.arc/test-control'
+        for live, snap, _ in getattr(self, 'protected_snapshots', []):
+            if live == control:
+                shutil.rmtree(snap)
+                shutil.copytree(control, snap)
+        self.protected_snapshots = [(live, snap, tree_digest(live) if live == control else old)
+                                    for live, snap, old in getattr(self, 'protected_snapshots', [])]
 
     def start_llm_proxy(self) -> None:
         """Default to model-specific reasoning; explicit settings take priority.
@@ -5831,19 +5880,31 @@ class Flow:
         """Build, start, run the specs, then undo whatever the test run mutated
         (a persisted counter at -1 would otherwise be committed as the seed).
         `grader_like` starts the backend with only PORT set, as the platform does."""
+        layered = getattr(self, "layered", None)
+        basic = getattr(self, "_layered_execution_level", None) == "basic"
+        if layered is not None:
+            if audit_candidate:
+                return RunSummary(error="candidate behavior execution is forbidden; use static/load checks")
+            active, excluded = layered.selected(specs)
+            if not active:
+                return RunSummary(error="no frozen authoritative tests allowed in this phase")
+            selected = runner or self.runner
+            if selected is not None:
+                selected.case_exclusions = excluded
+                selected.case_inclusions = layered.case_inclusions
         selected_runner = runner or self.runner
         if selected_runner is None:
             return RunSummary(error='acceptance runner unavailable')
-        if (getattr(self, 'derived_as_specs', False) is True
+        if (getattr(self, 'derived_as_specs', False) is True and not basic
                 and (not self.tests_dir or self.tests_dir != getattr(self, "derived_tests_dir", None))):
             return RunSummary(error='generated suite origin mismatch')
-        if getattr(self, 'derived_as_specs', False) is True and not audit_candidate:
+        if layered is None and getattr(self, 'derived_as_specs', False) is True and not audit_candidate:
             active, excluded = self.derived_case_selection(specs)
             if active == 0:
                 self.metric('derived_test_wait', specs=specs, decision='no_approved_cases')
                 return RunSummary(error='no independently approved generated cases selected')
             selected_runner.case_exclusions = excluded
-        elif selected_runner is not None:
+        elif layered is None and selected_runner is not None:
             selected_runner.case_exclusions = {}
         started = time.monotonic()
         blocked = self.generated_load_errors(specs)
@@ -5862,7 +5923,7 @@ class Flow:
             if err is not None:
                 return RunSummary(error=err)
             health = self.check_browser_health()
-            if health.get("status") == "failed":
+            if health.get("status") == "failed" or layered is not None and health.get("status") != "passed":
                 summary = RunSummary(runtime_observations=health["observations"],
                                      artifact_dirs=[health["artifact_dir"]])
                 summary.error = "Application runtime failure: " + "\n".join(application_failures(summary))
@@ -5870,7 +5931,7 @@ class Flow:
             self.note_startable_commit(git_run, health.get("status"), health.get('source_hash'))
             # A derived suite has one spec file per leaf (47 for the GitHub task);
             # a fixed 900s wall would kill the full run before its verdict.
-            policy = self.generated_test_policy()
+            policy = None if layered is not None else self.generated_test_policy()
             active_runner = selected_runner
             active_runner.derived_policy = policy
             active_runner.artifact_dir = self.output_dir / ".arc" / "acceptance-evidence"
@@ -5969,6 +6030,12 @@ class Flow:
         return merged
 
     def check_browser_health(self, *, paths=None, force=False) -> dict:
+        if paths is None and getattr(self, "layered", None) is not None and self.layered.state.data["phase"] != "business":
+            implemented = {key for key, row in self.layered.state.data["nodes"].items() if row["code_done"]}
+            implemented.add(getattr(self, "_layered_current_node", ""))
+            pages = [page for page in (getattr(self, "app_design_doc", None) or {}).get("pages", [])
+                     if set(map(str, page.get("requirements", []))) & implemented]
+            paths = concrete_health_paths({"pages": pages})
         runner = getattr(self, "runner", None) or getattr(self, "_health_runner", None)
         if runner is None:
             directory = self.output_dir / ".arc" / "health-tests"
@@ -6097,6 +6164,19 @@ class Flow:
         return not (any(v is True for v in getattr(self, "test_verdict", {}).values())
                     or any(r.passed > 0 for r in getattr(self, "probe_summaries", {}).values()))
 
+    @staticmethod
+    def node_repair_request_cap(failures: str, applied: bool = False) -> int:
+        """Give a diagnosed shortcut repair a short, measurable tool window.
+
+        Other repairs retain their usual allowance, and an explicit operator
+        setting always wins. The browser observer reports only modifier keys;
+        a test step mentioning Control alone does not qualify as a diagnosis.
+        """
+        recent_shortcut = ("Shortcut keydown events before failure:" in failures
+                           and re.search(r'Press\s+"(?:Control|Meta|ControlOrMeta)\+', failures))
+        default = 12 if recent_shortcut else (60 if applied else 36)
+        return max(1, int(os.environ.get("OCTOS_ARC_REPAIR_ROUND_REQUESTS", str(default))))
+
     def node_repair_turn(self, node_id: str, failures: str, timeout: float, label: str,
                          build_prompt) -> bool:
         """Apply a repair before charging another acceptance round.
@@ -6108,15 +6188,15 @@ class Flow:
         """
         deadline = time.monotonic() + timeout
         prompt = build_prompt()
-        compact = self.codegen_repair_prompt(node_id, prompt, failures=failures) if self.codegen_mode() else None
+        codegen_enabled = self.codegen_mode()
+        compact = self.codegen_repair_prompt(node_id, prompt, failures=failures) if codegen_enabled else None
         applied = False
         round_spent = 0
         proxy = getattr(self, "llm_proxy", None)
         if compact is not None:
             for attempt in range(2):
                 left = deadline - time.monotonic()
-                default_cap = 60 if applied else 36
-                round_cap = max(1, int(os.environ.get("OCTOS_ARC_REPAIR_ROUND_REQUESTS", str(default_cap))))
+                round_cap = self.node_repair_request_cap(failures, applied)
                 allowance = round_cap - round_spent
                 if left <= 0 or self.wound_down() or allowance <= 0:
                     return applied
@@ -6156,17 +6236,24 @@ class Flow:
         left = deadline - time.monotonic()
         if left < 30 or self.wound_down() or getattr(getattr(self, "llm_proxy", None), "hard_budget_exhausted", False) is True:
             return applied
-        default_cap = 60 if applied else 36
-        round_cap = max(1, int(os.environ.get("OCTOS_ARC_REPAIR_ROUND_REQUESTS", str(default_cap))))
+        round_cap = self.node_repair_request_cap(failures, applied)
         allowance = round_cap - round_spent
         if allowance <= 0:
             self.metric("repair_round_budget", node_id=node_id, label=label,
                         spent=round_spent, cap=round_cap, decision="no_fallback")
             return applied
-        if self.codegen_mode():
+        if codegen_enabled:
             self.codegen_blocked = True
-            log(f"[flow] {label}: codegen repair unavailable or not fully applied; using tools before retesting")
-        outcome = getattr(self, "last_codegen_outcome", "unapplied")
+        if not codegen_enabled:
+            outcome = "disabled"
+        elif compact is None:
+            outcome = getattr(self, "codegen_repair_unavailable_reason", "") or "prompt_unavailable"
+        else:
+            outcome = getattr(self, "last_codegen_outcome", "unapplied")
+        log(f"[flow] {label}: codegen {outcome}; tool fallback has {allowance} request(s) "
+            f"and {left:.0f}s remaining")
+        self.metric("node_repair_fallback", node_id=node_id, label=label, codegen_outcome=outcome,
+                    codegen_requests=round_spent, tool_allowance=allowance, seconds_left=round(left, 1))
         if compact is not None:
             self.pending_corrections.append(
                 f"Previous codegen repair outcome: {outcome}. The reported failure is still unresolved. "
@@ -6294,10 +6381,6 @@ class Flow:
         specs = getattr(self, "spec_map", {}).get(node_id, [])
         return bool(specs and self.derived_case_selection(specs)[0])
 
-    @staticmethod
-    def fast_test_mode() -> bool:
-        """Only an explicit fast opt-in bypasses independent pre-run review."""
-        return os.environ.get("OCTOS_ARC_TEST_MODE", "full").strip().lower() == "fast"
 
     def disputed_generated_failures(self, summary: RunSummary) -> list[tuple[str, str]]:
         """Failed generated tests whose oracle is not safe for application repair."""
@@ -6314,39 +6397,31 @@ class Flow:
         return found
 
     def trusted_derived_case(self, node_id: str, title: str) -> bool:
-        if (node_id, title) in getattr(self, "derived_spec_disputes", {}):
+        if (node_id, title) in getattr(self, 'derived_spec_disputes', {}):
             return False
-        reviews = getattr(self, "derived_case_reviews", None)
-        if reviews is None:  # older or official-spec flows do not have this ledger
+        reviews = getattr(self, 'derived_case_reviews', None)
+        if reviews is None:
             return True
         row = reviews.get((node_id, title))
-        allowed = {"approved_behavior"}
-        if self.fast_test_mode():
-            allowed.add("skip_review")
-        if not row or row.get("status") not in allowed:
+        allowed = {'approved_behavior'}
+        if not row or row.get('status') not in allowed:
             return False
-        path = (getattr(self, "derived_tests_dir", None) or self.tests_dir) / f"{node_id}.spec.ts"
+        path = (getattr(self, 'derived_tests_dir', None) or self.tests_dir) / f'{node_id}.spec.ts'
         try:
-            source = path.read_text(encoding="utf-8")
+            source = path.read_text(encoding='utf-8')
         except OSError:
             return False
         from test_policy import test_block
         block = test_block(source, title)
         try:
-            target = next((item for item in self.planned_derived_scenarios()
-                           if item.get("node_id") == node_id and item.get("id") == row.get("scenario_id")), None)
-            requirement = requirement_text(target, ancestor_context(getattr(self, "requirement_tree", None)).get(node_id, ""))
-            helper = path.parent / "helpers.ts"
+            target = next((item for item in self.planned_derived_scenarios() if item.get('node_id') == node_id and item.get('id') == row.get('scenario_id')), None)
+            requirement = requirement_text(target, ancestor_context(getattr(self, 'requirement_tree', None)).get(node_id, ''))
+            helper = path.parent / 'helpers.ts'
             helper_hash = helper_evidence_hash(helper.parent)
-            fixture_hash = case_sha(str(suite_fixtures(getattr(self, "derived_nodes", []))))
+            fixture_hash = case_sha(str(suite_fixtures(getattr(self, 'derived_nodes', []))))
         except (OSError, ValueError, TypeError):
             return False
-        return bool(block and not static_case_issues(block, target)
-                    and row.get("file_hash") == case_sha(source)
-                    and row.get("case_hash") == case_sha(block)
-                    and target and row.get("requirements_hash") == case_sha(requirement)
-                    and row.get("helper_hash") == helper_hash
-                    and row.get("fixture_hash") == fixture_hash)
+        return bool(block and (not static_case_issues(block, target)) and (row.get('file_hash') == case_sha(source)) and (row.get('case_hash') == case_sha(block)) and target and (row.get('requirements_hash') == case_sha(requirement)) and (row.get('helper_hash') == helper_hash) and (row.get('fixture_hash') == fixture_hash))
 
     def uncontested_derived_results(self, summary: RunSummary) -> RunSummary:
         """Use failures only from fully reviewed leaves with still-valid evidence."""
@@ -6386,6 +6461,8 @@ class Flow:
                                               summary: RunSummary,
                                               failure_title: str | None = None) -> RunSummary | None:
         """Retire a failing generated case only after two grounded, matching reviews."""
+        if getattr(self, "layered", None) is not None:
+            return None
         if (getattr(self, "derived_as_specs", False) is not True
                 or getattr(self, "driver", None) is None
                 or os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW", "1") == "0"
@@ -6565,71 +6642,53 @@ class Flow:
         # assertion or action and then run it under the same failed version.
         return None
 
-    def audit_related_derived_specs(self, specs: list[str], summary: RunSummary,
-                                    owner_specs: dict[str, list[str]] | None = None) -> RunSummary:
+    def audit_related_derived_specs(self, specs: list[str], summary: RunSummary, owner_specs: dict[str, list[str]] | None=None) -> RunSummary:
         """Adjudicate failed reviewed cases before using them for app repair."""
-        if self.fast_test_mode() and getattr(self, "derived_as_specs", False):
-            return summary  # The fast node path owns its single post-failure review.
-        if (getattr(self, "derived_as_specs", False) is not True or summary.all_passed
-                or not self.suite_is_measured(summary, specs)):
+        if getattr(self, "layered", None) is not None:
+            return summary  # author disputes are terminal; no oracle adjudication loop
+        if getattr(self, 'derived_as_specs', False) is not True or summary.all_passed or (not self.suite_is_measured(summary, specs)):
             return summary
         owners = self.spec_map if owner_specs is None else owner_specs
         single_owner = len(owners) == 1 and set(next(iter(owners.values()))) == set(specs)
         corrected = False
         single_result = None
-        model_limit = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE", "3")))
-        # Older derived suites have no case-review ledger and retain their
-        # deterministic repair path. Reviewed v12 cases are immutable after
-        # execution: suspected test errors require independent adjudication.
-        legacy_owners = owners.items() if getattr(self, "derived_case_reviews", None) is None else ()
+        model_limit = max(0, int(os.environ.get('OCTOS_ARC_DERIVED_FAILURE_REVIEW_PER_SUITE', '3')))
+        legacy_owners = owners.items() if getattr(self, 'derived_case_reviews', None) is None else ()
         for node_id, paths in legacy_owners:
-            if not node_id or not paths or not set(paths) <= set(specs):
+            if not node_id or not paths or (not set(paths) <= set(specs)):
                 continue
-            rows = [row for row in summary.results if any(
-                str(row.file or "").replace("\\", "/") == path or
-                str(row.file or "").replace("\\", "/").endswith("/" + path) for path in paths)]
-            local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+            rows = [row for row in summary.results if any((str(row.file or '').replace('\\', '/') == path or str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths))]
+            local = RunSummary(results=rows, total=len(rows), passed=sum((row.ok for row in rows)))
             if local.all_passed or not self.suite_is_measured(local, paths):
                 continue
-            if not any(not row.ok and self.trusted_derived_case(node_id, row.title)
-                       and classify_observation(row.message or row.status,
-                                                source="derived", reliable=True)[0] != "T" for row in rows):
+            if not any((not row.ok and self.trusted_derived_case(node_id, row.title) and (classify_observation(row.message or row.status, source='derived', reliable=True)[0] != 'T') for row in rows)):
                 continue
             result = self.audit_failed_derived_specs(node_id, paths, local)
             corrected = result is not None or corrected
             if result is not None and single_owner:
                 single_result = result
         if corrected:
-            summary = single_result if single_result is not None else self.run_specs(
-                specs, grader_like=True, audit_candidate=True)
-            self.metric("derived_spec_audit", outcome="related_suite_remeasured",
-                        passed=summary.passed, total=summary.total, specs=len(specs))
+            summary = single_result if single_result is not None else self.run_specs(specs, grader_like=True, audit_candidate=True)
+            self.metric('derived_spec_audit', outcome='related_suite_remeasured', passed=summary.passed, total=summary.total, specs=len(specs))
         model_reviews = 0
-        while (model_reviews < model_limit and not summary.all_passed
-               and self.suite_is_measured(summary, specs)):
+        while model_reviews < model_limit and (not summary.all_passed) and self.suite_is_measured(summary, specs):
             model_corrected = False
             for node_id, paths in owners.items():
-                if not node_id or not paths or not set(paths) <= set(specs):
+                if not node_id or not paths or (not set(paths) <= set(specs)):
                     continue
-                rows = [row for row in summary.results if any(
-                    str(row.file or "").replace("\\", "/") == path or
-                    str(row.file or "").replace("\\", "/").endswith("/" + path) for path in paths)]
-                local = RunSummary(results=rows, total=len(rows), passed=sum(row.ok for row in rows))
+                rows = [row for row in summary.results if any((str(row.file or '').replace('\\', '/') == path or str(row.file or '').replace('\\', '/').endswith('/' + path) for path in paths))]
+                local = RunSummary(results=rows, total=len(rows), passed=sum((row.ok for row in rows)))
                 if local.all_passed or not self.suite_is_measured(local, paths):
                     continue
                 for row in rows:
-                    if (row.ok or row.status == "quarantined" or not self.trusted_derived_case(node_id, row.title)
-                            or classify_observation(row.message or row.status,
-                                                    source="derived", reliable=True)[0] == "T"):
+                    if row.ok or row.status == 'quarantined' or (not self.trusted_derived_case(node_id, row.title)) or (classify_observation(row.message or row.status, source='derived', reliable=True)[0] == 'T'):
                         continue
                     if model_reviews >= model_limit:
                         break
                     model_reviews += 1
-                    result = self.review_failed_derived_spec_with_model(
-                        node_id, paths, local, failure_title=row.title)
+                    result = self.review_failed_derived_spec_with_model(node_id, paths, local, failure_title=row.title)
                     if result is not None:
-                        summary = result if single_owner else self.run_specs(
-                            specs, grader_like=True, audit_candidate=True)
+                        summary = result if single_owner else self.run_specs(specs, grader_like=True, audit_candidate=True)
                         model_corrected = True
                         break
                 if model_corrected:
@@ -6638,232 +6697,51 @@ class Flow:
                 break
         return summary
 
-    def fast_derived_acceptance(self, node_id: str, specs: list[str], deadline: float,
-                                initial_summary: RunSummary | None = None) -> bool | None:
-        """One measured run, one post-failure audit, and at most one code repair.
 
-        A bad or uncertain case is quarantined individually. A repair that
-        breaks build/start/runtime is rolled back; a buildable partial repair
-        remains in the tree even when its failing cases are quarantined.
-        """
-        if not self.derived_has_runnable_cases(node_id):
-            self.metric('derived_test_wait', node_id=node_id, decision='no_fast_candidates')
-            return None
-        summary = initial_summary or self.run_specs(specs)
-        if not self.suite_is_measured(summary, specs):
-            self.metric('fast_acceptance', node_id=node_id, outcome='measurement_unavailable',
-                        error=summary.error or '\n'.join(summary.load_errors))
-            return None
-        self.record_tests(node_id, specs, summary)
-        if summary.all_passed:
-            self.commit(f"{node_id} (fast accepted): {summary.passed}/{summary.total}")
-            return None if self.derived_review_needed(node_id) else True
-
-        from test_policy import digest, grounded_verdict, test_block
-        policy = self.generated_test_policy()
-        node = getattr(self, 'requirement_nodes', {}).get(node_id, {})
-        requirement = (json.dumps(node, ensure_ascii=False, sort_keys=True) + '\n'
-                       + ancestor_context(getattr(self, 'requirement_tree', None)).get(node_id, ''))
-        code = (self.repair_requirements(node_id) + self.sources_text())[:max(3000, self.codegen_context_chars() // 2)]
-        app_errors = []
-        failure_hash = digest(sorted(map(str, failure_signature(summary))))
-        def dispute(failed, reason, reviews=()):
-            rel = Path(failed.file or '').name
-            path = self.tests_dir / rel
-            try:
-                source = path.read_text(encoding='utf-8') if path.is_file() else ''
-            except OSError:
-                source = ''
-            if policy and test_block(source, failed.title):
-                try:
-                    policy.decide(rel, failed.title, source, 'disputed', reason,
-                                  reviews, failure_hash=failure_hash)
-                except (OSError, ValueError) as exc:
-                    self.metric('fast_test_policy', node_id=node_id, title=failed.title,
-                                outcome='write_unavailable', reason=str(exc)[:200])
-            record = getattr(self, 'derived_case_reviews', {}).get((node_id, failed.title))
-            if record is not None:
-                record['status'] = 'disputed'
-                record['reason'] = reason
-            try:
-                self.flag_derived_spec_dispute(node_id, failed.title, reason)
-            except (OSError, ValueError) as exc:
-                disputes = getattr(self, 'derived_spec_disputes', {})
-                disputes[(node_id, failed.title)] = reason
-                self.derived_spec_disputes = disputes
-                self.metric('fast_test_policy', node_id=node_id, title=failed.title,
-                            outcome='report_unavailable', reason=str(exc)[:200])
-        def persist_case_states():
-            directory = getattr(self, 'derived_tests_dir', None)
-            if directory is not None:
-                try:
-                    review_dir = directory / 'review'
-                    review_dir.mkdir(parents=True, exist_ok=True)
-                    (review_dir / 'cases.json').write_text(json.dumps({
-                        'version': 1, 'cases': safe_records(list(self.derived_case_reviews.values()))
-                    }, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-                except OSError as exc:
-                    self.metric('fast_test_policy', node_id=node_id, outcome='ledger_unavailable',
-                                reason=str(exc)[:200])
-        def quarantine(rows, reason):
-            for failed in rows:
-                dispute(failed, reason)
-            persist_case_states()
-            self.snapshot_protected()
-        for row in (item for item in summary.results if not item.ok and item.status != 'quarantined'):
-            rel = Path(row.file or '').name
-            path = self.tests_dir / rel
-            try:
-                source = path.read_text(encoding='utf-8') if path.is_file() else ''
-            except OSError:
-                source = ''
-            block = test_block(source, row.title)
-            if not block or not self.trusted_derived_case(node_id, row.title):
-                continue
-            failure = failure_summaries(RunSummary(results=[row], total=1, passed=0),
-                                        max_observation=2400, max_snapshots=3000)
-            prompt = ("Review this measured failure against the requirement, application code and test exactly once. "
-                      "Return one JSON object: {\"verdict\":\"app_error|spec_error|oracle_dispute|uncertain\","
-                      "\"evidence\":\"concrete cause\",\"reason_code\":null,"
-                      "\"requirement_quote\":\"\",\"test_quote\":\"\",\"scenarios\":[]}. "
-                      "For spec_error/oracle_dispute, set reason_code and copy verbatim requirement and offending "
-                      "test quotes. A missing feature or timeout alone is not a bad test. Do not edit files.\n"
-                      f"REQUIREMENT:\n{requirement}\nTEST:\n{block}\nFAILURE:\n{failure}\n"
-                      f"APPLICATION CODE:\n{code}")
-            review = None
-            if len(prompt) <= self.codegen_context_chars() and deadline - time.time() >= 30:
-                self.snapshot_protected()
-                ok, reply = self.oracle_review_turn(prompt, f"{node_id} fast failure review")
-                review = parse_failure_review(reply) if ok else None
-            if review and review['verdict'] == 'app_error' and len(review.get('evidence', '').strip()) >= 20:
-                app_errors.append((row, review['evidence']))
-                self.metric('fast_failure_review', node_id=node_id, title=row.title, verdict='app_error')
-                continue
-            grounded = grounded_verdict(review, requirement, block)
-            reason = (review.get('evidence', '') if review else 'Post-failure review unavailable')[:600]
-            # One fast review cannot satisfy the full mode's two-independent-
-            # review rule for an invalid verdict. Quarantine it as disputed.
-            state = 'disputed'
-            if grounded and review['verdict'] == 'spec_error':
-                reason = ('One grounded review suspects a test error; independent confirmation skipped '
-                          'in fast mode. ' + reason)[:600]
-            dispute(row, reason or 'Post-failure review inconclusive', [review] if review else [])
-            self.metric('fast_failure_review', node_id=node_id, title=row.title, verdict=state)
-        persist_case_states()
-        self.snapshot_protected()
-        if not app_errors:
-            return None
-        left = min(self.node_timeout, deadline - time.time(),
-                   self.remaining() - self.final_phase_reserve())
-        if left < self.repair_minimum() or self.wound_down():
-            self.metric('fast_acceptance', node_id=node_id, outcome='repair_budget_unavailable')
-            quarantine([row for row, _ in app_errors], 'One fast review found an application error, but the single repair window was unavailable')
-            return None
-        before_sha = self.head()
-        before_source = self.app_source_digest()
-        failures = failure_summaries(RunSummary(results=[row for row, _ in app_errors],
-                                                total=len(app_errors), passed=0))
-        findings = '\n'.join(f"- {row.title}: {evidence}" for row, evidence in app_errors)
-        def repair_prompt():
-            return self.app_repair_prompt(node_id=node_id, passed=summary.passed, total=summary.total,
-                                          failures=failures + '\nFailure audit:\n' + findings,
-                                          test_location=self.repair_test_location(specs),
-                                          corrections=self.corrections_text(), slow='', smoke=self.smoke_port,
-                                          port=self.web_port,
-                                          sources=self.repair_requirements(node_id) + self.sources_text())
-        try:
-            changed = self.node_repair_turn(node_id, failures, left,
-                                            f"{node_id} fast repair 1/1", repair_prompt)
-        except Exception as exc:  # a partial edit must never escape unmeasured
-            if before_sha:
-                self.restore_app(before_sha)
-            self.metric('fast_acceptance', node_id=node_id, outcome='repair_exception_rolled_back',
-                        reason=str(exc)[:300])
-            quarantine([row for row, _ in app_errors],
-                       'Fast repair interrupted after a possible partial edit; measured source restored')
-            return None
-        if not changed and self.app_source_digest() == before_source:
-            self.metric('fast_acceptance', node_id=node_id, outcome='repair_not_applied')
-            quarantine([row for row, _ in app_errors], 'One fast repair attempt made no code change; case excluded from later runs')
-            return None
-        try:
-            repaired = self.run_specs(specs)
-        except Exception as exc:
-            if before_sha:
-                self.restore_app(before_sha)
-            self.metric('fast_acceptance', node_id=node_id, outcome='measurement_exception_rolled_back',
-                        reason=str(exc)[:300])
-            quarantine([row for row, _ in app_errors],
-                       'Fast repair could not be measured; measured source restored')
-            return None
-        systemic = (not self.suite_is_measured(repaired, specs)
-                    or bool(application_failures(repaired)))
-        if systemic:
-            if before_sha:
-                self.restore_app(before_sha)
-            self.metric('fast_acceptance', node_id=node_id, outcome='systemic_repair_rolled_back',
-                        error=repaired.error or '\n'.join(repaired.load_errors))
-            self.pending_corrections.append(
-                f"{node_id}: fast repair broke application build/start/runtime; restored the measured source.")
-            quarantine([row for row, _ in app_errors],
-                       'The single fast repair broke build/start/runtime and was rolled back; case excluded')
-            return None
-        self.commit(f"{node_id} fast repair: buildable source retained")
-        self.record_tests(node_id, specs, repaired)
-        if repaired.all_passed:
-            self.metric('fast_acceptance', node_id=node_id, outcome='repaired_pass')
-            return None if self.derived_review_needed(node_id) else True
-        quarantine([row for row in repaired.results if not row.ok and row.status != 'quarantined'],
-                   'One fast code repair was buildable but this test still failed; no further code edits')
-        self.metric('fast_acceptance', node_id=node_id, outcome='buildable_repair_retained',
-                    passed=repaired.passed, total=repaired.total)
-        return None
-
-    def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
-                        rebuild_prompt=None, initial_summary: RunSummary | None = None,
-                        source_versions: dict | None = None) -> bool | None:
+    def acceptance_loop(self, node_id: str, specs: list[str], deadline: float, rebuild_prompt=None, initial_summary: RunSummary | None=None, source_versions: dict | None=None) -> bool | None:
         """Returns True/False for a real verdict, None when no local run happened.
-        `rebuild_prompt(failures)` (optional) yields a full re-implementation
-        prompt; it is used only before any behavior has passed verification.
-        A failing extension is repaired without replacing working features."""
+            `rebuild_prompt(failures)` (optional) yields a full re-implementation
+            prompt; it is used only before any behavior has passed verification.
+            A failing extension is repaired without replacing working features."""
+        if getattr(self, "layered", None) is not None:
+            if self.layered.state.data["phase"] != "business":
+                return None
+            self.layered.execute_business()
+            return self.test_verdict.get(node_id)
         if self.runner is None or not specs:
             return None
-        if getattr(self, 'derived_as_specs', False) and self.fast_test_mode():
-            return self.fast_derived_acceptance(node_id, specs, deadline, initial_summary)
-        if getattr(self, 'derived_as_specs', False) is True and not self.derived_has_runnable_cases(node_id):
+        if getattr(self, 'derived_as_specs', False) is True and (not self.derived_has_runnable_cases(node_id)):
             self.last_node_own_pass = False
-            self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases',
-                        specs=specs)
+            self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases', specs=specs)
             log(f'[acceptance] {node_id}: generated tests await complete independent review; repair deferred')
             return None
-        best_passed, best_sha, regressions, stalls = -1, self.head(), 0, 0
+        best_passed, best_sha, regressions, stalls = (-1, self.head(), 0, 0)
         rewrite_used = False
         previous_failures = None
         repair_applied = False
         prior_regressed = False
         checked_failed_versions = set()
         initial_versions = source_versions if source_versions is not None else self.repair_source_index().versions
-        self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
-        explicit_rounds = getattr(self, "repair_rounds_explicit", True)
+        self.codegen_blocked = False
+        explicit_rounds = getattr(self, 'repair_rounds_explicit', True)
         maximum_rounds = 5 if not explicit_rounds and self.repair_rounds == 3 else self.repair_rounds
         failure_signatures = set()
         made_progress = False
         for attempt in range(maximum_rounds + 1):
-            if getattr(self, 'derived_as_specs', False) is True and not self.derived_has_runnable_cases(node_id):
+            if getattr(self, 'derived_as_specs', False) is True and (not self.derived_has_runnable_cases(node_id)):
                 self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases_during_acceptance')
                 return None
             levels: list[str] = []
             summary = initial_summary if attempt == 0 and initial_summary is not None else self.run_specs(specs)
             runtime_failures = application_failures(summary)
             if runtime_failures:
-                summary = dc_replace(summary, error="Application runtime failure: " + "\n".join(runtime_failures))
+                summary = dc_replace(summary, error='Application runtime failure: ' + '\n'.join(runtime_failures))
             elif summary.runtime_uncertain and summary.passed == summary.total:
-                self.metric("acceptance", scope="node", node_id=node_id, verdict="runtime_unknown", issues=diagnose(summary))
-                self.self_audit_node(node_id, "runtime exception retained but not independently reproduced")
+                self.metric('acceptance', scope='node', node_id=node_id, verdict='runtime_unknown', issues=diagnose(summary))
+                self.self_audit_node(node_id, 'runtime exception retained but not independently reproduced')
                 return None
-            if getattr(self, "derived_as_specs", False) and not runtime_failures:
-                summary = self.audit_related_derived_specs(
-                    specs, summary, owner_specs={node_id: specs})
+            if getattr(self, 'derived_as_specs', False) and (not runtime_failures):
+                summary = self.audit_related_derived_specs(specs, summary, owner_specs={node_id: specs})
                 if not self.derived_has_runnable_cases(node_id):
                     self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases_after_audit')
                     return None
@@ -6872,95 +6750,75 @@ class Flow:
                     raw = summary
                     self.write_derived_coverage(raw)
                     summary = self.uncontested_derived_results(raw)
-                    self.metric("derived_spec_dispute", scope="node", node_id=node_id,
-                                tests=[title for _, title in disputed], active=summary.total)
-                    if (not summary.total or summary.all_passed) and not summary.error:
+                    self.metric('derived_spec_dispute', scope='node', node_id=node_id, tests=[title for _, title in disputed], active=summary.total)
+                    if (not summary.total or summary.all_passed) and (not summary.error):
                         self.record_tests(node_id, specs, raw)
-                        self.self_audit_node(node_id, "generated tests were disputed, unreviewed or low-signal")
-                        return None  # All active tests pass; invalid tests leave a coverage gap.
-            if summary.error and summary.error.startswith("generated test load blocked:"):
-                self.metric("acceptance", scope="node", node_id=node_id, verdict="blocked_test_file")
+                        self.self_audit_node(node_id, 'generated tests were disputed, unreviewed or low-signal')
+                        return None
+            if summary.error and summary.error.startswith('generated test load blocked:'):
+                self.metric('acceptance', scope='node', node_id=node_id, verdict='blocked_test_file')
                 return None
             if summary.error and summary.killed:
-                log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
+                log(f'[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round')
                 return None
-            infrastructure_error = summary.error or ("\n".join(summary.load_errors) if summary.load_errors else "")
-            measured = not infrastructure_error and not summary.killed and summary.total > 0
+            infrastructure_error = summary.error or ('\n'.join(summary.load_errors) if summary.load_errors else '')
+            measured = not infrastructure_error and (not summary.killed) and (summary.total > 0)
             self._unresolved_startup_error = infrastructure_error
             self.verify_repair_memory(summary, measured)
             if infrastructure_error:
-                log(f"[acceptance] {node_id} infrastructure error: {startup_error_digest(infrastructure_error, 1200)}")
-                self.record_quality_observation(node_id, "build/start/load", infrastructure_error,
-                                                source="runtime", reliable=True)
-                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 2200)}\n  Steps: npm run build -> npm start"
+                log(f'[acceptance] {node_id} infrastructure error: {startup_error_digest(infrastructure_error, 1200)}')
+                self.record_quality_observation(node_id, 'build/start/load', infrastructure_error, source='runtime', reliable=True)
+                failures = f'- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 2200)}\n  Steps: npm run build -> npm start'
                 passed = 0
             else:
                 passed = summary.passed
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 if measured:
                     self.record_tests(node_id, specs, summary)
-                    tracker = getattr(self, "shared_failures", None)
+                    tracker = getattr(self, 'shared_failures', None)
                     if tracker is None:
                         tracker = self.shared_failures = SharedFailureTracker()
                     shared = tracker.note(node_id, summary)
                     if shared:
                         failures += shared
-                        log(f"[acceptance] {node_id}: failure shared with earlier requirements; "
-                            f"repair targets the common cause ({shared.splitlines()[2][:200]})")
-            log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
-            self.last_node_own_pass = bool(measured and passed == summary.total
-                                           and not self.derived_review_needed(node_id))
-            self.metric("acceptance", scope="node", node_id=node_id, round=attempt,
-                        passed=passed, total=summary.total, after_applied_repair=repair_applied,
-                        verdict="measured" if measured else "unknown", error=infrastructure_error or None)
-            if attempt == 0 and node_id in getattr(self, "batched_groups", {}):
+                        log(f'[acceptance] {node_id}: failure shared with earlier requirements; repair targets the common cause ({shared.splitlines()[2][:200]})')
+            log(f'[acceptance] {node_id} round {attempt}: {passed}/{summary.total}')
+            self.last_node_own_pass = bool(measured and passed == summary.total and (not self.derived_review_needed(node_id)))
+            self.metric('acceptance', scope='node', node_id=node_id, round=attempt, passed=passed, total=summary.total, after_applied_repair=repair_applied, verdict='measured' if measured else 'unknown', error=infrastructure_error or None)
+            if attempt == 0 and node_id in getattr(self, 'batched_groups', {}):
                 self.batch_first_pass[node_id] = bool(measured and passed == summary.total)
                 group = self.batched_groups[node_id]
-                if all(member in self.batch_first_pass for member in group):
-                    first_pass = sum(self.batch_first_pass[member] for member in group)
-                    log(f"[flow] sibling batch {list(group)}: first-pass {first_pass}/{len(group)} leaves")
+                if all((member in self.batch_first_pass for member in group)):
+                    first_pass = sum((self.batch_first_pass[member] for member in group))
+                    log(f'[flow] sibling batch {list(group)}: first-pass {first_pass}/{len(group)} leaves')
             was_codegen = self.codegen_mode()
             normalized = failure_signature(summary) if summary.results else failures
-            if repair_applied and normalized and normalized == previous_failures:
-                # Cloud 91aaecaf31af: three codegen rounds, identical observation.
+            if repair_applied and normalized and (normalized == previous_failures):
                 self.codegen_blocked = True
-                self.pending_corrections.append(
-                    'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
-                log(f"[flow] {node_id}: identical failure twice; switching repairs to tool mode")
+                self.pending_corrections.append('Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
+                log(f'[flow] {node_id}: identical failure twice; switching repairs to tool mode')
             previous_failures = normalized
-            if attempt >= int(os.environ.get("OCTOS_ARC_CODEGEN_REPAIRS", "2")) and passed < summary.total \
-                    and self.codegen_mode():
-                # Cloud 91aaecaf31af / 5747e6bcf530: repeated codegen repairs re-emit the same files.
-                # One cheap codegen repair (failure digest + quoted sources) is allowed; then tools.
+            if attempt >= int(os.environ.get('OCTOS_ARC_CODEGEN_REPAIRS', '2')) and passed < summary.total and self.codegen_mode():
                 self.codegen_blocked = True
-                log(f"[flow] {node_id}: codegen attempt {attempt} still failing; repairs use tool mode")
-            for line in (failures or "").splitlines():
-                if line.strip().startswith(("Failed at:", "Observation:")):
+                log(f'[flow] {node_id}: codegen attempt {attempt} still failing; repairs use tool mode')
+            for line in (failures or '').splitlines():
+                if line.strip().startswith(('Failed at:', 'Observation:')):
                     log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")
-            # A new feature can fail while its shared-file edit also breaks an
-            # already proven feature. Probe each new source version, rather
-            # than waiting for the new feature to pass or for a checkpoint.
             if measured:
                 current_versions = self.repair_source_index().versions
-                changed = {p for p in initial_versions.keys() | current_versions.keys()
-                           if initial_versions.get(p) != current_versions.get(p)}
+                changed = {p for p in initial_versions.keys() | current_versions.keys() if initial_versions.get(p) != current_versions.get(p)}
                 regression_specs = self.affected_regression_specs(changed, specs) if repair_applied or source_versions is not None else []
                 if getattr(self, 'derived_as_specs', False) is True:
-                    reviewed_paths = {path for owner, paths in self.spec_map.items()
-                                      if owner and self.derived_has_runnable_cases(owner) for path in paths}
+                    reviewed_paths = {path for owner, paths in self.spec_map.items() if owner and self.derived_has_runnable_cases(owner) for path in paths}
                     regression_specs = [path for path in regression_specs if path in reviewed_paths]
                 if passed < summary.total:
-                    version_key = tuple(sorted((p, current_versions.get(p)) for p in changed))
+                    version_key = tuple(sorted(((p, current_versions.get(p)) for p in changed)))
                     if version_key in checked_failed_versions:
                         regression_specs = []
                     else:
                         checked_failed_versions.add(version_key)
                 affected_count = len(regression_specs)
                 if passed < summary.total and regression_specs:
-                    # The current spec was just measured. Probe a rotating,
-                    # bounded set of proven specs so a failing global edit does
-                    # not consume the entire node budget; checkpoints cover the
-                    # remaining proven behavior together.
                     prior_specs = sorted(set(regression_specs) - set(specs))
                     cap = max(1, int(os.environ.get('OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS', '16')))
                     if len(prior_specs) > cap:
@@ -6969,48 +6827,34 @@ class Flow:
                         self._failed_regression_cursor = cursor + cap
                     else:
                         regression_specs = prior_specs
-                if regression_specs and not self.wound_down() and self.remaining() > self.final_measurement_reserve():
+                if regression_specs and (not self.wound_down()) and (self.remaining() > self.final_measurement_reserve()):
                     regression = self.run_specs(regression_specs, grader_like=True)
-                    if getattr(self, "derived_as_specs", False) is True:
+                    if getattr(self, 'derived_as_specs', False) is True:
                         regression = self.audit_related_derived_specs(regression_specs, regression)
                         disputed = self.disputed_generated_failures(regression)
                         if disputed:
                             for prior, _ in disputed:
                                 self.test_verdict[prior] = None
                         excluded = {prior for prior, _ in disputed}
-                        excluded.update(Path(path).name.removesuffix('.spec.ts')
-                                        for path in regression_specs
-                                        if not self.derived_has_runnable_cases(Path(path).name.removesuffix('.spec.ts')))
+                        excluded.update((Path(path).name.removesuffix('.spec.ts') for path in regression_specs if not self.derived_has_runnable_cases(Path(path).name.removesuffix('.spec.ts'))))
                         for prior in excluded:
                             self.test_verdict[prior] = None
-                        regression_specs = [path for path in regression_specs
-                                            if Path(path).name.removesuffix('.spec.ts') not in excluded]
+                        regression_specs = [path for path in regression_specs if Path(path).name.removesuffix('.spec.ts') not in excluded]
                         regression = self.uncontested_derived_results(regression)
-                    self.metric("acceptance", scope="affected_regression", node_id=node_id,
-                                passed=regression.passed, total=regression.total,
-                                checked_specs=len(regression_specs), affected_specs=affected_count,
-                                changed_files=sorted(changed))
-                    if regression_specs and (not regression.all_passed
-                                             or not self.suite_is_measured(regression, regression_specs)):
+                    self.metric('acceptance', scope='affected_regression', node_id=node_id, passed=regression.passed, total=regression.total, checked_specs=len(regression_specs), affected_specs=affected_count, changed_files=sorted(changed))
+                    if regression_specs and (not regression.all_passed or not self.suite_is_measured(regression, regression_specs)):
                         prior_regressed = False
                         for prior, paths in self.spec_map.items():
-                            if not prior or not paths or not set(paths) <= set(regression_specs):
+                            if not prior or not paths or (not set(paths) <= set(regression_specs)):
                                 continue
-                            if getattr(self, 'derived_as_specs', False) and not self.derived_has_runnable_cases(prior):
+                            if getattr(self, 'derived_as_specs', False) and (not self.derived_has_runnable_cases(prior)):
                                 self.test_verdict[prior] = None
-                                self.metric('derived_test_wait', node_id=prior,
-                                            decision='review_invalidated_by_regression_audit')
+                                self.metric('derived_test_wait', node_id=prior, decision='review_invalidated_by_regression_audit')
                                 continue
-                            rows = [r for r in regression.results if any(
-                                str(r.file or '').replace('\\', '/') == p or
-                                str(r.file or '').replace('\\', '/').endswith('/' + p) for p in paths)]
-                            local = RunSummary(results=rows, total=len(rows), passed=sum(r.ok for r in rows),
-                                               error=regression.error, killed=regression.killed,
-                                               load_errors=regression.load_errors)
+                            rows = [r for r in regression.results if any((str(r.file or '').replace('\\', '/') == p or str(r.file or '').replace('\\', '/').endswith('/' + p) for p in paths))]
+                            local = RunSummary(results=rows, total=len(rows), passed=sum((r.ok for r in rows)), error=regression.error, killed=regression.killed, load_errors=regression.load_errors)
                             if self.suite_is_measured(local, paths):
-                                self.test_verdict[prior] = (None if local.all_passed
-                                                             and self.derived_review_needed(prior)
-                                                             else local.all_passed)
+                                self.test_verdict[prior] = None if local.all_passed and self.derived_review_needed(prior) else local.all_passed
                                 self.record_tests(prior, paths, local)
                                 if not local.all_passed:
                                     if prior != node_id and self.test_verdict.get(prior) is False:
@@ -7018,204 +6862,137 @@ class Flow:
                                     self.mark('test_failed', prior, 'affected behavior failed after application changes')
                             else:
                                 self.test_verdict[prior] = None
-                        regression_evidence = balanced_failure_evidence(
-                            failure_summaries(regression) or regression.error or "Incomplete regression verdict", 4000)
-                        self.pending_corrections.append("Related regression checks after the targeted repair:\n" +
-                                                        regression_evidence)
+                        regression_evidence = balanced_failure_evidence(failure_summaries(regression) or regression.error or 'Incomplete regression verdict', 4000)
+                        self.pending_corrections.append('Related regression checks after the targeted repair:\n' + regression_evidence)
                         if passed == summary.total:
-                            # Do not certify a repair that broke its surrounding behaviour.
                             return False
                         if prior_regressed:
-                            failures += "\nPreviously passing behavior regressed after this edit:\n" + regression_evidence
-                            log(f"[acceptance] {node_id}: shared-file edit regressed proven behavior; "
-                                "including it in the local repair")
+                            failures += '\nPreviously passing behavior regressed after this edit:\n' + regression_evidence
+                            log(f'[acceptance] {node_id}: shared-file edit regressed proven behavior; including it in the local repair')
                 if passed == summary.total:
                     if self.derived_review_needed(node_id):
-                        log(f"[acceptance] {node_id}: generated reach/entry checks pass, "
-                            "but no behavioural spec can verify the feature")
-                        self.metric("derived_spec_coverage", node_id=node_id, outcome="unverified",
-                                    passed=passed, total=summary.total)
-                        self.self_audit_node(node_id, "derived oracle coverage or independent review incomplete")
+                        log(f'[acceptance] {node_id}: generated reach/entry checks pass, but no behavioural spec can verify the feature')
+                        self.metric('derived_spec_coverage', node_id=node_id, outcome='unverified', passed=passed, total=summary.total)
+                        self.self_audit_node(node_id, 'derived oracle coverage or independent review incomplete')
                         return None
-                    self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
+                    self.commit(f'{node_id} (accepted): {passed}/{summary.total} acceptance tests pass')
                     return True
-            # A helper that chooses a role before a route/list finishes loading
-            # can wait for the wrong element even though the requested name is
-            # visible at failure. Confirm the same spec once before a costly
-            # repair. Repeated identical evidence is deferred to the suite,
-            # where related loading failures can be diagnosed together.
             failed_rows = [row for row in summary.results if not row.ok]
             if measured and failed_rows:
-                source = "derived" if getattr(self, "derived_as_specs", False) else "official"
-                requirement_node = getattr(self, "requirement_nodes", {}).get(node_id, {})
-                core_text = (str(requirement_node.get("description") or "") + " "
-                             + json.dumps(requirement_node.get("scenarios") or [], ensure_ascii=False))
-                core = (not core_text and source == "official") or bool(re.search(
-                    r"sign.?in|sign.?out|password|permission|access|persist|save|formula|delete", core_text, re.I))
-                node = getattr(self, "requirement_nodes", {}).get(node_id, {})
-                minor = str(node.get("priority") or "").lower() == "low" or bool(re.search(
-                    r"\b(optional|secondary|edge case|noncritical|cosmetic|tooltip)\b", core_text, re.I))
-                levels = [classify_observation(row.message or row.status, source=source,
-                                               reliable=True, core=core, minor=minor)[0] for row in failed_rows]
-                if all(level == "T" for level in levels):
-                    self.test_state[node_id] = ("skipped_low_signal" if "T" in levels else "failed")
-                    self.self_audit_node(node_id, "local or low-signal failure deferred after source review")
-                    self.metric("acceptance_deferred", node_id=node_id, levels=levels,
-                                decision="continue_generation")
-                    return False if "F2" in levels else None
-            if (attempt == 0 and measured and failed_rows and not prior_regressed and len(specs) <= 2
-                    and all(locator_role_mismatch(row) for row in failed_rows)
-                    and deadline - time.time() >= 90
-                    and self.remaining() >= self.final_phase_reserve() + self.repair_minimum() + 90):
+                source = 'derived' if getattr(self, 'derived_as_specs', False) else 'official'
+                requirement_node = getattr(self, 'requirement_nodes', {}).get(node_id, {})
+                core_text = str(requirement_node.get('description') or '') + ' ' + json.dumps(requirement_node.get('scenarios') or [], ensure_ascii=False)
+                core = not core_text and source == 'official' or bool(re.search('sign.?in|sign.?out|password|permission|access|persist|save|formula|delete', core_text, re.I))
+                node = getattr(self, 'requirement_nodes', {}).get(node_id, {})
+                minor = str(node.get('priority') or '').lower() == 'low' or bool(re.search('\\b(optional|secondary|edge case|noncritical|cosmetic|tooltip)\\b', core_text, re.I))
+                levels = [classify_observation(row.message or row.status, source=source, reliable=True, core=core, minor=minor)[0] for row in failed_rows]
+                if all((level == 'T' for level in levels)):
+                    self.test_state[node_id] = 'skipped_low_signal' if 'T' in levels else 'failed'
+                    self.self_audit_node(node_id, 'local or low-signal failure deferred after source review')
+                    self.metric('acceptance_deferred', node_id=node_id, levels=levels, decision='continue_generation')
+                    return False if 'F2' in levels else None
+            if attempt == 0 and measured and failed_rows and (not prior_regressed) and (len(specs) <= 2) and all((locator_role_mismatch(row) for row in failed_rows)) and (deadline - time.time() >= 90) and (self.remaining() >= self.final_phase_reserve() + self.repair_minimum() + 90):
                 confirmation = self.run_specs(specs)
                 confirmed = self.suite_is_measured(confirmation, specs)
-                self.metric('locator_race_recheck', node_id=node_id,
-                            first_passed=summary.passed, recheck_passed=confirmation.passed,
-                            confirmed=confirmed)
+                self.metric('locator_race_recheck', node_id=node_id, first_passed=summary.passed, recheck_passed=confirmation.passed, confirmed=confirmed)
                 if confirmed and confirmation.all_passed:
-                    # One lucky pass is not enough to certify a flaky route.
-                    if (deadline - time.time() >= 30 and
-                            self.remaining() >= self.final_phase_reserve() + 30):
+                    if deadline - time.time() >= 30 and self.remaining() >= self.final_phase_reserve() + 30:
                         stable = self.run_specs(specs)
                         stable_measured = self.suite_is_measured(stable, specs)
-                        self.metric('locator_race_recheck', node_id=node_id, repeat=True,
-                                    recheck_passed=stable.passed, confirmed=stable_measured)
+                        self.metric('locator_race_recheck', node_id=node_id, repeat=True, recheck_passed=stable.passed, confirmed=stable_measured)
                         if stable_measured and stable.all_passed:
                             self.record_tests(node_id, specs, stable)
-                            log(f"[acceptance] {node_id}: two independent rechecks passed after a "
-                                "locator-role race; accepting with later suite coverage")
-                            self.commit(f"{node_id} (accepted after recheck): {stable.passed}/{stable.total}")
+                            log(f'[acceptance] {node_id}: two independent rechecks passed after a locator-role race; accepting with later suite coverage')
+                            self.commit(f'{node_id} (accepted after recheck): {stable.passed}/{stable.total}')
                             return True
                         confirmation = stable
                         confirmed = stable_measured
                     else:
-                        self.pending_corrections.append(
-                            f"{node_id}: locator-role failure passed one independent recheck, but there was "
-                            "insufficient time for a second confirmation. Preserve the UI and remeasure it "
-                            "with the later suite before treating this as fixed.")
+                        self.pending_corrections.append(f'{node_id}: locator-role failure passed one independent recheck, but there was insufficient time for a second confirmation. Preserve the UI and remeasure it with the later suite before treating this as fixed.')
                         return False
-                if (confirmed and confirmation.passed == summary.passed
-                        and all(locator_role_mismatch(row) for row in confirmation.results if not row.ok)):
-                    self.pending_corrections.append(
-                        f"{node_id}: repeated locator-role mismatch while the named target was visible. "
-                        "Check route/data readiness and the actual accessible role before changing feature logic. "
-                        "The local repair was deferred to leave time for shared checkpoint diagnosis.")
-                    log(f"[acceptance] {node_id}: repeated locator-role mismatch; deferring local repair")
+                if confirmed and confirmation.passed == summary.passed and all((locator_role_mismatch(row) for row in confirmation.results if not row.ok)):
+                    self.pending_corrections.append(f'{node_id}: repeated locator-role mismatch while the named target was visible. Check route/data readiness and the actual accessible role before changing feature logic. The local repair was deferred to leave time for shared checkpoint diagnosis.')
+                    log(f'[acceptance] {node_id}: repeated locator-role mismatch; deferring local repair')
                     return False
                 if confirmed:
-                    failures += "\nIndependent recheck (use the newer evidence when diagnosing):\n" + failure_summaries(confirmation)
-            # Assertion locations/statuses are stable across timing and trace changes.
-            signature = tuple(sorted((str(row.file), row.title, row.status,
-                                      tuple(re.findall(r'[^\s()]+\.spec\.[jt]sx?:[0-9]+:[0-9]+', row.message or '')))
-                                     for row in summary.results if not row.ok))
-            if attempt and failure_signatures and signature and signature not in failure_signatures:
+                    failures += '\nIndependent recheck (use the newer evidence when diagnosing):\n' + failure_summaries(confirmation)
+            signature = tuple(sorted(((str(row.file), row.title, row.status, tuple(re.findall('[^\\s()]+\\.spec\\.[jt]sx?:[0-9]+:[0-9]+', row.message or ''))) for row in summary.results if not row.ok)))
+            if attempt and failure_signatures and signature and (signature not in failure_signatures):
                 made_progress = True
                 stalls = 0
             failure_signatures.add(signature)
             if measured and passed > best_passed:
                 made_progress = made_progress or attempt > 0
                 if best_passed >= 0:
-                    self.commit(f"{node_id} (repair {attempt}): {passed}/{summary.total} pass")
-                best_passed, best_sha, regressions, stalls = passed, self.head(), 0, 0
-            elif measured and passed == best_passed and attempt > 0:
+                    self.commit(f'{node_id} (repair {attempt}): {passed}/{summary.total} pass')
+                best_passed, best_sha, regressions, stalls = (passed, self.head(), 0, 0)
+            elif measured and passed == best_passed and (attempt > 0):
                 stalls += 1
-                if stalls >= 2 and not (was_codegen and self.codegen_blocked):
-                    # Let a newly selected repair strategy run once, within existing budgets.
-                    # Cloud f9f0026819f1: six rounds oscillating 4/6 <-> 3/6.
-                    log(f"[flow] {node_id}: no improvement for two repairs; keeping the best state")
+                if stalls >= 2 and (not (was_codegen and self.codegen_blocked)):
+                    log(f'[flow] {node_id}: no improvement for two repairs; keeping the best state')
                     break
             elif measured and passed < best_passed:
                 regressions += 1
                 if regressions >= 2 and best_sha:
                     self.restore_app(best_sha)
-                    self.pending_corrections.append(
-                        f"Your last two repairs made the tests worse; the harness restored frontend/ and backend/ "
-                        f"to the best state ({best_passed}/{summary.total}). Start from that code.")
+                    self.pending_corrections.append(f'Your last two repairs made the tests worse; the harness restored frontend/ and backend/ to the best state ({best_passed}/{summary.total}). Start from that code.')
                     regressions = 0
-            initial_cap = min(maximum_rounds, max(0, int(os.environ.get("OCTOS_ARC_F1_REPAIR_ROUNDS", "3"))))
+            initial_cap = min(maximum_rounds, max(0, int(os.environ.get('OCTOS_ARC_F1_REPAIR_ROUNDS', '3'))))
             repair_cap = repair_allowance(initial_cap, maximum_rounds, made_progress)
-            self.metric("effective_repair_budget", node_id=node_id, attempt=attempt,
-                        initial=initial_cap, effective=repair_cap, maximum=maximum_rounds,
-                        progress=made_progress, levels=levels)
+            self.metric('effective_repair_budget', node_id=node_id, attempt=attempt, initial=initial_cap, effective=repair_cap, maximum=maximum_rounds, progress=made_progress, levels=levels)
             if attempt >= repair_cap or self.wound_down():
-                self.metric("repair_stop", node_id=node_id, reason="hard_run_budget" if self.wound_down() else "repair_round_cap",
-                            attempt=attempt, effective_cap=repair_cap)
+                self.metric('repair_stop', node_id=node_id, reason='hard_run_budget' if self.wound_down() else 'repair_round_cap', attempt=attempt, effective_cap=repair_cap)
                 break
             left = deadline - time.time()
             needed = self.repair_minimum()
             reserve = self.final_phase_reserve()
             if left < needed or (reserve and self.remaining() < needed + reserve) or self.time_up():
-                # A repair turn that starts with only a couple of minutes left
-                # times out too (keep-local-3). On a large task, leave enough
-                # global time to repair related failures together in the suite.
-                reason = (f"{self.remaining():.0f}s run time leaves the {reserve:.0f}s final-phase reserve"
-                          if reserve and self.remaining() < needed + reserve else
-                          f"{left:.0f}s node time is below the {needed:.0f}s a repair needs")
-                log(f"[flow] {node_id}: {reason}; keeping the best state for full-suite repair")
+                reason = f'{self.remaining():.0f}s run time leaves the {reserve:.0f}s final-phase reserve' if reserve and self.remaining() < needed + reserve else f'{left:.0f}s node time is below the {needed:.0f}s a repair needs'
+                log(f'[flow] {node_id}: {reason}; keeping the best state for full-suite repair')
                 break
             self.snapshot_sources(node_id, attempt)
             slow = summary.slow(self.slow_test_ms())
-            slow_text = ("These tests exceeded the configured slow-test threshold: " + "; ".join(slow) +
-                         ". Inspect the failed operations and measured timings before optimizing.\n" + self.perf_text()) if slow else ""
-            if measured and passed == 0 and rebuild_prompt is not None and not rewrite_used \
-                    and not getattr(self, "derived_as_specs", False) \
-                    and best_passed <= 0 and self.can_rewrite_from_scratch() \
-                    and os.environ.get("OCTOS_ARC_REWRITE_ON_ZERO", "1") != "0":
+            slow_text = 'These tests exceeded the configured slow-test threshold: ' + '; '.join(slow) + '. Inspect the failed operations and measured timings before optimizing.\n' + self.perf_text() if slow else ''
+            if measured and passed == 0 and (rebuild_prompt is not None) and (not rewrite_used) and (not getattr(self, 'derived_as_specs', False)) and (best_passed <= 0) and self.can_rewrite_from_scratch() and (os.environ.get('OCTOS_ARC_REWRITE_ON_ZERO', '1') != '0'):
                 rewrite_used = True
-                log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")
-                prompt = rebuild_prompt(failures or "(no detail)")
+                log(f'[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch')
+                prompt = rebuild_prompt(failures or '(no detail)')
                 if self.codegen_mode():
-                    self.codegen_turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
-                                      spec_chars=getattr(self, "current_spec_chars", 0))
+                    self.codegen_turn(prompt, min(self.node_timeout, left), f'{node_id} rewrite (repair {attempt + 1})', spec_chars=getattr(self, 'current_spec_chars', 0))
                     repair_applied = bool(self.last_codegen_written)
                 else:
                     self.last_turn_changed = None
-                    self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
-                              request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
+                    self.turn(prompt, min(self.node_timeout, left), f'{node_id} rewrite (repair {attempt + 1})', request_budget=int(os.environ.get('OCTOS_ARC_IMPLEMENT_REQUESTS', '20')))
                     repair_applied = self.last_turn_changed is not False
                 if repair_applied:
                     continue
-                self.pending_corrections.append("The rewrite did not change application sources. Apply the pending fix before retesting.")
+                self.pending_corrections.append('The rewrite did not change application sources. Apply the pending fix before retesting.')
                 left = deadline - time.time()
                 if left < self.repair_minimum() or self.wound_down():
                     break
             corrections = self.corrections_text()
             if not measured:
-                corrections = str(corrections) + (
-                    "\nNo functional acceptance verdict was obtained. Fix the reported build/start/load failure "
-                    "in place; preserve the generated application instead of rewriting it from scratch.\n")
+                corrections = str(corrections) + '\nNo functional acceptance verdict was obtained. Fix the reported build/start/load failure in place; preserve the generated application instead of rewriting it from scratch.\n'
+
             def repair_prompt():
                 nonlocal corrections
                 corrections = str(corrections) + str(self.corrections_text())
-                return self.app_repair_prompt(node_id=node_id, passed=passed, total=summary.total,
-                                           failures=failures or "(no detail)", test_location=self.repair_test_location(specs),
-                                           corrections=corrections,
-                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
-                                           sources=self.repair_requirements(node_id) + self.sources_text())
-            if not self.node_repair_turn(node_id, failures, min(self.node_timeout, left),
-                                         f"{node_id} repair {attempt + 1}/{repair_cap} (maximum {maximum_rounds})", repair_prompt):
+                return self.app_repair_prompt(node_id=node_id, passed=passed, total=summary.total, failures=failures or '(no detail)', test_location=self.repair_test_location(specs), corrections=corrections, slow=slow_text, smoke=self.smoke_port, port=self.web_port, sources=self.repair_requirements(node_id) + self.sources_text())
+            if not self.node_repair_turn(node_id, failures, min(self.node_timeout, left), f'{node_id} repair {attempt + 1}/{repair_cap} (maximum {maximum_rounds})', repair_prompt):
                 break
             repair_applied = True
-        # Failed repairs can leave dirty files without changing HEAD. Restore the files,
-        # even when the current commit already equals the best recorded commit.
         startup_regression = bool(getattr(self, '_unresolved_startup_error', '') and best_passed >= 0)
         if best_sha and (best_passed > 0 or startup_regression):
             self.restore_app(best_sha)
-            self.commit(f"{node_id}: keep best acceptance state {best_passed}")
+            self.commit(f'{node_id}: keep best acceptance state {best_passed}')
             if startup_regression:
-                # A buildable 0/N state still protects the rest of the app.
-                # Restoring source is not itself a measured recovery verdict.
-                self.pending_corrections.append(
-                    "The last repair broke application startup. Restored the last measured buildable "
-                    "state; the current feature may still fail. Preserve shared imports and exports.")
+                self.pending_corrections.append('The last repair broke application startup. Restored the last measured buildable state; the current feature may still fail. Preserve shared imports and exports.')
                 if self.time_up() or self.remaining() < 30:
                     return None
                 restored = self.run_specs(specs)
                 complete = self.suite_is_measured(restored, specs)
-                self._unresolved_startup_error = '' if complete else (
-                    restored.error or '\n'.join(restored.load_errors) or 'Incomplete rollback verification')
-                self.metric('startup_rollback', node_id=node_id, measured=complete,
-                            passed=restored.passed, total=restored.total)
+                self._unresolved_startup_error = '' if complete else restored.error or '\n'.join(restored.load_errors) or 'Incomplete rollback verification'
+                self.metric('startup_rollback', node_id=node_id, measured=complete, passed=restored.passed, total=restored.total)
                 if complete:
                     self.record_tests(node_id, specs, restored)
                     return restored.passed == restored.total
@@ -7987,7 +7764,13 @@ class Flow:
             log("[derived] no scenario yielded a mechanical check; AI will plan the first behavioural specs")
         directory = self.exported_derived_suite_directory()
         if directory.exists():
-            shutil.rmtree(directory)
+            for old in directory.iterdir():
+                if old.name == 'published':
+                    continue
+                if old.is_dir():
+                    shutil.rmtree(old)
+                else:
+                    old.unlink()
         write_suite(directory, files)
         (directory / "mechanical-outcomes.json").write_text(json.dumps({
             "version": 1, "basis": "diagnostic candidates only; independent review required",
@@ -8268,7 +8051,8 @@ class Flow:
                 "mechanical_needs_ai": sum(row.get("status") == "needs_ai" for row in mechanical_here),
                 'obligations': obligations, 'missing_obligations': sum(not row['tests'] for row in obligations),
                 'obligation_plan_incomplete': hasattr(self, 'derived_obligation_status') and (
-                    getattr(self, 'derived_obligation_status', {}).get(node_id, {}).get('status') != 'reviewed'
+                    getattr(self, 'derived_obligation_status', {}).get(node_id, {}).get('status')
+                    not in {'reviewed', 'source_grounded'}
                     or not reviewed_obligations_intact(self, node_id)),
                 "covered": sum(row["status"] == "covered" for row in rows), "scenarios": rows,
                 "contract_outcomes": outcomes, "missing_contract_outcomes": sum(not row["tests"] for row in outcomes),
@@ -8381,85 +8165,47 @@ class Flow:
 
     def derived_review_needed(self, node_id: str) -> bool:
         """Every scenario needs an action-then-assertion test for verification."""
-        if not getattr(self, "derived_as_specs", False):
+        if not getattr(self, 'derived_as_specs', False):
             return False
-        if self.fast_test_mode():
-            coverage = self.derived_scenario_coverage(node_id)
-            return (not self.derived_has_runnable_cases(node_id)
-                    or coverage['total'] == 0 or coverage['covered'] < coverage['total']
-                    or any(owner == node_id for owner, _ in getattr(self, 'derived_spec_disputes', {})))
         coverage = self.derived_scenario_coverage(node_id)
-        reviews = getattr(self, "derived_case_reviews", None)
-        targets = {str(target.get("id")) for target in self.planned_derived_scenarios()
-                   if target.get("node_id") == node_id} if reviews is not None else set()
-        approved = {str(row.get("scenario_id")) for row in reviews.values()
-                    if row.get("node_id") == node_id and row.get("status") == "approved_behavior"
-                    and self.trusted_derived_case(node_id, str(row.get("title") or ""))} if reviews is not None else set()
+        reviews = getattr(self, 'derived_case_reviews', None)
+        targets = {str(target.get('id')) for target in self.planned_derived_scenarios() if target.get('node_id') == node_id} if reviews is not None else set()
+        approved = {str(row.get('scenario_id')) for row in reviews.values() if row.get('node_id') == node_id and row.get('status') == 'approved_behavior' and self.trusted_derived_case(node_id, str(row.get('title') or ''))} if reviews is not None else set()
         unreviewed = bool(targets - approved)
         if reviews is not None and targets and self.success_branch_required(node_id):
-            positive = any(row.get("node_id") == node_id and row.get("branch") in {"success", "mixed"}
-                           and row.get("status") == "approved_behavior"
-                           and self.trusted_derived_case(node_id, str(row.get("title") or ""))
-                           for row in reviews.values())
+            positive = any((row.get('node_id') == node_id and row.get('branch') in {'success', 'mixed'} and (row.get('status') == 'approved_behavior') and self.trusted_derived_case(node_id, str(row.get('title') or '')) for row in reviews.values()))
             unreviewed = unreviewed or not positive
-        return (unreviewed or coverage["total"] == 0 or coverage["covered"] < coverage["total"]
-                or bool(coverage.get("missing_obligations"))
-                or bool(coverage.get("obligation_plan_incomplete"))
-                or bool(coverage.get("missing_contract_outcomes"))
-                or bool(coverage.get("missing_semantic_contracts"))
-                or bool(coverage.get("missing_format_contracts"))
-                or bool(coverage.get("missing_negative_contracts")))
+        return unreviewed or coverage['total'] == 0 or coverage['covered'] < coverage['total'] or bool(coverage.get('missing_obligations')) or bool(coverage.get('obligation_plan_incomplete')) or bool(coverage.get('missing_contract_outcomes')) or bool(coverage.get('missing_semantic_contracts')) or bool(coverage.get('missing_format_contracts')) or bool(coverage.get('missing_negative_contracts'))
 
     def write_derived_handoff(self) -> None:
         """Publish per-leaf spec review state without making it a code gate."""
-        directory = getattr(self, "derived_tests_dir", None)
-        if not getattr(self, "derived_as_specs", False) or directory is None:
+        directory = getattr(self, 'derived_tests_dir', None)
+        if not getattr(self, 'derived_as_specs', False) or directory is None:
             return
-        attempted = (getattr(self, "_derived_preflight_node_ids", set())
-                     | getattr(self, "_derived_build_spec_attempted_ids", set())
-                     | getattr(self, "_derived_spec_batch_completed_ids", set()))
+        attempted = getattr(self, '_derived_preflight_node_ids', set()) | getattr(self, '_derived_build_spec_attempted_ids', set()) | getattr(self, '_derived_spec_batch_completed_ids', set())
         policy = self.generated_test_policy()
         decisions = policy.valid_records() if policy else []
         rows = []
-        for node in getattr(self, "derived_nodes", []):
-            node_id = str(node.get("id"))
+        for node in getattr(self, 'derived_nodes', []):
+            node_id = str(node.get('id'))
             coverage = self.derived_scenario_coverage(node_id)
-            reviewed = not self.fast_test_mode() and not self.derived_review_needed(node_id)
+            reviewed = not self.derived_review_needed(node_id)
             runnable = self.derived_has_runnable_cases(node_id)
-            case_states = {status.value: sum(row.get("node_id") == node_id and row.get("status") == status
-                                             for row in getattr(self, "derived_case_reviews", {}).values())
-                           for status in CaseStatus}
-            path = directory / f"{node_id}.spec.ts"
-            obligation_state = getattr(self, "derived_obligation_status", {}).get(node_id, {})
-            rows.append({"node_id": node_id,
-                         "status": ("skip_review" if self.fast_test_mode() and runnable else
-                                    "reviewed" if reviewed else "review_pending" if node_id in attempted
-                                    else "candidate" if path.is_file() else "not_generated"),
-                         "implementation_admission": "allowed",
-                         "test_admission": "allowed" if (reviewed or self.fast_test_mode()) and runnable else
-                                           "allowed_partial" if runnable else "waiting_for_review",
-                         "case_states": case_states,
-                         "runtime_decisions": {state: sum(Path(decision["file"]).name.removesuffix(".spec.ts") == node_id
-                                                          and decision["state"] == state for decision in decisions)
-                                               for state in ("invalid", "disputed")},
-                         "implementation_state": getattr(self, 'generation_state', {}).get(node_id, 'pending'),
-                         "reviewed": reviewed,
-                         "covered": coverage["covered"], "total": coverage["total"],
-                         "obligation_status": obligation_state.get("status", "pending"),
-                         "obligation_attempts": obligation_state.get("attempts", 0),
-                         "candidate_obligations": obligation_state.get("candidate_obligations", 0),
-                         "obligation_errors": obligation_state.get("errors", []),
-                         "spec": str(path.relative_to(self.output_dir)) if path.is_file() else None})
-        target = directory / "review" / "spec-handoff.json"
+            case_states = {status.value: sum((row.get('node_id') == node_id and row.get('status') == status for row in getattr(self, 'derived_case_reviews', {}).values())) for status in CaseStatus}
+            approved_cases = [row for row in getattr(self, 'derived_case_reviews', {}).values() if row.get('node_id') == node_id and row.get('status') == 'approved_behavior' and self.trusted_derived_case(node_id, str(row.get('title') or ''))]
+            approved_scenarios = {str(row.get('scenario_id')) for row in approved_cases if row.get('scenario_id')}
+            path = directory / f'{node_id}.spec.ts'
+            obligation_state = getattr(self, 'derived_obligation_status', {}).get(node_id, {})
+            rows.append({'node_id': node_id, 'status': 'reviewed' if reviewed else 'review_pending' if node_id in attempted else 'candidate' if path.is_file() else 'not_generated', 'implementation_admission': 'allowed', 'test_admission': 'allowed' if reviewed and runnable else 'allowed_partial' if runnable else 'waiting_for_review', 'case_states': case_states, 'runtime_decisions': {state: sum((Path(decision['file']).name.removesuffix('.spec.ts') == node_id and decision['state'] == state for decision in decisions)) for state in ('invalid', 'disputed')}, 'implementation_state': getattr(self, 'generation_state', {}).get(node_id, 'pending'), 'reviewed': reviewed, 'covered': coverage['covered'], 'candidate_covered': coverage['covered'], 'approved_behavior_cases': len(approved_cases), 'discarded_cases': sum((row.get('node_id') == node_id and row.get('discarded') for row in getattr(self, 'derived_case_reviews', {}).values())), 'approved_scenarios': len(approved_scenarios), 'unverified_scenarios': max(0, coverage['total'] - len(approved_scenarios)), 'total': coverage['total'], 'obligation_status': obligation_state.get('status', 'pending'), 'obligation_attempts': obligation_state.get('attempts', 0), 'candidate_obligations': obligation_state.get('candidate_obligations', 0), 'obligation_errors': obligation_state.get('errors', []), 'spec': str(path.relative_to(self.output_dir)) if path.is_file() else None})
+        target = directory / 'review' / 'spec-handoff.json'
         target.parent.mkdir(parents=True, exist_ok=True)
-        staged = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-        staged.write_text(json.dumps({"version": 1, "nodes": rows}, ensure_ascii=False, indent=2) + "\n",
-                          encoding="utf-8")
+        staged = target.with_name(f'{target.name}.{os.getpid()}.tmp')
+        staged.write_text(json.dumps({'version': 1, 'nodes': rows}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         staged.replace(target)
 
     def success_branch_required(self, node_id: str) -> bool:
         state = getattr(self, 'derived_obligation_status', {}).get(node_id, {})
-        if state.get('status') == 'reviewed' and reviewed_obligations_intact(self, node_id):
+        if state.get('status') in {'reviewed', 'source_grounded'} and reviewed_obligations_intact(self, node_id):
             obligations = applicable_obligations(self, node_id)
             return not (obligations and all(row.get('branch') == 'rejection' for row in obligations))
         obligations = [row for row in (getattr(self, 'app_design_doc', None) or {}).get('obligations', [])
@@ -8520,14 +8266,6 @@ class Flow:
             for node in group:
                 node_id = str(node.get('id'))
                 row = rows[node_id]
-                if (getattr(self, 'derived_augmentation_attempts', {}).get(node_id, 0) >= 2
-                        and getattr(self, 'derived_obligation_status', {}).get(node_id, {}).get('status') != 'reviewed'
-                        and time.monotonic() + 30 < group_deadline):
-                    try:
-                        prepare_obligations(self, [node])
-                    except Exception as exc:
-                        self.metric('completeness_pass', node_id=node_id,
-                                    outcome='obligation_unavailable', reason=str(exc)[:300])
                 specs = self.spec_map.get(node_id, [])
                 if specs and self.runner is not None and time.monotonic() + 30 < group_deadline:
                     verdict = self.acceptance_loop(node_id, specs,
@@ -8546,20 +8284,26 @@ class Flow:
         """Make the derived spec directory the acceptance suite of this run."""
         directory = self.derived_tests_dir
         self.verify_derived_suite()
-        specs = sorted(str(p.relative_to(directory)) for p in directory.rglob("*.spec.ts"))
-        # One spec file per leaf, named after it: no heuristic mapping needed.
-        self.spec_map = {node_id: [rel for rel in specs if rel == f"{node_id}.spec.ts"] for node_id in node_ids}
-        self.spec_map[None] = [rel for rel in specs if rel[:-len(".spec.ts")] not in set(node_ids)]
+        specs = sorted((str(p.relative_to(directory)) for p in directory.rglob('*.spec.ts')))
+        self.spec_map = {node_id: [rel for rel in specs if rel == f'{node_id}.spec.ts'] for node_id in node_ids}
+        self.spec_map[None] = [rel for rel in specs if rel[:-len('.spec.ts')] not in set(node_ids)]
         self.aliases = {}
         self.tests_dir = directory
         self.derived_as_specs = True
-        if self.fast_test_mode():
-            # Static candidates become runnable immediately, even when the
-            # later augmentation window is skipped for lack of time.
-            self.review_derived_cases(set(node_ids))
         self.write_derived_coverage()
-        log(f"[tests] {len(specs)} derived spec files at {directory} are internal diagnostics; mapping "
-            f"{ {k: v for k, v in self.spec_map.items() if v} }")
+        log(f'[tests] {len(specs)} derived spec files at {directory} are internal diagnostics; mapping { {k: v for k, v in self.spec_map.items() if v}}')
+
+    def terminal_derived_scenarios(self) -> set[tuple[str, str]]:
+        """Read durable stops in producers too, including isolated workers."""
+        callback = getattr(self, '_terminal_derived_scenarios', None)
+        if callback is not None:
+            return callback()
+        layered = getattr(self, 'layered', None)
+        if layered is None:
+            return set()
+        stops = dict(layered.state.data['stops'])
+        return {(row['node_id'], row['scenario']) for key, row in list(layered.state.data['cases'].items())
+                if stops.get(key, {}).get('state') == 'disputed' or stops.get(key, {}).get('attempts', 0) >= 2}
 
     def augment_derived_tests(self, ordered: list[dict]) -> int:
         """Plan and propose behavioural specs for a post-code review batch.
@@ -8585,57 +8329,37 @@ class Flow:
                 selected.add(node_id)
         if not selected:
             return 0
-        first_attempt = {node_id for node_id in selected
-                         if getattr(self, "derived_augmentation_attempts", {}).get(node_id, 0) == 0}
         self.derived_augmented = True
         fixtures = suite_fixtures(getattr(self, "derived_nodes", ordered))
         all_targets = self.planned_derived_scenarios()
-        missing_ids = {scenario["id"] for node_id in selected
-                       for scenario in self.derived_scenario_coverage(node_id)["scenarios"]
-                       if scenario["status"] != "covered"}
         targets = prioritize_review_targets([target for target in all_targets
                                              if target["node_id"] in selected
-                                             and self.derived_augmentation_attempts.get(target["node_id"], 0) < 2
-                                             and target_attempts.get(target['id'], 0) < 2
-                                             and (target["node_id"] in first_attempt
-                                                  or target["id"] in missing_ids
-                                                  or self.derived_review_needed(target["node_id"]))])
+                                             and (target['node_id'], target['id']) not in self.terminal_derived_scenarios()
+                                             and target_attempts.get(target['id'], 0) == 0])
         batch = max(1, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_BATCH", "3")))
         phase_plan = getattr(self, "phase_plan", None) or {}
         leaf_phase = phase_plan.get("leaf_phase", {}) or {}
-        # A node gets at most two model requests for scenario proposals,
-        # including a rejected-script retry. Keep each node in at most two
-        # initial chunks, even when requests for separate nodes are batched.
+        # Each scenario is proposed once. A large leaf may span several
+        # chunks, but a failed target is never requeued in this run.
         by_node: dict[str, list[dict]] = {}
         for target in targets:
             by_node.setdefault(str(target["node_id"]), []).append(target)
-        parts_by_round: list[list[list[dict]]] = [[], []]
-        for node_id, node_targets in by_node.items():
-            slots = max(0, 2 - self.derived_augmentation_attempts.get(node_id, 0))
-            for round_number, start in enumerate(range(0, min(len(node_targets), slots * batch), batch)):
-                parts_by_round[round_number].append(node_targets[start:start + batch])
+        parts = [node_targets[start:start + batch]
+                 for node_targets in by_node.values()
+                 for start in range(0, len(node_targets), batch)]
         chunks: list[list[dict]] = []
-        for round_parts in parts_by_round:
-            for part in round_parts:
-                if (chunks and len(chunks[-1]) + len(part) <= batch
-                        and leaf_phase.get(str(chunks[-1][0]["node_id"])) ==
-                        leaf_phase.get(str(part[0]["node_id"]))):
-                    chunks[-1].extend(part)
-                else:
-                    chunks.append(part)
-        planned_node_requests: dict[str, int] = {}
-        for chunk in chunks:
-            for node_id in {str(t["node_id"]) for t in chunk}:
-                planned_node_requests[node_id] = planned_node_requests.get(node_id, 0) + 1
-        retry_room = {node_id for node_id, count in planned_node_requests.items()
-                      if self.derived_augmentation_attempts.get(node_id, 0) + count < 2}
+        for part in parts:
+            if (chunks and len(chunks[-1]) + len(part) <= batch
+                    and leaf_phase.get(str(chunks[-1][0]["node_id"])) ==
+                    leaf_phase.get(str(part[0]["node_id"]))):
+                chunks[-1].extend(part)
+            else:
+                chunks.append(part)
         # Node batches may be smaller than the scenario batch (including one
         # leaf at a time), so the default must not exhaust before later nodes.
         phase_order = [phase["id"] for phase in phase_plan.get("phases", [])]
-        # Complex requirements need one initial batch per category plus room
-        # for rejected-script retries and a second pass over uncovered leaves.
-        default_requests = min(90, max(60, 2 * len(phase_order),
-                                       2 * ((len(all_targets) + batch - 1) // batch)))
+        default_requests = min(90, max(60, len(phase_order),
+                                       (len(all_targets) + batch - 1) // batch))
         max_requests = max(0, int(os.environ.get("OCTOS_ARC_DERIVED_LLM_REQUESTS", str(default_requests))))
         reserved_phases = phase_order[:max_requests]
         phase_counts = getattr(self, "derived_model_phase_requests", {})
@@ -8659,20 +8383,47 @@ class Flow:
         plan_rows = {row["id"]: row for row in plan["targets"]}
         phase_by_id = {phase["id"]: phase for phase in phase_plan.get("phases", [])}
         all_nodes = {str(node.get("id")): node for node in getattr(self, "derived_nodes", ordered)}
-        phase_contexts: dict[str, str] = {}
-        for phase_id, phase in phase_by_id.items():
-            siblings = [all_nodes[node_id] for node_id in phase.get("leaves", []) if node_id in all_nodes]
-            phase_contexts[phase_id] = json.dumps({
+        def phase_context_for(chunk: list[dict]) -> str:
+            phase_id = leaf_phase.get(str(chunk[0]['node_id']), '')
+            if phase_id not in phase_by_id:
+                return ''
+            phase = phase_by_id[phase_id]
+            ids = list(dict.fromkeys(str(target['node_id']) for target in chunk))
+            nodes = [all_nodes[node_id] for node_id in ids if node_id in all_nodes]
+            return json.dumps({
                 "category": phase.get("name") or phase_id,
                 "requirements": [{"id": str(node.get("id")), "name": str(node.get("name") or ""),
                                   "description": str(node.get("description") or "")}
-                                 for node in siblings],
+                                 for node in nodes],
                 "cross_dependencies": phase.get("cross_dependencies", []),
-                "design": phase_design_for_tests(getattr(self, 'app_design_doc', None),
-                                                 {str(node.get('id')) for node in siblings}),
-                "visual_navigation_only": Flow.visual_summary_for_nodes(self,
-                    {str(node.get('id')) for node in siblings}),
+                "design": phase_design_for_tests(getattr(self, 'app_design_doc', None), set(ids)),
+                "visual_navigation_only": Flow.visual_summary_for_nodes(self, set(ids)),
             }, ensure_ascii=False)
+
+        def render_prompt(chunk: list[dict]) -> str:
+            return build_review_prompt(chunk, fixtures, phase_context_for(chunk)) + TEST_QUALITY_GUIDANCE
+
+        fitted, oversized, deferred = fit_derived_prompt_chunks(
+            chunks, render_prompt, self.codegen_context_chars(),
+            {node_id: len(node_targets) for node_id, node_targets in by_node.items()})
+        chunks = [chunk for chunk, _ in fitted]
+        prompts = [prompt for _, prompt in fitted]
+        for target, chars in oversized:
+            one = [target]
+            context = phase_context_for(one)
+            sources = {key: value for item in one for key, value in (item.get('source_contracts') or {}).items()}
+            plan_rows[target['id']]['status'] = 'insufficient_context'
+            self.metric('derived_prompt_overflow', target_id=target['id'], node_id=target['node_id'],
+                        prompt_chars=chars, limit_chars=self.codegen_context_chars(),
+                        phase_context_chars=len(context), source_description_chars=sum(map(len, sources.values())),
+                        guidance_chars=len(TEST_QUALITY_GUIDANCE))
+            log(f"[derived] {target['title']}: one-scenario prompt exceeds local limit "
+                f"({chars}/{self.codegen_context_chars()} chars); source={sum(map(len, sources.values()))}, "
+                f"phase={len(context)}, guidance={len(TEST_QUALITY_GUIDANCE)}; remains unverified")
+        for target in deferred:
+            plan_rows[target['id']]['status'] = 'deferred_request_cap'
+        if oversized or deferred:
+            plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         def report_nodes(chunk: list[dict], batch_number: int, status: str) -> None:
             counts: dict[str, int] = {}
             for target in chunk:
@@ -8680,11 +8431,16 @@ class Flow:
                 counts[node_id] = counts.get(node_id, 0) + 1
             for node_id, count in counts.items():
                 coverage = self.derived_scenario_coverage(node_id)
+                approved = sum(row.get('node_id') == node_id and row.get('status') == 'approved_behavior'
+                               and self.trusted_derived_case(node_id, str(row.get('title') or ''))
+                               for row in getattr(self, 'derived_case_reviews', {}).values())
                 log(f"[derived] spec AI batch {batch_number} {node_id}: {status}, "
-                    f"scenarios_in_batch={count}, covered={coverage['covered']}/{coverage['total']}")
+                    f"scenarios_in_batch={count}, candidate_covered={coverage['covered']}/{coverage['total']}, "
+                    f"approved_behavior={approved}")
                 self.metric("derived_spec_node", node_id=node_id, phase="ai", status=status,
                             batch=batch_number, scenarios_in_batch=count,
-                            covered=coverage["covered"], total=coverage["total"])
+                            covered=coverage["covered"], candidate_covered=coverage["covered"],
+                            approved_behavior=approved, total=coverage["total"])
         # Prompt construction uses a frozen requirement/design/obligation view.
         # Dispatch only tool-free text requests; this thread remains the sole
         # compiler, spec writer, plan writer, and snapshot owner.
@@ -8695,10 +8451,7 @@ class Flow:
                               time.monotonic() + max(0, wall_cap - self.derived_llm_seconds))
         for index, proposal_chunk in enumerate(chunks):
             proposal_phase = (phase_plan.get("leaf_phase", {}) or {}).get(str(proposal_chunk[0]["node_id"]), "")
-            proposal_prompt = build_review_prompt(
-                proposal_chunk, fixtures, phase_contexts.get(proposal_phase, "")) + TEST_QUALITY_GUIDANCE
-            if len(proposal_prompt) > self.codegen_context_chars():
-                continue
+            proposal_prompt = prompts[index]
             job = SpecRequest(proposal_prompt, timeout, "derived scenario review", REVIEW_SYSTEM,
                               reservation_tokens(proposal_prompt), common_deadline)
             jobs_by_index[index] = job
@@ -8708,9 +8461,9 @@ class Flow:
         def parallel_allowed(job: SpecRequest) -> bool:
             chunk, phase = job_context[id(job)]
             return (self.derived_review_requests < max_requests
+                    and all((t['node_id'], t['id']) not in self.terminal_derived_scenarios() for t in chunk)
                     and self.derived_llm_seconds < wall_cap - 30
-                    and all(self.derived_augmentation_attempts.get(str(t["node_id"]), 0) < 2
-                            for t in chunk)
+                    and all(target_attempts.get(t['id'], 0) == 0 for t in chunk)
                     and (not reserved_phases or phase in reserved_phases)
                     and (phase not in reserved_phases or review_request_admissible(
                         phase, reserved_phases, phase_counts, self.derived_review_requests, max_requests)))
@@ -8724,6 +8477,8 @@ class Flow:
                 self.derived_augmentation_attempts[admitted_id] = self.derived_augmentation_attempts.get(admitted_id, 0) + 1
             for target in chunk:
                 target_attempts[target["id"]] = target_attempts.get(target["id"], 0) + 1
+            self.metric('derived_spec_stage', stage='requested', batch=parallel_numbers[id(job)],
+                        target_ids=[target['id'] for target in chunk], prompt_chars=len(job.prompt))
             report_nodes(chunk, parallel_numbers[id(job)], "generating")
         pool = self.isolated_spec_requests(len(jobs), on_submit=parallel_submitted,
                                            allowed=parallel_allowed)
@@ -8762,8 +8517,9 @@ class Flow:
                 log("[derived] model review stopped: time reserved for the final phases")
                 break
             phase_id = (phase_plan.get("leaf_phase", {}) or {}).get(str(chunk[0]["node_id"]), "")
-            if not reserved_request and any(
-                    self.derived_augmentation_attempts.get(str(t["node_id"]), 0) >= 2 for t in chunk):
+            if any((t['node_id'], t['id']) in self.terminal_derived_scenarios() for t in chunk):
+                continue
+            if not reserved_request and any(target_attempts.get(t['id'], 0) for t in chunk):
                 continue
             if not reserved_request and ((reserved_phases and phase_id not in reserved_phases) or (
                     phase_id in reserved_phases and not review_request_admissible(
@@ -8774,7 +8530,7 @@ class Flow:
                 plan_rows[target["id"]]["status"] = "attempted"
             plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             report_nodes(chunk, batch_number, "generating")
-            prompt = build_review_prompt(chunk, fixtures, phase_contexts.get(phase_id, "")) + TEST_QUALITY_GUIDANCE
+            prompt = prompts[index]
             if len(prompt) > self.codegen_context_chars():
                 report_nodes(chunk, batch_number, "insufficient_context")
                 for target in chunk:
@@ -8789,6 +8545,8 @@ class Flow:
                     self.derived_augmentation_attempts[admitted_id] = self.derived_augmentation_attempts.get(admitted_id, 0) + 1
                 for target in chunk:
                     target_attempts[target['id']] = target_attempts.get(target['id'], 0) + 1
+                self.metric('derived_spec_stage', stage='requested', batch=batch_number,
+                            target_ids=[target['id'] for target in chunk], prompt_chars=len(prompt))
             self.snapshot_protected()  # commit harness plan/spec writes before calling the model
             Flow.start_derived_designs(self, [str(t["node_id"]) for t in chunk], "generating business test specs")
             started = time.monotonic()
@@ -8810,95 +8568,24 @@ class Flow:
                 record_generation_seconds(prefetched_reply.elapsed)
             (review_dir / f"batch-{batch_number}.txt").write_text(
                 f"# ok={ok}\n# scenarios={[t['title'] for t in chunk]}\n{text}", encoding="utf-8")
-            if (not ok and os.environ.get('OCTOS_ARC_SCENARIO_PROPOSAL_NO_THINK', '1') == '1'
-                    and not any(name in os.environ for name in
-                                ('OCTOS_ARC_REASONING', 'OCTOS_ARC_IMPLEMENT_REASONING',
-                                 'OCTOS_ARC_RECOVERY_REASONING'))
-                    and self.derived_review_requests + (len(chunks) - index - 1) < max_requests
-                    and (phase_id not in reserved_phases or review_request_admissible(
-                        phase_id, reserved_phases, phase_counts,
-                        self.derived_review_requests + (len(chunks) - index - 1), max_requests))
-                    and self.derived_llm_seconds + 30 < wall_cap
-                    and getattr(self, 'derived_preflight_deadline', float('inf')) - time.monotonic() >= 30
-                    and self.remaining() >= self.final_phase_reserve() + 300
-                    and not self.wound_down() and not self.derived_preflight_tokens_spent()):
-                # A failed first proposal must not silently remove this
-                # scenario from coverage. Reuse the same frozen prompt once
-                # with the normal retry reasoning policy.
-                self.derived_review_requests += 1
-                if phase_id:
-                    phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
-                for admitted_id in {str(target['node_id']) for target in chunk}:
-                    self.derived_augmentation_attempts[admitted_id] = (
-                        self.derived_augmentation_attempts.get(admitted_id, 0) + 1)
-                for target in chunk:
-                    target_attempts[target['id']] = target_attempts.get(target['id'], 0) + 1
-                fallback_started = time.monotonic()
-                retry_left = getattr(self, 'derived_preflight_deadline', float('inf')) - fallback_started
-                ok, text = self.text_turn(prompt, max(1, int(min(
-                    timeout, max(1, wall_cap - self.derived_llm_seconds), retry_left))),
-                    'derived scenario review (retry)', system=REVIEW_SYSTEM, spec_chars=len(prompt))
-                record_generation_seconds(time.monotonic() - fallback_started)
-                (review_dir / f"batch-{batch_number}-unavailable-retry.txt").write_text(
-                    f"# ok={ok}\n# scenarios={[t['title'] for t in chunk]}\n{text}", encoding='utf-8')
-                self.metric('derived_scenario_reasoning_fallback', batch=batch_number,
-                            outcome='recovered' if ok else 'unavailable', targets=len(chunk))
+            self.metric('derived_spec_stage', stage='response_received' if ok else 'response_unavailable',
+                        batch=batch_number, target_ids=[target['id'] for target in chunk],
+                        elapsed_seconds=round(prefetched_reply.elapsed if prefetched_reply is not None
+                                              else time.monotonic() - started, 3), reply_chars=len(text or ''))
             if not ok:
                 log(f"[derived] model review batch {batch_number}: no usable reply ({str(text)[:120]})")
                 report_nodes(chunk, batch_number, "unavailable")
+                for target in chunk:
+                    plan_rows[target['id']]['status'] = 'unavailable'
+                    self.derived_scenario_gaps.setdefault(target['id'], []).append('proposal request unavailable')
+                    plan_rows[target['id']]['unresolved'] = self.derived_scenario_gaps[target['id']]
+                plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
                 continue
             scripts, dropped, retryable = compile_review_reply(text, chunk, fixtures, with_retryable=True)
+            self.metric('derived_spec_stage', stage='candidate_validated', batch=batch_number,
+                        target_ids=[target['id'] for target in chunk],
+                        validated=sum(map(len, scripts.values())), rejected=len(dropped))
             rejected_attempts.extend(dropped)
-            retry_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-            target_nodes = {target["id"]: str(target["node_id"]) for target in chunk}
-            eligible_retryable = [item for item in retryable
-                                  if target_nodes.get(item.get("id")) in retry_room
-                                  and self.derived_augmentation_attempts.get(
-                                      target_nodes[item["id"]], 0) < 2]
-            if (eligible_retryable and not self.wound_down()
-                    and self.derived_llm_seconds + 30 < wall_cap and retry_left >= 30
-                    and not self.derived_preflight_tokens_spent()
-                    and self.derived_review_requests < max_requests
-                    and (phase_id not in reserved_phases or review_request_admissible(
-                        phase_id, reserved_phases, phase_counts, self.derived_review_requests, max_requests))):
-                # One correction round: the model sees exactly which rule each
-                # rejected script broke; anything still invalid is dropped.
-                retry_ids = {item.get("id") for item in eligible_retryable}
-                retry_chunk = [target for target in chunk if target["id"] in retry_ids]
-                prompt = build_review_retry(eligible_retryable, retry_chunk, fixtures,
-                                            phase_contexts.get(phase_id, "")) + TEST_QUALITY_GUIDANCE
-                if len(prompt) > self.codegen_context_chars():
-                    self.metric("derived_spec_retry", outcome="insufficient_context", phase=phase_id)
-                    prompt = ""
-                self.snapshot_protected()  # includes accepted earlier batches and this review artifact
-                self.derived_review_requests += bool(prompt)
-                if phase_id and prompt:
-                    phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
-                if prompt:
-                    for admitted_id in {str(t["node_id"]) for t in retry_chunk}:
-                        self.derived_augmentation_attempts[admitted_id] = self.derived_augmentation_attempts.get(admitted_id, 0) + 1
-                    for target in retry_chunk:
-                        target_attempts[target["id"]] = target_attempts.get(target["id"], 0) + 1
-                started = time.monotonic()
-                ok, text = (self.text_turn(prompt, max(1, int(min(
-                    timeout, max(1, wall_cap - self.derived_llm_seconds), retry_left))),
-                                          "derived scenario review (retry)", system=REVIEW_SYSTEM,
-                                          spec_chars=len(prompt)) if prompt else (False, "insufficient_context"))
-                record_generation_seconds(time.monotonic() - started)
-                (review_dir / f"batch-{batch_number}-retry.txt").write_text(
-                    f"# ok={ok}\n# rejected={[r['title'] for r in eligible_retryable]}\n{text}", encoding="utf-8")
-                if ok:
-                    prior_counts = {item.get('id'): len(item.get('previous_proposal', {}).get('cases') or [None])
-                                    for item in eligible_retryable}
-                    retry_targets = [dict(target, minimum_case_count=prior_counts.get(target.get('id'), 1))
-                                     for target in retry_chunk]
-                    fixed, dropped_again = compile_review_reply(text, retry_targets, fixtures)
-                    rejected_attempts.extend(dropped_again)
-                    for node_id, tests in fixed.items():
-                        scripts.setdefault(node_id, []).extend(tests)
-                    fixed_titles = {t.split("test('", 1)[1].split(" [model]")[0] for ts in fixed.values() for t in ts}
-                    fixed_titles = {re.sub(r" \[case [1-8]\]$", "", title) for title in fixed_titles}
-                    dropped = [d for d in dropped if not any(d.startswith(title + ": ") and not any(e.startswith(title + ": ") for e in dropped_again) for title in fixed_titles)] + dropped_again
             dropped_total += dropped
             self.derived_scenario_gaps = getattr(self, 'derived_scenario_gaps', {})
             for target in chunk:
@@ -8923,11 +8610,10 @@ class Flow:
                 accepted_titles.update(new_titles)
                 added += sum(title.endswith(" [model]") for title in new_titles)
             for target in chunk:
-                if plan_rows[target['id']].get('unresolved'):
-                    plan_rows[target['id']]['status'] = 'partial' if scripts.get(target['node_id']) else 'rejected'
-                if (f"{target['title']} [model]" in accepted_titles
-                        or any(re.fullmatch(re.escape(target['title']) + r" \[case [1-8]\] \[model\]", title)
-                               for title in accepted_titles)):
+                has_case = (f"{target['title']} [model]" in accepted_titles
+                            or any(re.fullmatch(re.escape(target['title']) + r" \[case [1-8]\] \[model\]", title)
+                                   for title in accepted_titles))
+                if has_case:
                     plan_rows[target["id"]]["status"] = "partial" if plan_rows[target["id"]].get("unresolved") else "accepted"
                 else:
                     skip = next((item for item in dropped
@@ -8936,6 +8622,11 @@ class Flow:
                         plan_rows[target["id"]]["status"] = "skipped_unreviewed"
                         plan_rows[target["id"]]["skip_reason"] = skip[:400]
                         plan_rows[target["id"]]["skip_category"] = skip_category(skip)
+                    else:
+                        plan_rows[target['id']]['status'] = 'rejected'
+                        if not plan_rows[target['id']].get('unresolved'):
+                            plan_rows[target['id']]['unresolved'] = ['no validated case in one proposal']
+                            self.derived_scenario_gaps[target['id']] = plan_rows[target['id']]['unresolved']
             plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             report_nodes(chunk, batch_number, "validated")
         if parallel_results is not None:
@@ -8967,193 +8658,120 @@ class Flow:
                     unique_rejected_scenarios=len({reason.split(': ', 1)[0] for reason in dropped_total}))
         return added
 
-    def review_derived_cases(self, node_ids: set[str], *, reserve_requests: int = 0) -> None:
+    def review_derived_cases(self, node_ids: set[str], *, reserve_requests: int=0) -> None:
         """Review generated cases before application behavior can bias the review.
 
-        Every case gets a versioned deterministic record. A separate, read-only
-        model turn may approve behavioral cases with exact requirement and
-        assertion witnesses. Budget exhaustion leaves cases unreviewed; it
-        never delays implementation or converts a missing oracle into a pass.
-        """
-        directory = getattr(self, "derived_tests_dir", None)
+            Every case gets a versioned deterministic record. A separate, read-only
+            model turn may approve behavioral cases with exact requirement and
+            assertion witnesses. Budget exhaustion leaves cases unreviewed; it
+            never delays implementation or converts a missing oracle into a pass.
+            """
+        directory = getattr(self, 'derived_tests_dir', None)
         if directory is None or not node_ids:
             return
         targets = self.planned_derived_scenarios()
-        rows = collect_cases(directory, targets, node_ids,
-                             ancestor_context(getattr(self, "requirement_tree", None)))
-        helper = directory / "helpers.ts"
+        rows = collect_cases(directory, targets, node_ids, ancestor_context(getattr(self, 'requirement_tree', None)))
+        helper = directory / 'helpers.ts'
         helper_hash = helper_evidence_hash(helper.parent)
-        fixtures_text = str(suite_fixtures(getattr(self, "derived_nodes", [])))
+        fixtures_text = str(suite_fixtures(getattr(self, 'derived_nodes', [])))
         fixture_hash = case_sha(fixtures_text)
         for row in rows:
-            row["helper_hash"] = helper_hash
-            row["fixture_hash"] = fixture_hash
-        review_dir = directory / "review"
+            row['helper_hash'] = helper_hash
+            row['fixture_hash'] = fixture_hash
+        review_dir = directory / 'review'
         review_dir.mkdir(parents=True, exist_ok=True)
         static_issues = audit_generated_suite(directory, targets, node_ids)
-        (review_dir / "static-audit.json").write_text(json.dumps({
-            "version": 1, "issues": static_issues,
-        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self.metric("derived_suite_static_audit", nodes=len(node_ids), issues=len(static_issues),
-                    candidates=sum(issue["kind"] == "candidate" for issue in static_issues),
-                    gaps=sum(issue["kind"] == "gap" for issue in static_issues))
-        plan_path = review_dir / "plan.json"
+        (review_dir / 'static-audit.json').write_text(json.dumps({'version': 1, 'issues': static_issues}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        self.metric('derived_suite_static_audit', nodes=len(node_ids), issues=len(static_issues), candidates=sum((issue['kind'] == 'candidate' for issue in static_issues)), gaps=sum((issue['kind'] == 'gap' for issue in static_issues)))
+        plan_path = review_dir / 'plan.json'
         if plan_path.is_file():
             try:
-                plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                plan = json.loads(plan_path.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 plan = {}
             for target in targets:
-                if target["node_id"] not in node_ids:
+                if target['node_id'] not in node_ids:
                     continue
-                entry = next((item for item in plan.get("targets", []) if item.get("id") == target["id"]), None)
-                if entry and entry.get("status") == "skipped_unreviewed":
-                    rows.append({"id": case_sha([target["node_id"], target["id"], "skip"])[:24],
-                                 "node_id": target["node_id"], "scenario_id": target["id"],
-                                 "title": target["title"] + " [skip]", "file": "",
-                                 "requirements_hash": case_sha(target), "file_hash": "",
-                                 "case_hash": "", "helper_hash": helper_hash, "fixture_hash": fixture_hash,
-                                 "status": "skipped_unreviewed", "requirement": str(target.get("description") or ""),
-                                 "case": str(entry.get("skip_reason") or ""),
-                                 "skip_category": entry.get("skip_category") or skip_category(entry.get("skip_reason") or "")})
-        # A second audit of corrected files must retain approvals only for
-        # unchanged case, requirement, helper and fixture versions.
+                entry = next((item for item in plan.get('targets', []) if item.get('id') == target['id']), None)
+                if entry and entry.get('status') == 'skipped_unreviewed':
+                    rows.append({'id': case_sha([target['node_id'], target['id'], 'skip'])[:24], 'node_id': target['node_id'], 'scenario_id': target['id'], 'title': target['title'] + ' [skip]', 'file': '', 'requirements_hash': case_sha(target), 'file_hash': '', 'case_hash': case_sha(str(entry.get('skip_reason') or '')), 'helper_hash': helper_hash, 'fixture_hash': fixture_hash, 'status': 'skipped_unreviewed', 'requirement': str(target.get('description') or ''), 'case': str(entry.get('skip_reason') or ''), 'skip_category': entry.get('skip_category') or skip_category(entry.get('skip_reason') or '')})
         for row in rows:
-            previous = getattr(self, "derived_case_reviews", {}).get((row["node_id"], row["title"]))
-            same_version = bool(previous and all(previous.get(key) == row.get(key) for key in
-                          ("case_hash", "requirements_hash", "helper_hash", "fixture_hash")))
-            if same_version and row["status"] != "invalid" and previous.get("quote_rereview_attempted"):
-                row["quote_rereview_attempted"] = True
-            if (same_version and row["status"] != "invalid" and previous.get("status") in
-                    {"approved_behavior", "needs_correction", "disputed", "approved_smoke_only", "invalid", "skip_review"}):
-                row.update({key: previous[key] for key in
-                            ("status", "outcome_quote", "assertion_quote", "reason", "review_request", "review_completed", "review_error_confirmed", "branch", "obligation_ids", "obligation_evidence", "review_validation") if key in previous})
-        if self.fast_test_mode():
-            # Structural grounding and file/helper/requirement hashes remain
-            # mandatory, but no pre-execution model review is purchased.
-            for row in rows:
-                if row["status"] == "unreviewed":
-                    row["status"] = "skip_review"
-                    row["reason"] = "fast mode: review deferred until a measured failure"
-            present = {(row["node_id"], row["title"]) for row in rows}
-            self.derived_case_reviews = {key: value for key, value in self.derived_case_reviews.items()
-                                         if key[0] not in node_ids or key in present}
-            self.derived_case_reviews.update({(row["node_id"], row["title"]): row for row in rows})
-            (review_dir / "cases.json").write_text(json.dumps({"version": 1, "cases": safe_records(
-                list(self.derived_case_reviews.values()))}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            self.metric("derived_case_review", mode="fast", cases=len(rows),
-                        admitted=sum(row["status"] == "skip_review" for row in rows), requests=0)
-            return
-        corrected_scenarios = getattr(self, "derived_case_correction_attempted", set())
-        candidates = [row for row in rows if row["status"] in {"unreviewed", "skipped_unreviewed"}
-                      or (row["status"] == "needs_correction"
-                          and (row["node_id"], row["scenario_id"]) in corrected_scenarios
-                          and not row.get("review_completed"))]
-        phase_plan = getattr(self, "phase_plan", None) or {}
-        leaf_phase = phase_plan.get("leaf_phase", {})
-        phase_order = [phase["id"] for phase in phase_plan.get("phases", [])]
-        phase_counts = getattr(self, "derived_case_review_phase_requests", {})
+            previous = getattr(self, 'derived_case_reviews', {}).get((row['node_id'], row['title']))
+            if row['status'] == 'invalid':
+                row['discarded'] = True
+            same_version = bool(previous and all((previous.get(key) == row.get(key) for key in ('case_hash', 'requirements_hash', 'helper_hash', 'fixture_hash'))))
+            if same_version and previous.get('review_attempted'):
+                row['review_attempted'] = True
+                row['discarded'] = previous.get('discarded', True)
+                row['reason'] = previous.get('reason', 'single audit did not approve this case')
+            if same_version and row['status'] != 'invalid' and (previous.get('status') in {'approved_behavior', 'needs_correction', 'disputed', 'approved_smoke_only', 'invalid', 'skipped_with_reason', 'unverified_gap'}):
+                row.update({key: previous[key] for key in ('status', 'outcome_quote', 'assertion_quote', 'reason', 'review_request', 'review_completed', 'review_error_confirmed', 'branch', 'obligation_ids', 'obligation_evidence', 'review_validation', 'review_attempted', 'discarded') if key in previous})
+        for row in rows:
+            if (row['node_id'], row.get('scenario_id')) in self.terminal_derived_scenarios():
+                row.update(status='unverified_gap', review_attempted=True, discarded=True,
+                           reason='Frozen business case is closed by durable author stop state; no new review.')
+        candidates = [row for row in rows if row['status'] in {'unreviewed', 'skipped_unreviewed'} and (not row.get('review_attempted'))]
+        phase_plan = getattr(self, 'phase_plan', None) or {}
+        leaf_phase = phase_plan.get('leaf_phase', {})
+        phase_order = [phase['id'] for phase in phase_plan.get('phases', [])]
+        phase_counts = getattr(self, 'derived_case_review_phase_requests', {})
         self.derived_case_review_phase_requests = phase_counts
+
         def phase_of(row):
-            return leaf_phase.get(row["node_id"], row["node_id"])
-        candidates.sort(key=lambda row: (phase_order.index(phase_of(row)) if phase_of(row) in phase_order else len(phase_order),
-                                         not bool(re.search(r"sign.?in|sign.?out|password|permission|delete|persist|access", row["requirement"], re.I)),
-                                         row["node_id"], row["title"]))
-        spent = getattr(self, "derived_case_review_requests", 0)
+            return leaf_phase.get(row['node_id'], row['node_id'])
+        candidates.sort(key=lambda row: (phase_order.index(phase_of(row)) if phase_of(row) in phase_order else len(phase_order), not bool(re.search('sign.?in|sign.?out|password|permission|delete|persist|access', row['requirement'], re.I)), row['node_id'], row['title']))
+        spent = getattr(self, 'derived_case_review_requests', 0)
         cap = max(0, self.case_review_cap() - reserve_requests)
-        # The auditor can decide several independent cases in one reply. Keep
-        # the large shared instructions, fixtures and helper as one cacheable
-        # prefix instead of paying for them once per case.
-        batch_size = max(1, min(6, int(os.environ.get("OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH", "3"))))
+        batch_size = max(1, min(6, int(os.environ.get('OCTOS_ARC_DERIVED_CASE_REVIEW_BATCH', '3'))))
         wall_cap = self.case_review_seconds()
-        review_seconds = getattr(self, "derived_case_review_seconds", 0)
+        review_seconds = getattr(self, 'derived_case_review_seconds', 0)
         review_started = time.monotonic()
         chunks = []
         for row in candidates:
             if not chunks or len(chunks[-1]) >= batch_size or phase_of(chunks[-1][0]) != phase_of(row):
                 chunks.append([])
             chunks[-1].append(row)
+
         def audit_prompt(chunk):
-            shown = [{"id": row["id"], "requirement": row["requirement"],
-                      "case": row["case"], "origin": row.get("origin", "requirement_scenario"),
-                      "quote_options": numbered_review_quotes(row),
-                      "obligations": row.get('obligations', []),
-                      "kind": "skip" if row["status"] == "skipped_unreviewed" else "test"}
-                     for row in chunk]
-            prompt = ("Independently audit each generated Playwright case against its authoritative requirement. "
-                      "You have no application code or test results. Check GIVEN setup, identity, WHEN action order, "
-                      "THEN oracle and case isolation. Audit the branch this case actually exercises; do not demand "
-                      "every opposite branch in a single case. Suite-level obligation coverage checks the other branches. "
-                      "Do require the full outcome of this case, including unchanged state on rejection. "
-                      " Identify branch as success, rejection, mixed or unknown. For a stated data format, verify exact "
-                      "field order, empty fields, escaping, Unicode, filenames and values where applicable; a file "
-                      "suffix, toast or substring alone is not a format oracle. Do not approve a reach/entry-only check "
-                      "as behavioral. For every state-changing case, identify the commit action and verify the "
-                      "created, deleted, or updated state after it; a dialog, button, seeded value, field echo or toast "
-                      "does not prove the transition. If persistence is promised, require a reload or reopen as "
-                      "specified by the requirement, and a repeated "
-                      "state assertion. For rejected actions, require an assertion of the exact object or property "
-                      "before the action, the documented error or response status, and the same object or property "
-                      "unchanged afterward; a matching string elsewhere on the page is insufficient. If the "
-                      "rejection promises persistence, reload or reopen and assert that unchanged state again. For API "
-                      "errors, check the exact official status when given, otherwise the appropriate error category. "
-                      "A skip must be justified by an impossible fixture, not a difficult assertion. "
-                      "Return ONLY a JSON array, one item per id: {id,status,branch,obligation_ids,obligation_evidence,requirement_quote,test_quote,reason}. Include only supplied obligation IDs actually proved by the assertions. For EACH mapped obligation, supply obligation_evidence [{obligation_id,requirement_quote,test_quote}]; its quote must come from that obligation and its assertion must prove the entire stated outcome. If the case proves only part, do not map the whole obligation. "
-                      "status is approved_behavior, approved_smoke_only, needs_correction, disputed, or "
-                      "skipped_with_reason. A case that proves its stated branch is approved_behavior even if "
-                      "additional cases or stronger checks would improve coverage; put suggestions in reason. "
-                      "Use needs_correction only when this case has a wrong action, unsupported oracle, or "
-                      "missing proof of its own stated outcome. Quotes must be verbatim. requirement_quote must come from the "
-                      "leaf description, a THEN step, or an inherited obligation's source quote, not GIVEN/WHEN; test_quote must be an assertion that "
-                      "proves that outcome. You may return a quote_options ID such as R1 or T1 in any quote field; "
-                      "the program restores its exact source text and applies every normal witness check. "
-                      "Do not approve entry-only checks.\n"
-                      "Cases marked baseline_invariant are inferred password-login safety properties, not "
-                      "verbatim product scenarios. Check that the original requirement supports password login "
-                      "and that the supplied invariant THEN is valid; dispute it if the product permits an exception. "
-                      "expectSignInRejected submits credentials and checks the anonymous login state.\n"
-                      + "\nAuthoritative seed fixtures: " + fixtures_text
-                      + "\nShared test helper: " + review_evidence(directory)
-                      + "\nCases: " + json.dumps(shown, ensure_ascii=False))
+            shown = [{'id': row['id'], 'requirement': row['requirement'], 'case': row['case'], 'origin': row.get('origin', 'requirement_scenario'), 'quote_options': numbered_review_quotes(row), 'obligations': row.get('obligations', []), 'kind': 'skip' if row['status'] == 'skipped_unreviewed' else 'test'} for row in chunk]
+            prompt = "Independently audit each generated Playwright case against its authoritative requirement. You have no application code or test results. Check GIVEN setup, identity, WHEN action order, THEN oracle and case isolation. Audit the branch this case actually exercises; do not demand every opposite branch in a single case. Suite-level obligation coverage checks the other branches. Do require the full outcome of this case, including unchanged state on rejection.  Identify branch as success, rejection, mixed or unknown. For a stated data format, verify exact field order, empty fields, escaping, Unicode, filenames and values where applicable; a file suffix, toast or substring alone is not a format oracle. Do not approve a reach/entry-only check as behavioral. For every state-changing case, identify the commit action and verify the created, deleted, or updated state after it; a dialog, button, seeded value, field echo or toast does not prove the transition. If persistence is promised, require a reload or reopen as specified by the requirement, and a repeated state assertion. For rejected actions, require an assertion of the exact object or property before the action, the documented error or response status, and the same object or property unchanged afterward; a matching string elsewhere on the page is insufficient. If the rejection promises persistence, reload or reopen and assert that unchanged state again. For API errors, check the exact official status when given, otherwise the appropriate error category. A skip must be justified by an impossible fixture, not a difficult assertion. Return ONLY a JSON array, one item per id: {id,status,branch,obligation_ids,obligation_evidence,requirement_quote,test_quote,reason}. Include only supplied obligation IDs actually proved by the assertions. For EACH mapped obligation, supply obligation_evidence [{obligation_id,requirement_quote,test_quote}]; its quote must come from that obligation and its assertion must prove the entire stated outcome. If the case proves only part, do not map the whole obligation. status is approved_behavior, approved_smoke_only, needs_correction, disputed, or skipped_with_reason. A case that proves its stated branch is approved_behavior even if additional cases or stronger checks would improve coverage; put suggestions in reason. Use needs_correction only when this case has a wrong action, unsupported oracle, or missing proof of its own stated outcome. Quotes must be verbatim. requirement_quote must come from the leaf description, a THEN step, or an inherited obligation's source quote, not GIVEN/WHEN; test_quote must be an assertion that proves that outcome. Use quote_options IDs such as R1 or T1 when provided; the program restores its exact source text and applies every normal witness check. Do not approve entry-only checks.\nCases marked baseline_invariant are inferred password-login safety properties, not verbatim product scenarios. Check that the original requirement supports password login and that the supplied invariant THEN is valid; dispute it if the product permits an exception. expectSignInRejected submits credentials and checks the anonymous login state.\n" + '\nAuthoritative seed fixtures: ' + fixtures_text + '\nShared test helper: ' + review_evidence(directory) + '\nCases: ' + json.dumps(shown, ensure_ascii=False)
             return prompt
         audit_jobs: dict[int, SpecRequest] = {}
         jobs: list[SpecRequest] = []
         job_chunks: dict[int, list[dict]] = {}
-        audit_deadline = min(getattr(self, "derived_preflight_deadline", float("inf")),
-                             review_started + max(0, wall_cap - review_seconds),
-                             time.monotonic() + max(0, self.remaining() - self.final_phase_reserve() - 180))
-        audit_system = "You are an independent read-only test auditor. Return valid JSON only."
+        audit_deadline = min(getattr(self, 'derived_preflight_deadline', float('inf')), review_started + max(0, wall_cap - review_seconds), time.monotonic() + max(0, self.remaining() - self.final_phase_reserve() - 180))
+        audit_system = 'You are an independent read-only test auditor. Return valid JSON only.'
+
         def audit_input_current(chunk: list[dict]) -> bool:
+            if any((row['node_id'], row.get('scenario_id')) in self.terminal_derived_scenarios() for row in chunk):
+                return False
             if helper_evidence_hash(directory) != helper_hash:
                 return False
-            if case_sha(str(suite_fixtures(getattr(self, "derived_nodes", [])))) != fixture_hash:
+            if case_sha(str(suite_fixtures(getattr(self, 'derived_nodes', [])))) != fixture_hash:
                 return False
             for item in chunk:
-                filename, expected = item.get("file"), item.get("file_hash")
+                filename, expected = (item.get('file'), item.get('file_hash'))
                 if filename and expected:
                     path = directory / filename
-                    if not path.is_file() or case_sha(path.read_text(encoding="utf-8")) != expected:
+                    if not path.is_file() or case_sha(path.read_text(encoding='utf-8')) != expected:
                         return False
             return True
-        parallel_candidate = (len(chunks) > 1 and isinstance(getattr(self, "llm_proxy", None), LlmProxy)
-                              and isinstance(getattr(self, "driver", None), OctosDriver)
-                              and int(os.environ.get("OCTOS_ARC_SPEC_PARALLEL_WORKERS", "2")) > 1)
+        parallel_candidate = len(chunks) > 1 and isinstance(getattr(self, 'llm_proxy', None), LlmProxy) and isinstance(getattr(self, 'driver', None), OctosDriver) and (int(os.environ.get('OCTOS_ARC_SPEC_PARALLEL_WORKERS', '2')) > 1)
         if parallel_candidate:
             for original_chunk in chunks:
                 original_prompt = audit_prompt(original_chunk)
                 if len(original_prompt) > self.codegen_context_chars():
                     continue
-                job = SpecRequest(original_prompt, 600, "derived case independent review", audit_system,
-                                  reservation_tokens(original_prompt), audit_deadline)
+                job = SpecRequest(original_prompt, 600, 'derived case independent review', audit_system, reservation_tokens(original_prompt), audit_deadline)
                 audit_jobs[id(original_chunk)] = job
                 jobs.append(job)
                 job_chunks[id(job)] = original_chunk
         audit_numbers: dict[int, int] = {}
+
         def audit_allowed(job: SpecRequest) -> bool:
             phase = phase_of(job_chunks[id(job)][0])
-            return (spent < cap and review_seconds + time.monotonic() - review_started < wall_cap
-                    and review_request_admissible(phase, phase_order, phase_counts, spent, cap)
-                    and self.remaining() >= self.final_phase_reserve() + 300)
+            return audit_input_current(job_chunks[id(job)]) and spent < cap and review_seconds + time.monotonic() - review_started < wall_cap and review_request_admissible(phase, phase_order, phase_counts, spent, cap) and (self.remaining() >= self.final_phase_reserve() + 300)
+
         def audit_submitted(job: SpecRequest) -> None:
             nonlocal spent
             spent += 1
@@ -9161,8 +8779,7 @@ class Flow:
             phase_counts[phase] = phase_counts.get(phase, 0) + 1
             self.derived_case_review_requests = spent
             audit_numbers[id(job)] = spent
-        pool = self.isolated_spec_requests(len(jobs), on_submit=audit_submitted,
-                                           allowed=audit_allowed)
+        pool = self.isolated_spec_requests(len(jobs), on_submit=audit_submitted, allowed=audit_allowed)
         parallel_results = pool.ordered(jobs) if pool is not None else None
         first_parallel_reply = next(parallel_results) if parallel_results is not None else None
         parallel_fallback = first_parallel_reply is None and parallel_results is not None
@@ -9172,186 +8789,91 @@ class Flow:
             chunk_index += 1
             prefetched_job = audit_jobs.get(id(chunk)) if not parallel_fallback else None
             reserved_request = prefetched_job is not None and id(prefetched_job) in audit_numbers
-            preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-            if ((not reserved_request and spent >= cap)
-                    or (not reserved_request and review_seconds + time.monotonic() - review_started >= wall_cap)
-                    or (not reserved_request and (self.wound_down() or self.review_budget_spent()))
-                    or (not reserved_request and preflight_left < 30)
-                    or (not reserved_request and self.derived_preflight_tokens_spent())
-                    or (not reserved_request and self.remaining() < self.final_phase_reserve() + 300)
-                    or os.environ.get("OCTOS_ARC_DRYRUN") == "1"):
+            if not reserved_request and any((row['node_id'], row.get('scenario_id')) in
+                                            self.terminal_derived_scenarios() for row in chunk):
+                continue
+            preflight_left = getattr(self, 'derived_preflight_deadline', float('inf')) - time.monotonic()
+            if not reserved_request and spent >= cap or (not reserved_request and review_seconds + time.monotonic() - review_started >= wall_cap) or (not reserved_request and (self.wound_down() or self.review_budget_spent())) or (not reserved_request and preflight_left < 30) or (not reserved_request and self.derived_preflight_tokens_spent()) or (not reserved_request and self.remaining() < self.final_phase_reserve() + 300) or (os.environ.get('OCTOS_ARC_DRYRUN') == '1'):
                 break
             current_phase = phase_of(chunk[0])
-            future_reserve = sum(phase != current_phase and not phase_counts.get(phase, 0)
-                                 for phase in phase_order)
-            if not reserved_request and not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap):
-                self.metric("derived_case_review", outcome="phase_reserved", phase=current_phase,
-                            requests=spent, reserved=future_reserve)
+            future_reserve = sum((phase != current_phase and (not phase_counts.get(phase, 0)) for phase in phase_order))
+            if not reserved_request and (not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap)):
+                self.metric('derived_case_review', outcome='phase_reserved', phase=current_phase, requests=spent, reserved=future_reserve)
                 continue
             prompt = audit_prompt(chunk)
             if len(prompt) > self.codegen_context_chars():
                 if len(chunk) > 1:
                     midpoint = len(chunk) // 2
                     chunks[chunk_index:chunk_index] = [chunk[:midpoint], chunk[midpoint:]]
-                    self.metric("derived_case_review", outcome="split_context",
-                                cases=[row["id"] for row in chunk])
+                    self.metric('derived_case_review', outcome='split_context', cases=[row['id'] for row in chunk])
                     continue
-                self.metric("derived_case_review", outcome="insufficient_context", cases=[r["id"] for r in chunk])
+                self.metric('derived_case_review', outcome='insufficient_context', cases=[r['id'] for r in chunk])
                 continue
-            decisions = []
-            parse_error = None
+            pre_reserved = reserved_request
+            if not pre_reserved:
+                spent += 1
+                phase_counts[current_phase] = phase_counts.get(current_phase, 0) + 1
+                self.derived_case_review_requests = spent
             current_request_number = audit_numbers.get(id(prefetched_job), spent)
-            for attempt in range(2):
-                preflight_left = getattr(self, "derived_preflight_deadline", float("inf")) - time.monotonic()
-                pre_reserved = attempt == 0 and reserved_request
-                if ((not pre_reserved and spent >= cap)
-                        or (not pre_reserved and review_seconds + time.monotonic() - review_started >= wall_cap)
-                        or (not pre_reserved and not review_request_admissible(current_phase, phase_order, phase_counts, spent, cap))
-                        or (not pre_reserved and preflight_left < 30)
-                        or (not pre_reserved and self.derived_preflight_tokens_spent())
-                        or (not pre_reserved and (self.wound_down() or self.review_budget_spent()))
-                        or (not pre_reserved and self.remaining() < self.final_phase_reserve() + 300)):
-                    break
-                if not pre_reserved:
-                    spent += 1
-                    phase_counts[current_phase] = phase_counts.get(current_phase, 0) + 1
-                    self.derived_case_review_requests = spent
-                    current_request_number = spent
-                allowance = max(1, int(min(
-                    600, max(1, wall_cap - review_seconds - (time.monotonic() - review_started)),
-                    max(1, self.remaining() - self.final_phase_reserve() - 180), preflight_left)))
-                review_prompt = prompt if attempt == 0 else prompt + (
-                    "\nThe previous reply had an invalid JSON envelope. Return exactly one JSON array "
-                    "with no prose and unique IDs; do not change requirements or tests.")
-                Flow.start_derived_designs(self, [str(row["node_id"]) for row in chunk], "auditing business test specs")
-                prefetched_reply = None
-                if pre_reserved and parallel_results is not None:
-                    prefetched_reply = first_parallel_reply if prefetched_job is jobs[0] else next(parallel_results)
-                    if prefetched_reply is None:
-                        parallel_fallback = True
+            allowance = max(1, int(min(600, max(1, wall_cap - review_seconds - (time.monotonic() - review_started)), max(1, self.remaining() - self.final_phase_reserve() - 180), preflight_left)))
+            Flow.start_derived_designs(self, [str(row['node_id']) for row in chunk], 'auditing business test specs')
+            prefetched_reply = None
+            if pre_reserved and parallel_results is not None:
+                prefetched_reply = first_parallel_reply if prefetched_job is jobs[0] else next(parallel_results)
                 if prefetched_reply is None:
-                    request_started = time.monotonic()
-                    ok, reply = self.text_turn(review_prompt, allowance,
-                                               "derived case independent review" + (" (format retry)" if attempt else ""),
-                                               system=audit_system, spec_chars=len(review_prompt))
-                    request_elapsed = time.monotonic() - request_started
-                else:
-                    ok, reply = prefetched_reply.ok, prefetched_reply.text
-                    request_elapsed = prefetched_reply.elapsed
-                if not audit_input_current(chunk):
-                    ok, reply = False, "stale_audit_input: spec, helper or fixture changed during review"
-                    self.metric("derived_case_review", outcome="stale_input",
-                                cases=[row["id"] for row in chunk], request=current_request_number)
-                (review_dir / f"audit-{current_request_number}.txt").write_text(str(reply), encoding="utf-8")
-                decisions, parse_error = (parse_review_decisions(reply, {row["id"] for row in chunk})
-                                          if ok else ([], "unavailable"))
-                if parse_error is None and request_elapsed > 0:
-                    samples = getattr(self, 'derived_review_request_durations', [])
-                    self.derived_review_request_durations = (samples + [request_elapsed])[-32:]
-                self.metric("derived_case_review_parse", outcome=parse_error or "parsed", request=current_request_number,
-                            cases=len(decisions))
-                if parse_error != "format_invalid":
-                    break
-            by_id = {item.get("id"): item for item in decisions if isinstance(item, dict)} if isinstance(decisions, list) else {}
-            missing = [row for row in chunk if row["id"] not in by_id]
-            if missing and len(chunk) > 1:
-                # A batched response can omit an ID or fail its envelope.
-                # Retry only the unanswered cases in smaller requests; never
-                # treat a missing decision as an approval.
-                midpoint = max(1, len(missing) // 2)
-                retry_chunks = ([missing] if len(missing) == 1 else
-                                [missing[:midpoint], missing[midpoint:]])
-                chunks[chunk_index:chunk_index] = retry_chunks
-                self.metric("derived_case_review", outcome="split_incomplete",
-                            cases=[row["id"] for row in missing], request=current_request_number)
+                    parallel_fallback = True
+            if prefetched_reply is None:
+                request_started = time.monotonic()
+                ok, reply = self.text_turn(prompt, allowance, 'derived case independent review', system=audit_system, spec_chars=len(prompt))
+                request_elapsed = time.monotonic() - request_started
+            else:
+                ok, reply = (prefetched_reply.ok, prefetched_reply.text)
+                request_elapsed = prefetched_reply.elapsed
+            if not audit_input_current(chunk):
+                ok, reply = (False, 'stale_audit_input: spec, helper or fixture changed during review')
+                self.metric('derived_case_review', outcome='stale_input', cases=[row['id'] for row in chunk], request=current_request_number)
+            (review_dir / f'audit-{current_request_number}.txt').write_text(str(reply), encoding='utf-8')
+            decisions, parse_error = parse_review_decisions(reply, {row['id'] for row in chunk}) if ok else ([], 'unavailable')
+            if parse_error is None and request_elapsed > 0:
+                samples = getattr(self, 'derived_review_request_durations', [])
+                self.derived_review_request_durations = (samples + [request_elapsed])[-32:]
+            self.metric('derived_case_review_parse', outcome=parse_error or 'parsed', request=current_request_number, cases=len(decisions))
+            by_id = {item.get('id'): item for item in decisions if isinstance(item, dict)} if isinstance(decisions, list) else {}
             for row in chunk:
-                if row["id"] not in by_id and len(chunk) > 1:
-                    continue
-                decision = restore_review_quote_ids(by_id.get(row["id"], {}), numbered_review_quotes(row))
+                decision = restore_review_quote_ids(by_id.get(row['id'], {}), numbered_review_quotes(row))
                 validation_errors = review_validation_errors(row, decision)
-                quote_errors = {'requirement_quote_not_in_authoritative_outcome', 'test_quote_not_in_case',
-                                'test_quote_has_no_assertion', 'assertion_does_not_follow_action',
-                                'missing_or_duplicate_obligation_witness', 'invalid_obligation_evidence',
-                                'invalid_or_missing_obligation_ids'}
-                rereview_prompt = (audit_prompt([row]) + '\nThe earlier proposed approval failed these witness checks: '
-                                   + json.dumps(validation_errors, ensure_ascii=False)
-                                   + '\nReassess the complete THEN outcome from scratch. Return one decision for this ID. '
-                                     'If the case lacks proof, choose needs_correction. Do not edit the case or weaken its assertion.')
-                if (decision.get('status') == 'approved_behavior' and row['status'] == 'unreviewed'
-                        and validation_errors and not row.get('quote_rereview_attempted')
-                        and any(any(error.endswith(reason) for reason in quote_errors)
-                                for error in validation_errors)
-                        and len(rereview_prompt) <= self.codegen_context_chars()
-                        and spent < cap and review_request_admissible(
-                            current_phase, phase_order, phase_counts, spent, cap)
-                        and review_seconds + time.monotonic() - review_started < wall_cap
-                        and audit_input_current([row])
-                        and not self.wound_down() and not self.review_budget_spent()
-                        and not self.derived_preflight_tokens_spent()
-                        and self.remaining() >= self.final_phase_reserve() + 300
-                        and getattr(self, 'derived_preflight_deadline', float('inf')) - time.monotonic() >= 30):
-                    row['quote_rereview_attempted'] = True
-                    spent += 1
-                    phase_counts[current_phase] = phase_counts.get(current_phase, 0) + 1
-                    self.derived_case_review_requests = spent
-                    current_request_number = spent
-                    rereview_timeout = max(1, int(min(600, self.remaining() - self.final_phase_reserve() - 180,
-                                                      wall_cap - review_seconds - (time.monotonic() - review_started),
-                                                      getattr(self, 'derived_preflight_deadline', float('inf'))
-                                                      - time.monotonic())))
-                    rereview_ok, rereview_text = self.text_turn(rereview_prompt, rereview_timeout,
-                        'derived case quote rereview', system=audit_system, spec_chars=len(rereview_prompt))
-                    (review_dir / f'audit-{spent}.txt').write_text(str(rereview_text), encoding='utf-8')
-                    rereview_decisions, rereview_error = parse_review_decisions(
-                        rereview_text, {row['id']}) if rereview_ok and audit_input_current([row]) else ([], 'unavailable')
-                    self.metric('derived_case_quote_rereview', case_id=row['id'],
-                                outcome=rereview_error or 'parsed', request=spent)
-                    if rereview_decisions:
-                        decision = restore_review_quote_ids(rereview_decisions[0], numbered_review_quotes(row))
-                        validation_errors = review_validation_errors(row, decision)
-                        current_request_number = spent
+                row['review_attempted'] = True
                 if not validation_errors:
-                    row["status"] = "approved_behavior"
-                    row["outcome_quote"] = decision["requirement_quote"]
-                    row["assertion_quote"] = decision["test_quote"]
-                    row["branch"] = decision.get("branch", "unknown")
+                    row['status'] = 'approved_behavior'
+                    row['outcome_quote'] = decision['requirement_quote']
+                    row['assertion_quote'] = decision['test_quote']
+                    row['branch'] = decision.get('branch', 'unknown')
                     row['obligation_ids'] = decision.get('obligation_ids', [])
                     row['obligation_evidence'] = decision.get('obligation_evidence', [])
-                elif row["status"] == "skipped_unreviewed":
-                    quote = decision.get("requirement_quote")
-                    if row.get("skip_category") in {"harness_unsupported", "fixture_unavailable"}:
-                        row["status"] = "unverified_gap"
-                    elif (decision.get("status") == "skipped_with_reason" and isinstance(quote, str)
-                            and len(quote.strip()) >= 12 and quote in row["requirement"]
-                            and isinstance(decision.get("reason"), str) and len(decision["reason"]) >= 20):
-                        row["status"] = "skipped_with_reason"
-                elif decision.get("status") in {"needs_correction", "disputed", "approved_smoke_only"}:
-                    row["status"] = decision["status"]
+                elif row['status'] == 'skipped_unreviewed':
+                    quote = decision.get('requirement_quote')
+                    if row.get('skip_category') in {'harness_unsupported', 'fixture_unavailable'}:
+                        row['status'] = 'unverified_gap'
+                    elif decision.get('status') == 'skipped_with_reason' and isinstance(quote, str) and (len(quote.strip()) >= 12) and (quote in row['requirement']) and isinstance(decision.get('reason'), str) and (len(decision['reason']) >= 20):
+                        row['status'] = 'skipped_with_reason'
+                elif decision.get('status') in {'needs_correction', 'disputed', 'approved_smoke_only'}:
+                    row['status'] = decision['status']
                 row['review_validation'] = validation_errors if decision.get('status') == 'approved_behavior' else [parse_error or 'not_approved']
-                row["reason"] = str(decision.get("reason") or "review unavailable")[:500]
-                row["review_request"] = current_request_number
-                row["review_completed"] = parse_error is None and row["id"] in by_id
-                row["review_error_confirmed"] = (row["review_completed"]
-                    and decision.get("status") == CaseStatus.NEEDS_CORRECTION
-                    and isinstance(decision.get("reason"), str)
-                    and len(decision["reason"].strip()) >= 12)
-                self.metric("derived_case_review_decision", case_id=row["id"], status=row["status"],
-                            outcome="quote_invalid" if decision.get("status") == "approved_behavior"
-                            and row["status"] != "approved_behavior" else row["status"])
+                row['reason'] = str(decision.get('reason') or 'review unavailable')[:500]
+                row['discarded'] = row['status'] != 'approved_behavior'
+                row['review_request'] = current_request_number
+                row['review_completed'] = parse_error is None and row['id'] in by_id
+                row['review_error_confirmed'] = row['review_completed'] and decision.get('status') == CaseStatus.NEEDS_CORRECTION and isinstance(decision.get('reason'), str) and (len(decision['reason'].strip()) >= 12)
+                self.metric('derived_case_review_decision', case_id=row['id'], status=row['status'], outcome='quote_invalid' if decision.get('status') == 'approved_behavior' and row['status'] != 'approved_behavior' else row['status'])
         if parallel_results is not None:
             parallel_results.close()
         self.derived_case_review_seconds = review_seconds + time.monotonic() - review_started
-        present = {(row["node_id"], row["title"]) for row in rows}
-        self.derived_case_reviews = {key: row for key, row in self.derived_case_reviews.items()
-                                     if key[0] not in node_ids or key in present}
+        present = {(row['node_id'], row['title']) for row in rows}
+        self.derived_case_reviews = {key: row for key, row in self.derived_case_reviews.items() if key[0] not in node_ids or key in present}
         for row in rows:
-            self.derived_case_reviews[(row["node_id"], row["title"])] = row
-        (review_dir / "cases.json").write_text(json.dumps({"version": 1, "cases": safe_records(
-            list(self.derived_case_reviews.values()))},
-                                                   ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self.metric("derived_case_review", cases=len(rows), approved=sum(r["status"] == "approved_behavior" for r in rows),
-                    unreviewed=sum(r["status"] in {"unreviewed", "skipped_unreviewed", "unverified_gap"} for r in rows),
-                    requests=spent)
+            self.derived_case_reviews[row['node_id'], row['title']] = row
+        (review_dir / 'cases.json').write_text(json.dumps({'version': 1, 'cases': safe_records(list(self.derived_case_reviews.values()))}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        self.metric('derived_case_review', cases=len(rows), approved=sum((r['status'] == 'approved_behavior' for r in rows)), unreviewed=sum((r['status'] in {'unreviewed', 'skipped_unreviewed', 'unverified_gap'} for r in rows)), requests=spent)
 
     def correct_derived_cases(self, node_ids: set[str]) -> set[str]:
         """One bounded regeneration after independent review in the test queue.
@@ -9371,6 +8893,8 @@ class Flow:
         chosen, feedback = [], []
         attempted = getattr(self, "derived_case_correction_attempted", set())
         for target in self.planned_derived_scenarios():
+            if (target['node_id'], target['id']) in self.terminal_derived_scenarios():
+                continue
             if (target["node_id"], target["id"]) in attempted:
                 continue
             bad = [row for row in getattr(self, "derived_case_reviews", {}).values()
@@ -9394,6 +8918,8 @@ class Flow:
         prompt = build_review_retry(feedback, chosen, fixtures, json.dumps({"design": getattr(self, "app_design_doc", None), "phases": getattr(self, "phase_plan", None)}, ensure_ascii=False)) + TEST_QUALITY_GUIDANCE + "\nReturn the complete scenario cases in their original numbered order, preserving valid siblings and correcting only the failed cases. Independent audit feedback and previous cases:\n" + json.dumps(feedback, ensure_ascii=False)
         if len(prompt) > self.codegen_context_chars():
             self.metric("derived_case_correction", outcome="insufficient_context")
+            return set()
+        if any((target['node_id'], target['id']) in self.terminal_derived_scenarios() for target in chosen):
             return set()
         self.snapshot_protected()
         self.derived_case_correction_attempted = attempted | {
@@ -9581,30 +9107,7 @@ class Flow:
                 attempted.append(phase)
                 attempted_ids.update(str(node.get('id')) for node in active_groups[phase])
                 self.derived_preflight_deadline = global_deadline
-            # A second broad pass would consume the post-code review window;
-            # recovery still runs in the final completeness window.
-            if not leaf_limit and getattr(self, "derived_tests_dir", None):
-                retry_groups = []
-                for phase in active_phases:
-                    weak = [node for node in active_groups[phase]
-                            if getattr(self, "derived_augmentation_attempts", {}).get(str(node.get("id")), 0) < 2
-                            and ((coverage := self.derived_scenario_coverage(str(node.get("id"))))["covered"]
-                                 < coverage["total"] or coverage.get("missing_negative_contracts"))]
-                    if weak:
-                        retry_groups.append((phase, weak))
-                for index, (phase, nodes) in enumerate(retry_groups):
-                    left = global_deadline - time.monotonic()
-                    if (left < 120 or self.wound_down() or self.derived_preflight_tokens_spent()
-                            or self.remaining() < protected_reserve + 120):
-                        break
-                    self.derived_preflight_deadline = min(global_deadline, time.monotonic()
-                                                          + left / (len(retry_groups) - index))
-                    try:
-                        self.prepare_derived_spec_batch(nodes)
-                    except Exception as exc:
-                        self.metric("derived_preflight", phase=phase, outcome="retry_unavailable", reason=str(exc)[:300])
-                    retried.append(phase)
-                    self.derived_preflight_deadline = global_deadline
+            # Rejected proposals remain coverage debt; never requeue them here.
         finally:
             # Freeze approved cases by their hashes while later leaves retain
             # their own bounded generation and review opportunities.
@@ -9652,10 +9155,12 @@ class Flow:
     def review_derived_after_implementation(self, ordered: list[dict]) -> None:
         """Advance the separate spec and acceptance queues after source exists.
 
-        A fully audited leaf may enter acceptance immediately. Siblings with
-        incomplete audits stay pending while later leaves keep their review
-        opportunity; the final completeness window revisits the debt.
-        """
+            A fully audited leaf may enter acceptance immediately. Siblings with
+            incomplete audits stay pending while later leaves keep their review
+            opportunity; the final completeness window revisits the debt.
+            """
+        if getattr(self, "layered", None) is not None:
+            return self.layered.business()
         if not getattr(self, 'derived_as_specs', False):
             return
         failed = set(getattr(self, 'impl_failed', []))
@@ -9675,10 +9180,7 @@ class Flow:
                 try:
                     if node_id not in getattr(self, '_derived_preflight_node_ids', set()):
                         phase = phase_of.get(node_id, node_id)
-                        batch = [candidate for candidate in review_order
-                                 if phase_of.get(str(candidate.get('id')), str(candidate.get('id'))) == phase
-                                 and str(candidate.get('id')) not in getattr(self, '_derived_preflight_node_ids', set())
-                                 and str(candidate.get('id')) not in getattr(self, '_derived_build_spec_attempted_ids', set())][:3]
+                        batch = [candidate for candidate in review_order if phase_of.get(str(candidate.get('id')), str(candidate.get('id'))) == phase and str(candidate.get('id')) not in getattr(self, '_derived_preflight_node_ids', set()) and (str(candidate.get('id')) not in getattr(self, '_derived_build_spec_attempted_ids', set()))][:3]
                         if batch:
                             self.prepare_derived_build_batch(batch)
                     if not self.derived_has_runnable_cases(node_id):
@@ -9690,19 +9192,14 @@ class Flow:
                     specs = self.spec_map.get(node_id, [])
                     available = min(self.node_timeout, self.remaining() - self.final_phase_reserve())
                     if specs and available >= 30:
-                        self.test_verdict[node_id] = self.acceptance_loop(
-                            node_id, specs, time.time() + available)
-                except Exception as exc:  # one leaf's broken audit cannot stop the queue
+                        self.test_verdict[node_id] = self.acceptance_loop(node_id, specs, time.time() + available)
+                except Exception as exc:
                     self.test_verdict[node_id] = None
-                    self.metric('derived_post_code_review', node_id=node_id,
-                                outcome='unavailable', reason=str(exc)[:300])
+                    self.metric('derived_post_code_review', node_id=node_id, outcome='unavailable', reason=str(exc)[:300])
                 finally:
                     if self.driver:
                         self.driver.end_scope('node')
-            # Failed implementation leaves may still have useful partial code,
-            # but scarce review time goes to delivered leaves first.
-            if not self.fast_test_mode():
-                self.derived_completeness_pass(review_order + deferred_order)
+            self.derived_completeness_pass(review_order + deferred_order)
         finally:
             self.poll_background_specs()
             self._derived_post_code_review_active = False
@@ -9711,6 +9208,8 @@ class Flow:
 
     def pre_review_derived_system_check(self) -> bool | None:
         """Check build/start/browser before long test review can consume repair time."""
+        if getattr(self, "layered", None) is not None:
+            return True  # the all-node basic gate already measured build/start/browser health
         if not getattr(self, 'derived_as_specs', False):
             return None
         reserve = self.final_measurement_reserve() + self.repair_minimum()
@@ -9757,32 +9256,26 @@ class Flow:
 
     def finish_derived_designs(self, node_ids: list[str]) -> None:
         """Close only started, fully covered and independently approved specs."""
-        if getattr(self, "events", None) is None or not getattr(self, "derived_as_specs", False):
+        if getattr(self, 'events', None) is None or not getattr(self, 'derived_as_specs', False):
             return
         for node_id in dict.fromkeys(node_ids):
-            if (node_id not in getattr(self, "_design_started_ids", set())
-                    or node_id in getattr(self, "_designed_ids", set())
-                    or node_id in getattr(self, "_implementation_started_ids", set())):
+            if node_id not in getattr(self, '_design_started_ids', set()) or node_id in getattr(self, '_designed_ids', set()) or node_id in getattr(self, '_implementation_started_ids', set()):
                 continue
             if not self.derived_review_needed(node_id):
-                self._derived_design_ready = getattr(self, "_derived_design_ready", set()) | {node_id}
-                detail = ("business test specs generated; structural candidates in skip_review state"
-                          if self.fast_test_mode() else
-                          "business test specs generated, validated and independently reviewed")
-                self.mark("design_done", node_id, detail)
+                self._derived_design_ready = getattr(self, '_derived_design_ready', set()) | {node_id}
+                detail = 'business test specs generated, validated and independently reviewed'
+                self.mark('design_done', node_id, detail)
 
     def start_background_specs(self, ordered: list[dict]) -> None:
         """Run the existing multi-stage spec process in a private workspace.
 
-        Every model turn uses the isolated request executor and the main proxy's
-        locked token reservation. The worker never writes application source,
-        the protected suite, or Flow state; poll_background_specs owns admission.
-        """
-        if (os.environ.get('OCTOS_ARC_BACKGROUND_SPECS', '1') == '0'
-                or self.fast_test_mode() or not getattr(self, 'derived_as_specs', False)
-                or not ordered or not isinstance(getattr(self, 'llm_proxy', None), LlmProxy)
-                or not isinstance(getattr(self, 'driver', None), OctosDriver)
-                or not getattr(self, 'derived_tests_dir', None)):
+            Every model turn uses the isolated request executor and the main proxy's
+            locked token reservation. The worker never writes application source,
+            the protected suite, or Flow state; poll_background_specs owns admission.
+            """
+        if getattr(self, "layered", None) is not None and not self.layered.business_started:
+            return  # audit all mandatory basics first; business never occupies their slot
+        if os.environ.get('OCTOS_ARC_BACKGROUND_SPECS', '1') == '0' or not getattr(self, 'derived_as_specs', False) or (not ordered) or (not isinstance(getattr(self, 'llm_proxy', None), LlmProxy)) or (not isinstance(getattr(self, 'driver', None), OctosDriver)) or (not getattr(self, 'derived_tests_dir', None)):
             return
         config = Path(self.driver.env.get('OCTOS_CONFIG_DIR', '')) / 'config.json'
         if not config.is_file():
@@ -9799,23 +9292,21 @@ class Flow:
                     setattr(private, name, copy.deepcopy(value))
                 except (TypeError, ValueError):
                     pass
-        for name in ('requirement_tree', 'requirement_nodes', 'phase_plan', 'app_design_doc',
-                     'visual_evidence',
-                     'spec_map', 'requirement_contracts'):
+        for name in ('requirement_tree', 'requirement_nodes', 'phase_plan', 'app_design_doc', 'visual_evidence', 'spec_map', 'requirement_contracts', 'initial_test_planning_index'):
             if hasattr(self, name):
                 setattr(private, name, copy.deepcopy(getattr(self, name)))
         private.derived_tests_dir = private_tests
+        private._terminal_derived_scenarios = self.terminal_derived_scenarios
         private.tests_dir = private_tests
-        private.llm_proxy = self.llm_proxy  # read-only budget observation; no proxy settings are changed
+        private.llm_proxy = self.llm_proxy
         private.driver = None
         private.runner = None
         private.t_start = self.t_start
         private.budget = self.budget
         private.n_nodes = getattr(self, 'n_nodes', len(ordered))
         private.snapshot_protected = lambda: None
-        self._background_spec_metrics = queue.Queue()
-        private.metric = lambda kind, **fields: self._background_spec_metrics.put(
-            ('metric', kind, fields))
+        self._background_spec_metrics = getattr(self, '_background_spec_metrics', None) or queue.Queue()
+        private.metric = lambda kind, **fields: self._background_spec_metrics.put(('metric', kind, fields))
         self._derived_background_stale = False
         self._background_specs_paused = False
         self._background_regression_windows = 0
@@ -9825,8 +9316,8 @@ class Flow:
         batches = []
         for node in ordered:
             phase = phase_of.get(str(node.get('id')), str(node.get('id')))
-            if not batches or len(batches[-1]) >= 3 or phase_of.get(str(batches[-1][0].get('id')),
-                                                                       str(batches[-1][0].get('id'))) != phase:
+            batch_limit = 1 if getattr(self, 'layered', None) is not None else 3
+            if not batches or len(batches[-1]) >= batch_limit or phase_of.get(str(batches[-1][0].get('id')), str(batches[-1][0].get('id'))) != phase:
                 batches.append([])
             batches[-1].append(copy.deepcopy(node))
         overall_deadline = time.monotonic() + max(0, self.remaining() - self.final_phase_reserve() - 60)
@@ -9834,81 +9325,49 @@ class Flow:
 
         def private_turn(prompt, timeout, label, *, system=CODEGEN_SYSTEM, spec_chars=0, request_budget=None):
             pipeline = stop_holder.get('pipeline')
-            if (pipeline is not None and not pipeline.wait_until_resumed(overall_deadline)) \
-                    or time.monotonic() >= overall_deadline:
-                return False, 'background spec deadline reached'
+            if pipeline is not None and (not pipeline.wait_until_resumed(overall_deadline)) or time.monotonic() >= overall_deadline:
+                return (False, 'background spec deadline reached')
             deadline = min(overall_deadline, time.monotonic() + max(1, float(timeout)))
-            job = SpecRequest(prompt, max(1, int(min(timeout, deadline - time.monotonic()))), label,
-                              system, reservation_tokens(prompt), deadline)
-            pool = self.isolated_spec_requests(1, force_single=True, defer_metrics=True,
-                allowed=lambda _job: time.monotonic() < overall_deadline and
-                                     (pipeline is None or pipeline.wait_until_resumed(overall_deadline)))
+            job = SpecRequest(prompt, max(1, int(min(timeout, deadline - time.monotonic()))), label, system, reservation_tokens(prompt), deadline)
+            pool = self.isolated_spec_requests(1, force_single=True, defer_metrics=True, allowed=lambda _job: time.monotonic() < overall_deadline and (pipeline is None or pipeline.wait_until_resumed(overall_deadline)))
             if pool is None:
-                return False, 'isolated spec request unavailable'
+                return (False, 'isolated spec request unavailable')
             replies = pool.ordered([job])
             try:
                 reply = next(replies, None)
             finally:
                 replies.close()
             return (reply.ok, reply.text) if reply is not None else (False, 'spec request budget unavailable')
-
         private.text_turn = private_turn
         private.derived_preflight_deadline = overall_deadline
 
         def run_batch(batch):
             ids = [str(node.get('id')) for node in batch]
-            before = {node_id: case_sha((private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8'))
-                      if (private_tests / f'{node_id}.spec.ts').is_file() else '' for node_id in ids}
+            before = {node_id: case_sha((private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8')) if (private_tests / f'{node_id}.spec.ts').is_file() else '' for node_id in ids}
             review_dir = private_tests / 'review'
-            old_review_files = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-                                for path in review_dir.iterdir()
-                                if path.is_file()} if review_dir.is_dir() else {}
+            old_review_files = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in review_dir.iterdir() if path.is_file()} if review_dir.is_dir() else {}
             private.prepare_derived_spec_batch(batch)
-            files = {node_id: (private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8')
-                     for node_id in ids if (private_tests / f'{node_id}.spec.ts').is_file()}
-            targets = [target for target in private.planned_derived_scenarios()
-                       if str(target.get('node_id')) in ids]
+            files = {node_id: (private_tests / f'{node_id}.spec.ts').read_text(encoding='utf-8') for node_id in ids if (private_tests / f'{node_id}.spec.ts').is_file()}
+            targets = [target for target in private.planned_derived_scenarios() if str(target.get('node_id')) in ids]
             target_ids = {str(target.get('id')) for target in targets}
             plan_path = review_dir / 'plan.json'
             try:
-                plan_rows = [row for row in json.loads(plan_path.read_text(encoding='utf-8')).get('targets', [])
-                             if str(row.get('id')) in target_ids] if plan_path.is_file() else []
+                plan_rows = [row for row in json.loads(plan_path.read_text(encoding='utf-8')).get('targets', []) if str(row.get('id')) in target_ids] if plan_path.is_file() else []
             except (OSError, ValueError, TypeError):
                 plan_rows = []
-            return {'node_ids': ids, 'before': before, 'files': files,
-                    'requirement_sha': requirement_sha, 'helper_sha': helper_sha,
-                    'obligations': copy.deepcopy([row for row in getattr(private, 'derived_obligations', [])
-                                                  if set(map(str, row.get('applies_to') or [])) & set(ids)]),
-                    'obligation_status': copy.deepcopy({key: value for key, value in
-                        getattr(private, 'derived_obligation_status', {}).items() if key in ids}),
-                    'targets': copy.deepcopy(targets), 'plan_rows': copy.deepcopy(plan_rows),
-                    'case_reviews': copy.deepcopy([row for (node_id, _), row in
-                        getattr(private, 'derived_case_reviews', {}).items() if node_id in ids]),
-                    'augmented_nodes': sorted(set(ids) & getattr(private, 'derived_augmented_nodes', set())),
-                    'augmentation_attempts': copy.deepcopy({key: value for key, value in
-                        getattr(private, 'derived_augmentation_attempts', {}).items() if key in ids}),
-                    'target_attempts': copy.deepcopy({key: value for key, value in
-                        getattr(private, 'derived_target_attempts', {}).items() if key in target_ids}),
-                    'accounting': {name: copy.deepcopy(getattr(private, name, 0)) for name in (
-                        'derived_review_requests', 'derived_case_review_requests',
-                        'derived_case_correction_requests', 'derived_llm_seconds',
-                        'derived_case_review_seconds', 'derived_obligation_seconds',
-                        'derived_build_spec_seconds')},
-                    'phase_accounting': {name: copy.deepcopy(getattr(private, name, {})) for name in (
-                        'derived_model_phase_requests', 'derived_case_review_phase_requests')},
-                    'review_files': {path.name: path.read_text(encoding='utf-8')
-                                     for path in review_dir.iterdir() if path.is_file()
-                                     and path.name not in {'plan.json', 'cases.json', 'obligations.json'}
-                                     and old_review_files.get(path.name) != hashlib.sha256(path.read_bytes()).hexdigest()}
-                                    if review_dir.is_dir() else {}}
-
+            return {'node_ids': ids, 'before': before, 'files': files, 'requirement_sha': requirement_sha, 'helper_sha': helper_sha, 'obligations': copy.deepcopy([row for row in getattr(private, 'derived_obligations', []) if set(map(str, row.get('applies_to') or [])) & set(ids)]), 'obligation_status': copy.deepcopy({key: value for key, value in getattr(private, 'derived_obligation_status', {}).items() if key in ids}), 'targets': copy.deepcopy(targets), 'plan_rows': copy.deepcopy(plan_rows), 'case_reviews': copy.deepcopy([row for (node_id, _), row in getattr(private, 'derived_case_reviews', {}).items() if node_id in ids]), 'augmented_nodes': sorted(set(ids) & getattr(private, 'derived_augmented_nodes', set())), 'augmentation_attempts': copy.deepcopy({key: value for key, value in getattr(private, 'derived_augmentation_attempts', {}).items() if key in ids}), 'target_attempts': copy.deepcopy({key: value for key, value in getattr(private, 'derived_target_attempts', {}).items() if key in target_ids}), 'accounting': {name: copy.deepcopy(getattr(private, name, 0)) for name in ('derived_review_requests', 'derived_case_review_requests', 'derived_case_correction_requests', 'derived_llm_seconds', 'derived_case_review_seconds', 'derived_obligation_seconds', 'derived_build_spec_seconds')}, 'phase_accounting': {name: copy.deepcopy(getattr(private, name, {})) for name in ('derived_model_phase_requests', 'derived_case_review_phase_requests')}, 'review_files': {path.name: path.read_text(encoding='utf-8') for path in review_dir.iterdir() if path.is_file() and path.name not in {'plan.json', 'cases.json', 'obligations.json'} and (old_review_files.get(path.name) != hashlib.sha256(path.read_bytes()).hexdigest())} if review_dir.is_dir() else {}}
         self._derived_background_scratch = scratch
         self._derived_background_pipeline = DerivedSpecPipeline(batches, run_batch)
+        self._background_spec_scheduled_ids = {str(node.get('id')) for node in ordered}
         stop_holder['pipeline'] = self._derived_background_pipeline
         self.metric('derived_background', outcome='started', batches=len(batches))
 
     def poll_background_specs(self) -> None:
         """Install only current, independently validated private results."""
+        if getattr(self, "layered", None) is not None:
+            self.layered.poll_basic()
+            if self.layered.cancelled:
+                return
         self.check_background_code_health()
         metrics = getattr(self, '_background_spec_metrics', None)
         if metrics is not None:
@@ -10023,6 +9482,11 @@ class Flow:
                 row['fixture_hash'] = case_sha(str(suite_fixtures(getattr(self, 'derived_nodes', []))))
                 if any(row.get(field) != candidate.get(field) for field in ('helper_hash', 'fixture_hash')):
                     continue
+                if row.get('status') == 'invalid':
+                    self.metric('derived_background', outcome='static_invalid', case_id=row['id'],
+                                issues=row.get('static_issues', []))
+                    reviews[key] = row
+                    continue
                 if candidate.get('status') == 'approved_behavior':
                     if review_validation_errors(row, candidate):
                         self.metric('derived_background', outcome='approval_rejected', case_id=row['id'])
@@ -10039,6 +9503,8 @@ class Flow:
             self._background_pending_specs = pending
             self.write_derived_handoff()
             self.snapshot_protected()
+            if getattr(self, 'layered', None) is not None:
+                self.layered.publish_business()
             self.metric('derived_background', outcome='committed', nodes=ids,
                         runnable=sum(self.derived_has_runnable_cases(node_id) for node_id in ids))
         if isinstance(pipeline, DerivedSpecPipeline) and pipeline.stopping and pipeline.wait(0):
@@ -10128,6 +9594,11 @@ class Flow:
             self.metric('derived_background', outcome='paused_for_code_regression', reasons=reasons)
 
     def close_background_specs(self) -> None:
+        if getattr(self, "layered", None) is not None:
+            pipeline = getattr(self, "_derived_background_pipeline", None)
+            if pipeline is not None:
+                pipeline.resume()
+            return  # business() drains and consumes until producer completion or the task deadline
         pipeline = getattr(self, '_derived_background_pipeline', None)
         if pipeline is None:
             return
@@ -10147,6 +9618,16 @@ class Flow:
                 self.metric('derived_background', outcome='drain_timeout')
                 break
         pipeline.close(0)
+        # A stopped queue never reaches its unclaimed batches. Release those
+        # leaves for the foreground one-pass window; retain every started leaf
+        # even when its private result failed or is still in flight.
+        if isinstance(pipeline, DerivedSpecPipeline):
+            scheduled = getattr(self, '_background_spec_scheduled_ids', set())
+            started = pipeline.started_ids
+            released = scheduled - started
+            self._background_spec_scheduled_ids = scheduled & started
+            if released:
+                self.metric('derived_background', outcome='released_unstarted', nodes=sorted(released))
         self.poll_background_specs()
         if self._derived_background_pipeline is pipeline and pipeline.wait(0):
             self._derived_background_pipeline = None
@@ -10181,106 +9662,72 @@ class Flow:
 
     def prepare_derived_spec_batch(self, ordered: list[dict]) -> None:
         """Generate and review a bounded set of leaves in the test queue."""
-        if (getattr(self, "derived_specs_frozen", False)
-                or not getattr(self, "derived_as_specs", False) or not ordered
-                or not getattr(self, "derived_tests_dir", None)):
+        if getattr(self, 'derived_specs_frozen', False) or not getattr(self, 'derived_as_specs', False) or (not ordered) or (not getattr(self, 'derived_tests_dir', None)):
             return
         pending = []
         for node in ordered:
-            node_id = str(node.get("id"))
-            if node_id not in getattr(self, "derived_augmented_nodes", set()):
+            node_id = str(node.get('id'))
+            if node_id in getattr(self, '_derived_spec_batch_completed_ids', set()):
+                continue
+            if node_id in getattr(self, '_background_spec_scheduled_ids', set()):
+                continue
+            if node_id not in getattr(self, 'derived_augmented_nodes', set()):
                 pending.append(node)
                 continue
             if self.derived_review_needed(node_id):
                 pending.append(node)
         if not pending:
             return
-        ids = [str(node.get("id")) for node in pending]
-        proposal_pending = [node for node in pending
-                            if getattr(self, "derived_augmentation_attempts", {}).get(str(node.get("id")), 0) < 2]
-        log(f"[derived] preparing spec batch for nodes {ids}")
-        self.start_derived_designs(ids, 'generating business test specs' if self.fast_test_mode()
-                                   else 'generating and reviewing business test specs')
+        ids = [str(node.get('id')) for node in pending]
+        proposal_pending = pending
+        log(f'[derived] preparing spec batch for nodes {ids}')
+        self.start_derived_designs(ids, 'generating and reviewing business test specs')
         for node_id in ids:
-            self.metric("derived_spec_node", node_id=node_id, phase="batch", status="preparing")
-        if (not self.fast_test_mode() and os.environ.get("OCTOS_ARC_DRYRUN") != "1"
-                and os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") != "0"):
+            self.metric('derived_spec_node', node_id=node_id, phase='batch', status='preparing')
+        if os.environ.get('OCTOS_ARC_DRYRUN') != '1' and os.environ.get('OCTOS_ARC_DERIVED_LLM', '1') != '0':
             try:
                 prepare_obligations(self, pending)
             except Exception as exc:
-                # Planning is fallible. Preserve explicit coverage debt and
-                # still generate candidate tests and implement the feature.
                 states = getattr(self, 'derived_obligation_status', {})
                 for node_id in ids:
-                    if (states.get(node_id, {}).get('status') == 'reviewed'
-                            and reviewed_obligations_intact(self, node_id)):
+                    if states.get(node_id, {}).get('status') in {'reviewed', 'source_grounded'} and reviewed_obligations_intact(self, node_id):
                         continue
-                    states[node_id] = {**states.get(node_id, {}), 'status': 'incomplete',
-                                       'errors': ['obligation planning unavailable']}
+                    states[node_id] = {**states.get(node_id, {}), 'status': 'incomplete', 'attempts': 1, 'errors': ['obligation planning unavailable']}
                 self.derived_obligation_status = states
                 self.metric('derived_obligations', outcome='unavailable', reason=str(exc)[:300])
-            phase_deadline = getattr(self, "derived_preflight_deadline", float("inf"))
-            if phase_deadline != float("inf"):
-                # Leave an independent audit window in this category. A
-                # successful planner reply is only a candidate test.
+            phase_deadline = getattr(self, 'derived_preflight_deadline', float('inf'))
+            if phase_deadline != float('inf'):
                 left = max(0.0, phase_deadline - time.monotonic())
-                self.derived_preflight_deadline = min(phase_deadline, time.monotonic() + left * .6)
+                self.derived_preflight_deadline = min(phase_deadline, time.monotonic() + left * 0.6)
             try:
                 if proposal_pending:
                     self.augment_derived_tests(proposal_pending)
-            except Exception as exc:  # missing AI tests never block application generation
-                self.metric("derived_spec_generation", outcome="unavailable", reason=str(exc)[:300])
+            except Exception as exc:
+                self.metric('derived_spec_generation', outcome='unavailable', reason=str(exc)[:300])
             finally:
                 self.derived_preflight_deadline = phase_deadline
         else:
             self.derived_augmented_nodes.update(ids)
-        # The proposal compiler and plan writer above are harness-owned writes.
-        # Review uses a separate model turn, whose cleanup restores protected
-        # trees; it must see the accepted suite as the new protected baseline.
         self.snapshot_protected()
         try:
-            correction_enabled = (not self.fast_test_mode() and os.environ.get("OCTOS_ARC_DRYRUN") != "1"
-                                  and os.environ.get("OCTOS_ARC_DERIVED_LLM", "1") != "0"
-                                  and int(os.environ.get("OCTOS_ARC_DERIVED_CASE_CORRECTION_REQUESTS", "60")) >
-                                  getattr(self, "derived_case_correction_requests", 0))
-            audit_deadline = getattr(self, 'derived_preflight_deadline', float('inf'))
-            try:
-                if correction_enabled and audit_deadline != float('inf'):
-                    self.derived_preflight_deadline = time.monotonic() + max(0, audit_deadline - time.monotonic()) * .5
-                self.review_derived_cases(set(ids), reserve_requests=1 if correction_enabled else 0)
-            finally:
-                self.derived_preflight_deadline = audit_deadline
-            try:
-                if correction_enabled and audit_deadline != float('inf'):
-                    self.derived_preflight_deadline = time.monotonic() + max(0, audit_deadline - time.monotonic()) * .6
-                corrected = self.correct_derived_cases(set(ids)) if correction_enabled else set()
-            finally:
-                self.derived_preflight_deadline = audit_deadline
-            if corrected:
-                self.snapshot_protected()
-                self.review_derived_cases(corrected)
-            if not self.fast_test_mode():
-                self.finalize_rejected_derived_cases(set(ids))
-        except Exception as exc:  # review failures remain unreviewed, never a gate
-            self.metric("derived_case_review", outcome="unavailable", reason=str(exc)[:300])
-        node_ids = [str(node.get("id")) for node in getattr(self, "derived_nodes", ordered)]
+            self.review_derived_cases(set(ids))
+        except Exception as exc:
+            self.metric('derived_case_review', outcome='unavailable', reason=str(exc)[:300])
+        node_ids = [str(node.get('id')) for node in getattr(self, 'derived_nodes', ordered)]
         try:
             self.adopt_derived_specs(node_ids)
         except Exception as exc:
-            self.metric("derived_spec_adoption", outcome="unavailable", reason=str(exc)[:300])
-        # The generated suite is protected during code turns. Refresh the
-        # snapshot only after the harness has accepted this batch's files.
+            self.metric('derived_spec_adoption', outcome='unavailable', reason=str(exc)[:300])
         self._derived_spec_batch_completed_ids = getattr(self, '_derived_spec_batch_completed_ids', set()) | set(ids)
         Flow.finish_derived_designs(self, ids)
         self.write_derived_handoff()
         self.snapshot_protected()
         for node_id in ids:
             coverage = self.derived_scenario_coverage(node_id)
-            status = "pending_review" if self.derived_review_needed(node_id) else "ready"
+            status = 'pending_review' if self.derived_review_needed(node_id) else 'ready'
             log(f"[derived] spec batch {node_id}: {status}, covered={coverage['covered']}/{coverage['total']}")
-            self.metric("derived_spec_node", node_id=node_id, phase="batch", status=status,
-                        covered=coverage["covered"], total=coverage["total"])
-        self.log_usage_checkpoint("after_spec_batch", nodes=ids)
+            self.metric('derived_spec_node', node_id=node_id, phase='batch', status=status, covered=coverage['covered'], total=coverage['total'])
+        self.log_usage_checkpoint('after_spec_batch', nodes=ids)
 
     @staticmethod
     def final_check_verdict(ok: bool, text: str):
@@ -10879,6 +10326,8 @@ class Flow:
 
     def implement_sequential(self, tree: dict, ordered: list[dict], unchanged: set[str]) -> None:
         """Keep the dependency-ordered queue alive across bounded startup recovery."""
+        if getattr(self, "layered", None) is not None:
+            return self.layered.implement(tree, ordered, unchanged)
         self._dependency_tree = tree
         batch_size = int(os.environ.get("OCTOS_ARC_SIBLING_BATCH_SIZE", "1"))
         batch_starts = {group[0]: group for group in sibling_batches(tree, ordered, batch_size)}
@@ -10982,12 +10431,15 @@ class Flow:
             self._unresolved_startup_error = summary.error or '\n'.join(summary.load_errors) or 'Incomplete startup recovery verdict'
         return False
 
-    def whole_app_startup_repair(self, error: str) -> bool:
+    def whole_app_startup_repair(self, error: str, *, max_seconds: float | None = None) -> bool:
         """Fix one concrete build/start failure without reimplementing all nodes."""
         reserve = self.final_measurement_reserve()
         if self.remaining() < self.repair_minimum() + reserve or self.wound_down():
             return False
-        deadline = time.monotonic() + min(self.node_timeout, 360, max(0, self.remaining() - reserve))
+        allowance = max(0, self.remaining() - reserve)
+        if max_seconds is not None:
+            allowance = min(allowance, max_seconds)
+        deadline = time.monotonic() + min(self.node_timeout, 720, allowance)
         self.last_codegen_written = []
         digest = startup_error_digest(error, 2200)
         names = list(dict.fromkeys(re.findall(
@@ -10995,6 +10447,12 @@ class Flow:
         # Vite usually reports paths relative to frontend, not the app root.
         names.extend("frontend/" + path for path in re.findall(
             r"(?<![\w/])(?:src/[A-Za-z0-9_./-]+\.(?:[jt]sx?|[cm][jt]s|vue|s?css)|vite\.config\.[cm]?[jt]s)\b", error))
+        # The backend lexical checker reports paths relative to backend/.
+        # Resolve those concrete locations before falling back to server.js.
+        for raw in re.findall(r'(?<![\w/])([A-Za-z0-9_./-]+\.(?:[jt]sx?|[cm][jt]s))(?=:\d)', error):
+            rel = safe_relative_path(raw)
+            if rel and (self.output_dir / 'backend' / rel).is_file():
+                names.append('backend/' + rel)
         names = list(dict.fromkeys(names))
         index = self.repair_source_index()
         names.extend(sorted({dependency for name in names for dependency in index.dependencies.get(name, ())
@@ -11005,21 +10463,31 @@ class Flow:
             else:
                 names = ["backend/server.js", "backend/package.json", "frontend/package.json"]
         sources = []
+        # A single generated page can exceed 50 KiB while still fitting the
+        # codegen context. Quoting that exact file enables a safe, local EDIT
+        # instead of sending a broad tool turn back into the same failure.
+        source_room = self.codegen_context_chars() - len(FORMAT_INSTRUCTIONS) - len(digest) - 5000
         for raw in names[:4]:
             rel = safe_relative_path(raw)
             if rel is None or not rel.startswith(("frontend/", "backend/")):
                 continue
             path = self.output_dir / rel
             try:
-                if path.resolve().is_relative_to(self.output_dir.resolve()) and path.is_file() \
-                        and path.stat().st_size <= 50000:
-                    sources.append(f"--- {rel} ---\n{path.read_text(encoding='utf-8', errors='replace')}\n")
+                if path.resolve().is_relative_to(self.output_dir.resolve()) and path.is_file():
+                    quote = f"--- {rel} ---\n{path.read_text(encoding='utf-8', errors='replace')}\n"
+                    if len(quote) <= source_room:
+                        sources.append(quote)
+                        source_room -= len(quote)
             except OSError:
                 continue
+        protected_test_rule = (" Generated Playwright candidates are awaiting independent review; "
+                               "do not read, run, or modify generated tests."
+                               if getattr(self, 'derived_as_specs', False) else "")
         prompt = (stack_note(self.output_dir) + "The generated application failed its build/start preflight. Fix ONLY this concrete error; "
                   "preserve every implemented feature. For a literal route shadowed by a :parameter route "
                   "of the same method, register the literal handler first; for a duplicate route keep one handler "
-                  "in the file that registers it first and never stub out a route file. Do not rewrite unrelated files.\n"
+                  "in the file that registers it first and never stub out a route file. Do not rewrite unrelated files."
+                  + protected_test_rule + "\n"
                   f"Error:\n{digest}\nCurrent source files (quoted whole):\n{''.join(sources)}")
         if sources and len(prompt) + len(FORMAT_INSTRUCTIONS) + 1 <= self.codegen_context_chars():
             ok, _ = self.whole_app_generation_turn(prompt, max(0, deadline - time.monotonic()),
@@ -11030,7 +10498,8 @@ class Flow:
         # A failed file-block response is not a reason to revisit every leaf.
         # Give tool mode only this startup error and the small implicated source.
         tool_prompt = ("Fix the application's build/start error below with a focused source edit. "
-                       "Preserve existing features and do not run the full test suite; the harness will.\n"
+                       "Preserve existing features and do not run the full test suite; the harness will."
+                       + protected_test_rule + "\n"
                        f"Error:\n{digest}\n{''.join(sources) or source_listing(self.output_dir)}")
         left = deadline - time.monotonic()
         if left <= 0 or self.wound_down():
@@ -11187,6 +10656,10 @@ class Flow:
         return observed
 
     def app_source_digest(self) -> str:
+        if getattr(self, 'layered', None) is not None:
+            from layered_tests import ApplicationSnapshot, digest
+            return digest({key: digest(raw) for key, raw in ApplicationSnapshot.capture(self).items()
+                           if not key.startswith('backend/data/')})
         """Source content, not traceability/log commits, determines effective repair."""
         digest = hashlib.sha256()
         # Include local images/fonts and other inputs: fixing an asset is not a no-op.
@@ -11202,6 +10675,8 @@ class Flow:
 
     def whole_app_experiment(self, tree: dict, ordered: list[dict]) -> bool:
         """Attempt every leaf before broad measurement and bounded repair."""
+        if getattr(self, "layered", None) is not None:
+            return False  # multi-node writes cannot precede a mandatory basic gate
         if not self.whole_app_codegen(tree, ordered):
             return False
         generated = getattr(self, "whole_app_generated_ids", None)
@@ -11325,6 +10800,8 @@ class Flow:
 
     def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int,
                    *, preimplemented: bool = False) -> None:
+        if getattr(self, "layered", None) is not None:
+            self._layered_current_node = str(node["id"])
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         before_sha = self.head()
@@ -11409,7 +10886,7 @@ class Flow:
             # prompt if this leaf fails every check.
             self.current_spec_chars = len(self.spec_bodies(node_id))
             codegen_prompt = self.codegen_implement_prompt(node, self.spec_bodies(node_id), corrections)
-        elif (not corrections and self.runner is not None and self.codegen_mode()
+        elif (getattr(self, 'layered', None) is None and not corrections and self.runner is not None and self.codegen_mode()
               and self.tiny_mode(len(self.spec_bodies(node_id)))):
             tiny_ok = self.tiny_turn(node_id, specs, implement_timeout, node)
             self.current_spec_chars = len(self.spec_bodies(node_id))
@@ -11610,7 +11087,7 @@ class Flow:
                    {"partial_or_rejected", "contract_incomplete"} else text[-500:] or None))
         self.commit(f"{node_id} (implement): {node.get('name', '')}")
 
-        if getattr(self, 'derived_as_specs', False) is True:
+        if getattr(self, 'layered', None) is not None or getattr(self, 'derived_as_specs', False) is True:
             # The code queue does not consume candidate tests. Its leaf enters
             # the separate review/acceptance queue after source generation.
             self.test_verdict[node_id] = None
@@ -11748,7 +11225,7 @@ class Flow:
         self.mark("design_done", node_id, "unchanged since the previous requirement version; carried over")
         self.mark("implementation_started", node_id)
         self.mark("implementation_done", node_id, "carried over from the template application")
-        if getattr(self, 'derived_as_specs', False) is True:
+        if getattr(self, 'layered', None) is not None or getattr(self, 'derived_as_specs', False) is True:
             self.test_verdict[node_id] = None
             self.metric('derived_test_wait', node_id=node_id, decision='await_full_leaf_review')
             return
@@ -11843,6 +11320,9 @@ class Flow:
         return False
 
     def regression_checkpoint(self, index: int, total: int) -> None:
+        if getattr(self, "layered", None) is not None:
+            self.poll_background_specs()
+            return  # the coordinator already measured the mandatory basic protection set
         if getattr(self, 'derived_as_specs', False) and getattr(self, '_generation_active', False):
             self.poll_background_specs()
             specs = sorted(getattr(self, '_background_pending_specs', set()))
@@ -12150,15 +11630,16 @@ class Flow:
             self.queue_checkpoint_evidence(summary)
         return bool(grouped)
 
-    def final_acceptance(self, *, initial_summary: RunSummary | None = None,
-                         startup_recovery_only: bool = False) -> None:
+    def final_acceptance(self, *, initial_summary: RunSummary | None=None, startup_recovery_only: bool=False) -> None:
         """Run EVERY spec file together against one server with the configured workers.
-        Per-node runs cannot see cross-node interference through shared server
-        state; this pass can, and it repairs the nodes whose tests fail.
-        Startup-only recovery returns at the first complete measurement so the
-        caller can resume implementation. A retry may reuse a failure report
-        only after its caller has verified the application sources are unchanged.
-        """
+            Per-node runs cannot see cross-node interference through shared server
+            state; this pass can, and it repairs the nodes whose tests fail.
+            Startup-only recovery returns at the first complete measurement so the
+            caller can resume implementation. A retry may reuse a failure report
+            only after its caller has verified the application sources are unchanged.
+            """
+        if getattr(self, "layered", None) is not None:
+            return self.layered.final_verify()
         self.final_repair_no_change = False
         self.final_suite_progress = False
         self.final_suite_green = False
@@ -12166,198 +11647,138 @@ class Flow:
         self.final_safe_failures_remaining = False
         self.final_startup_recovered = False
         self._final_retry_measurement = None
-        force_tool_repair = bool(getattr(self, "_force_final_tool_repair", False))
+        force_tool_repair = bool(getattr(self, '_force_final_tool_repair', False))
         self._force_final_tool_repair = False
         if self.runner is None or not self.tests_dir:
             return
-        all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+        all_specs = sorted((str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob('*.spec.ts')))
         if getattr(self, 'derived_as_specs', False):
-            all_specs = [spec for spec in all_specs
-                         if self.derived_has_runnable_cases(Path(spec).name.removesuffix('.spec.ts'))]
+            all_specs = [spec for spec in all_specs if self.derived_has_runnable_cases(Path(spec).name.removesuffix('.spec.ts'))]
             if not all_specs:
                 self.metric('derived_test_wait', scope='full_suite', decision='await_reviewed_leaf')
                 return
-            # A prior broad measurement may contain candidate files or have
-            # been made before a reviewed case's evidence hash changed.
             initial_summary = None
-        unverified = [n for n, v in self.test_verdict.items() if v is not True] or \
-            [n for n in self.spec_map if n and self.spec_map[n] and n not in self.test_verdict]
-        if len(all_specs) < 2 and not unverified:
-            return  # single spec already judged by the node run
-        # One more round than the identical-failure escalation needs, so the
-        # changed approach actually gets to run.
-        rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "0"))
-        confirm_runs = max(1, int(os.environ.get("OCTOS_ARC_FINAL_CONFIRM_RUNS", "1")))
-        workers = workers_for_final(getattr(self, "mem_limit", None), self.final_workers())
+        unverified = [n for n, v in self.test_verdict.items() if v is not True] or [n for n in self.spec_map if n and self.spec_map[n] and (n not in self.test_verdict)]
+        if len(all_specs) < 2 and (not unverified):
+            return
+        rounds = int(os.environ.get('OCTOS_FINAL_REPAIR_ROUNDS', '0'))
+        confirm_runs = max(1, int(os.environ.get('OCTOS_ARC_FINAL_CONFIRM_RUNS', '1')))
+        workers = workers_for_final(getattr(self, 'mem_limit', None), self.final_workers())
+
         def measured_suite() -> RunSummary:
             nonlocal workers
             observed = self.run_specs(all_specs, workers=workers, grader_like=True)
-            while observed.error and observed.killed and workers > 1:
+            while observed.error and observed.killed and (workers > 1):
                 workers = max(1, workers // 2)
-                log(f"[acceptance] full suite runner was killed; retrying with {workers} worker(s)")
+                log(f'[acceptance] full suite runner was killed; retrying with {workers} worker(s)')
                 observed = self.run_specs(all_specs, workers=workers, grader_like=True)
             return observed
 
         def review_invalidated(decision: str) -> bool:
             if getattr(self, 'derived_as_specs', False) is not True:
                 return False
-            if self.fast_test_mode():
-                return False  # Coverage gaps stay unverified; runnable siblings continue.
-            invalidated = sorted({Path(spec).name.removesuffix('.spec.ts') for spec in all_specs
-                                  if self.derived_review_needed(Path(spec).name.removesuffix('.spec.ts'))})
+            invalidated = sorted({Path(spec).name.removesuffix('.spec.ts') for spec in all_specs if self.derived_review_needed(Path(spec).name.removesuffix('.spec.ts'))})
             if not invalidated:
                 return False
             for node_id in invalidated:
                 self.test_verdict[node_id] = None
             self.metric('derived_test_wait', scope='full_suite', nodes=invalidated, decision=decision)
             return True
-
         previous_failing: frozenset | None = None
-        repeated = False  # the last round reproduced the round before it
-        # Which behaviours the per-node runs judged good, before this pass starts
-        # overwriting the verdicts with full-suite ones.
+        repeated = False
         passed_alone = {node for node, verdict in self.test_verdict.items() if verdict is True}
-        passed_a_round: set = set()  # nodes this pass has already seen pass once
-        # Measured, not yet acted on: a repair killed at the per-turn timeout can
-        # leave the tree part edited. Cloud 6e82a7ff571c went 27/32, had its
-        # repair cut at 1200s, and measured 17/32 next round, so the rounds after
-        # it repair the damage rather than the five failures it started with. The
-        # restore below still delivers the best round, so only the intervening
-        # rounds are spent. Repairing from `best` instead was tried and reverted:
-        # the evidence then comes from a round where the flaky specs passed, which
-        # silently drops the intermittent note. Any retry needs to keep both.
-        best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
-        regressions = 0  # consecutive rounds behind the best one
+        passed_a_round: set = set()
+        best: dict | None = None
+        regressions = 0
         last_passed = -1
-        unfinished = ""  # what the previous repair turn said it had left to do
-        wrote_last = False  # whether that turn got as far as committing an edit
-        last_repair_mode = ""
+        unfinished = ''
+        wrote_last = False
+        last_repair_mode = ''
         for attempt in range(rounds + 1):
             if review_invalidated('review_invalidated_during_acceptance'):
                 return
             restored_this_round = False
             reused_measurement = attempt == 0 and initial_summary is not None
             summary = initial_summary if reused_measurement else measured_suite()
-            if getattr(self, "derived_as_specs", False) is True:
+            if getattr(self, 'derived_as_specs', False) is True:
                 summary = self.audit_related_derived_specs(all_specs, summary)
                 if review_invalidated('review_invalidated_by_test_audit'):
                     return
                 disputed = self.disputed_generated_failures(summary)
                 if disputed:
                     self.final_spec_dispute = True
-                    log("[acceptance] full suite: generated oracle disputed; "
-                        "repair will use only uncontested failures")
-                    self.metric("derived_spec_dispute", scope="final_suite",
-                                tests=[list(item) for item in disputed])
-            if summary.error and summary.error.startswith("generated test load blocked:"):
+                    log('[acceptance] full suite: generated oracle disputed; repair will use only uncontested failures')
+                    self.metric('derived_spec_dispute', scope='final_suite', tests=[list(item) for item in disputed])
+            if summary.error and summary.error.startswith('generated test load blocked:'):
                 self._derived_suite_load_blocked = True
                 self.final_suite_green = False
                 for node_id, paths in self.spec_map.items():
                     if self.generated_load_errors(paths):
                         self.test_verdict[node_id] = None
-                self.metric("acceptance", scope="final_suite", verdict="blocked_test_file",
-                            load_errors=summary.load_errors)
+                self.metric('acceptance', scope='final_suite', verdict='blocked_test_file', load_errors=summary.load_errors)
                 return
             repair_summary = self.uncontested_derived_results(summary)
             score = repair_summary.passed
             if best is not None:
-                best_repair = self.uncontested_derived_results(best["summary"])
-                best["passed"] = best_repair.passed
-                best["grouped"] = nodes_for_failures(best_repair.results, self.spec_map)
+                best_repair = self.uncontested_derived_results(best['summary'])
+                best['passed'] = best_repair.passed
+                best['grouped'] = nodes_for_failures(best_repair.results, self.spec_map)
             if reused_measurement:
-                log("[acceptance] reusing unchanged application measurement for a changed repair approach")
+                log('[acceptance] reusing unchanged application measurement for a changed repair approach')
             if startup_recovery_only and self.suite_is_measured(summary, all_specs):
-                # Functional failures in unimplemented leaves must not consume
-                # the recovery budget or prevent the sequential queue resuming.
                 grouped = nodes_for_failures(summary.results, self.spec_map)
                 self.record_full_suite(summary, grouped)
                 self.remember_delivery_checkpoint(summary, grouped)
-                self.metric('acceptance', scope='startup_suite', round=attempt,
-                            passed=summary.passed, total=summary.total, verdict='measured')
+                self.metric('acceptance', scope='startup_suite', round=attempt, passed=summary.passed, total=summary.total, verdict='measured')
                 self._unresolved_startup_error = ''
                 self.final_startup_recovered = True
                 return
-            if (best is not None and last_repair_mode == "codegen" and wrote_last
-                    and self.suite_is_measured(summary, all_specs) and best["passed"] - score >= 3):
-                # A one-request rewrite that breaks several previously passing
-                # behaviours is different from a single flaky spec or a tool
-                # turn interrupted halfway through. Keep the measured evidence,
-                # but repair from the last good tree rather than spending another
-                # codegen round on the damage (Keep 62886df9bde1: 31 -> 25).
+            if best is not None and last_repair_mode == 'codegen' and wrote_last and self.suite_is_measured(summary, all_specs) and (best['passed'] - score >= 3):
                 damaged = nodes_for_failures(repair_summary.results, self.spec_map)
-                newly_broken = {n for n in damaged if n and n not in best["grouped"]}
-                if len(newly_broken) >= 2 and best["sha"]:
-                    log(f"[acceptance] full suite: codegen repair regressed {best['passed']} -> "
-                        f"{score}, newly failing {sorted(newly_broken)}; restoring best state")
-                    self.restore_app(best["sha"])
+                newly_broken = {n for n in damaged if n and n not in best['grouped']}
+                if len(newly_broken) >= 2 and best['sha']:
+                    log(f"[acceptance] full suite: codegen repair regressed {best['passed']} -> {score}, newly failing {sorted(newly_broken)}; restoring best state")
+                    self.restore_app(best['sha'])
                     restored_this_round = True
-                    self.pending_corrections.append(
-                        f"The last broad codegen repair broke {', '.join(sorted(newly_broken))}. "
-                        "The harness restored frontend/ and backend/ to the best state. "
-                        "Repair the original failure with a targeted edit; preserve passing behaviours.")
+                    self.pending_corrections.append(f"The last broad codegen repair broke {', '.join(sorted(newly_broken))}. The harness restored frontend/ and backend/ to the best state. Repair the original failure with a targeted edit; preserve passing behaviours.")
                     summary = measured_suite()
-                    if getattr(self, "derived_as_specs", False):
+                    if getattr(self, 'derived_as_specs', False):
                         summary = self.audit_related_derived_specs(all_specs, summary)
                         if review_invalidated('review_invalidated_by_test_audit'):
                             return
                     repair_summary = self.uncontested_derived_results(summary)
                     score = repair_summary.passed
                     force_tool_repair = True
-                    last_repair_mode = ""
+                    last_repair_mode = ''
             initially_green = summary.all_passed and self.suite_is_measured(summary, all_specs)
             reviewed_summary = summary
             if initially_green:
-                # A single lucky 32/32 did not reproduce in the platform's next
-                # clean run (Keep 62886df9bde1: 32/32 -> 30/32). Confirmation
-                # uses the unchanged app and costs no model tokens.
                 for confirmation in range(1, confirm_runs):
                     confirmed = measured_suite()
                     if not confirmed.all_passed or not self.suite_is_measured(confirmed, all_specs):
-                        owners = {Path(path).name: node for node, paths in self.spec_map.items()
-                                  for path in (paths or [])}
-                        passed_a_round.update(owners.get(Path(r.file or "").name)
-                                              for r in self.uncontested_derived_results(summary).results if r.ok)
+                        owners = {Path(path).name: node for node, paths in self.spec_map.items() for path in paths or []}
+                        passed_a_round.update((owners.get(Path(r.file or '').name) for r in self.uncontested_derived_results(summary).results if r.ok))
                         passed_a_round.discard(None)
-                        log(f"[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: "
-                            f"{confirmed.passed}/{confirmed.total}; first green run was not stable")
+                        log(f'[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: {confirmed.passed}/{confirmed.total}; first green run was not stable')
                         summary = confirmed
                         break
-                    log(f"[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: "
-                        f"{confirmed.passed}/{confirmed.total}")
-            # A near-green suite can be flaky without ever producing a lucky
-            # all-green round. Confirm the first high-scoring partial result on
-            # the unchanged tree before spending a repair turn. Limit this to
-            # a few failures and require enough time to confirm, repair and
-            # remeasure; ordinary low-scoring suites keep their existing path.
-            partial_ratio = float(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_RATIO", "0.9"))
-            partial_max = max(0, int(os.environ.get("OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES", "3")))
+                    log(f'[acceptance] full suite confirmation {confirmation + 1}/{confirm_runs}: {confirmed.passed}/{confirmed.total}')
+            partial_ratio = float(os.environ.get('OCTOS_ARC_PARTIAL_CONFIRM_RATIO', '0.9'))
+            partial_max = max(0, int(os.environ.get('OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES', '3')))
             partial_failed = max(0, repair_summary.total - repair_summary.passed)
-            if (attempt == 0 and not reused_measurement and attempt < rounds
-                    and not initially_green and 0 < partial_ratio <= 1
-                    and not summary.all_passed and self.suite_is_measured(summary, all_specs)
-                    and repair_summary.total
-                    and repair_summary.passed / repair_summary.total >= partial_ratio
-                    and 0 < partial_failed <= partial_max
-                    and self.remaining() >= self.final_retry_admission()):
+            if attempt == 0 and (not reused_measurement) and (attempt < rounds) and (not initially_green) and (0 < partial_ratio <= 1) and (not summary.all_passed) and self.suite_is_measured(summary, all_specs) and repair_summary.total and (repair_summary.passed / repair_summary.total >= partial_ratio) and (0 < partial_failed <= partial_max) and (self.remaining() >= self.final_retry_admission()):
                 first_partial = summary
                 confirmed = measured_suite()
                 if self.suite_is_measured(confirmed, all_specs):
-                    owners = {Path(path).name: node for node, paths in self.spec_map.items()
-                              for path in (paths or [])}
-                    passed_a_round |= {owners.get(Path(r.file or "").name)
-                                       for r in first_partial.results if r.ok} - {None}
+                    owners = {Path(path).name: node for node, paths in self.spec_map.items() for path in paths or []}
+                    passed_a_round |= {owners.get(Path(r.file or '').name) for r in first_partial.results if r.ok} - {None}
                     changed = failure_signature(first_partial) != failure_signature(confirmed)
-                    log(f"[acceptance] near-green unchanged confirmation: "
-                        f"{confirmed.passed}/{confirmed.total}; failing set "
-                        f"{'changed (unstable)' if changed else 'reproduced'}")
-                    self.metric("acceptance_confirmation", scope="final_suite", confirmation="near_green",
-                                first_passed=first_partial.passed, confirmed_passed=confirmed.passed,
-                                total=confirmed.total, failing_set_changed=changed)
+                    log(f"[acceptance] near-green unchanged confirmation: {confirmed.passed}/{confirmed.total}; failing set {('changed (unstable)' if changed else 'reproduced')}")
+                    self.metric('acceptance_confirmation', scope='final_suite', confirmation='near_green', first_passed=first_partial.passed, confirmed_passed=confirmed.passed, total=confirmed.total, failing_set_changed=changed)
                     summary = confirmed
                 else:
-                    log("[acceptance] near-green unchanged confirmation had no complete verdict; "
-                        "retaining the first measured result")
-            if summary is not reviewed_summary and getattr(self, "derived_as_specs", False):
+                    log('[acceptance] near-green unchanged confirmation had no complete verdict; retaining the first measured result')
+            if summary is not reviewed_summary and getattr(self, 'derived_as_specs', False):
                 summary = self.audit_related_derived_specs(all_specs, summary)
                 if review_invalidated('review_invalidated_by_test_audit'):
                     return
@@ -12366,169 +11787,104 @@ class Flow:
             if self.disputed_generated_failures(summary):
                 self.final_spec_dispute = True
             if summary.error and summary.killed:
-                log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
+                log(f'[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts')
                 break
             measured = self.suite_is_measured(summary, all_specs)
             self.verify_repair_memory(summary, measured)
             if not measured:
-                error = summary.error or "\n".join(summary.load_errors) or "Incomplete acceptance report; not all specs produced results"
-                log(f"[acceptance] full suite has no complete verdict: {error[:300]}")
-                if summary.killed or re.search(r'time(?:d)?\s*out|budget exhausted|exceeded', error, re.I):
-                    # A timed-out 0/0 says nothing about application behavior.
-                    # Keep individually measured verdicts and the last safe
-                    # source; repairing from an empty functional report would
-                    # risk replacing working features.
-                    self.metric('acceptance', scope='final_suite', round=attempt,
-                                passed=0, total=0, verdict='unknown', error=error[:300])
+                error = summary.error or '\n'.join(summary.load_errors) or 'Incomplete acceptance report; not all specs produced results'
+                log(f'[acceptance] full suite has no complete verdict: {error[:300]}')
+                if summary.killed or re.search('time(?:d)?\\s*out|budget exhausted|exceeded', error, re.I):
+                    self.metric('acceptance', scope='final_suite', round=attempt, passed=0, total=0, verdict='unknown', error=error[:300])
                     break
                 for node_id in self.spec_map:
                     if node_id:
                         self.test_verdict[node_id] = None
                 grouped = {None: []}
-                failures = (f"- Feature: application startup exactly as the grader runs it (only PORT set)\n"
-                            f"  Failed at: build/start/test loading\n  Observation: {startup_error_digest(error)}\n"
-                            "  No complete functional verdict. Fix the reported infrastructure problem in place; do not rewrite the app.")
+                failures = f'- Feature: application startup exactly as the grader runs it (only PORT set)\n  Failed at: build/start/test loading\n  Observation: {startup_error_digest(error)}\n  No complete functional verdict. Fix the reported infrastructure problem in place; do not rewrite the app.'
             else:
                 grouped = nodes_for_failures(repair_summary.results, self.spec_map)
                 failures = failure_summaries(repair_summary) + failure_source_context(repair_summary, self.tests_dir)
                 failures += self.interference_note(grouped, passed_alone, summary.stores_written)
                 failures += self.intermittent_note(grouped, passed_a_round)
                 failures += self.worker_parity_note(workers)
-                owners = {Path(path).name: node for node, paths in self.spec_map.items()
-                          for path in (paths or [])}
-                passed_a_round |= {owners.get(Path(r.file or "").name)
-                                   for r in repair_summary.results if r.ok} - {None}
-                if (best is not None and wrote_last and not restored_this_round and best.get("sha")
-                        and score == best["passed"]):
-                    current_failed = frozenset((Path(r.file or "").name, r.title)
-                                               for r in repair_summary.results if not r.ok)
-                    best_failed = frozenset((Path(r.file or "").name, r.title)
-                                            for r in self.uncontested_derived_results(best["summary"]).results
-                                            if not r.ok)
+                owners = {Path(path).name: node for node, paths in self.spec_map.items() for path in paths or []}
+                passed_a_round |= {owners.get(Path(r.file or '').name) for r in repair_summary.results if r.ok} - {None}
+                if best is not None and wrote_last and (not restored_this_round) and best.get('sha') and (score == best['passed']):
+                    current_failed = frozenset(((Path(r.file or '').name, r.title) for r in repair_summary.results if not r.ok))
+                    best_failed = frozenset(((Path(r.file or '').name, r.title) for r in self.uncontested_derived_results(best['summary']).results if not r.ok))
                     if current_failed != best_failed:
                         newly_broken = sorted(current_failed - best_failed)
                         newly_fixed = sorted(best_failed - current_failed)
-                        self.restore_app(best["sha"])
+                        self.restore_app(best['sha'])
                         restored_this_round = True
                         force_tool_repair = True
-                        last_repair_mode = ""
-                        self.pending_corrections.append(
-                            "The previous repair kept the same pass count but exchanged failures: it fixed "
-                            f"{', '.join(f'{f}:{t}' for f, t in newly_fixed[:4]) or 'some prior failures'} while "
-                            f"breaking {', '.join(f'{f}:{t}' for f, t in newly_broken[:4]) or 'other passing tests'}. "
-                            "The harness restored the previously measured best state. Target its remaining failure "
-                            "without regressing the passing set.")
-                        log("[acceptance] full suite: equal-score repair exchanged failing tests; "
-                            "restoring the previously measured best state")
-                        self.metric("repair_oscillation", scope="final_suite", passed=summary.passed,
-                                    newly_broken=[list(x) for x in newly_broken],
-                                    newly_fixed=[list(x) for x in newly_fixed])
-                        summary, grouped = best["summary"], best["grouped"]
+                        last_repair_mode = ''
+                        self.pending_corrections.append(f"The previous repair kept the same pass count but exchanged failures: it fixed {', '.join((f'{f}:{t}' for f, t in newly_fixed[:4])) or 'some prior failures'} while breaking {', '.join((f'{f}:{t}' for f, t in newly_broken[:4])) or 'other passing tests'}. The harness restored the previously measured best state. Target its remaining failure without regressing the passing set.")
+                        log('[acceptance] full suite: equal-score repair exchanged failing tests; restoring the previously measured best state')
+                        self.metric('repair_oscillation', scope='final_suite', passed=summary.passed, newly_broken=[list(x) for x in newly_broken], newly_fixed=[list(x) for x in newly_fixed])
+                        summary, grouped = (best['summary'], best['grouped'])
                         repair_summary = self.uncontested_derived_results(summary)
                         score = repair_summary.passed
                         failures = failure_summaries(repair_summary) + failure_source_context(repair_summary, self.tests_dir)
                         failures += self.interference_note(grouped, passed_alone, summary.stores_written)
                         failures += self.intermittent_note(grouped, passed_a_round)
                         failures += self.worker_parity_note(workers)
-            log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
-                f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
-            self.metric("acceptance", scope="final_suite", round=attempt, passed=summary.passed,
-                        total=summary.total, after_applied_repair=wrote_last and not restored_this_round,
-                        reused_measurement=reused_measurement,
-                        restored_before_measurement=restored_this_round,
-                        verdict="measured" if measured else "unknown", error=summary.error,
-                        load_errors=summary.load_errors)
+            log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes {sorted((k for k in grouped if k)) or ('all' if None in grouped and (not summary.results) else [])}")
+            self.metric('acceptance', scope='final_suite', round=attempt, passed=summary.passed, total=summary.total, after_applied_repair=wrote_last and (not restored_this_round), reused_measurement=reused_measurement, restored_before_measurement=restored_this_round, verdict='measured' if measured else 'unknown', error=summary.error, load_errors=summary.load_errors)
             self.record_full_suite(summary, grouped)
             self.remember_delivery_checkpoint(summary, grouped)
             last_passed = score if measured else -1
-            if measured and (best is None or score > best["passed"]):
-                if best is not None and wrote_last and not restored_this_round:
+            if measured and (best is None or score > best['passed']):
+                if best is not None and wrote_last and (not restored_this_round):
                     self.final_suite_progress = True
                 if attempt > 0:
-                    self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
-                best = {"passed": score, "sha": self.head(), "summary": summary, "grouped": grouped}
+                    self.commit(f'chore: full acceptance suite {summary.passed}/{summary.total} (best so far)')
+                best = {'passed': score, 'sha': self.head(), 'summary': summary, 'grouped': grouped}
                 regressions = 0
-            elif measured and best is not None and score < best["passed"]:
-                # The per-node loop already does this; the full-suite pass did not.
-                # A repair cut at the per-turn timeout leaves the tree part
-                # written: cloud 6e82a7ff571c went 27/32 -> repair killed at 1200s
-                # -> 17/32, and the rounds after it repair that instead of the
-                # five failures the pass began with. Two rounds behind the best
-                # is a trend rather than one flaky spec, which is the same
-                # threshold the node loop uses.
-                #
-                # Two and not one, and the same run shows why: 6e82a7ff571c went
-                # 27/32, lost a repair to the timeout, measured 17/32, lost the
-                # next repair to the timeout as well -- and then measured 28/32,
-                # past the best it had. A rollback on the first dip would have
-                # returned to 27 and never reached 28. Damage from a cut turn is
-                # recoverable, so this waits for a trend and the pass still
-                # delivers its best round either way.
+            elif measured and best is not None and (score < best['passed']):
                 regressions += 1
-                if regressions >= 2 and best["sha"]:
-                    self.restore_app(best["sha"])
-                    self.pending_corrections.append(
-                        f"Your last two full-suite repairs made the tests worse; the harness restored frontend/ and "
-                        f"backend/ to the best state ({best['passed']}/{best['summary'].total}). Start from that code.")
-                    log(f"[acceptance] full suite: two rounds behind {best['passed']}/{best['summary'].total}; "
-                        f"restored the best state")
-                    # The tree is the best round's again, so the verdicts have to be
-                    # too, and the restore at the end of the pass has nothing left
-                    # to do.
-                    self.record_full_suite(best["summary"], best["grouped"])
-                    last_passed = best["passed"]
+                if regressions >= 2 and best['sha']:
+                    self.restore_app(best['sha'])
+                    self.pending_corrections.append(f"Your last two full-suite repairs made the tests worse; the harness restored frontend/ and backend/ to the best state ({best['passed']}/{best['summary'].total}). Start from that code.")
+                    log(f"[acceptance] full suite: two rounds behind {best['passed']}/{best['summary'].total}; restored the best state")
+                    self.record_full_suite(best['summary'], best['grouped'])
+                    last_passed = best['passed']
                     regressions = 0
             self.final_safe_failures_remaining = measured and bool(grouped)
-            if measured and not grouped and self.disputed_generated_failures(summary):
-                log("[acceptance] full suite: only disputed generated failures remain; "
-                    "their scenarios stay unverified")
+            if measured and (not grouped) and self.disputed_generated_failures(summary):
+                log('[acceptance] full suite: only disputed generated failures remain; their scenarios stay unverified')
                 return
-            if measured and not grouped:
+            if measured and (not grouped):
                 weak = [node for node in self.spec_map if node and self.derived_review_needed(node)]
                 self.final_suite_green = not weak
                 if weak:
-                    log(f"[acceptance] reviewed subset passes, but {len(weak)} derived leaf/leaves "
-                        "lack complete independent review and remain unverified")
-                    self.metric("derived_spec_coverage", outcome="unverified",
-                                nodes=weak, passed=summary.passed, total=summary.total)
-                self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} "
-                            + ("reviewed subset passes; derived review pending" if weak else "pass (full suite)"))
+                    log(f'[acceptance] reviewed subset passes, but {len(weak)} derived leaf/leaves lack complete independent review and remain unverified')
+                    self.metric('derived_spec_coverage', outcome='unverified', nodes=weak, passed=summary.passed, total=summary.total)
+                self.commit(f'chore: full acceptance suite {summary.passed}/{summary.total} ' + ('reviewed subset passes; derived review pending' if weak else 'pass (full suite)'))
                 return
-            # A spec that has passed once in this pass and fails now is unstable;
-            # letting it count as progress hides a stall in everything else.
-            unstable = frozenset(spec for node in passed_a_round
-                                 for spec in (self.spec_map.get(node) or []))
+            unstable = frozenset((spec for node in passed_a_round for spec in self.spec_map.get(node) or []))
             failing_signature = failure_signature(repair_summary, unstable)
-            if wrote_last and previous_failing is not None and failing_signature == previous_failing:
+            if wrote_last and previous_failing is not None and (failing_signature == previous_failing):
                 if repeated:
-                    log("[acceptance] full suite: failures unchanged after a changed approach; stopping repairs")
+                    log('[acceptance] full suite: failures unchanged after a changed approach; stopping repairs')
                     break
-                # Cloud 3ffe9702bf15: the suite stalled at 26/32 and the run ended
-                # with most of its budget unspent. One identical round means the
-                # repair missed the cause, not that the cause cannot be fixed --
-                # tell it so, the way the per-node path already does, and retry.
                 repeated = True
                 failures += self.last_repair_diff()
-                # A repair that ran out before editing has an unfinished plan worth
-                # continuing; one that edited and moved nothing does not -- there the
-                # instruction below is to change the cause, so carrying its reasoning
-                # forward would argue against the correction in the same prompt.
                 if wrote_last:
-                    unfinished = ""
-                log("[acceptance] full suite: same failures as the previous round; changing repair approach")
-                self.pending_corrections.append(
-                    'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
+                    unfinished = ''
+                log('[acceptance] full suite: same failures as the previous round; changing repair approach')
+                self.pending_corrections.append('Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
             else:
                 repeated = False
             previous_failing = failing_signature
-            if (attempt == rounds or self.remaining() < self.final_measurement_reserve() + self.repair_minimum()
-                    or self.wound_down()):
+            if attempt == rounds or self.remaining() < self.final_measurement_reserve() + self.repair_minimum() or self.wound_down():
                 break
-            failing = sorted(k for k in grouped if k) or ["all nodes"]
+            failing = sorted((k for k in grouped if k)) or ['all nodes']
             if measured and len(failing) > 1:
                 from source_index import failure_groups, select_repair_groups
                 clusters = failure_groups({k: v for k, v in grouped.items() if k}, self.requirement_source_targets())
-                visits = getattr(self, "_repair_group_visits", {})
+                visits = getattr(self, '_repair_group_visits', {})
                 active = select_repair_groups(clusters, visits, rounds - attempt)
                 self._repair_group_visits = visits
                 if len(clusters) > 1:
@@ -12540,46 +11896,29 @@ class Flow:
                     failures += self.intermittent_note(active_grouped, passed_a_round)
                     failures += self.worker_parity_note(workers)
                     failing = active
-                    self.metric("repair_group", active=active, groups=clusters)
+                    self.metric('repair_group', active=active, groups=clusters)
             failures += self.store_change_note(summary)
             failures += self.unfinished_repair_note(unfinished)
-            prompt = self.app_repair_prompt(
-                node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
-                test_location=self.repair_test_location(),
-                sources=self.repair_requirements() + self.sources_text(),
-                corrections=self.corrections_text() + "The full suite runs all spec files against one "
-                "server; tests from different files must not interfere through shared server state "
-                "(e.g. a counter that every browser session shares). Keep persisted data only where the "
-                "requirement demands persistence.\n",
-                slow="", smoke=self.smoke_port, port=self.web_port)
-            # One codegen request first; a round that reproduced the previous failures
-            # is the changed approach, and that one uses tools.
+            prompt = self.app_repair_prompt(node_id=', '.join(failing), passed=summary.passed, total=summary.total, failures=failures, test_location=self.repair_test_location(), sources=self.repair_requirements() + self.sources_text(), corrections=self.corrections_text() + 'The full suite runs all spec files against one server; tests from different files must not interfere through shared server state (e.g. a counter that every browser session shares). Keep persisted data only where the requirement demands persistence.\n', slow='', smoke=self.smoke_port, port=self.web_port)
             before_repair_digest = self.app_source_digest()
-            last_repair_mode, unfinished = self.suite_repair_turn(
-                f"full-suite repair {attempt + 1}/{rounds}", failing if measured else [], failures,
-                min(self.suite_repair_timeout(), max(1, self.remaining() - self.final_measurement_reserve())),
-                tool_prompt=prompt, prefer_codegen=not repeated and not force_tool_repair)
+            last_repair_mode, unfinished = self.suite_repair_turn(f'full-suite repair {attempt + 1}/{rounds}', failing if measured else [], failures, min(self.suite_repair_timeout(), max(1, self.remaining() - self.final_measurement_reserve())), tool_prompt=prompt, prefer_codegen=not repeated and (not force_tool_repair))
             force_tool_repair = False
-            committed = self.commit(f"fix: full-suite repair {attempt + 1}")
-            effective = getattr(self, "last_repair_changed", None)
+            committed = self.commit(f'fix: full-suite repair {attempt + 1}')
+            effective = getattr(self, 'last_repair_changed', None)
             wrote_last = effective if isinstance(effective, bool) else committed
             if effective is False:
                 self.final_repair_no_change = True
                 if self.app_source_digest() == before_repair_digest:
                     self._final_retry_measurement = (summary, before_repair_digest)
                 self._force_final_tool_repair = True
-                self.pending_corrections.append(
-                    "The previous full-suite repair changed no application source. Do not only describe a fix: "
-                    "inspect the current implementation and apply a concrete, targeted source edit before verification.")
-                log("[acceptance] full suite: repair changed no application sources; "
-                    "deferring remeasurement and changing approach on the next pass")
+                self.pending_corrections.append('The previous full-suite repair changed no application source. Do not only describe a fix: inspect the current implementation and apply a concrete, targeted source edit before verification.')
+                log('[acceptance] full suite: repair changed no application sources; deferring remeasurement and changing approach on the next pass')
                 break
-        # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
-        if best is not None and best["sha"] and last_passed < best["passed"]:
+        if best is not None and best['sha'] and (last_passed < best['passed']):
             self._final_retry_measurement = None
             log(f"[acceptance] full suite: last round {last_passed} < best {best['passed']}; restoring the best state")
-            self.restore_app(best["sha"])
-            self.record_full_suite(best["summary"], best["grouped"])
+            self.restore_app(best['sha'])
+            self.record_full_suite(best['summary'], best['grouped'])
             self.commit(f"chore: keep best full-suite state {best['passed']}/{best['summary'].total}")
 
     def suite_repair_timeout(self) -> int:
@@ -12614,31 +11953,10 @@ class Flow:
                     and all(r.status in {"passed", "failed", "timedOut", "quarantined"} for r in summary.results)
                     and all(any(path == spec or path.endswith("/" + spec) for path in observed) for spec in specs))
 
-    def rereview_corrected_derived_leaf(self, node_id: str) -> bool:
-        """Give a corrected final-stage test one bounded independent re-audit."""
-        if not getattr(self, 'derived_as_specs', False) or not self.derived_review_needed(node_id):
-            return True
-        allowance = min(240.0, self.remaining() - self.final_retry_admission())
-        if allowance < 30:
-            self.metric('derived_test_wait', node_id=node_id, decision='final_rereview_no_time')
-            return False
-        try:
-            with recovery_budget(self):
-                self.derived_preflight_deadline = time.monotonic() + allowance
-                self.review_derived_cases({node_id})
-            self.write_derived_handoff()
-            self.snapshot_protected()
-        except Exception as exc:
-            self.metric('derived_final_rereview', node_id=node_id,
-                        outcome='unavailable', reason=str(exc)[:300])
-            return False
-        reviewed = not self.derived_review_needed(node_id)
-        self.metric('derived_final_rereview', node_id=node_id,
-                    outcome='reviewed' if reviewed else 'pending')
-        return reviewed
-
     def final_acceptance_passes(self) -> None:
         """Admit at most one affordable full suite after generation is attempted."""
+        if getattr(self, "layered", None) is not None:
+            return self.layered.final_verify()
         if getattr(self, "_final_suite_attempted", False):
             return
         self._final_suite_attempted = True
@@ -12705,12 +12023,8 @@ class Flow:
                     verdict = self.acceptance_loop(node_id, [spec],
                         time.time() + min(self.node_timeout, self.remaining() - self.final_measurement_reserve()),
                         initial_summary=local if self.app_source_digest() == before else None)
-                    if verdict is None and self.derived_review_needed(node_id):
-                        if self.rereview_corrected_derived_leaf(node_id):
-                            verdict = self.acceptance_loop(
-                                node_id, [spec],
-                                time.time() + min(self.node_timeout,
-                                                  self.remaining() - self.final_measurement_reserve()))
+                    # One-pass case approval is final for this run. A changed
+                    # or disputed test remains unverified after failure triage.
                     self.test_verdict[node_id] = verdict
                 source_changed = self.app_source_digest() != before
                 spec_changed = any(hashlib.sha256((self.tests_dir / spec).read_bytes()).hexdigest() != version
@@ -13239,15 +12553,25 @@ class Flow:
                   restore_on_failure: bool = True, repair_on_failure: bool = True) -> bool:
         self._last_rehearsal_system_failure = False
         self._last_rehearsal_measurement_unavailable = False
-        for attempt in range(1, 4):
-            log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {self.smoke_port}, grader-like env)")
+        # Source changes alone are not evidence of progress: a generator can
+        # rewrite broken code indefinitely. Bound this rehearsal independently
+        # of the run-wide budget, while still measuring the last attempted edit.
+        repair_seconds = max(0, float(os.environ.get("OCTOS_ARC_REHEARSAL_REPAIR_SECONDS", "3600")))
+        repair_deadline = time.monotonic() + min(
+            repair_seconds, max(0, self.remaining() - preserve_seconds))
+        repair_action_limit = max(0, int(os.environ.get("OCTOS_ARC_REHEARSAL_REPAIR_ACTIONS", "6")))
+        repair_actions = 0
+        attempt = 0
+        last_failed_source = None
+        unchanged_failures = 0
+        while True:
+            attempt += 1
+            log(f"[rehearsal] startup rehearsal {attempt} (smoke port {self.smoke_port}, grader-like env)")
             err = self.measure_rehearsal_server()
             if err is None:
                 self._last_rehearsal_system_failure = False
                 log("[rehearsal] app builds, starts and renders in the browser")
                 return True
-            if repair_on_failure and self.repair_spa_entry_from_blueprint(err):
-                continue
             failure_line = startup_error_digest(err, 320).replace('\n', ' | ')
             log(f"[rehearsal] FAILED: {failure_line}")
             if err.startswith(("Browser health unknown", "Rehearsal measurement unknown")):
@@ -13255,30 +12579,59 @@ class Flow:
                 self.metric("rehearsal", outcome="measurement_unavailable", reason=err)
                 return False  # do not edit app code to fix failed measurement infrastructure
             self._last_rehearsal_system_failure = True
-            if (not repair_on_failure or attempt == 3
-                    or self.remaining() <= preserve_seconds + self.repair_minimum()
-                    or self.wound_down()):
+            source = self.app_source_digest()
+            unchanged_failures = unchanged_failures + 1 if source == last_failed_source else 0
+            last_failed_source = source
+            stop_reason = (
+                "repair_disabled" if not repair_on_failure else
+                "unchanged_source" if unchanged_failures >= 3 else
+                "repair_action_limit" if repair_actions >= repair_action_limit else
+                "repair_time_limit" if time.monotonic() >= repair_deadline else
+                "remaining_time_reserved" if self.remaining() <= preserve_seconds + self.repair_minimum() else
+                "cost_limit" if self.wound_down() else None)
+            if stop_reason:
+                log(f"[rehearsal] repair stopped: {stop_reason}; "
+                    f"actions={repair_actions}/{repair_action_limit}, "
+                    f"remaining={self.remaining():.0f}s, preserved={preserve_seconds:.0f}s")
                 if restore_on_failure and self.restore_startable_commit():
                     self._last_rehearsal_system_failure = False
                     return True
-                log("[rehearsal] giving up; current source remains for later checks")
+                log("[rehearsal] no further repair admitted; current source remains for later checks")
                 return False
+            if self.repair_spa_entry_from_blueprint(err):
+                repair_actions += 1
+                self.test_verdict = {key: None for key in self.test_verdict}
+                continue
+            if unchanged_failures == 1:
+                # A broad tool turn returned the same unstartable source. Requote
+                # only the named files for a local regeneration before trying
+                # another tool turn or accepting a failed artifact.
+                log("[rehearsal] source unchanged after repair; trying focused source regeneration")
+                repair_actions += 1
+                self.whole_app_startup_repair(
+                    err, max_seconds=max(0, min(self.remaining() - preserve_seconds,
+                                               repair_deadline - time.monotonic())))
+                if self.app_source_digest() != source:
+                    self.test_verdict = {key: None for key in self.test_verdict}
+                continue
             evidence_rule = ("\nGenerated Playwright tests are awaiting independent review. Diagnose and fix "
                              "this build/start/browser error from the error text and application source; "
                              "do not read, search, run, or modify generated tests."
                              if getattr(self, 'derived_as_specs', False) else "")
+            if unchanged_failures == 2:
+                evidence_rule += ("\nThe preceding focused regeneration left the same source unstartable. "
+                                  "Edit the named failing component before broad investigation.")
+            repair_actions += 1
             self.turn(REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(err, 1200), port=self.web_port,
                                                     smoke=self.smoke_port) + evidence_rule,
-                      min(self.node_timeout, max(1, self.remaining() - preserve_seconds)),
-                      f"rehearsal repair {attempt}")
+                      min(self.node_timeout, max(1, self.remaining() - preserve_seconds),
+                          max(1, repair_deadline - time.monotonic())),
+                      f"rehearsal repair {attempt}",
+                      request_budget=max(1, int(os.environ.get("OCTOS_ARC_REHEARSAL_REPAIR_REQUESTS", "32"))))
             # Any post-acceptance edit invalidates the earlier verdicts.
-            if self.last_turn_changed:
+            if self.last_turn_changed or self.app_source_digest() != source:
                 self.test_verdict = {key: None for key in self.test_verdict}
             self.commit("fix: startup rehearsal repair")
-        restored = self.restore_startable_commit() if restore_on_failure else False
-        if restored:
-            self._last_rehearsal_system_failure = False
-        return restored
 
     def discard_runtime_store(self) -> bool:
         """Remove the scaffold's JSON store written by our own local runs.
@@ -13312,6 +12665,8 @@ class Flow:
         still give back, and reaping only between nodes leaves the last ones
         alive for exactly the run that cannot afford them.
         """
+        if getattr(self, "layered", None) is not None:
+            self.layered.close()
         if self.driver:
             self.driver.close()
         self.cleanup_playwright()
@@ -13319,7 +12674,7 @@ class Flow:
         strays = reap_workspace_processes(self.output_dir, log)
         if strays:
             log(f"[flow] reaped {strays} leftover process(es) before grading")
-        if getattr(self, "output_dir", None) is not None:
+        if getattr(self, "output_dir", None) is not None and getattr(self, 'layered', None) is None:
             self.discard_runtime_store()
 
     # -- run --------------------------------------------------------------
@@ -13350,6 +12705,8 @@ class Flow:
                 raise ValueError("no ATOMIC requirement nodes found")
             self.classify_tree(tree)
             node_ids = [str(n.get("id")) for n in ordered]
+            from layered_tests import LayeredTests
+            self.layered = LayeredTests(self, ordered)
             if not self.budget_explicit:
                 # 32-node trees need hours, not the 1-hour smoke default.
                 self.budget = max(self.budget, self.seconds_per_node * len(ordered))
@@ -13394,8 +12751,6 @@ class Flow:
             self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
             self.setup_playwright()
-            if not getattr(self, "derived_as_specs", False):
-                unchanged = self.probe_existing_app(node_ids, unchanged)
 
             dry_run = os.environ.get("OCTOS_ARC_DRYRUN") == "1"
             if dry_run:
@@ -13427,30 +12782,19 @@ class Flow:
                              daemon=True).start()
             try:
                 self.prepare_build(tree, ordered)
+                # Design preparation exports harness-owned requirement metadata.
+                # Refresh the guard before the next model turn so those exports
+                # are not mistaken for model edits and restored away.
+                self.snapshot_protected()
+                self.layered.prepare()
                 self.prime_generation_dependencies()
                 self.start_background_specs(ordered)
                 self._generation_active = True
-                if (self.evolution and self.runner is not None and self.tests_dir
-                        and unchanged == set(node_ids) and len(node_ids) > 1):
-                    # Repair-only evolution has no new leaves to generate. One
-                    # full baseline reveals shared failures and establishes a
-                    # comparable delivery checkpoint before spending model tokens.
-                    log("[flow] unchanged requirements: carry source forward; reviewed tests enter the later acceptance queue")
-                    for node_id in node_ids:
-                        self.mark("design_started", node_id)
-                        self.mark("design_done", node_id, "unchanged requirement; carried over")
-                        self.mark("implementation_started", node_id)
-                        self.mark("implementation_done", node_id, "existing application; acceptance pending")
-                elif not self.whole_app_experiment(tree, ordered):
-                    self.implement_sequential(tree, ordered, unchanged)
+                self.implement_sequential(tree, ordered, unchanged)
 
                 self._generation_active = False
                 self.close_background_specs()
                 self.log_usage_checkpoint("after_implementation", nodes=node_ids)
-                try:
-                    self.repair_overwritten_route_exports()
-                except Exception as exc:  # source advice cannot abort the run
-                    self.metric('source_interface_repair', outcome='unavailable', reason=str(exc)[:300])
                 system_ready = None
                 try:
                     system_ready = self.pre_review_derived_system_check()
@@ -13463,77 +12807,25 @@ class Flow:
                     # that cannot exercise a broken application.
                     self.metric('derived_post_code_review', outcome='deferred_system_failure')
                 else:
-                    try:
-                        self.review_derived_after_implementation(ordered)
-                    except Exception as exc:  # test planning never discards generated source
-                        self.metric('derived_post_code_review', outcome='unavailable', reason=str(exc)[:300])
-                try:
-                    self.phase_integration_audit()
-                except Exception as exc:  # source and final rehearsal still proceed
-                    self.metric("phase_integration", outcome="unavailable", reason=str(exc)[:300])
+                    self.review_derived_after_implementation(ordered)
                 self.final_acceptance_passes()
-                undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
-                final_ok = None
-                seed_failures: dict[str, list[str]] = {}
-                if undecided and self.runner is None and not self.time_up() and not self.wound_down():
-                    log(f"[flow] final check turn for nodes without a local verdict: {undecided}")
-                    # With no executable specs, an unbounded verification turn
-                    # cannot produce a measured verdict. Preserve time for the
-                    # deterministic startup rehearsal and final grading.
-                    check_cap = max(30, int(os.environ.get('OCTOS_ARC_NO_SPEC_FINAL_CHECK_SECONDS', '600')))
-                    from generation_checks import contract_warnings, missing_backend_export_errors
-                    sources = self.repair_source_index().sources
-                    wiring = [item for item in contract_warnings(sources, sources)
-                              if item.startswith(('ROUTE_LINK', 'API_CALL', 'ROUTE_CONFLICT'))]
-                    backend_exports = missing_backend_export_errors(sources, sources)
-                    literals = source_literal_gaps(self.requirement_contracts, sources) if not self.tests_dir else []
-                    seeds = source_seed_gaps(self.requirement_contracts, sources) if not self.tests_dir else []
-                    if wiring:
-                        log(f'[flow] final static wiring audit: {len(wiring)} potential gap(s)')
-                    if literals:
-                        log(f'[flow] final requirement-literal audit: {len(literals)} potential gap(s)')
-                    if seeds:
-                        log(f'[flow] final required-seed audit: {len(seeds)} concrete gap(s)')
-                    findings = wiring + backend_exports + literals + seeds
-                    audit = ('\nStatic findings to inspect and fix only if confirmed (advisory, not test verdicts):\n' +
-                             '\n'.join(findings) + '\n') if findings else ''
-                    final_prompt = FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
-                                                             tests=self.tests_prompt_for(None),
-                                                             performance=self.perf_text(), ui=self.ui_contract()) + audit
-                    final_ok, final_text = self.turn(final_prompt,
-                                                     min(self.node_timeout, check_cap, max(1, self.remaining())),
-                                                     "final check")
-                    final_ok = self.final_check_verdict(final_ok, final_text)
-                    if final_ok is None:
-                        log("[flow] final check did not finish; its outcome is not a failure verdict")
-                    self.commit("chore: final verification pass")
-                    if not self.tests_dir:
-                        seed_failures = seed_gaps_by_node(
-                            self.requirement_contracts, self.repair_source_index().sources)
-                    if seed_failures:
-                        log(f"[flow] final required-seed audit: {len(seed_failures)} leaf/leaves still lack "
-                            f"declared initial data: {', '.join(sorted(seed_failures))}")
                 rehearsal_source = self.app_source_digest()
                 rehearsed = self.rehearsal(
-                    preserve_seconds=self.final_rehearsal_reserve())
+                    preserve_seconds=self.final_rehearsal_reserve(),
+                    repair_on_failure=False, restore_on_failure=False)
                 rehearsed = self.remeasure_after_rehearsal(rehearsal_source, rehearsed)
-                undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
-                for node_id in undecided:
-                    if getattr(self, "derived_as_specs", False):
-                        # A missing generated spec or unavailable runner cannot
-                        # become a feature pass from startup alone.
-                        if not self.spec_map.get(node_id):
-                            log(f"[flow] {node_id}: no executable derived spec; verdict remains unverified")
-                        elif self.runner is None:
-                            log(f"[flow] {node_id}: derived spec was not measured; verdict remains unverified")
-                        continue
-                    if self.runner is not None and self.spec_map.get(node_id):
-                        # Starting the server is not proof that a feature works.
-                        continue
-                    passed, detail = self.no_spec_node_verdict(node_id, rehearsed, final_ok, seed_failures)
-                    if passed is not None:
-                        self.mark("test_passed" if passed else "test_failed", node_id, detail)
-                    self.test_verdict[node_id] = passed
+            except Exception as exc:
+                from layered_tests import GateBlocked
+                if isinstance(exc, GateBlocked):
+                    self._blocked_delivery_attempted = True
+                    self._blocked_partial_ready = False
+                    self.layered.close()
+                    try:
+                        self._blocked_partial_ready = self.layered.deliver_blocked(exc)
+                        self.write_quality_summary(startable=self._blocked_partial_ready, node_ids=node_ids)
+                    except Exception as delivery_error:
+                        self.metric('blocked_delivery', status='not_ready', reason=str(delivery_error))
+                raise
             finally:
                 watchdog_stop.set()
                 self.postflight()
@@ -13558,7 +12850,7 @@ class Flow:
                           "generated application did not pass final build/start rehearsal")
                 self.events.mark_run_failed(reason)
             elif failed:
-                self.events.mark_run_completed(f"completed; nodes not verified: {', '.join(failed)}")
+                self.events.mark_run_failed(f"verification_incomplete; nodes not verified: {', '.join(failed)}")
             elif not self.tests_dir:
                 self.events.mark_run_completed(
                     "all requirement nodes implemented; derived contract review and startup rehearsal completed; "
@@ -13570,10 +12862,24 @@ class Flow:
             _free_web_port(self.web_port, self.output_dir)
             if rehearsed:
                 self.write_preview_ready()
-                return 0
+                return 1 if failed else 0
             return 1  # an unstartable app must not have a successful process exit
         except Exception as exc:  # the platform judges by events, not exit code
             log(f"[flow] aborted: {exc!r}")
+            from layered_tests import GateBlocked
+            partial_ready = getattr(self, '_blocked_partial_ready', False)
+            if (isinstance(exc, GateBlocked) and getattr(self, 'layered', None) is not None
+                    and not getattr(self, '_blocked_delivery_attempted', False)):
+                try:
+                    partial_ready = self.layered.deliver_blocked(exc)
+                    self.write_quality_summary(startable=partial_ready, node_ids=[str(n['id']) for n in ordered])
+                except Exception as delivery_error:
+                    self.metric('blocked_delivery', status='not_ready', reason=str(delivery_error))
+            if getattr(self, "layered", None) is not None:
+                self.layered.close()
+            pipeline = getattr(self, "_derived_background_pipeline", None)
+            if pipeline is not None:
+                pipeline.close(0)
             watchdog_stop.set()
             if self.driver:
                 self.driver.close()
@@ -13583,7 +12889,10 @@ class Flow:
             for node in ordered:
                 node_id = str(node.get("id"))
                 if node_id not in self.test_verdict:
-                    self.mark("test_failed", node_id, f"run aborted: {str(exc)[:200]}")
+                    if isinstance(exc, GateBlocked):
+                        self.test_verdict[node_id] = None
+                    else:
+                        self.mark("test_failed", node_id, f"run aborted: {str(exc)[:200]}")
             try:
                 self.mark_folders()
             except Exception:  # noqa: BLE001
@@ -13592,6 +12901,8 @@ class Flow:
             _postflight_structure_check(self.output_dir)
             _free_web_port(self.web_port, self.output_dir)
             self.events.mark_run_failed(str(exc)[:1000])
+            if partial_ready:
+                self.write_preview_ready()
             # A valid measured artifact may still be graded; keep run_failed
             # above and never report an interrupted generation as completed.
             return 1  # failed generation is never a successful execution state
@@ -13717,9 +13028,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if os.environ.get("OCTOS_ARC_ENGINE") == "rust":
-        # Kernel harness (`octos arc run`); this module keeps the default Python path.
-        import rust_engine
-        return rust_engine.main(args)
+        log('[engine] layered authoritative tests use the Python coordinator with the Octos kernel')
 
     key = os.environ.get("OPENAI_API_KEY", "")
     print(f"[env] OPENAI_BASE_URL={os.environ.get('OPENAI_BASE_URL', '<unset>')}", flush=True)

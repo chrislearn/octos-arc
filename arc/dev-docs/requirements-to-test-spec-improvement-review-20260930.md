@@ -70,6 +70,42 @@
 
 对三份固定需求树按**每个原子节点收到的描述字符数之和**做纯静态核对：Keep 从 218,848 降到 35,462（减少 83.8%），12306 从 4,591,431 降到 470,245（减少 89.8%），Sheet 从 743,064 降到 202,349（减少 72.8%）。这不是实际批次提示长度，更不是模型输入 token 或费用；批次共享去重带来的额外节省也未计入。
 
-修复过一次兼容性回归：机械账本最初放在 `review/`，提前创建目录影响现有流程测试；现放在派生套件根目录，由审核阶段自行创建 `review/`。另同步了覆盖总计结构的固定断言。定向测试通过；全量单测 `2081` 项通过，`27` 项跳过（`PYTHONPATH=arc:arc/tests .venv/bin/python -m unittest discover -s arc/tests -q`）。
+修复过一次兼容性回归：机械账本最初放在 `review/`，提前创建目录影响现有流程测试；现放在派生套件根目录，由审核阶段自行创建 `review/`。另同步了覆盖总计结构的固定断言。定向测试通过；全量单测运行 `2081` 项，其中 `27` 项跳过（`PYTHONPATH=arc:arc/tests .venv/bin/python -m unittest discover -s arc/tests -q`）。
 
 **剩余限制：** 静态扫描按生成用例的文本做预检，不能证明断言对应需求，也不能识别所有间接内部调用。机械 `candidate` 只是分句级诊断，不代表完整场景覆盖、独立审核批准或 ARC-Bench 得分提升。后续需要用固定需求与相同模型预算的回放比较实际输入 token、提案通过率、获批行为覆盖和误批准数。
+
+## 两份 v14 运行报告的复核与吸收（第二轮）
+
+复核来源：[GitHub 运行诊断](v14-github-run-2d7df7727ffd-improvement-review-20260930.md)与[Sheet 停止快照报告](v14-sheet-run-76dd683eb2b8-improvement-report-20260930.md)。两份报告都把在线运行记为用户取消、评测未完成；本轮未取得这两次在线运行的原始私有指标，因此把其中的日志数字视为报告给出的历史观察，不把它们当作当前代码的效果。已重新下载 [Sheet 在线运行](https://arc-bench.com/runs/76dd683eb2b8) 的停止产物，其 YAML SHA-256 `9cddf67be50748106289ed158648629a6c50c30a490d0eda5bd570c557440b96` 与本地任务完全相同；产物仍缺引擎提交标识，不能证明引擎逐字同版。
+
+| 运行报告的问题 | 当前代码复核 | 吸收后的处理 |
+| --- | --- | --- |
+| GitHub：测试提案在本地 `insufficient_context`，连单场景也可能超限 | 第一轮只裁剪了 `source_contracts`；`augment_derived_tests` 仍把整类 `requirements` 和设计片段放进每个批次 | 本轮把 phase 上下文缩到当前批次节点，按完整提示长度拆分 3→2→1，不截断场景、依赖引文或义务；单场景仍超限时保留 `insufficient_context` 并记录来源、phase、质量指导字符数。请求前的提示与实际发送提示复用同一字符串 |
+| GitHub：内部契约导出发生在保护快照之后，下一轮可能恢复掉导出文件 | `run` 中首次 `snapshot_protected` 的确早于 `prepare_build`；`app_design` 会调用 `export_contracts` 写入 `requirements/original.json`、`obligations.json` | `prepare_build` 后刷新保护快照；固定回放证明内部导出保留，随后对 YAML 和导出 JSON 的擅自改写仍被恢复 |
+| Sheet：私有候选与公开 spec 状态脱节，日志里的 `validated script` 易被误读为批准 | 当前 `poll_background_specs` 已按共享输入过期、局部 spec 冲突分别处理，`close_background_specs` 有有界排空；历史零合入的确切原因仍未知 | 不重复实现后台队列。新增 `requested`、`response_received`、`candidate_validated` 阶段指标，在 `spec-handoff.json` 明列候选覆盖、获批用例、获批场景和未验证场景；用只读 `derived_run_trace.py` 定时抓取公开套件、审核账本、内部指标和执行状态，复盘每批去向 |
+| Sheet：取消时留下不可启动的应用源码；GitHub：回滚后索取不存在的文件 | 现有批次检查、回滚和交付检查点处理应用生成，但两份旧运行没有提供可归因到某次写入的完整前像/检查日志 | 纳入跨流程风险清单；不把 `.js`/JSX 推断或坏树写入时刻当作已证实根因。要另用固定坏回复和中断注入验证写入协议及恢复点，避免在测试生成改动里放宽应用语法门 |
+| Sheet：Z/AA 列边界 | 是该次生成应用的具体业务缺陷，CSV 完整列序的要求来自 Sheet YAML | 在本地 Sheet 回放中记录宽表边界是否被测试覆盖；通用 YAML→spec 引擎不硬编码表格列号规则 |
+
+两份报告其余设计格式诊断、wave 源码闭包、`NEEDS_CONTEXT` 预取、取消摘要属于应用生成或平台中断链路；当前证据只足以列为后续定向回放项，不能用测试提示裁剪的静态收益推断它们已经改善。现有独立审核与已批准用例准入门槛保持不变。
+
+第二轮固定输入的**无模型**提示重放：GitHub YAML 有 47 个原子节点、87 个去重场景；Sheet YAML 有 24 个原子节点、58 个去重场景。按每 3 场景顺序组批、仅含已裁剪需求来源和质量指导（不含运行时义务、设计与视觉上下文），Github 的 29 批全部低于 196,608 字符、最大 77,139；Sheet 的 20 批全部低于该上限、最大 60,556。此数值证明静态来源膨胀已大幅下降，**不证明真实运行的每批都能发送**；真实 phase、义务、路由和模型预算须由后续本地运行记录。
+
+### Sheet 本地确定性回放与数据状态
+
+在 `arc/arc-output/v14-sheet-derived-replay-20260930/` 用 SHA-256 为 `9cddf67be5074810…` 的 Sheet YAML 运行机械编译、交接状态计算、静态用例审核和 Playwright `--list` 加载检查。24 个原子节点都生成 spec；24/24 文件加载成功，编译约 0.335 秒、加载约 0.99 秒。结果账本有 576 个分句，全部 `needs_ai`；58 个场景的候选行为覆盖为 0。静态审核无映射或内部捷径问题，24 个用例均为 `approved_smoke_only`，获批行为用例 0，未执行应用行为测试。
+
+首次回放曾把 4 个标题形如 `[reach] 控件名` 的用例记为 `needs_correction`；复核发现 `collect_cases` 只识别以 `[reach]` 结尾的标题，现已修正并以 24/24 smoke 分类重放通过。详细状态保存在该输出目录的 `.arc/local-replay.json`、`.arc/derived-trace-final.json`、`derived-tests/mechanical-outcomes.json` 和 `derived-tests/review/cases.json`。`derived_run_trace.py <输出目录> --watch --out <jsonl>` 可在完整本地运行时定时保存同一组状态。
+
+这次是**不调用模型的流水线与加载验证**。进程环境没有模型 API 凭据，不能从 0 个行为脚本推断 AI 生成失败、独立审核表现或官方得分；完整 Sheet 生成与执行回放仍需可用的本地 API 配置，并应另记模型、路由、预算和源码版本。
+
+### 在线停止快照的本地执行与过程数据
+
+重新从运行页下载的 `project.zip` SHA-256 为 `91b99140f8a14f4fe900847902b9817a5e0d0fdcb5066b11d2c3679b40cfb761`。原样解包于 `arc/arc-output/v14-sheet-stop-snapshot-76dd683eb2b8-20260930/template/`；原样的 24 个派生 spec 在 Playwright `--list` 中全部加载（约 0.925 秒），但 `backend/routes/workbooks.js:812` 的重复片段使 `node --check` 报 `SyntaxError: missing ) after argument list`，应用无法原样启动。这与 Sheet 报告的主要停机缺陷相符。
+
+为执行**该快照已有的测试**，另建 `diagnostic-app/` 副本，仅删除 `workbooks.js` 的重复语法片段；原始 `template/` 保持不动。副本中所有后端 JS 的 `node --check`、前端锁定依赖安装和 `npm run build` 通过，根页面 HTTP 200。以副本服务为目标运行原样 24 个派生测试，4 工作进程约 55.006 秒结束：**4 通过、20 失败、0 加载错误、0 超时杀进程**。通过的恰好是 4 个 `[reach]` 可达性用例；20 个 `[entry]` 失败中，11 个找不到名为 `Worksheet grid` 的 `grid`，5 个预置 A1 应为 `Item` 却见 `Region`，4 个预置 A1 应为 `2` 却未匹配。后两组需结合共享测试状态和页面实现进一步定位，不能仅凭此判定各需求功能缺失。4 个通过也只是 smoke，不是 58 个行为场景获批或通过。快照仍为 24 个 `candidate`、58 个场景目标零获批行为覆盖；没有官方评分。
+
+诊断过程每 10 秒取一次状态，6 个采样点中服务根页面均为 HTTP 200，前 5 次执行报告未完成，第 6 次已完成。对应原始加载结果、逐用例状态、失败摘要及时间线分别保存在 `snapshot-tests.json`、`diagnostic-execution.json`、`diagnostic-timeline.jsonl`；另有 `snapshot-trace.json` 汇总停止时的 24 个候选节点与 58 个未覆盖场景。副本的唯一语法改动见 `diagnostic-syntax-fix.txt`。这些文件都在上述停止快照输出目录。应用服务已在测试完成后关闭。此执行用来定位停机快照与旧 smoke 套件的状态，**不能**当成新引擎生成质量或正式 ARC-Bench 评测。
+
+这组数据把后续优化重点进一步收窄：优先验证后台批次从候选到合入的每一步与中断持久化，再用同模型、同预算的新运行衡量获批行为覆盖；页面入口 smoke 需去掉不由需求保证的固定 A1 值或控件命名，避免 20 个同源断言把进度误读成 20 个独立功能失败。不得在通用引擎里为本次应用硬编码工作表选择器或单元格内容。
+
+第二轮全量单测运行 `2085` 项，其中 `27` 项跳过，其余通过；随后针对最后的追踪汇总补充做了定向回归。`derived_run_trace.py` 按实际 `llm-usage.jsonl` 的 `label` 聚合提供方 token，并汇总提案最终无效的原因类别；套件标记的解析树哈希与 YAML 文件字节哈希分开标注，避免把两种口径误判为输入漂移。

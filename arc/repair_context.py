@@ -16,6 +16,9 @@ def failure_triage(text: str, limit: int = 1200) -> str:
                      'A timeout alone proves none of these. Compare the last actions, response and rendered snapshot. '
                      'If the target exists under another role, inspect helper fallback and async readiness; do not turn '
                      'all links into buttons or ordinary text into headings merely to satisfy a fallback selector.')
+    if 'Shortcut keydown events before failure:' in text:
+        hints.append('KEYBOARD: compare the observed event.key and modifiers with the current handler, including '
+                     'letter case and focus guards; then check whether the expected mutation request followed.')
     if len(re.findall(r'(?m)^- Feature:', text)) > 1 and hints:
         hints.append('SHARED CAUSE: group only with a concrete common exception or source/data owner. '
                      'The same test-helper line or timeout is not evidence of the same bug; keep each verdict.')
@@ -52,9 +55,30 @@ def balanced_failure_evidence(text: str, limit: int = 8000) -> str:
 def diagnosed_failure_evidence(text: str, limit: int = 8000) -> str:
     """Keep classification and original evidence inside the caller's budget."""
     hint = failure_triage(text, min(1200, max(0, limit // 5)))
-    if not hint:
+    shortcut = shortcut_diagnostic_evidence(text, min(800, limit // 5)) if limit >= 400 else ''
+    prefix = '\n'.join(part for part in (hint, shortcut) if part)
+    if not prefix:
         return balanced_failure_evidence(text, limit)
-    return hint + '\n' + balanced_failure_evidence(text, max(0, limit - len(hint) - 1))
+    return prefix[:limit] + ('\n' + balanced_failure_evidence(
+        text, max(0, limit - len(prefix) - 1)) if len(prefix) < limit else '')
+
+
+def shortcut_diagnostic_evidence(text: str, limit: int = 800) -> str:
+    """Keep event case and post-shortcut API evidence ahead of verbose DOM dumps."""
+    if limit <= 0:
+        return ''
+    patterns = (r'Shortcut keydown events before failure:\s*\[[^\]\n]{0,600}\]',
+                r'Same-origin /api mutation requests after final shortcut keydown:\s*[^\n|]{0,400}')
+    seen, lines = set(), []
+    for pattern in patterns:
+        for match in re.finditer(pattern, text):
+            line = match.group(0).strip()
+            if line not in seen:
+                seen.add(line)
+                lines.append(line)
+            if len(lines) >= 6:
+                break
+    return _clip('Observed shortcut diagnostics:\n' + '\n'.join(lines), limit) if lines else ''
 
 
 def _balanced_failure_evidence(text: str, limit: int) -> str:

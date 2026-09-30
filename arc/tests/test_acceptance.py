@@ -502,6 +502,24 @@ class CaughtActionDiagnosticsTests(unittest.TestCase):
         self.assertEqual(failure_summaries(summary), '')
 
 class ActionReporterBoundsTests(unittest.TestCase):
+    def test_shortcut_diagnostic_survives_earlier_observation_noise(self):
+        reporter = Path(__file__).resolve().parents[1] / 'action_errors.cjs'
+        script = r"""
+const assert = require('assert'); const Reporter = require(process.argv[1]);
+const prefix = '__OCTOS_PAGE_ERROR__';
+const lines = Array.from({length:8}, (_, i) => prefix + JSON.stringify('Console error: noise ' + i));
+lines.push(prefix + JSON.stringify('Shortcut keydown events before failure: [{"key":"V","ctrl":true,"target":"TD"}]'));
+lines.push(prefix + JSON.stringify('Same-origin /api mutation requests after final shortcut keydown: none'));
+const result = {status:'failed', stderr:[{toString:()=>lines.join('\n')}], steps:[]};
+const reporter = new Reporter(); reporter.onTestEnd({id:'case'}, result);
+const diagnostic = reporter.rows.case.join('\n');
+assert(diagnostic.includes('"key":"V"'), diagnostic);
+assert(diagnostic.includes('mutation requests after final shortcut keydown: none'), diagnostic);
+assert(reporter.rows.case.length <= 8);
+"""
+        result = subprocess.run(['node', '-e', script, str(reporter)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_should_include_bounded_preceding_actions_for_failed_tests(self):
         reporter = Path(__file__).resolve().parents[1] / 'action_errors.cjs'
         script = r"""

@@ -440,13 +440,7 @@ impl Flow {
     }
 
     fn verify_text(&self) -> String {
-        if self.plan.minimal_verify {
-            self.prompts.get("verify-minimal").to_string()
-        } else {
-            self.prompts
-                .render("verify-full", &[("smoke", &self.smoke_port.to_string())])
-                .unwrap_or_default()
-        }
+        self.prompts.get("verify-authoritative").to_string()
     }
 
     fn port_rules(&self) -> String {
@@ -1053,7 +1047,7 @@ impl Flow {
 
     fn tool_allowlist(&self) -> Option<Vec<String>> {
         let trim = self.policy.reasoning.trim_prompt;
-        let drop_shell = self.plan.minimal_verify && self.policy.reasoning.drop_shell;
+        let drop_shell = self.policy.reasoning.drop_shell;
         if !trim && !drop_shell {
             return None;
         }
@@ -1190,7 +1184,7 @@ impl Flow {
         let budget = request_budget.unwrap_or_else(|| {
             if label.contains("repair") {
                 self.policy.requests.repair
-            } else if self.plan.minimal_verify {
+            } else if self.plan.n_nodes <= self.policy.mode.small_task_nodes {
                 self.policy.requests.implement
             } else {
                 self.policy.requests.implement_large

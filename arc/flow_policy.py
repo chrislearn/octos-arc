@@ -16,6 +16,10 @@ def generation_tokens(nodes: list[dict], spec_chars: int) -> int:
 
 def phase_for_label(label: str) -> str:
     label = label.lower()
+    if label in {'basic independent review', 'basic entry contract completion'}:
+        return 'design'
+    if label == 'business exhausted retention decision':
+        return 'verify'
     return ("repair" if any(word in label for word in ("repair", "rewrite")) else
             "verify" if "final check" in label else "design" if "design" in label else "implement")
 
