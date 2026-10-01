@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import statistics
+import os
+import re
 
 
 def generation_tokens(nodes: list[dict], spec_chars: int) -> int:
@@ -20,8 +22,56 @@ def phase_for_label(label: str) -> str:
         return 'design'
     if label == 'business exhausted retention decision':
         return 'verify'
-    return ("repair" if any(word in label for word in ("repair", "rewrite")) else
+    return ("repair" if any(word in label for word in ("repair", "rewrite", "recovery")) else
             "verify" if "final check" in label else "design" if "design" in label else "implement")
+
+
+def reasoning_for_phase(label: str, base: str, env=None) -> str:
+    """Generation defaults off; repairs stay on across every execution path."""
+    env = os.environ if env is None else env
+    phase = phase_for_label(label)
+    if phase == 'repair':
+        requested = env.get('OCTOS_ARC_REPAIR_REASONING', base)
+        return requested if requested in {'low', 'medium', 'high'} else 'medium'
+    if phase == 'implement' and env.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL', '1') == '1':
+        requested = env.get('OCTOS_ARC_IMPLEMENT_REASONING') or 'none'
+        if requested in {'none', 'off', 'disabled', 'low', 'medium', 'high'}:
+            return requested
+    return base
+
+
+def is_test_infrastructure_error(error: str) -> bool:
+    """An unfinished harness measurement is not evidence of broken app startup."""
+    return bool(re.search(r'(?i)playwright|test (?:load|suite|runner)|acceptance time budget|'
+                          r'no .*cases|suite integrity|suite origin|generated test load|'
+                          r'incomplete .*verdict', str(error or '')))
+
+
+def startup_failure_summary(summary) -> bool:
+    if not summary.error or summary.killed or summary.load_errors:
+        return False
+    return (summary.error_kind in {'build_start', 'application_runtime'}
+            or not summary.error_kind and not is_test_infrastructure_error(summary.error))
+
+
+def measurement_seconds(tests_dir, specs, timeout_ms=10000, workers=1) -> float:
+    """Budget by case declarations and explicit spec timeout, never file count alone.
+
+    This conservative source estimate is admission guidance; the actual runner
+    roster remains the authority for case identities and verdicts.
+    """
+    total = 0.0
+    for rel in specs:
+        try:
+            source = (tests_dir / rel).read_text(encoding='utf8')
+        except (OSError, TypeError):
+            source = ''
+        cases = max(1, len(re.findall(r'\btest\s*(?:\.\s*(?:only|skip|fixme))?\s*\(\s*[\'"`]', source)))
+        overrides = [int(s.replace('_', '')) for s in re.findall(
+            r'(?:setTimeout\s*\(|timeout\s*:)\s*([\d_]+)', source)]
+        case_seconds = max([timeout_ms, *overrides]) / 1000
+        total += cases * case_seconds
+    return 60 + 1.2 * total / max(1, workers)
 
 
 def repair_seconds(samples: list[float], minimum: float) -> float:

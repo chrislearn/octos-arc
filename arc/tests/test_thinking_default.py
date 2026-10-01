@@ -1,4 +1,4 @@
-"""Code and independent reviews retain reasoning; scenario proposals can omit it."""
+"""Generation defaults off while design and formal repair retain reasoning."""
 import argparse
 import json
 import os
@@ -13,7 +13,7 @@ import main as m
 
 
 class ThinkingDefaultTests(unittest.TestCase):
-    def test_low_default_covers_generated_tests_design_generation_and_repair(self):
+    def test_generation_defaults_off_and_design_and_repair_stay_on(self):
         for model in ("qwen3.7-plus", "glm-5.3-flash"):
             with self.subTest(model=model), tempfile.TemporaryDirectory() as tmp, patch.dict(
                     os.environ, {"MODEL": model}, clear=True):
@@ -28,13 +28,13 @@ class ThinkingDefaultTests(unittest.TestCase):
                 flow.restore_protected = lambda: []
                 flow.driver = SimpleNamespace(run=Mock(return_value=(True, "done")), progress_deadline=None)
                 for label, expected in (("derived scenario review", "none"),
-                                        ("derived scenario review (retry)", "low"),
-                                        ("derived case independent review", "low"),
+                                        ("derived scenario review (retry)", "none"),
+                                        ("derived case independent review", "none"),
                                         ("application design", "low"),
-                                        ("whole application implement", "low"),
+                                        ("whole application implement", "none"),
                                         ("A repair", "low")):
                     flow.turn("prompt", 60, label, expect_verification=False)
-                    self.assertEqual(proxy.mode, expected if model == 'qwen3.7-plus' else 'low', label)
+                    self.assertEqual(proxy.mode, expected, label)
         with patch.dict(os.environ, {"MODEL": "qwen3.7-plus", "OCTOS_ARC_REASONING": "medium"}, clear=True):
             self.assertEqual(m.turn_reasoning_for_model("qwen3.7-plus", "A implement"), "medium")
 
@@ -61,7 +61,7 @@ class ThinkingDefaultTests(unittest.TestCase):
             self.assertFalse(flow.whole_app_codegen({}, []))
             flow.codegen_turn.assert_not_called()
 
-    def test_default_proxy_mode_is_low_for_every_task_size_and_turn_phase(self):
+    def test_low_base_with_generation_off_for_every_task_size(self):
         for nodes in (1, 32, 138):
             with self.subTest(nodes=nodes), tempfile.TemporaryDirectory() as tmp, patch.dict(
                     os.environ, {"OPENAI_BASE_URL": "https://provider.invalid/v1",
@@ -83,7 +83,7 @@ class ThinkingDefaultTests(unittest.TestCase):
                 flow.driver = SimpleNamespace(run=Mock(return_value=(True, "done")))
                 for label in ("whole application design", "whole application implement", "R repair", "R rewrite"):
                     flow.turn("prompt", 60, label, expect_verification=False)
-                    self.assertEqual(proxy.mode, "low")
+                    self.assertEqual(proxy.mode, "none" if label == "whole application implement" else "low")
 
     def test_explicit_auto_and_low_remain_available(self):
         with tempfile.TemporaryDirectory() as tmp:

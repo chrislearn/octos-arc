@@ -49,7 +49,7 @@ class UnknownVerdictTests(TestCase):
         f.record_tests = Mock()
         f.run_specs = Mock(return_value=RunSummary(passed=1, total=1, load_errors=['other spec failed to load']))
         self.assertIsNone(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 1000))
-        self.assertEqual(f._unresolved_startup_error, 'other spec failed to load')
+        self.assertEqual(f._unresolved_startup_error, '')  # test load is not app startup
         f.record_tests.assert_not_called()
         f.commit.assert_not_called()
 

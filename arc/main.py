@@ -46,8 +46,9 @@ Environment (all optional):
     OCTOS_ARC_SHARED_REPAIR    "0" disables the single shared runtime-error repair before leaf cycles
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
     OCTOS_SMALL_TASK_NODES    small-task implementation request budgeting threshold (2)
-    OCTOS_ARC_REASONING       low (default for all models/stages) | none | auto | medium | high | passthrough
-    OCTOS_ARC_IMPLEMENT_REASONING  optional override for first implement turns of small tasks (default: base mode)
+    OCTOS_ARC_REASONING       base effort: low (default) | none | auto | medium | high | passthrough; generation defaults off, repair stays on
+    OCTOS_ARC_IMPLEMENT_REASONING  generation effort across file blocks/tools/continuations/workers (default: none; repair stays on)
+    OCTOS_ARC_IMPLEMENT_REASONING_ALL  apply generation effort to every implementation turn (default: 1; 0 restores legacy scope)
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
@@ -97,7 +98,7 @@ Environment (all optional):
     OCTOS_ARC_MODEL_CONTEXT_TOKENS  JSON map of explicit model context capacities for the proxy and adaptive waves
     OCTOS_ARC_LLM_TIMEOUT_SECONDS  kernel HTTP timeout per LLM request; must exceed the proxy wait (default 900)
     OCTOS_ARC_EDIT_SOURCE_CHARS  whole-source retention in focused tool turns (default 32768)
-    OCTOS_ARC_PRESERVATION_CHARS  complete relevant prior requirement descriptions (default 24000; overflow uses tool reads)
+    OCTOS_ARC_PRESERVATION_CHARS  complete relevant prior requirement descriptions (default up to 65536, bounded by total context; overflow uses tool reads)
     OCTOS_ARC_FIXTURE_CONTEXT_CHARS  public frozen fixture prerequisites quoted into codegen (default 12000)
     OCTOS_ARC_BLOCK_ROUTE_WARNINGS  "1" makes a wave's own ROUTE_LINK warnings block completion (default advisory)
     OCTOS_ARC_PRIME_GENERATION_BUILD  "0" skips the one-time dependency/build preflight (default on)
@@ -144,14 +145,15 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
                      incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, prepare_edit_files, safe_relative_path,
                      source_protocol_errors, write_files, parse_context_request, has_context_request)
 from guard import TurnMonitor  # noqa: E402
-from repair_control import isolated_node_deadline, seconds_available, progress_snapshot, measured_progress  # noqa: E402
-from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
+from repair_control import isolated_node_deadline, startup_recovery_deadline, seconds_available, progress_snapshot, measured_progress  # noqa: E402
+from flow_policy import (generation_tokens, node_seconds, phase_for_label, repair_seconds,
+                         reasoning_for_phase, is_test_infrastructure_error, measurement_seconds, startup_failure_summary)  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
 from runtime_diagnostics import (application_failures, backend_binding_health,
                                  backend_http_failure_observation, binding_failure_observation,
                                  browser_failure_summary, browser_health,
                                  frontend_binding_health, diagnose)
-from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, review_evidence, export_contracts, concrete_health_paths, dynamic_health_patterns, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
+from quality_control import (helper_evidence_hash, preserves_design, recovery_budget, blocked_design_owners, context_evidence, RepeatedContextRequest, review_evidence, export_contracts, concrete_health_paths, dynamic_health_patterns, repair_allowance, BUSINESS_QUALITY_GUIDANCE, TEST_QUALITY_GUIDANCE)
 from obligation_planning import applicable_obligations, prepare_obligations, reviewed_obligations_intact
 from domain_contracts import DOMAIN_GUIDANCE, contract_manifest, official_status, requirement_index, source_contract_advisories
 from implementation_evidence import STATUSES as IMPLEMENTATION_STATUSES, initial_status  # noqa: E402
@@ -197,8 +199,16 @@ BUNDLE_DIR = Path(__file__).resolve().parent
 def log(msg: str) -> None:
     """Progress lines go to BOTH stdout and stderr (the platform truncates
     stdout on long runs but keeps stderr as a separate field)."""
-    print(msg, flush=True)
-    print(msg, file=sys.stderr, flush=True)
+    for name in ('stdout', 'stderr'):
+        try:
+            print(msg, file=getattr(sys, name), flush=True)
+        except (Exception, SystemExit):
+            # Logging is optional during handoff. Replace a broken stream so
+            # Python's shutdown flush cannot turn exit 0 into exit 120 either.
+            try:
+                setattr(sys, name, open(os.devnull, 'w'))
+            except (Exception, SystemExit):
+                pass
 
 
 # ---------------------------------------------------------------- postflight
@@ -2288,32 +2298,56 @@ def fixture_context(flow, evidence: str) -> str:
     if not cap or not isinstance(document, dict):
         return ''
     render = lambda value: json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+    complete = True
+    required = []
     if len(render(document)) <= cap:
         selected = document
     else:
         selected = {key: value for key, value in document.items() if not isinstance(value, list)}
-        pending = [(key, row) for key, values in document.items() if isinstance(values, list)
-                   for row in values if isinstance(row, dict)]
-        context = evidence.lower()
-        while pending:
-            added = False
-            for key, row in list(pending):
-                identities = [row.get(field) for field in ('username', 'name', 'identifier', 'slug', 'id')]
-                if not any(isinstance(value, str) and value and value.lower() in context for value in identities):
-                    continue
-                candidate = {**selected, key: selected.get(key, []) + [row]}
-                if len(render(candidate)) <= cap:
-                    selected = candidate
-                    context += '\n' + render(row).lower()
-                    added = True
-                pending.remove((key, row))
-            if not added:
+        records = [(key, index, row) for key, values in document.items() if isinstance(values, list)
+                   for index, row in enumerate(values) if isinstance(row, dict)]
+        def identity(row):
+            return {str(row[field]).lower() for field in ('username', 'name', 'identifier', 'slug', 'id')
+                    if isinstance(row.get(field), (str, int)) and str(row[field])}
+        def values(row):
+            if isinstance(row, dict):
+                return set().union(*(values(v) for v in row.values()), {str(k).lower() for k in row})
+            if isinstance(row, list):
+                return set().union(*(values(v) for v in row)) if row else set()
+            return {str(row).lower()} if isinstance(row, (str, int)) else set()
+        wanted = {(key, index) for key, index, row in records if any(
+            re.search(r'(?<![\w])' + re.escape(value) + r'(?![\w])', evidence.lower()) for value in identity(row))}
+        while True:
+            refs = set().union(*(values(row) for key, index, row in records if (key, index) in wanted)) if wanted else set()
+            active_ids = set().union(*(identity(row) for key, index, row in records if (key, index) in wanted)) if wanted else set()
+            expanded = wanted | {(key, index) for key, index, row in records
+                if identity(row) & refs or (any(part in key.lower() for part in ('grant', 'permission', 'membership', 'relation'))
+                                          and values(row) & active_ids)}
+            if expanded == wanted:
                 break
-        if not any(isinstance(value, list) and value for value in selected.values()):
+            wanted = expanded
+        for key, index, row in records:
+            if (key, index) in wanted:
+                selected.setdefault(key, []).append(row)
+                required.append(f'{key}[{index}]')
+        if not wanted:
             return ''
+        complete = len(render(selected)) <= cap
+        if not complete:
+            # Never silently drop an owner/grant while claiming prerequisites
+            # complete. Publish the entire closure read-only for a native read.
+            closure = flow.output_dir / '.arc' / 'public-fixture-closure.json'
+            closure.parent.mkdir(parents=True, exist_ok=True)
+            closure.write_text(render(selected), encoding='utf8')
+            flow.metric('fixture_context', complete=False, required_records=required,
+                        required_chars=len(render(selected)), cap_chars=cap, source_sha256=hashlib.sha256(render(document).encode()).hexdigest())
+            return ('\nPublic fixture prerequisites: dependency closure exceeds inline budget; INCOMPLETE inline delivery. '
+                    f'Read the complete public, read-only closure at {closure} before provisioning; '
+                    'do not invent or omit grants/owners. Required records: ' + ', '.join(required) + '\n')
     body = render(selected)
     if len(body) > cap:
         return ''
+
     return ('\nPublic fixture prerequisites (read-only source-reviewed records; provision through normal '
             'application seeds, preserve independent records, no private test API):\n' + body + '\n')
 
@@ -2901,7 +2935,7 @@ class Flow:
                                "integrated_unverified" if plausible == len(leaves) else "incomplete_or_unattributed"})
         summary = {"version": 3, "source_hash": current_source,
                    "execution_state": "blocked" if getattr(self, 'layered', None) is not None and self.layered.state.data.get('termination') else "completed",
-                   "verification_state": "verified" if node_ids and all(self.test_verdict.get(n) is True for n in node_ids) and startable else "incomplete",
+                   "verification_state": "verified" if node_ids and all(self.test_verdict.get(n) is True for n in node_ids) and startable and (not self.tests_dir or getattr(self, "final_suite_green", False) is True) else "incomplete",
                    "delivery_state": "browser_ready" if startable else "not_ready",
                    "browser_health": getattr(self, "_last_browser_health", {"status": "unknown"}),
                    "startable": startable, "leaves": len(node_ids),
@@ -3410,17 +3444,18 @@ class Flow:
                               expect_verification=expect_verification and not no_shell and getattr(self, "layered", None) is None,
                               allowed_prefixes=[".arc/design/", str(self.output_dir / ".arc" / "design")])
         if proxy is not None:
-            # Per-turn reasoning: OCTOS_ARC_IMPLEMENT_REASONING (e.g. "none") applies
-            # to first implement turns of small tasks; rewrite/repair keep the base mode.
+            # Generation defaults to no thinking across task sizes and executors;
+            # the shared phase policy keeps repair/rewrite reasoning enabled.
             base_mode = getattr(self, "base_reasoning_mode", proxy.mode)
-            impl_mode = os.environ.get("OCTOS_ARC_IMPLEMENT_REASONING", "")  # auto already gives "none" to 1-node tasks
-            is_implement = label.endswith(" implement") or label.startswith("skeleton")
-            impl_all = os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL') == '1'
+            impl_mode = os.environ.get("OCTOS_ARC_IMPLEMENT_REASONING", "")
+            is_implement = phase_for_label(label) == "implement"
+            impl_all = os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL', '1') == '1'
             proxy.mode = impl_mode if (impl_mode and is_implement and
                                        (impl_all or (getattr(self, "n_nodes", 99) <= self.small_task_nodes))) else base_mode
             current_model = os.environ.get("OCTOS_MODEL") or os.environ.get("MODEL", "")
             if proxy.mode == default_reasoning_for_model(current_model):
                 proxy.mode = turn_reasoning_for_model(current_model, label)
+            proxy.mode = reasoning_for_phase(label, proxy.mode)
             if request_budget is None:
                 # Repairs are measured after bounded work, not allowed unlimited
                 # context growth. Creation keeps its independent default.
@@ -3438,6 +3473,11 @@ class Flow:
         t0 = time.time()
         execution_mode = "codegen" if proxy is not None and getattr(proxy, "no_tools", False) else "tools"
         before_sources = self.app_source_digest() if execution_mode == "tools" else None
+        route_guard = None
+        if execution_mode == "tools" and getattr(self, "generic_template_installed", False):
+            from web_checks import runtime_route_report, backend_sources, autoload_invocations
+            saved_sources = {str(p.relative_to(self.output_dir)): p.read_bytes() for p in app_source_files(self.output_dir)}
+            route_guard = (saved_sources, runtime_route_report(self.output_dir), autoload_invocations(backend_sources(self.output_dir)))
         self.note_turn(label)
         # Only the guarded tool-free SSE path exposes trustworthy upstream progress.
         lease = None
@@ -3491,6 +3531,26 @@ class Flow:
         if getattr(self, "generic_template_installed", False) and monitor.wrote_files:
             self.generic_template_installed = generic_template_active(self.output_dir)
         self.last_turn_changed = (self.app_source_digest() != before_sources) if before_sources is not None else False
+        if route_guard and self.last_turn_changed:
+            from web_checks import route_transition_errors, runtime_route_report, backend_sources, autoload_invocations
+            saved_sources, before_routes, before_calls = route_guard
+            changed_backend = any(rel.startswith("backend/") and data != saved_sources.get(rel)
+                for rel, data in {str(p.relative_to(self.output_dir)): p.read_bytes() for p in app_source_files(self.output_dir)}.items())
+            changed_backend |= any(rel.startswith("backend/") and not (self.output_dir / rel).is_file() for rel in saved_sources)
+            issues = []
+            if changed_backend:
+                issues = route_transition_errors(before_routes, runtime_route_report(self.output_dir))
+                issues += [f"Duplicate root loader invocation: {pair}" for pair in autoload_invocations(backend_sources(self.output_dir)) - before_calls]
+            if issues:
+                for path in app_source_files(self.output_dir):
+                    if str(path.relative_to(self.output_dir)) not in saved_sources:
+                        path.unlink()
+                for rel, data in saved_sources.items():
+                    target = self.output_dir / rel; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
+                self.last_turn_changed = False
+                ok, text = False, "Route contract violated; turn edits rolled back: " + "; ".join(issues[:4])
+                self.pending_corrections.append(text)
+                self.metric("route_guard_rollback", label=label, issues=issues[:4])
         if ok and self.last_turn_changed and phase_for_label(label) == "repair":
             durations = getattr(self, "repair_durations", {})
             durations.setdefault(execution_mode, []).append(elapsed)
@@ -3671,7 +3731,8 @@ class Flow:
         req_path = getattr(self, 'req_dir', Path('requirements')) / 'requirements.yaml'
         if not req_path.is_file() and req_path.with_suffix('.yml').is_file():
             req_path = req_path.with_suffix('.yml')
-        limit = max(0, int(os.environ.get('OCTOS_ARC_PRESERVATION_CHARS', '24000')))
+        default_limit = min(65536, max(24000, self.codegen_context_chars() // 3))
+        limit = max(0, int(os.environ.get('OCTOS_ARC_PRESERVATION_CHARS', str(default_limit))))
         parents = ancestor_nodes(getattr(self, 'original_requirement_tree', None)
                                  or getattr(self, 'requirement_tree', None), active_ids)
         inherited = render_preservation_context(parents, tuple(parents), req_path, limit, inherited=True)
@@ -4062,10 +4123,11 @@ class Flow:
         return bool(passed)
 
     def codegen_reasoning(self, spec_chars: int) -> str | None:
-        """Reasoning effort for a codegen turn, derived from the size of the spec it
-        must satisfy (OCTOS_ARC_CODEGEN_REASONING_CHARS, default 5000): small specs are
-        generated without reasoning; large ones keep the base mode. Retain the
-        compact size rule when thinking is disabled by default too."""
+        """Legacy spec-size hint applied before the shared phase policy.
+
+        The default phase policy disables generation reasoning at every size;
+        this hint remains available when IMPLEMENT_REASONING_ALL=0.
+        """
         if default_reasoning_for_model(os.environ.get("OCTOS_MODEL") or os.environ.get("MODEL", "")) not in {"auto", "none", "off", "disabled"}:
             return None
         threshold = int(os.environ.get("OCTOS_ARC_CODEGEN_REASONING_CHARS", "5000"))
@@ -4091,10 +4153,10 @@ class Flow:
         mode_override = self.codegen_reasoning(spec_chars)
         saved_cap = getattr(proxy, "codegen_max_tokens", 0)
         phase = phase_for_label(label)
-        if phase == 'implement' and os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL') == '1':
-            experiment_mode = os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING', '')
-            if experiment_mode in {'none', 'low', 'medium', 'high'}:
-                mode_override = experiment_mode
+        if phase == 'implement' and os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL', '1') == '1':
+            implement_mode = os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING', 'none')
+            if implement_mode in {'none', 'off', 'disabled', 'low', 'medium', 'high'}:
+                mode_override = implement_mode
         recovering = getattr(self, "codegen_degenerated", False) and phase != "design"
         phase_cap = max(0, int(os.environ.get("OCTOS_ARC_REPAIR_MAX_TOKENS", "32768"))) if phase == "repair" else 0
         if phase == "design":
@@ -4110,6 +4172,7 @@ class Flow:
         recovery_mode = os.environ.get("OCTOS_ARC_RECOVERY_REASONING", "none")
         if recovering and recovery_mode in {"low", "medium", "high"}:
             mode_override = recovery_mode  # opt-in; otherwise retain the base effort
+        mode_override = reasoning_for_phase(label, mode_override or getattr(self, "base_reasoning_mode", proxy.mode))
         saved_base = getattr(self, "base_reasoning_mode", proxy.mode)
         if mode_override:
             self.base_reasoning_mode = mode_override
@@ -4177,6 +4240,7 @@ class Flow:
                 model_name = os.environ.get("OCTOS_MODEL") or os.environ.get("MODEL", "")
                 if worker_mode == default_reasoning_for_model(model_name):
                     worker_mode = turn_reasoning_for_model(model_name, job.label)
+                worker_mode = reasoning_for_phase(job.label, worker_mode)
                 proxy = LlmProxy(upstream, worker_mode,
                                  root / "llm-usage.jsonl", destream=destream, trim=trim,
                                  min_max_tokens=min_tokens)
@@ -5412,6 +5476,11 @@ class Flow:
                     self._repair_context_versions = seen_repairs | {key}
             try:
                 evidence, versions = context_evidence(self.output_dir, request, available, seen_context)
+            except RepeatedContextRequest as exc:
+                self.last_codegen_context_requested = set(request['paths'])
+                self.metric('context_recovery', label=label, outcome='same_version_limit',
+                            paths=sorted(self.last_codegen_context_requested))
+                return result(False, str(exc), 'needs_context_repeated')
             except (OSError, ValueError) as exc:
                 return result(False, str(exc), "invalid_context_request")
             left = min(timeout - (time.monotonic() - started), self.remaining())
@@ -5630,6 +5699,12 @@ class Flow:
                     self.refused_paths.update(targets)
                 log(f"[codegen] {label}: {error.splitlines()[0]} {export_errors[0][:200]}")
                 return result(False, error, "export_contract")
+            from web_checks import candidate_route_errors
+            runtime_route_errors = candidate_route_errors(self.output_dir, files)
+            if runtime_route_errors:
+                error = "Runtime route contract; no changes applied: " + "; ".join(runtime_route_errors[:4])
+                self.pending_corrections.append(error)
+                return result(False, error, "runtime_route_contract")
             written = write_files(self.output_dir, files)
             self.last_codegen_written = written
             self.last_codegen_no_change = not written and not refused
@@ -6438,12 +6513,13 @@ class Flow:
             if err is None:
                 err = server.start()
             if err is not None:
-                return RunSummary(error=err)
+                return RunSummary(error=err, error_kind="build_start")
             health = self.check_browser_health()
             if health.get("status") == "failed" or layered is not None and health.get("status") != "passed":
                 summary = RunSummary(runtime_observations=health["observations"],
                                      artifact_dirs=[health["artifact_dir"]])
                 summary.error = "Application runtime failure: " + "\n".join(application_failures(summary))
+                summary.error_kind = "application_runtime"
                 return summary
             self.note_startable_commit(git_run, health.get("status"), health.get('source_hash'))
             # A derived suite has one spec file per leaf (47 for the GitHub task);
@@ -6452,7 +6528,8 @@ class Flow:
             active_runner = selected_runner
             active_runner.derived_policy = policy
             active_runner.artifact_dir = self.output_dir / ".arc" / "acceptance-evidence"
-            wall = max(900, 30 * len(specs))
+            wall = max(900, int(measurement_seconds(self.tests_dir, specs,
+                getattr(active_runner, "timeout_ms", 10000), workers)))
             if getattr(self, "derived_as_specs", False):
                 # Derived scripts mutate the shared seeds (rename the seeded
                 # workbook, import, delete); two workers made "Q3 Sales" vanish
@@ -6480,6 +6557,7 @@ class Flow:
                     summary.artifact_dirs.append(observed["artifact_dir"])
             if application_failures(summary):
                 summary.error = "Application runtime failure: " + "\n".join(application_failures(summary))
+                summary.error_kind = "application_runtime"
             self.metric("runtime_diagnosis", source_hash=self.app_source_digest(),
                         issues=diagnose(summary), artifacts=summary.artifact_dirs)
             warnings = list(getattr(server, "warnings", None) or [])
@@ -6529,10 +6607,11 @@ class Flow:
                 merged.error = merged.error or "acceptance time budget exhausted"
                 break
             part = runner.run([spec], url, workers=workers,
-                              wall_timeout=max(1, min(600, int(seconds_available(self)))))
-            if part.error and not part.results:
+                              wall_timeout=max(1, min(int(measurement_seconds(self.tests_dir, [spec],
+                                  getattr(runner, 'timeout_ms', 10000), workers)), int(seconds_available(self)))))
+            if part.error:
                 merged.error, merged.killed = part.error, part.killed
-                break
+                merged.error_kind, merged.partial = part.error_kind, part.partial
             merged.passed += part.passed
             merged.total += part.total
             merged.results += part.results
@@ -6543,6 +6622,8 @@ class Flow:
             if backend_failure:
                 merged.runtime_observations.append(backend_failure)
             merged.artifact_dirs += part.artifact_dirs
+            if part.error:
+                break  # retain the completed prefix, never promote it to full verification
             if index < len(specs) - 1:
                 status = git_run(["status", "--porcelain", "--", "frontend", "backend"])
                 dirty = bool((getattr(status, "stdout", "") or "").strip())
@@ -7372,13 +7453,19 @@ class Flow:
                 return None
             infrastructure_error = summary.error or ('\n'.join(summary.load_errors) if summary.load_errors else '')
             measured = not infrastructure_error and (not summary.killed) and (summary.total > 0)
-            self._unresolved_startup_error = infrastructure_error
+            startup_failure = startup_failure_summary(summary)
+            self._unresolved_startup_error = infrastructure_error if startup_failure else ""
             self.verify_repair_memory(summary, measured)
             if infrastructure_error:
                 log(f'[acceptance] {node_id} infrastructure error: {startup_error_digest(infrastructure_error, 1200)}')
-                self.record_quality_observation(node_id, 'build/start/load', infrastructure_error, source='runtime', reliable=True)
-                failures = f'- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 2200)}\n  Steps: npm run build -> npm start'
-                passed = 0
+                category = 'build/start' if startup_failure else 'test measurement'
+                self.record_quality_observation(node_id, category, infrastructure_error, source='runtime', reliable=True)
+                failures = (f'- Feature: app startup\n  Failed at: build/start\n  Observation: {startup_error_digest(infrastructure_error, 2200)}\n  Steps: npm run build -> npm start'
+                            if startup_failure else '- Feature: incomplete test measurement\n  Observation: ' + infrastructure_error
+                            + '\nCompleted-case evidence (diagnostic only; entire scope unknown):\n'
+                            + failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+                            + '\nDo not change app startup or remove features to address a harness timeout; fix only the evidenced failing interaction.')
+                passed = summary.passed
             else:
                 passed = summary.passed
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
@@ -7686,7 +7773,7 @@ class Flow:
                     return None
                 restored = self.run_specs(specs)
                 complete = self.suite_is_measured(restored, specs)
-                self._unresolved_startup_error = '' if complete else restored.error or '\n'.join(restored.load_errors) or 'Incomplete rollback verification'
+                self._unresolved_startup_error = (restored.error or '') if not complete and startup_failure_summary(restored) else ''
                 self.metric('startup_rollback', node_id=node_id, measured=complete, passed=restored.passed, total=restored.total)
                 if complete:
                     self.record_tests(node_id, specs, restored)
@@ -9936,6 +10023,7 @@ class Flow:
         startup_checked_source = self.app_source_digest()
         if startup_checked_source != source_before:
             self.test_verdict = {node_id: None for node_id in self.test_verdict}
+            self.final_suite_green = False
             self._final_suite_attempted = False
         if any(value is None for value in self.test_verdict.values()):
             self.final_acceptance_passes()
@@ -11160,6 +11248,7 @@ class Flow:
         # Dependency verdicts never create a waiting subqueue. Only hard time
         # or provider unavailability may leave a node unattempted.
 
+    @startup_recovery_deadline
     def recover_sequential_startup(self, node_id: str) -> bool:
         """Repair infrastructure locally, measure the active node, then resume.
 
@@ -11197,15 +11286,65 @@ class Flow:
                                               else summary.passed == summary.total)
                 log(f"[flow] startup recovered at {node_id}; resuming remaining requirements")
                 return True
-            self._unresolved_startup_error = summary.error or '\n'.join(summary.load_errors) or 'Incomplete startup recovery verdict'
+            self._unresolved_startup_error = summary.error if startup_failure_summary(summary) else ''
+            if not self._unresolved_startup_error:
+                return False  # startup may be healthy; business/test-load scope remains unknown
         return False
 
     def whole_app_startup_repair(self, error: str, *, max_seconds: float | None = None) -> bool:
-        """Fix one concrete build/start failure without reimplementing all nodes."""
-        reserve = self.final_measurement_reserve()
-        if self.remaining() < self.repair_minimum() + reserve or self.wound_down():
+        """Restrict startup recovery to concrete implicated source and dependencies."""
+        if is_test_infrastructure_error(error) and not str(error).startswith('Application runtime failure:'):
+            self.metric('startup_repair_rejected', reason='test_measurement_error', error=str(error)[:300])
             return False
-        allowance = max(0, self.remaining() - reserve)
+        index = self.repair_source_index()
+        before = dict(index.sources)
+        names = set(re.findall(r'(?:frontend|backend)/[\w./-]+\.(?:jsx?|tsx?|[cm][jt]s|s?css|html|json)\b', error))
+        names |= {'frontend/' + path for path in re.findall(r'(?<![\w/])src/[\w./-]+\.(?:jsx?|tsx?|css)\b', error)}
+        names |= {'backend/' + path for path in re.findall(r'(?<![\w/])([\w./-]+\.(?:jsx?|[cm][jt]s))(?=:\d)', error)
+                  if 'backend/' + path in before}
+        if not names:
+            names = {'backend/server.js', 'backend/package.json', 'frontend/package.json',
+                     'frontend/build.mjs', 'frontend/vite.config.mjs'}
+        # An implicated importer/exporter may require one direct interface fix.
+        allowed = names | {dep for name in names for dep in index.dependencies.get(name, ())}
+        allowed |= {p for p in ('backend/package.json', 'frontend/package.json')
+                    if any(name.startswith(p.split('/')[0] + '/') for name in names)}
+        try:
+            repaired = self._whole_app_startup_repair(error, max_seconds=max_seconds)
+        except (Exception, SystemExit):
+            self.restore_startup_scope(before, allowed)
+            raise
+        violations = self.restore_startup_scope(before, allowed)
+        if violations:
+            self.last_turn_changed = False
+            self.last_codegen_written = []
+            self.pending_corrections.append('Startup repair changed unrelated files and was rolled back: ' + ', '.join(violations[:8]))
+            self.metric('startup_scope_rollback', files=violations, reason='outside_confirmed_failure_scope')
+            return False
+        return repaired
+
+    def restore_startup_scope(self, before, allowed):
+        after = self.repair_source_index().sources
+        changed = {rel for rel in before.keys() | after.keys() if before.get(rel) != after.get(rel)}
+        violations = sorted(changed - allowed)
+        if violations:
+            # Restore the whole response, not just half of a caller/callee edit.
+            for rel in after.keys() - before.keys():
+                (self.output_dir / rel).unlink(missing_ok=True)
+            for rel, body in before.items():
+                path = self.output_dir / rel; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(body)
+            getattr(self, 'probe_summaries', {}).clear()
+        return violations
+
+    def _whole_app_startup_repair(self, error: str, *, max_seconds: float | None = None) -> bool:
+        """Fix one concrete build/start failure without reimplementing all nodes."""
+        if is_test_infrastructure_error(error) and not str(error).startswith("Application runtime failure:"):
+            self.metric("startup_repair_rejected", reason="test_measurement_error", error=str(error)[:300])
+            return False
+        reserve = self.final_measurement_reserve()
+        if seconds_available(self) < self.repair_minimum() + reserve or self.wound_down():
+            return False
+        allowance = max(0, seconds_available(self) - reserve)
         if max_seconds is not None:
             allowance = min(allowance, max_seconds)
         deadline = time.monotonic() + min(self.node_timeout, 720, allowance)
@@ -11278,6 +11417,7 @@ class Flow:
         committed = self.commit("fix: whole application startup preflight (tools)")
         return self.last_turn_changed if isinstance(self.last_turn_changed, bool) else committed
 
+    @startup_recovery_deadline
     def recover_deferred_startup(self, node_id: str) -> bool:
         """Recheck build/start only; incomplete feature tests cannot gate source."""
         if self.time_up():
@@ -11605,6 +11745,7 @@ class Flow:
             return
         deadline = time.time() + node_budget
         self._node_deadline = time.monotonic() + node_budget
+        self._startup_recovery_deadline = self._node_deadline
         log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
 
         self.mark("design_started", node_id)
@@ -12796,7 +12937,7 @@ class Flow:
     @staticmethod
     def suite_is_measured(summary: RunSummary, specs: list[str]) -> bool:
         observed = {str(r.file or "").replace("\\", "/") for r in summary.results}
-        return bool(specs and not summary.error and not summary.killed and not summary.load_errors and not summary.runtime_uncertain
+        return bool(specs and not summary.error and not summary.partial and not summary.killed and not summary.load_errors and not summary.runtime_uncertain
                     and summary.results and summary.total == len(summary.results)
                     and all(r.status in {"passed", "failed", "timedOut", "quarantined"} for r in summary.results)
                     and all(any(path == spec or path.endswith("/" + spec) for path in observed) for spec in specs))
@@ -12909,13 +13050,7 @@ class Flow:
             timeout_s = max(1, getattr(self.runner, 'timeout_ms', 30000) / 1000)
             workers = max(1, self.final_workers())
             def estimate(paths: list[str]) -> float:
-                cases = 0
-                for rel in paths:
-                    try:
-                        cases += len(re.findall(r"(?m)^\s*test\('", (self.tests_dir / rel).read_text(encoding="utf-8")))
-                    except OSError:
-                        cases += 1
-                return max(30, 60 + 1.2 * max(len(paths), cases) * timeout_s / workers)
+                return measurement_seconds(self.tests_dir, paths, int(timeout_s * 1000), workers)
             proven_estimated = estimate(proven_specs)
             if (proven_specs and len(proven_specs) < len(all_specs)
                     and self.remaining() >= proven_estimated + 20):
@@ -12945,7 +13080,10 @@ class Flow:
                 log('[acceptance] provider circuit open; preserving measured source without final model repairs')
                 return
             estimated = estimate(all_specs)
-            cap = max(60, int(os.environ.get("OCTOS_ARC_FULL_SUITE_SECONDS_CAP", "900")))
+            # The default must grow with the case-based estimate, otherwise a
+            # 16-case file can never enter even when hours of budget remain.
+            # An explicit operator cap remains an independent hard limit.
+            cap = max(60, int(os.environ.get("OCTOS_ARC_FULL_SUITE_SECONDS_CAP", str(max(900, int(estimated) + 1)))))
             final_startup_buffer = min(120.0, max(30.0, self.remaining() * .30))
             if estimated > min(cap, max(0, self.remaining() - final_startup_buffer)):
                 log(f'[acceptance] full suite deferred: {len(all_specs)} specs, estimated '
@@ -12990,6 +13128,9 @@ class Flow:
             if self.remaining() < self.final_retry_admission():
                 log(f"[flow] full suite still failing, but {self.remaining():.0f}s is below the "
                     f"{self.final_retry_admission():.0f}s needed to measure, repair, and remeasure")
+                break
+            if attempt + 1 >= passes:
+                log("[flow] final measurement passes exhausted; retaining current artifact without further edits")
                 break
             if getattr(self, "final_repair_no_change", False) is True:
                 unchanged_passes = (1 if getattr(self, 'final_suite_progress', False) is True
@@ -13513,26 +13654,30 @@ class Flow:
         still give back, and reaping only between nodes leaves the last ones
         alive for exactly the run that cannot afford them.
         """
-        if getattr(self, "layered", None) is not None:
-            self.layered.close()
-        if self.driver:
-            self.driver.close()
-        self.cleanup_playwright()
-        self.stop_llm_proxy()
-        strays = reap_workspace_processes(self.output_dir, log)
-        if strays:
-            log(f"[flow] reaped {strays} leftover process(es) before grading")
-        if getattr(self, "output_dir", None) is not None and getattr(self, 'layered', None) is None:
-            self.discard_runtime_store()
+        def reap():
+            strays = reap_workspace_processes(self.output_dir, log)
+            if strays:
+                log(f"[flow] reaped {strays} leftover process(es) before grading")
+        callbacks = [lambda: self.layered.close() if getattr(self, 'layered', None) is not None else None,
+                     lambda: self.driver.close() if getattr(self, 'driver', None) is not None else None,
+                     self.cleanup_playwright, self.stop_llm_proxy, reap,
+                     lambda: self.discard_runtime_store() if getattr(self, 'output_dir', None) is not None
+                             and getattr(self, 'layered', None) is None else None]
+        for callback in callbacks:
+            try:
+                callback()
+            except (Exception, SystemExit) as exc:
+                log(f'[delivery] cleanup step unavailable: {type(exc).__name__}; continuing handoff')
 
     # -- run --------------------------------------------------------------
     def run(self) -> int:
-        self.runtime = AgentRuntime.from_env(project_dir=str(self.output_dir))
-        self.events = self.runtime.events
-        self.events.mark_run_started("octos bundle started")
         ordered: list[dict] = []
+        postflight_done = False
         watchdog_stop = threading.Event()
         try:
+            self.runtime = AgentRuntime.from_env(project_dir=str(self.output_dir))
+            self.events = self.runtime.events
+            self.events.mark_run_started("octos bundle started")
             from generation_checks import adapter_fingerprint
             provenance = adapter_fingerprint(BUNDLE_DIR)
             self.metric('adapter_provenance', **provenance)
@@ -13665,9 +13810,11 @@ class Flow:
             finally:
                 watchdog_stop.set()
                 self.postflight()
+                postflight_done = True
             for node_id in node_ids:  # final per-node verdicts (full-suite run may have changed them)
                 if self.test_verdict.get(node_id) is True:
-                    detail = ("acceptance specs pass (node run and full parallel suite)" if self.tests_dir else
+                    detail = (("acceptance specs pass (node run and full suite)" if getattr(self, "final_suite_green", False) is True
+                              else "node acceptance specs pass; full suite verification incomplete") if self.tests_dir else
                               "derived requirement-contract review and startup rehearsal completed; "
                               "official acceptance specs unavailable")
                     self.mark("test_passed", node_id, detail)
@@ -13684,9 +13831,19 @@ class Flow:
                 reason = ("final rehearsal measurement unavailable; application startup not verified"
                           if getattr(self, "_last_rehearsal_measurement_unavailable", False) else
                           "generated application did not pass final build/start rehearsal")
-                self.events.mark_run_failed(reason)
-            elif failed:
-                self.events.mark_run_failed(f"verification_incomplete; nodes not verified: {', '.join(failed)}")
+                finish_partial_delivery(self.output_dir, reason, events=self.events, startable=False,
+                                        verdicts=self.test_verdict, web_port=self.web_port)
+            elif failed or self.tests_dir and getattr(self, "final_suite_green", False) is not True:
+                # A local assertion failure or incomplete suite is quality
+                # evidence, not a failed generator process. A nonzero exit
+                # prevents the platform from evaluating this runnable artifact.
+                # Keep node verdicts and quality-summary.json unchanged, while
+                # completing delivery with an explicitly incomplete verdict.
+                self.events.mark_run_completed(
+                    "runnable application delivered; local verification incomplete; "
+                    f"nodes not verified: {', '.join(failed) or 'none; full suite unknown'}")
+                log(f"[delivery] runnable application retained; local verification incomplete "
+                    f"for {len(failed)} node(s); handing off to platform evaluation")
             elif not self.tests_dir:
                 self.events.mark_run_completed(
                     "all requirement nodes implemented; derived contract review and startup rehearsal completed; "
@@ -13698,50 +13855,35 @@ class Flow:
             _free_web_port(self.web_port, self.output_dir)
             if rehearsed:
                 self.write_preview_ready()
-                return 1 if failed else 0
-            return 1  # an unstartable app must not have a successful process exit
-        except Exception as exc:  # the platform judges by events, not exit code
-            log(f"[flow] aborted: {exc!r}")
-            from layered_tests import GateBlocked
-            partial_ready = getattr(self, '_blocked_partial_ready', False)
-            if (isinstance(exc, GateBlocked) and getattr(self, 'layered', None) is not None
-                    and not getattr(self, '_blocked_delivery_attempted', False)):
-                try:
-                    partial_ready = self.layered.deliver_blocked(exc)
-                    self.write_quality_summary(startable=partial_ready, node_ids=[str(n['id']) for n in ordered])
-                except Exception as delivery_error:
-                    self.metric('blocked_delivery', status='not_ready', reason=str(delivery_error))
-            if getattr(self, "layered", None) is not None:
-                self.layered.close()
-            pipeline = getattr(self, "_derived_background_pipeline", None)
-            if pipeline is not None:
-                pipeline.close(0)
+                return 0  # delivery succeeded; business verdicts remain independent
+            return 0  # submit the retained artifact; the platform measures startup and behavior
+        except (Exception, SystemExit) as exc:
+            log(f"[flow] stopped editing after internal failure: {type(exc).__name__}")
             watchdog_stop.set()
-            if self.driver:
-                self.driver.close()
-            self.cleanup_playwright()
-            self.stop_llm_proxy()
-            recovered = isinstance(exc, PermanentProviderError) and self.recover_provider_stop(exc)
+            # Every cleanup is independent. A failed close must not suppress the
+            # final artifact or change a successful handoff into exit 1.
+            callbacks = [lambda: self.layered.close() if getattr(self, 'layered', None) is not None else None,
+                         lambda: self._derived_background_pipeline.close(0) if getattr(self, '_derived_background_pipeline', None) is not None else None,
+                         lambda: self.postflight() if not postflight_done else None,
+                         lambda: _reap_stray_processes("exception", self.output_dir),
+                         lambda: _postflight_structure_check(self.output_dir),
+                         lambda: _free_web_port(self.web_port, self.output_dir)]
+            for callback in callbacks:
+                try:
+                    callback()
+                except (Exception, SystemExit) as cleanup_error:
+                    log(f"[delivery] cleanup unavailable: {type(cleanup_error).__name__}")
+            # No fresh model call or long measurement during emergency handoff.
             for node in ordered:
-                node_id = str(node.get("id"))
-                if node_id not in self.test_verdict:
-                    if isinstance(exc, GateBlocked):
-                        self.test_verdict[node_id] = None
-                    else:
-                        self.mark("test_failed", node_id, f"run aborted: {str(exc)[:200]}")
-            try:
-                self.mark_folders()
-            except Exception:  # noqa: BLE001
-                pass
-            _reap_stray_processes("exception", self.output_dir)
-            _postflight_structure_check(self.output_dir)
-            _free_web_port(self.web_port, self.output_dir)
-            self.events.mark_run_failed(str(exc)[:1000])
-            if partial_ready:
-                self.write_preview_ready()
-            # A valid measured artifact may still be graded; keep run_failed
-            # above and never report an interrupted generation as completed.
-            return 1  # failed generation is never a successful execution state
+                self.test_verdict.setdefault(str(node.get("id")), None)
+            if getattr(self, "_blocked_partial_ready", False):
+                try:
+                    self.write_preview_ready()
+                except Exception:
+                    pass
+            return finish_partial_delivery(self.output_dir, f"{type(exc).__name__}: {str(exc)[:600]}",
+                startable=getattr(self, "_blocked_partial_ready", None), events=getattr(self, 'events', None), verdicts=getattr(self, 'test_verdict', {}),
+                web_port=self.web_port)
 
     def mark_folders(self) -> None:
         """Finalize aggregate verdicts without replaying fictitious phases."""
@@ -13850,11 +13992,63 @@ def write_minimal_terminal_state(output_dir: Path, state: str, reason: str) -> N
         terminal.write_text(json.dumps({"state": state, "timestamp": time.time(),
                                         "reason": reason, "pending_usage_status": "unknown",
                                         "automatic_restart": False}, indent=2))
-    except OSError:
+    except (Exception, SystemExit):
         pass
 
 
-def main() -> int:
+def finish_partial_delivery(output_dir: Path, reason: str, *, events=None,
+                            startable=None, verdicts=None, web_port=3000) -> int:
+    """Bounded handoff with zero model calls; never overwrite existing app files.
+
+    Submission is independent of verification. A skeleton in an empty output
+    is an explicitly incomplete artifact, never a successful business result.
+    """
+    problems = []
+    try:
+        if not (output_dir / 'backend/server.js').is_file() and not (output_dir / 'frontend/package.json').is_file():
+            install_generic_template(output_dir, BUNDLE_DIR, int(web_port), [])
+        write_codegen_manifests(output_dir)
+    except (Exception, SystemExit) as exc:
+        problems.append(f'artifact setup unavailable: {type(exc).__name__}')
+    try:
+        record = {'state':'submitted_with_issues', 'reason':reason, 'startable':startable,
+                  'verification_state':'incomplete', 'test_verdict':verdicts or {},
+                  'cleanup_or_setup_issues':problems, 'timestamp':time.time(),
+                  'automatic_restart':False, 'model_calls_during_handoff':0}
+        directory = output_dir / '.arc'; directory.mkdir(parents=True, exist_ok=True)
+        (directory / 'delivery-state.json').write_text(json.dumps(record, ensure_ascii=False, indent=2))
+        quality = directory / 'quality-summary.json'
+        if quality.is_file():
+            prior = json.loads(quality.read_text())
+            prior.update(execution_state='completed_with_issues', verification_state='incomplete',
+                         delivery_state='retained_for_platform_evaluation', startable=startable,
+                         delivery_issue=reason)
+            quality.write_text(json.dumps(prior, ensure_ascii=False, indent=2))
+    except (Exception, SystemExit) as exc:
+        log(f'[delivery] delivery record unavailable: {type(exc).__name__}')
+    write_minimal_terminal_state(output_dir, 'completed_with_issues', reason)
+    completion_message = 'final artifact submitted for platform evaluation; local verification incomplete; ' + reason[:600]
+    completed_event_written = False
+    try:
+        if events is not None:
+            events.mark_run_completed(completion_message)
+            completed_event_written = True
+    except (Exception, SystemExit) as exc:
+        log(f'[delivery] completion event unavailable: {type(exc).__name__}; process handoff still completes')
+    if not completed_event_written:
+        try:
+            # Setup can fail before an AgentRuntime exists. Emit the normal SDK
+            # event directly, without traceability setup or any model calls.
+            from arcbench_agent_runtime.context import RuntimePaths
+            from arcbench_agent_runtime.events import EventClient
+            EventClient(RuntimePaths.from_env(project_dir=output_dir)).mark_run_completed(completion_message)
+        except (Exception, SystemExit) as exc:
+            log(f'[delivery] fallback completion event unavailable: {type(exc).__name__}')
+    log('[delivery] final files retained; stopping edits and handing off to platform evaluation (exit=0)')
+    return 0
+
+
+def coordinated_main() -> int:
     parser = argparse.ArgumentParser(description="Octos agent bundle for ARC-Bench")
     parser.add_argument("requirement_path", nargs="?", default=os.environ.get("ARCBENCH_TASK_DIR", "/workspace/task"))
     parser.add_argument("--test-suite", default=os.environ.get("OCTOS_ARC_TEST_SUITE"),
@@ -13892,7 +14086,7 @@ def main() -> int:
         output_dir.mkdir(parents=True, exist_ok=True)
     except Exception as exc:  # noqa: BLE001 - an unwritable output has no place for a terminal file
         log(f"[flow] output setup failed: {type(exc).__name__}")
-        return 1
+        return finish_partial_delivery(locals().get("output_dir", Path.cwd()/"workspace"/"delivery-fallback"), "output setup: " + type(exc).__name__)
 
     on_platform = bool(os.environ.get("ARCBENCH_TEMPLATE_DIR"))
     try:
@@ -13905,17 +14099,17 @@ def main() -> int:
             shutil.copytree(req_src, req_dir)
     except Exception as exc:  # noqa: BLE001 - pre-Flow setup also needs a terminal record
         log(f"[flow] requirements setup failed: {type(exc).__name__}")
-        write_minimal_terminal_state(output_dir, "failed", f"requirements setup: {type(exc).__name__}")
-        return 1
+        return finish_partial_delivery(output_dir, f"requirements setup: {type(exc).__name__}")
     try:
         flow = Flow(args, output_dir, req_dir)
     except Exception as exc:  # noqa: BLE001 - preserve a terminal record before a Flow exists
         log(f"[flow] initialization failed: {type(exc).__name__}")
-        write_minimal_terminal_state(output_dir, "failed", f"initialization: {type(exc).__name__}")
-        return 1
+        return finish_partial_delivery(output_dir, f"initialization: {type(exc).__name__}")
     import signal
     interrupted = {"state": "interrupted_by_user"}
     def terminate(signum, frame):
+        if signum == signal.SIGTERM and interrupted['state'] == 'infrastructure_interrupted':
+            return  # repeated infrastructure signals must not interrupt handoff
         interrupted["state"] = "interrupted_by_user" if signum == signal.SIGINT else "infrastructure_interrupted"
         proxy = getattr(flow, "llm_proxy", None)
         if proxy:
@@ -13932,12 +14126,18 @@ def main() -> int:
             except Exception:  # noqa: BLE001
                 pass
         log(f"[flow] signal setup failed: {type(exc).__name__}")
-        write_minimal_terminal_state(output_dir, "failed", f"signal setup: {type(exc).__name__}")
-        return 1
+        return finish_partial_delivery(output_dir, f"signal setup: {type(exc).__name__}")
     try:
         code = flow.run()
-        flow.write_terminal_state("completed" if code == 0 else "failed")
-        return code
+        if code:
+            return finish_partial_delivery(output_dir, f"internal coordinator returned {code}",
+                                           events=getattr(flow, 'events', None), web_port=args.web_port)
+        try:
+            flow.write_terminal_state("completed")
+        except Exception as exc:
+            return finish_partial_delivery(output_dir, "terminal writer: " + type(exc).__name__,
+                                           events=getattr(flow, 'events', None), web_port=args.web_port)
+        return 0
     except KeyboardInterrupt:
         try:
             flow.write_terminal_state(interrupted["state"])
@@ -13947,31 +14147,73 @@ def main() -> int:
             flow.postflight()
         except Exception:  # noqa: BLE001
             pass
+        if interrupted['state'] == 'infrastructure_interrupted':
+            return finish_partial_delivery(output_dir, 'infrastructure SIGTERM; retained final artifact',
+                                           events=getattr(flow, 'events', None), web_port=args.web_port)
         return 130
-    except Exception as exc:  # noqa: BLE001 - last-resort harness boundary
-        # Flow.run normally records failures itself. Its cleanup or terminal
-        # writer can also raise; preserve a failed state and free processes.
-        log(f"[flow] fatal harness exception: {type(exc).__name__}")
-        try:
-            if getattr(flow, "events", None) is not None:
-                flow.events.mark_run_failed(f"fatal harness exception: {type(exc).__name__}")
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            flow.write_terminal_state("failed")
-        except Exception:  # noqa: BLE001
-            write_minimal_terminal_state(output_dir, "failed", f"fatal harness exception: {type(exc).__name__}")
+    except (Exception, SystemExit) as exc:  # last-resort harness boundary
+        log(f"[flow] stopped editing after harness exception: {type(exc).__name__}")
         try:
             flow.postflight()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
-        return 1
+        return finish_partial_delivery(output_dir, f"fatal harness exception: {type(exc).__name__}",
+                                       events=getattr(flow, 'events', None), web_port=args.web_port)
+
     finally:
         for sig, handler in old_handlers.items():
             try:
                 signal.signal(sig, handler)
             except Exception as exc:  # noqa: BLE001 - do not erase the terminal verdict
                 log(f"[flow] signal restoration failed: {type(exc).__name__}")
+
+
+def entry_delivery_destination() -> Path:
+    """Recover the same explicit output when argument/config setup failed."""
+    destination = None
+    for index, value in enumerate(sys.argv[1:], 1):
+        if value == '--output-dir' and index + 1 < len(sys.argv):
+            destination = sys.argv[index + 1]
+        elif value.startswith('--output-dir='):
+            destination = value.split('=', 1)[1]
+    destination = destination or os.environ.get('ARCBENCH_TEMPLATE_DIR')
+    return Path(destination) if destination else Path.cwd()/'workspace'/'delivery-fallback'
+
+
+def main() -> int:
+    interrupted = {'state': None, 'handoff': False}
+    handlers = {}
+    setup_phase = 'signal setup'
+    def terminate(signum, frame):
+        if signum == signal.SIGTERM and (interrupted['handoff'] or interrupted['state'] == 'infrastructure_interrupted'):
+            return
+        interrupted['state'] = 'interrupted_by_user' if signum == signal.SIGINT else 'infrastructure_interrupted'
+        raise KeyboardInterrupt
+    try:
+        # The outer boundary covers argument, output and Flow initialization,
+        # before coordinated_main installs its driver-aware signal handlers.
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            handlers[sig] = signal.signal(sig, terminate)
+        setup_phase = 'entry configuration'
+        return coordinated_main()
+    except KeyboardInterrupt:
+        if interrupted['state'] == 'infrastructure_interrupted':
+            interrupted['handoff'] = True
+            return finish_partial_delivery(entry_delivery_destination(),
+                                           'infrastructure SIGTERM during setup; retained final artifact')
+        return 130  # explicit user cancellation is not autonomous failure
+    except (Exception, SystemExit) as exc:
+        if (isinstance(exc, SystemExit) and (exc.code is None or type(exc.code) is int and exc.code == 0)
+                and any(arg in {'--help', '-h'} for arg in sys.argv[1:])):
+            return 0
+        interrupted['handoff'] = True
+        return finish_partial_delivery(entry_delivery_destination(), setup_phase + ': ' + type(exc).__name__)
+    finally:
+        for sig, handler in handlers.items():
+            try:
+                signal.signal(sig, handler)
+            except (Exception, SystemExit) as exc:
+                log(f'[delivery] outer signal restoration unavailable: {type(exc).__name__}')
 
 
 if __name__ == "__main__":

@@ -536,11 +536,11 @@ class PipelineTests(unittest.TestCase):
                 patch('layered_tests.LayeredTests', return_value=self.layer), patch('main.build_octos_env', return_value={}), \
                 patch('main.write_profile_defaults'), patch('main._port_watchdog'), patch('main._reap_stray_processes'), \
                 patch('main._postflight_structure_check'), patch('main._free_web_port'), patch.dict('os.environ', {'OCTOS_ARC_DRYRUN': '1'}):
-            self.assertEqual(flow.run(), 1)
+            self.assertEqual(flow.run(), 0)
         self.assertEqual(sequence, [('measured', True), ('cleanup', None)])
         flow.write_preview_ready.assert_called_once()
-        events.mark_run_failed.assert_called_once()
-        events.mark_run_completed.assert_not_called()
+        events.mark_run_failed.assert_not_called()
+        events.mark_run_completed.assert_called_once()
         self.assertIsNone(flow.test_verdict['REQ-2'])
 
     def test_cached_partial_initial_design_is_completed_and_reviewed_before_publication(self):

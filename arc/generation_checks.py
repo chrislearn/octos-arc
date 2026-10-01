@@ -518,10 +518,37 @@ def cross_layer_advisories(sources, changed):
 
 
 def placeholder_overwrites(sources, changed):
+    candidates = {**sources, **changed}
+    def migrated(path):
+        if not path.startswith('frontend/') or not path.endswith('.js'):
+            return False
+        replacement = path[:-3] + '.jsx'
+        if replacement not in changed or not _without_comments(changed[replacement]).strip():
+            return False
+        old_exports, new_exports = _module_exports(sources[path]), _module_exports(changed[replacement])
+        if old_exports is None or new_exports is None or not old_exports <= new_exports:
+            return False
+        import_pattern = r"(?:\bfrom\s*|\bimport\s*\(|\brequire\s*\(|\bimport\s*)['\"](\.{1,2}/[^'\"]+)['\"]"
+        had_caller = False
+        for caller, text in sources.items():
+            old_targets = [_resolve_module(caller, rel, sources) for rel in re.findall(import_pattern, _without_comments(text))]
+            if path in old_targets:
+                had_caller = True
+                if caller not in changed:
+                    return False
+                new_targets = [_resolve_module(caller, rel, candidates) for rel in re.findall(import_pattern, _without_comments(candidates[caller]))]
+                if replacement not in new_targets:
+                    return False
+        for caller, text in candidates.items():
+            if any(_resolve_module(caller, rel, candidates) == path
+                   for rel in re.findall(import_pattern, _without_comments(text))):
+                return False
+        return had_caller and not missing_export_errors(candidates, changed)
     return [f'{path}: refusing comment-only replacement of existing application source'
             for path, source in changed.items()
             if path in sources and path.endswith(_JS_SUFFIXES)
-            and _without_comments(sources[path]).strip() and not _without_comments(source).strip()]
+            and _without_comments(sources[path]).strip() and not _without_comments(source).strip()
+            and not migrated(path)]
 
 
 def _bounded_run(command, cwd, timeout):

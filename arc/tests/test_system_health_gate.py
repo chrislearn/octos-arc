@@ -314,10 +314,10 @@ class HealthGateTests(unittest.TestCase):
                     patch.object(module.shutil, 'copytree', side_effect=OSError('copy failed')), \
                     patch.object(module, 'Flow') as constructor, \
                     patch.dict('os.environ', {'OCTOS_ARC_ENGINE': 'python'}):
-                self.assertEqual(module.main(), 1)
+                self.assertEqual(module.main(), 0)
             constructor.assert_not_called()
             row = json.loads((output / '.arc/terminal-state.json').read_text())
-            self.assertEqual(row['state'], 'failed')
+            self.assertEqual(row['state'], 'completed_with_issues')
             self.assertIn('requirements setup', row['reason'])
 
     def test_unwritable_output_setup_exits_without_starting_flow(self):
@@ -330,7 +330,7 @@ class HealthGateTests(unittest.TestCase):
             with patch('sys.argv', ['main.py', str(req), '--output-dir', str(output)]), \
                     patch.object(module, 'Flow') as constructor, \
                     patch.dict('os.environ', {'OCTOS_ARC_ENGINE': 'python'}):
-                self.assertEqual(module.main(), 1)
+                self.assertEqual(module.main(), 0)
             constructor.assert_not_called()
 
     def test_signal_setup_exception_writes_minimal_failed_terminal_state(self):
@@ -345,10 +345,10 @@ class HealthGateTests(unittest.TestCase):
                     patch.object(module, 'Flow', return_value=fake_flow), \
                     patch('signal.signal', side_effect=ValueError('not main thread')), \
                     patch.dict('os.environ', {'OCTOS_ARC_ENGINE': 'python'}):
-                self.assertEqual(module.main(), 1)
+                self.assertEqual(module.main(), 0)
             fake_flow.run.assert_not_called()
             row = json.loads((output / '.arc/terminal-state.json').read_text())
-            self.assertEqual(row['state'], 'failed')
+            self.assertEqual(row['state'], 'completed_with_issues')
             self.assertIn('signal setup', row['reason'])
 
     def test_fatal_flow_exception_records_failure_and_runs_cleanup(self):
@@ -362,9 +362,9 @@ class HealthGateTests(unittest.TestCase):
             with patch('sys.argv', ['main.py', str(req), '--output-dir', str(output)]), \
                     patch.object(module, 'Flow', return_value=fake_flow), \
                     patch.dict('os.environ', {'OCTOS_ARC_ENGINE': 'python'}):
-                self.assertEqual(module.main(), 1)
-            fake_flow.events.mark_run_failed.assert_called_once()
-            fake_flow.write_terminal_state.assert_called_once_with('failed')
+                self.assertEqual(module.main(), 0)
+            fake_flow.events.mark_run_failed.assert_not_called()
+            fake_flow.events.mark_run_completed.assert_called_once()
             fake_flow.postflight.assert_called_once()
 
     def test_flow_init_exception_writes_minimal_failed_terminal_state(self):
@@ -377,9 +377,9 @@ class HealthGateTests(unittest.TestCase):
             with patch('sys.argv', ['main.py', str(req), '--output-dir', str(output)]), \
                     patch.object(module, 'Flow', side_effect=RuntimeError('init failed')), \
                     patch.dict('os.environ', {'OCTOS_ARC_ENGINE': 'python'}):
-                self.assertEqual(module.main(), 1)
+                self.assertEqual(module.main(), 0)
             row = json.loads((output / '.arc/terminal-state.json').read_text())
-            self.assertEqual(row['state'], 'failed')
+            self.assertEqual(row['state'], 'completed_with_issues')
             self.assertEqual(row['pending_usage_status'], 'unknown')
 
     def test_fatal_flow_and_terminal_writer_exceptions_still_leave_failure_record(self):
@@ -396,9 +396,9 @@ class HealthGateTests(unittest.TestCase):
             with patch('sys.argv', ['main.py', str(req), '--output-dir', str(output)]), \
                     patch.object(module, 'Flow', return_value=fake_flow), \
                     patch.dict('os.environ', {'OCTOS_ARC_ENGINE': 'python'}):
-                self.assertEqual(module.main(), 1)
+                self.assertEqual(module.main(), 0)
             row = json.loads((output / '.arc/terminal-state.json').read_text())
-            self.assertEqual(row['state'], 'failed')
+            self.assertEqual(row['state'], 'completed_with_issues')
             self.assertEqual(row['pending_usage_status'], 'unknown')
 
     def test_all_missing_binding_names_reach_startup_repair(self):

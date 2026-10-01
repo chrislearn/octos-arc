@@ -3,7 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const clip = (text, limit) => Array.from(String(text)).slice(0, limit).join('');
 module.exports = class ActionErrors {
-  constructor(options = {}) { this.output = options.output || 'action-errors.json'; this.rows = {}; }
+  constructor(options = {}) { this.output = options.output || 'action-errors.json'; this.rows = {}; this.completed = new Map(); }
+  onBegin(config, suite) {
+    this.expected = suite.allTests().map(test => ({id:test.id, title:test.title, file:test.location.file, line:test.location.line}));
+  }
   onTestEnd(test, result) {
     const errors = [];
     for (const chunk of result.stderr || []) {
@@ -78,9 +81,28 @@ module.exports = class ActionErrors {
     // Keep the most time-consuming failures, then present them in execution order.
     this.rows[test.id] = errors.sort((a,b) => b.duration-a.duration).slice(0,8)
       .sort((a,b) => a.order-b.order).map(e => clip(e.text, 2000));
+    // The JSON reporter only flushes at onEnd. A wall timeout must retain the
+    // completed prefix, including identity, failing action and trace paths.
+    if (test.location?.file) {
+      const attachments = (result.attachments || []).map(a => ({...a,
+        ...(a.body ? {body:a.body.toString('base64')} : {})}));
+      this.completed.set(test.id, {file:test.location.file, specs:[{
+        id:test.id, title:test.title, file:test.location.file, line:test.location.line,
+        tests:[{status:result.status === test.expectedStatus ? 'expected' : 'unexpected', results:[{
+          status:result.status, duration:result.duration, errors:result.errors,
+          error:result.error, attachments}]}]}]});
+      this.flush();
+    }
+  }
+  flush() {
+    try {
+      for (const [name, value] of [[this.output,this.rows], ['partial-report.json',{
+        partial:true, expected_cases:this.expected || [], suites:[...this.completed.values()], action_errors:this.rows}]]) {
+        fs.writeFileSync(name+'.tmp', JSON.stringify(value)); fs.renameSync(name+'.tmp',name);
+      }
+    } catch (error) { console.error(`[action diagnostics] ${error.message}`); }
   }
   onEnd() {
-    try { fs.writeFileSync(this.output, JSON.stringify(this.rows)); }
-    catch (error) { console.error(`[action diagnostics] ${error.message}`); }
+    this.flush();
   }
 };

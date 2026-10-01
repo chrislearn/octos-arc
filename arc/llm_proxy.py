@@ -526,6 +526,8 @@ def request_shape(body: bytes) -> dict | None:
                    "tools_chars": len(json.dumps(data.get("tools") or [], ensure_ascii=False))}
     if isinstance(data.get("enable_thinking"), bool):
         shape["enable_thinking"] = data["enable_thinking"]
+    if data.get("reasoning_effort") is not None:
+        shape["reasoning_effort"] = data["reasoning_effort"]
     for msg in data.get("messages") or []:
         role = str(msg.get("role", "?"))
         content = msg.get("content")
@@ -1103,7 +1105,9 @@ class LlmProxy:
                 was_streaming = False
                 unrouted = None
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
-                    body = inject_reasoning(body, proxy.mode, force=True)
+                    from flow_policy import reasoning_for_phase
+                    effective_mode = reasoning_for_phase(getattr(proxy, "label", ""), proxy.mode)
+                    body = inject_reasoning(body, effective_mode, force=True)
                     body = ensure_max_tokens(body, proxy.min_max_tokens)
                     with proxy._lock:
                         used = proxy.turn_requests
@@ -1153,6 +1157,10 @@ class LlmProxy:
                             and 'OCTOS_ARC_IMPLEMENT_REASONING' not in os.environ
                             and 'OCTOS_ARC_RECOVERY_REASONING' not in os.environ and not explicit_effort):
                         body = lower_stalled_tool_reasoning(body)
+                    from flow_policy import reasoning_for_phase
+                    if (proxy.phase == 'repair' or proxy.phase == 'implement'
+                            and os.environ.get('OCTOS_ARC_IMPLEMENT_REASONING_ALL', '1') == '1'):
+                        body = inject_reasoning(body, reasoning_for_phase(getattr(proxy, 'label', ''), proxy.mode), force=True)
                     body = cap_reasoning_effort(cap_output_tokens(body, limit))
                     proxy._dump(body)
                     proxy.ledger({"event": "request_received", "request_id": request_id,

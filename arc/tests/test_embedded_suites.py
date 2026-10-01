@@ -182,6 +182,53 @@ class EmbeddedSuiteTests(unittest.TestCase):
         self.assertIs(flow.layered,layer)
 
     def test_trusted_run_generates_and_tests_each_node_without_spec_queues(self):
+        flow,runtime=self._run_trusted_source_flow()
+        from requirement_order import topo_order
+        ids=[row['id'] for row in topo_order(self.tree)]
+        self.assertEqual([call.args[0] for call in flow.acceptance_loop.call_args_list],ids)
+        self.assertEqual(flow.turn.call_count,len(ids))
+        self.assertTrue(all(flow.test_verdict[node] is True for node in ids))
+        self.assertTrue(flow.test_specs_trusted)
+        self.assertIsNone(flow.layered)
+        self.assertFalse(flow.derived_as_specs)
+        flow.batch_codegen.assert_not_called()
+        runtime.events.mark_run_completed.assert_called_once()
+
+    def test_runnable_delivery_survives_final_suite_timeout_without_promoting_verdicts(self):
+        for verdict in (False,None):
+            with self.subTest(verdict=verdict):
+                flow,runtime=self._run_trusted_source_flow(verdict=verdict,final_timeout=True)
+                self.assertTrue(flow.test_verdict)
+                self.assertTrue(all(value is verdict for value in flow.test_verdict.values()))
+                self.assertFalse(flow.final_suite_green)
+                runtime.events.mark_run_failed.assert_not_called()
+                runtime.events.mark_run_completed.assert_called_once()
+                message=runtime.events.mark_run_completed.call_args.args[0]
+                self.assertIn('runnable application delivered',message)
+                self.assertIn('local verification incomplete',message)
+                flow.write_preview_ready.assert_called_once()
+                flow.run_specs.assert_called_once()
+
+    def test_confirmed_startup_failure_is_submitted_without_claiming_ready(self):
+        flow,runtime=self._run_trusted_source_flow(verdict=False,rehearsed=False)
+        runtime.events.mark_run_failed.assert_not_called()
+        runtime.events.mark_run_completed.assert_called_once()
+        flow.write_preview_ready.assert_not_called()
+
+    def test_model_failure_and_cleanup_failure_preserve_unknowns_and_submit(self):
+        for error in [RuntimeError('model requests continuously failed'), SystemExit(1)]:
+            with self.subTest(error=type(error).__name__):
+                flow,runtime=self._run_trusted_source_flow(turn_error=error,cleanup_error=OSError('cleanup unavailable'))
+                runtime.events.mark_run_failed.assert_not_called()
+                runtime.events.mark_run_completed.assert_called_once()
+                self.assertTrue(flow.test_verdict)
+                self.assertTrue(all(value is None for value in flow.test_verdict.values()))
+                record=json.loads((self.root/'.arc/delivery-state.json').read_text())
+                self.assertEqual(record['verification_state'],'incomplete')
+                self.assertEqual(record['model_calls_during_handoff'],0)
+                self.assertEqual(flow.turn.call_count,1)
+
+    def _run_trusted_source_flow(self,verdict=True,rehearsed=True,final_timeout=False,turn_error=None,cleanup_error=None):
         """Exercise coordinator + real node_cycle; model and product execution are stubbed."""
         flow=Flow(argparse.Namespace(web_port=3000,trusted_tests=True,test_suite='hackathon--sheet'),self.root,self.root/'requirements')
         runtime=SimpleNamespace(events=Mock(),traceability=Mock(),git=Mock())
@@ -199,15 +246,27 @@ class EmbeddedSuiteTests(unittest.TestCase):
         flow.repair_source_index=Mock(return_value=SourceIndex({}))
         flow.app_source_digest=Mock(return_value='source')
         flow.corrections_text=Mock(return_value='')
-        flow.turn=Mock(return_value=(True,'generated node source'))
-        flow.acceptance_loop=Mock(return_value=True)
-        flow.rehearsal=Mock(return_value=True)
+        flow.turn=Mock(return_value=(True,'generated node source'),side_effect=turn_error)
+        flow.acceptance_loop=Mock(return_value=verdict)
+        flow.rehearsal=Mock(return_value=rehearsed)
         flow.batch_codegen=Mock(side_effect=AssertionError('One node at a time'))
         for name in ['maybe_probe','setup_playwright','start_llm_proxy','prepare_build',
                      'prime_generation_dependencies','snapshot_protected','record_implementation_evidence',
                      'mark','commit','regression_checkpoint','log_usage_checkpoint','final_acceptance_passes',
                      'postflight','write_quality_summary','mark_folders','write_preview_ready']:
             setattr(flow,name,Mock())
+        if cleanup_error:
+            flow.postflight.side_effect=cleanup_error
+        if final_timeout:
+            from acceptance import RunSummary
+            flow.run_specs=Mock(return_value=RunSummary(error='playwright run exceeded 900s'))
+            flow.verify_repair_memory=Mock()
+            def time_out_final_suite():
+                if getattr(flow,'_final_suite_attempted',False):
+                    return
+                flow._final_suite_attempted=True
+                Flow.final_acceptance(flow)
+            flow.final_acceptance_passes=Mock(side_effect=time_out_final_suite)
         for name in ['prepare_derived_tests','start_background_specs','close_background_specs',
                      'pre_review_derived_system_check','review_derived_after_implementation',
                      'design','inline_design_instruction','review_domain_design']:
@@ -222,18 +281,10 @@ class EmbeddedSuiteTests(unittest.TestCase):
                 patch('main.build_octos_env',return_value={}), patch('main.write_profile_defaults'), \
                 patch('main._port_watchdog'), patch('main._reap_stray_processes'), patch('main.reap_workspace_processes'), \
                 patch('main._postflight_structure_check'), patch('main._free_web_port'), \
-                patch.dict('os.environ',{'OCTOS_ARC_DRYRUN':'1','OCTOS_ARC_SIBLING_BATCH_SIZE':'24'}):
+                patch.dict('os.environ',{'OCTOS_ARC_DRYRUN':'1','OCTOS_ARC_SIBLING_BATCH_SIZE':'24',
+                                         'OCTOS_FINAL_REPAIR_ROUNDS':'0'}):
             self.assertEqual(flow.run(),0)
-        from requirement_order import topo_order
-        ids=[row['id'] for row in topo_order(self.tree)]
-        self.assertEqual([call.args[0] for call in flow.acceptance_loop.call_args_list],ids)
-        self.assertEqual(flow.turn.call_count,len(ids))
-        self.assertTrue(all(flow.test_verdict[node] is True for node in ids))
-        self.assertTrue(flow.test_specs_trusted)
-        self.assertIsNone(flow.layered)
-        self.assertFalse(flow.derived_as_specs)
-        flow.batch_codegen.assert_not_called()
-        runtime.events.mark_run_completed.assert_called_once()
+        return flow,runtime
 
     def test_frozen_flow_uses_specs_directly_without_regeneration_and_labels_prompts(self):
         flow=Flow(argparse.Namespace(web_port=3000),self.root,self.root/'requirements')

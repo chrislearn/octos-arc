@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Platform glue for the Rust harness (`OCTOS_ARC_ENGINE=rust`).
+"""Legacy platform glue for direct Rust harness callers.
 
-`main.py` still holds the default Python strategy; when the switch is on it
-hands over to this module, which keeps only the platform-facing work:
+The supported main.py entry uses the Python coordinator even when
+OCTOS_ARC_ENGINE=rust. This compatibility module keeps platform-facing work:
 
     read the task and locate the tests  ->  write .arc/runner-spec.json
     prepare the workspace (git, ARC traceability tables)
@@ -107,9 +107,7 @@ class Translator:
 
 
 def log_factory():
-    def log(msg: str) -> None:
-        print(msg, flush=True)
-        print(msg, file=sys.stderr, flush=True)
+    from main import log
     return log
 
 
@@ -213,7 +211,7 @@ def run_kernel(octos_bin: str, spec_path: Path, policy_path: Path, translator: T
             pass
 
 
-def main(args) -> int:
+def coordinated_main(args) -> int:
     import main as legacy  # the Python adapter: reused for platform plumbing only
 
     log = log_factory()
@@ -237,25 +235,26 @@ def main(args) -> int:
             shutil.copytree(req_src, req_dir)
         runtime = AgentRuntime.from_env(project_dir=str(output_dir))
         runtime.events.mark_run_started("octos bundle started (rust engine)")
-    except Exception as exc:  # noqa: BLE001 - kernel setup needs a terminal verdict too
+    except (Exception, SystemExit) as exc:
         log(f"[engine] setup failed: {type(exc).__name__}")
-        if output_dir is not None:
-            legacy.write_minimal_terminal_state(output_dir, "failed", f"rust setup: {type(exc).__name__}")
-        return 1
+        return legacy.finish_partial_delivery(output_dir or Path.cwd()/'workspace'/'delivery-fallback',
+                                              f"rust setup: {type(exc).__name__}")
 
     translator = Translator(runtime, log)
     completed = False
     interrupted = False
+    user_interrupted = True
     completion_message = "completed"
     failure_reason = "rust engine did not complete"
     def terminate(_signum, _frame):
+        nonlocal user_interrupted
+        user_interrupted = _signum == signal.SIGINT
         raise KeyboardInterrupt
     try:
         old_term_handler = signal.signal(signal.SIGTERM, terminate)
-    except Exception as exc:  # noqa: BLE001 - cannot safely supervise the child
+    except (Exception, SystemExit) as exc:
         log(f"[engine] signal setup failed: {type(exc).__name__}")
-        legacy.write_minimal_terminal_state(output_dir, "failed", f"rust signal setup: {type(exc).__name__}")
-        return 1
+        return legacy.finish_partial_delivery(output_dir, f"rust signal setup: {type(exc).__name__}", events=runtime.events)
     try:
         # Evolution: the template's committed requirement table is what the kernel
         # compares fingerprints against; store_requirement_tree() below overwrites
@@ -291,60 +290,58 @@ def main(args) -> int:
         else:
             failure_reason = (f"octos arc run exited {rc}; final event {final.get('event') or 'missing'}: "
                               f"{final.get('message') or 'no message'}")
-            runtime.events.mark_run_failed(failure_reason[:1000])
     except KeyboardInterrupt:
         interrupted = True
-        failure_reason = "rust engine interrupted by user"
-        try:
-            runtime.events.mark_run_failed(failure_reason)
-        except Exception:  # noqa: BLE001
-            pass
-    except Exception as exc:  # noqa: BLE001 - the platform judges by events, not exit code
+        failure_reason = "rust engine interrupted by user" if user_interrupted else "rust infrastructure SIGTERM"
+    except (Exception, SystemExit) as exc:
         log(f"[engine] aborted: {exc!r}")
         failure_reason = f"rust engine exception: {type(exc).__name__}"
+    for callback in [lambda: legacy._reap_stray_processes("postflight", output_dir),
+                     lambda: legacy._postflight_structure_check(output_dir),
+                     lambda: legacy._free_web_port(args.web_port, output_dir)]:
         try:
-            runtime.events.mark_run_failed(str(exc)[:1000])
-        except Exception:  # noqa: BLE001 - terminal file remains the fallback
-            pass
-    try:
-        legacy._reap_stray_processes("postflight", output_dir)
-        legacy._postflight_structure_check(output_dir)
-        legacy._free_web_port(args.web_port, output_dir)
-    except KeyboardInterrupt:
-        interrupted = True
-        completed = False
-        failure_reason = "rust engine interrupted during postflight"
-        try:
-            runtime.events.mark_run_failed(failure_reason)
-        except Exception:  # noqa: BLE001
-            pass
-    except Exception as exc:  # noqa: BLE001 - postflight cannot erase the verdict
-        log(f"[engine] postflight failed: {type(exc).__name__}")
-        failure_reason = f"rust postflight: {type(exc).__name__}"
-        completed = False
-        try:
-            runtime.events.mark_run_failed(failure_reason)
-        except Exception:  # noqa: BLE001
-            pass
+            callback()
+        except KeyboardInterrupt:
+            interrupted = True; completed = False
+            failure_reason = "rust engine interrupted during postflight"
+        except (Exception, SystemExit) as exc:
+            log(f"[engine] postflight failed: {type(exc).__name__}")
+            failure_reason = f"rust postflight: {type(exc).__name__}"; completed = False
     if completed:
         try:
             runtime.events.mark_run_completed(completion_message)
-        except Exception as exc:  # noqa: BLE001
+        except (Exception, SystemExit) as exc:
             completed = False
             failure_reason = f"rust completion event: {type(exc).__name__}"
-    legacy.write_minimal_terminal_state(
-        output_dir, "completed" if completed else "interrupted_by_user" if interrupted else "failed",
+    legacy.write_minimal_terminal_state(output_dir,
+        "completed" if completed else "interrupted_by_user" if interrupted and user_interrupted else "completed_with_issues",
         "rust engine completed" if completed else failure_reason)
     artifacts_dir = os.environ.get("ARCBENCH_ARTIFACTS_DIR")
-    if artifacts_dir and completed:
+    if artifacts_dir and completed and not interrupted:
         try:
             Path(artifacts_dir).mkdir(parents=True, exist_ok=True)
             (Path(artifacts_dir) / "preview-ready.json").write_text(
                 json.dumps({"ready": True, "reason": "octos bundle completed"}) + "\n", encoding="utf-8")
-        except OSError:
+        except (Exception, SystemExit):
             pass
     try:
         signal.signal(signal.SIGTERM, old_term_handler)
-    except Exception as exc:  # noqa: BLE001 - terminal verdict is already durable
+    except (Exception, SystemExit) as exc:
         log(f"[engine] signal restoration failed: {type(exc).__name__}")
-    return 0 if completed else 130 if interrupted else 1
+    if interrupted and user_interrupted:
+        return 130
+    if completed:
+        return 0
+    return legacy.finish_partial_delivery(output_dir, failure_reason, events=runtime.events, web_port=args.web_port)
+
+
+def main(args) -> int:
+    import main as legacy
+    try:
+        return coordinated_main(args)
+    except KeyboardInterrupt:
+        return 130
+    except (Exception, SystemExit) as exc:
+        destination = getattr(args, 'output_dir', None) or os.environ.get('ARCBENCH_TEMPLATE_DIR')
+        return legacy.finish_partial_delivery(Path(destination) if destination else Path.cwd()/'workspace'/'delivery-fallback',
+                                              'rust entry: ' + type(exc).__name__)

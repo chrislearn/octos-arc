@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 _ROUTE = re.compile(r"\bapp\.(?P<method>get|post|put|patch|delete|all)\s*\(\s*"
@@ -245,13 +246,77 @@ def introduced_route_conflicts(project: Path, files: dict[str, str]) -> list[dic
     if not any(rel.startswith('backend/routes/') for rel in files):
         return []
     before = {_conflict_key(c) for c in static_route_conflicts(backend_sources(project))}
-    return [c for c in static_route_conflicts(backend_sources(project, files)) if _conflict_key(c) not in before]
+    issues = [c for c in static_route_conflicts(backend_sources(project, files)) if _conflict_key(c) not in before]
+    old = autoload_invocations(backend_sources(project))
+    for caller, target in autoload_invocations(backend_sources(project, files)) - old:
+        issues.append({'kind':'duplicate_loader', 'file':caller, 'owner_file':target,
+                       'message':f'{caller} invokes {target}, already independently loaded by server.js; remove the extra registration call.'})
+    return issues
+
+
+def autoload_invocations(sources: dict[str, str]) -> set[tuple[str, str]]:
+    """Literal same-directory require(...)(app) under the generic root loader."""
+    roots = {rel for rel in sources if rel.startswith('backend/routes/') and rel.count('/') == 2}
+    rows = set()
+    for caller in roots:
+        text = sources[caller]
+        refs = {name: rel for name, rel in re.findall(
+            r"\b(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['\"](\./[^'\"]+)['\"]\s*\)", text)}
+        paths = re.findall(r"require\(\s*['\"](\./[^'\"]+)['\"]\s*\)\s*\(\s*app\b", text)
+        paths += [rel for name, rel in refs.items() if re.search(r'\b'+re.escape(name)+r'\s*\(\s*app\b', text)]
+        for rel in paths:
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(caller), rel))
+            if not target.endswith('.js'):
+                target += '.js'
+            if target in roots:
+                rows.add((caller, target))
+    return rows
+
+
+def route_transition_errors(before: dict | None, after: dict | None) -> list[str]:
+    """Permit additions/refactoring and duplicate cleanup, reject lost live APIs."""
+    if before is None:
+        return []  # Initial scaffold may not load yet; static guards still apply.
+    if after is None:
+        return ['Previously measurable route loader no longer produces a runtime table']
+    def key(row):
+        return row.get('method'), tuple(_segments(row.get('path', '')))
+    prior = Counter((row.get('kind'), *key(row)) for row in before.get('conflicts', []))
+    current = Counter((row.get('kind'), *key(row)) for row in after.get('conflicts', []))
+    issues = [f'New runtime route conflict: {entry}' for entry in (current-prior)]
+    lost = {key(row) for row in before['routes']} - {key(row) for row in after['routes']}
+    issues += [f'Previously registered API disappeared: {entry}' for entry in sorted(lost)]
+    return issues
+
+
+def candidate_route_errors(project: Path, files: dict[str, str]) -> list[str]:
+    """Run the real loader in private storage before applying a file-block batch."""
+    if not _generic_entry(project) or not any(p.startswith('backend/') for p in files):
+        return []
+    before = runtime_route_report(project)
+    if before is None:
+        return []
+    with tempfile.TemporaryDirectory(prefix='arc-route-candidate-') as folder:
+        candidate = Path(folder)
+        shutil.copytree(project, candidate, dirs_exist_ok=True, ignore=shutil.ignore_patterns(
+            'node_modules', '.git', '.arc', 'dist', 'requirements', 'derived-tests*', 'test-results'))
+        for directory in ('backend', 'frontend'):
+            dependencies = project/directory/'node_modules'
+            if dependencies.is_dir():
+                (candidate/directory/'node_modules').symlink_to(dependencies.resolve(), target_is_directory=True)
+        for rel, text in files.items():
+            if rel.startswith('backend/'):
+                target = candidate/rel; target.parent.mkdir(parents=True, exist_ok=True); target.write_text(text)
+        return route_transition_errors(before, runtime_route_report(candidate))
 
 
 def runtime_route_report(project: Path, timeout: float = 20.0) -> dict | None:
-    """The route table Express itself registered (routers, template strings and
-    helpers included), from the generic entry's ARC_ROUTE_DUMP mode. None when
-    the entry, its runtime helper or installed dependencies are missing."""
+    """Registrations observed by the generic entry's app.METHOD tracker.
+
+    This includes computed string paths and helpers that call app.METHOD, but
+    not Express Router or chained app.route registrations. None when the entry,
+    its runtime helper or installed dependencies are missing.
+    """
     backend = project / 'backend'
     node = shutil.which('node')
     try:

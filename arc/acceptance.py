@@ -204,6 +204,9 @@ class RunSummary:
     scaffold_warnings: list[str] = field(default_factory=list)  # non-blocking defects found by the build
     runtime_observations: list[dict] = field(default_factory=list)
     artifact_dirs: list[str] = field(default_factory=list)
+    error_kind: str = ""  # build_start, application_runtime, test_wall_timeout, test_harness
+    partial: bool = False
+    expected_total: int | None = None
 
     def slow(self, threshold_ms: int) -> list[str]:
         return [r.title for r in self.results if r.duration_ms >= threshold_ms]
@@ -216,7 +219,7 @@ class RunSummary:
     @property
     def all_passed(self) -> bool:
         from runtime_diagnostics import application_failures
-        return (not self.error and not self.killed and not self.load_errors
+        return (not self.error and not self.partial and not self.killed and not self.load_errors
                 and not application_failures(self)
                 and not self.runtime_uncertain
                 and self.total > 0 and self.passed == self.total)
@@ -1523,7 +1526,7 @@ class AcceptanceRunner:
             target = destination / uuid.uuid4().hex
             try:
                 target.mkdir(parents=True)
-                for name in ("report.json", "action-errors.json", "test-results"):
+                for name in ("report.json", "partial-report.json", "action-errors.json", "test-results"):
                     source = self.work_dir / name
                     if source.is_dir():
                         shutil.copytree(source, target / name)
@@ -1532,6 +1535,8 @@ class AcceptanceRunner:
                 (target / "measurement.json").write_text(json.dumps({
                     "specs": spec_rel_paths, "base_url": base_url, "total": summary.total,
                     "passed": summary.passed, "error": summary.error,
+                    "error_kind": summary.error_kind, "partial": summary.partial,
+                    "expected_total": summary.expected_total,
                     "runtime_observations": summary.runtime_observations}, ensure_ascii=False, indent=2))
                 summary.artifact_dirs.append(str(target))
             except OSError as exc:
@@ -1549,13 +1554,21 @@ class AcceptanceRunner:
                    NODE_PATH=str(self.root / "node_modules"), **self.env_extra)
         env.pop("FORCE_COLOR", None)
         t0 = time.time()
+        timed_out = False
         try:
             r = run_owned_process(cmd, cwd=self.work_dir, env=env, timeout=wall_timeout)
             tail = ((r.stdout or "") + (r.stderr or ""))[-2000:]
-        except subprocess.TimeoutExpired:
-            return RunSummary(error=f"playwright run exceeded {wall_timeout}s")
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            report_path = self.work_dir / 'partial-report.json'
+            def decoded(value):
+                return value.decode('utf8', errors='replace') if isinstance(value, bytes) else value or ''
+            tail = (decoded(exc.stdout) + decoded(exc.stderr))[-2000:]
+            if not report_path.exists():
+                return RunSummary(error=f"playwright run exceeded {wall_timeout}s",
+                                  error_kind='test_wall_timeout', partial=True, stdout_tail=_ANSI.sub('', tail))
         except OSError as exc:
-            return RunSummary(error=f"playwright could not start: {exc}")
+            return RunSummary(error=f"playwright could not start: {exc}", error_kind='test_harness')
         if not report_path.exists():
             killed = r.returncode < 0 or "Killed" in tail
             return RunSummary(error=(f"playwright was killed (rc={r.returncode}); likely out of memory — "
@@ -1571,6 +1584,11 @@ class AcceptanceRunner:
             except (OSError, json.JSONDecodeError):
                 pass  # Optional diagnostics never change acceptance outcomes.
             summary = summarize_report(report)
+            if timed_out:
+                summary.error = f"playwright run exceeded {wall_timeout}s"
+                summary.error_kind = 'test_wall_timeout'
+                summary.partial = True
+                summary.expected_total = len(report.get('expected_cases', [])) or None
             for i, row in enumerate(summary.results):
                 matches = [rel for rel, titles in self._quarantined.items()
                            if row.title in titles and (str(row.file).replace("\\", "/") == rel
@@ -1590,6 +1608,9 @@ class AcceptanceRunner:
             return RunSummary(error=f"unreadable playwright report: {exc}")
         summary.stdout_tail = _ANSI.sub("", tail)
         self._attach_rendered_pages(summary)
+        if timed_out:
+            self.log(f"[acceptance] wall timeout: retained {summary.passed}/{summary.total} completed cases; full scope unknown")
+            return summary
         if summary.total == 0:
             # Cloud run a6ccc437539f: the model had edited /workspace/tests, the
             # copied spec no longer loaded, and "0/0" looked like a verdict.

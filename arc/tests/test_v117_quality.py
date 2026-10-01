@@ -294,7 +294,7 @@ class QualityTests(unittest.TestCase):
             if proxy: proxy.stop()
             server.shutdown(); server.server_close(); thread.join(timeout=2)
 
-    def test_scenario_proposal_only_disables_thinking_on_actual_qwen_wire(self):
+    def test_all_generation_defaults_disable_thinking_on_actual_qwen_wire(self):
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         from threading import Thread
         import urllib.request
@@ -326,9 +326,8 @@ class QualityTests(unittest.TestCase):
                                      headers={'Content-Type': 'application/json'}), timeout=10) as response:
                         self.assertEqual(response.status, 200)
             self.assertEqual(len(seen), 4)
-            self.assertEqual([row['enable_thinking'] for row in seen], [False, True, True, True])
-            self.assertNotIn('reasoning_effort', seen[0])
-            self.assertEqual([row['reasoning_effort'] for row in seen[1:]], ['low'] * 3)
+            self.assertEqual([row['enable_thinking'] for row in seen], [False] * 4)
+            self.assertTrue(all('reasoning_effort' not in row for row in seen))
         finally:
             if proxy: proxy.stop()
             server.shutdown(); server.server_close(); thread.join(timeout=2)

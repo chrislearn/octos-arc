@@ -111,9 +111,9 @@ class RustTerminalTests(unittest.TestCase):
             args = argparse.Namespace(requirement_path=str(req), output_dir=str(output), web_port=3000)
             with patch.dict('sys.modules', {'arcbench_agent_runtime': SimpleNamespace(AgentRuntime=object)}), \
                     patch('rust_engine.shutil.copytree', side_effect=OSError('copy failed')):
-                self.assertEqual(main(args), 1)
+                self.assertEqual(main(args), 0)
             state = json.loads((output / '.arc/terminal-state.json').read_text())
-            self.assertEqual(state['state'], 'failed')
+            self.assertEqual(state['state'], 'completed_with_issues')
             self.assertEqual(state['pending_usage_status'], 'unknown')
 
     def test_kernel_exit_and_final_event_must_both_succeed(self):
@@ -123,10 +123,12 @@ class RustTerminalTests(unittest.TestCase):
         from types import SimpleNamespace
         from unittest.mock import patch
         from rust_engine import main
-        for rc, event, expected in ((1, 'run_failed', 'failed'),
-                                    (0, 'run_failed', 'failed'),
+        for rc, event, expected in ((1, 'run_failed', 'completed_with_issues'),
+                                    (0, 'run_failed', 'completed_with_issues'),
                                     (0, 'run_completed', 'completed'),
-                                    (None, None, 'interrupted_by_user')):
+                                    (None, None, 'interrupted_by_user'),
+                                    ('SIGTERM', None, 'completed_with_issues'),
+                                    ('internal_exit', None, 'completed_with_issues')):
             with self.subTest(rc=rc, event=event), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 req = root / 'task'
@@ -139,6 +141,10 @@ class RustTerminalTests(unittest.TestCase):
                 def kernel(_bin, _spec, _policy, translator, _log, _env):
                     if rc is None:
                         raise KeyboardInterrupt
+                    if rc == 'SIGTERM':
+                        import signal
+                        signal.getsignal(signal.SIGTERM)(signal.SIGTERM,None)
+                    if rc == 'internal_exit': raise SystemExit(1)
                     translator.final = {'event': event, 'message': 'kernel result'}
                     return rc
                 with patch.dict('sys.modules', {'arcbench_agent_runtime': SimpleNamespace(AgentRuntime=agent)}), \
@@ -151,16 +157,30 @@ class RustTerminalTests(unittest.TestCase):
                         patch('main._reap_stray_processes') as reap, \
                         patch('main._postflight_structure_check'), \
                         patch('main._free_web_port') as free_port:
-                    self.assertEqual(main(args), 0 if expected == 'completed' else
-                                     130 if expected == 'interrupted_by_user' else 1)
+                    self.assertEqual(main(args), 130 if expected == 'interrupted_by_user' else 0)
                     reap.assert_called_once_with('postflight', output)
                     free_port.assert_called_once_with(3000, output)
                 state = json.loads((output / '.arc/terminal-state.json').read_text())
                 self.assertEqual(state['state'], expected)
                 if rc == 1:
                     self.assertIn('exited 1', state['reason'])
-                mark = 'mark_run_completed' if expected == 'completed' else 'mark_run_failed'
-                self.assertIn(mark, [name for name, _, _ in runtime.events.calls])
+                calls=[name for name, _, _ in runtime.events.calls]
+                self.assertNotIn('mark_run_failed',calls)
+                if expected != 'interrupted_by_user': self.assertIn('mark_run_completed',calls)
+
+    def test_legacy_entry_and_cleanup_failures_still_handoff(self):
+        import argparse,tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from rust_engine import main
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp);(output/'backend').mkdir();entry=output/'backend/server.js'
+            entry.write_text('retained application')
+            args=argparse.Namespace(output_dir=str(output))
+            with patch('rust_engine.coordinated_main',side_effect=SystemExit(1)):
+                self.assertEqual(main(args),0)
+            self.assertEqual(entry.read_text(),'retained application')
+            self.assertEqual(json.loads((output/'.arc/terminal-state.json').read_text())['state'],'completed_with_issues')
 
 
 if __name__ == "__main__":

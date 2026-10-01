@@ -297,8 +297,9 @@ class FlowRegression(unittest.TestCase):
         f.use_structured_edits = Mock(return_value=False)
         ok, reason = f.whole_app_generation_turn('implement without source', 600, 'wave implement', spec_chars=10)
         self.assertFalse(ok)
-        self.assertEqual(f.text_turn.call_count, 3)  # one read, one corrective reply; no repeated snapshot
-        self.assertEqual(f.last_codegen_outcome, 'invalid_context_request')
+        self.assertEqual(f.text_turn.call_count, 2)  # provide once; repeated valid reads need no format correction
+        self.assertEqual(f.last_codegen_outcome, 'needs_context_repeated')
+        self.assertEqual(f.last_codegen_request_count, 2)
         self.assertEqual(f.last_codegen_written, [])
         self.assertIn('unchanged evidence', reason)
         self.assertEqual(path.read_text(), 'export default function App() {}')

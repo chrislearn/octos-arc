@@ -145,6 +145,15 @@ class SchedulingControls(unittest.TestCase):
         stat = Path(f'/proc/{pid}/stat')
         self.assertTrue(not stat.exists() or stat.read_text().split()[2] == 'Z')
 
+    def test_successful_leader_cannot_leave_descendant_after_pipe_eof(self):
+        root=Path(self.temp.name)
+        child="import pathlib,time,os; pathlib.Path('child.pid').write_text(str(os.getpid())); os.close(1); os.close(2); time.sleep(60)"
+        parent="import subprocess,sys,time,pathlib; subprocess.Popen([sys.executable,'-c',sys.argv[1]]);\nwhile not pathlib.Path('child.pid').exists(): time.sleep(.01)"
+        result=run_owned_process([sys.executable,'-c',parent,child],cwd=root,env=dict(os.environ),timeout=5)
+        self.assertEqual(result.returncode,0)
+        pid=int((root/'child.pid').read_text());stat=Path(f'/proc/{pid}/stat')
+        self.assertTrue(not stat.exists() or stat.read_text().split()[2]=='Z')
+
     def test_backend_refactor_rejects_duplicate_actual_registration(self):
         f = self.flow; root = Path(self.temp.name)
         route = root / 'backend/routes/items.js'; route.parent.mkdir(parents=True)

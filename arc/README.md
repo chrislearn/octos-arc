@@ -161,9 +161,10 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_ARC_PARTIAL_CONFIRM_RATIO` / `OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES` | 0.9 / 3 | 首次全套验收接近全绿且时间足够时，在改代码前对未改动应用确认一次；用于识别失败项轮换，不影响普通低分 suite |
 | `OCTOS_ARC_NO_WRITE_SECONDS` | 180 s | 结构化编辑至少消耗一半请求且仍未尝试写入时，达到该时长（或用完 75% 请求）后关闭继续读取/搜索，只保留写入工具或精确阻塞报告 |
 | `OCTOS_ARC_DEGENERATE_MAX_TOKENS` | 8192 | 检出大量空改动或重复 EDIT 后，本次运行后续无工具代码请求的输出上限；首次请求和设计不受影响，0 关闭；波次规划同步缩小预算 |
-| `OCTOS_ARC_IMPLEMENT_REASONING_ALL` / `OCTOS_ARC_IMPLEMENT_REASONING` | 0 / 空 | A/B 实验开关：同时设置为 `1` 和 `none` 时，仅实现轮关闭推理，设计与修复维持基础设置；默认行为不变 |
+| `OCTOS_ARC_IMPLEMENT_REASONING_ALL` / `OCTOS_ARC_IMPLEMENT_REASONING` | 1 / none | 代码生成默认关闭思考，覆盖文件块、结构化编辑、上下文续读和并行 worker；显式设置 low/medium/high 可开启。ALL=0 恢复旧的作用范围；设计保留基础思考，正式修复始终开启 |
+| `OCTOS_ARC_REPAIR_REASONING` | 基础 low/medium/high，否则 medium | 正式修复、重写及恢复始终开启思考；none/off/disabled 不会关闭修复思考 |
 | `OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS` | 16 | 新需求失败且改动共享源码时，即时复测此前已通过用例的上限；超出部分轮换并由检查点覆盖 |
-| `OCTOS_ARC_RECOVERY_REASONING` | none | 检出上述生成退化后，可显式选择 low/medium/high；默认仍关闭 thinking，不自动开启 |
+| `OCTOS_ARC_RECOVERY_REASONING` | none | 生成退化时的旧版恢复提示；默认生成仍由 IMPLEMENT_REASONING 统一控制，设置 ALL=0 后可单独选择 low/medium/high。正式修复/恢复始终开启思考 |
 | `OCTOS_ARC_MIN_NODE_START_SECONDS` | 120 s | 新代码请求的最短可用时间；短预算运行按总预算的 20% 下调，已有代码的验收可用 15 s 窗口。时间不足的节点保留待处理并记 `budget_deferred`，不伪报实现失败 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |
 | `OCTOS_DESIGN_TURN` / `OCTOS_DESIGN_MODE` | 1 / separate | 0 = 跳过设计轮；`inline` = 设计 JSON 在实现轮开头写出，不单开一轮（TB 上更省钱但更慢，见 CHANGELOG R7/R8） |
@@ -194,9 +195,9 @@ Web 大题（32–138 节点）的建议参数见 `CHANGELOG.md` 末尾「ARC-Be
 
 ### 同题内按步骤选择模型
 
-当前代码所有模型和设计、生成、审核、修复阶段默认使用 `OCTOS_ARC_REASONING=low`；设置 `none` 可关闭 thinking，或显式设置 `medium`/`high` 调整强度。代理的既有高档位上限仍为 medium。
-规划、生成和修复通常沿用这一基础设置；实现轮单独关闭可用上表的 A/B 开关，默认不启用。
-`auto` 可恢复原先按任务大小选择的规则。显式的阶段覆盖或模型路由参数仍优先；不同供应商是否支持关闭取决于其 API。
+基础思考强度默认为 `OCTOS_ARC_REASONING=low`，代码生成阶段默认使用 `OCTOS_ARC_IMPLEMENT_REASONING=none`，设计保留基础设置。正式修复、重写和恢复始终开启思考：基础或修复设置为 none/off/disabled 时，修复使用 medium。需要生成也开启思考时，显式设置 IMPLEMENT_REASONING 为 low/medium/high；代理的既有高档位上限仍为 medium。
+设置 `OCTOS_ARC_IMPLEMENT_REASONING_ALL=0` 后，可恢复旧的实现轮作用范围，再用 `auto` 按任务大小选择基础强度。
+默认情况下，代理会在模型路由之后再次应用生成和修复的阶段策略；不同供应商是否支持关闭取决于其 API。
 
 `OCTOS_ARC_MODEL_ROUTES` 接受有序 JSON 规则。同一题的不同节点、首轮与修复可以使用不同模型；匹配依据只有阶段、完整消息与工具定义的字符数、工具/图片能力，不按题名分支。第一条匹配的规则生效，无匹配则保留原请求模型；不配置时保持原行为。上下文字符数按完整消息与工具定义的紧凑 JSON 计算（Unicode 字符，不是 token）。
 
@@ -239,6 +240,7 @@ python3 arc/integration/routed_cli.py target/debug/octos /tmp/octos-routing-evid
 - `max_input_chars` 是字符预算，不是 token 上下文容量或模型能力的保证；用实际任务对比校准，给输出与协议开销留余量。
 - `tools` / `images` 表示能力声明，默认 false；含工具历史也要求工具能力。声明应先验证，路由不会虚构 provider 能力。
 - `parameters` 可覆盖 `temperature`、`top_p`、`max_tokens`、`max_completion_tokens`、`thinking`、`reasoning_effort`。切换模型会去掉原请求的供应商推理字段，再应用该规则的参数，避免跨模型照搬。
+- 生成与正式修复的思考参数在路由后由阶段策略再次校正：默认生成关闭、修复开启；生成需要开启时设置 `OCTOS_ARC_IMPLEMENT_REASONING`。
 - 模型偏好由规则顺序明确表达；不根据未验证价格自动排序。不存在的模型或不支持的参数由 provider 报错，不偷偷更换并重复计费。
 - 用量 JSONL 记录每次请求选中的 `model`、`phase`、耗时和 provider 返回的 token 用量。模型价格未提供时不编造成本。
 - 当前仅 Python 引擎支持；配置路由并选择 Rust 会明确报错。Rust 路由与跨模型效果仍待实现/评测。多个模型请求仍遵守同 key 串行的费用计量约束。

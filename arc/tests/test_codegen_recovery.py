@@ -79,6 +79,50 @@ class RecoveryWorkflows(unittest.TestCase):
         self.assertFalse((self.root / 'frontend/src/missing.js').exists())
         self.flow.save_rejected_reply.assert_called()
 
+    def test_valid_repeated_source_read_stops_without_format_correction(self):
+        paths = ['frontend/src/pages/Editor.jsx', 'backend/routes/workbooks.js']
+        for path in paths:
+            self.source(path, 'export const rows = [];\n')
+        self.flow.text_turn = Mock(return_value=(True, request(paths)))
+        ok, reason = self.flow.codegen_turn('implement row operations', 600, 'REQ-2-2-1 implement')
+        self.assertFalse(ok)
+        self.assertIn('unchanged evidence', reason)
+        self.assertEqual(self.flow.text_turn.call_count, 2)
+        self.assertEqual(self.flow.last_codegen_request_count, 2)
+        self.assertEqual(self.flow.last_codegen_outcome, 'needs_context_repeated')
+        self.assertEqual(self.flow.last_codegen_context_requested, set(paths))
+        self.assertIn('export const rows', self.flow.text_turn.call_args.args[0])
+        for path in paths:
+            self.assertEqual((self.root / path).read_text(), 'export const rows = [];\n')
+
+    def test_source_read_with_one_new_dependency_still_continues(self):
+        for path in ['backend/a.js', 'backend/b.js']:
+            self.source(path, 'export const rows = [];\n')
+        self.flow.text_turn = Mock(side_effect=[
+            (True, request(['backend/a.js'])),
+            (True, request(['backend/a.js', 'backend/b.js'])),
+            (True, file_block('backend/c.js', 'export const count = 1;'))])
+        ok, reason = self.flow.codegen_turn('implement', 600, 'REQ-1 implement')
+        self.assertTrue(ok, reason)
+        self.assertEqual(self.flow.text_turn.call_count, 3)
+        self.assertIn('backend/a.js', self.flow.text_turn.call_args.args[0])
+        self.assertIn('backend/b.js', self.flow.text_turn.call_args.args[0])
+        self.assertTrue((self.root / 'backend/c.js').exists())
+
+    def test_repeated_read_after_export_correction_shares_original_evidence(self):
+        self.source('frontend/src/model.js', 'export const rows = [];\n')
+        self.flow.text_turn = Mock(side_effect=[
+            (True, request(['frontend/src/model.js'])),
+            (True, file_block('frontend/src/View.jsx', "import {missing} from './model.js'; export default missing;")),
+            (True, request(['frontend/src/model.js']))])
+        ok, reason = self.flow.codegen_turn('implement', 600, 'REQ-1 implement')
+        self.assertFalse(ok)
+        self.assertIn('unchanged evidence', reason)
+        self.assertEqual(self.flow.text_turn.call_count, 3)
+        self.assertEqual(self.flow.last_codegen_request_count, 3)
+        self.assertEqual(self.flow.last_codegen_outcome, 'needs_context_repeated')
+        self.assertFalse((self.root / 'frontend/src/View.jsx').exists())
+
     def test_request_cap_is_shared_by_reads_and_corrections(self):
         self.source('backend/model.js', 'module.exports = {};')
         self.flow.text_turn = Mock(side_effect=[

@@ -26,6 +26,30 @@ def run_owned_process(command, *, cwd, env, timeout):
             # A descendant escaping the owned group must not hold cleanup open.
             process.stdout.close()
             process.stderr.close()
+        # Pipe EOF and waiting for the leader do not prove descendants have
+        # finished: their descriptors can close before SIGKILL reaches exit/Z.
+        # Observe only this session's group; never signal other process groups.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            running = False
+            try:
+                with os.scandir('/proc') as entries:
+                    for entry in entries:
+                        if not entry.name.isdigit():
+                            continue
+                        try:
+                            with open(entry.path + '/stat') as record:
+                                fields = record.read().rsplit(')', 1)[1].split()
+                            if int(fields[2]) == process.pid and fields[0] not in {'Z', 'X'}:
+                                running = True
+                                break
+                        except (OSError, ValueError, IndexError):
+                            continue
+            except OSError:
+                break  # /proc is unavailable on non-Linux hosts
+            if not running:
+                break
+            time.sleep(0.01)
 
 
 def isolated_node_deadline(method):
@@ -34,6 +58,25 @@ def isolated_node_deadline(method):
     def scoped(flow, *args, **kwargs):
         previous = getattr(flow, '_node_deadline', None)
         try:
+            return method(flow, *args, **kwargs)
+        finally:
+            flow._node_deadline = previous
+    return scoped
+
+
+def startup_recovery_deadline(method):
+    """Sequential/deferred recovery share the active node's original deadline."""
+    @wraps(method)
+    def scoped(flow, *args, **kwargs):
+        previous = getattr(flow, '_node_deadline', None)
+        deadline = getattr(flow, '_startup_recovery_deadline', None)
+        if deadline is None:
+            deadline = time.monotonic() + min(720, max(0, seconds_available(flow)))
+            flow._startup_recovery_deadline = deadline
+        flow._node_deadline = min(previous, deadline) if previous is not None else deadline
+        try:
+            if seconds_available(flow) <= 0:
+                return False
             return method(flow, *args, **kwargs)
         finally:
             flow._node_deadline = previous

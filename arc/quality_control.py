@@ -106,6 +106,10 @@ def valid_json_schema(schema, depth=0) -> bool:
     return 'items' not in schema or valid_json_schema(schema['items'], depth + 1)
 
 
+class RepeatedContextRequest(ValueError):
+    """A valid request for source versions already supplied in this turn."""
+
+
 def context_evidence(root: Path, request: dict, available: set[str], seen: dict) -> tuple[str, dict]:
     """Read only source snapshots; symlinks/data and duplicate requests fail closed."""
     versions, blocks = {}, []
@@ -119,7 +123,7 @@ def context_evidence(root: Path, request: dict, available: set[str], seen: dict)
         if seen.get(name) != version:
             blocks.append(f'--- {name} ---\n{content}\n')
     if not blocks:
-        raise ValueError('context request repeats unchanged evidence; use the supplied source')
+        raise RepeatedContextRequest('context request repeats unchanged evidence; use the supplied source')
     return '\n'.join(blocks), versions
 
 
@@ -230,6 +234,8 @@ Assert state after each decisive action and after reload. Negative-only checks n
 Use one credential resolver and one requirement-derived effective authorization policy across list/detail/search/write.
 Keep credential tokens distinct from session and account IDs. Do not catch failed loads as successful empty lists.
 Check root and child API paths, route parameters, nested page mounting, direct navigation and refresh.
+During recoverable validation or operation errors keep the main record/grid view and draft input mounted; surface a local error without replacing the page. Reopening an editor must hydrate persisted values and options, including switching input types.
+Rapid consecutive filter actions must compose from the latest pending state, preserving all active query parameters even before navigation renders. Persisted-result assertions must observe a completed mutation and the read view, never editable draft text or a stale diff. Preserve drafts on rejected or interrupted saves.
 Reduce event/review histories by identity AND current object version according to requirements, not any past success.
 Reread authoritative versions before commit; multi-object failure must leave all business objects unchanged.
 Check every enabled condition independently. Never hardcode eligibility/conflicts to true/false.
