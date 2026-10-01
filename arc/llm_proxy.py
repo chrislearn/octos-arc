@@ -1158,7 +1158,9 @@ class LlmProxy:
                     proxy.ledger({"event": "request_received", "request_id": request_id,
                                   "incoming_sha256": incoming_hash,
                                   "forwarded_sha256": hashlib.sha256(body).hexdigest(),
-                                  "turn_serial": proxy.turn_serial, "label": getattr(proxy, "label", "")})
+                                  "turn_serial": proxy.turn_serial, "label": getattr(proxy, "label", ""),
+                                  "repair_round_id": getattr(proxy, 'repair_round_id', None),
+                                  "executor": getattr(proxy, 'executor', None)})
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
                 path = proxy.forward_path(self.path)
@@ -1608,6 +1610,8 @@ class LlmProxy:
                     "output_limit": request.get("max_completion_tokens", request.get("max_tokens")),
                     "label": getattr(self, "label", ""), "prompt_sha256": sha, "prefix_shared_chars": shared,
                     "turn_serial": self.turn_serial, "codegen": self.no_tools,
+                    "repair_round_id": getattr(self, 'repair_round_id', None),
+                    "executor": getattr(self, 'executor', 'file_blocks' if self.no_tools else 'full_tools'),
                     **request_fingerprints(request_body)}
 
     def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"", req_bytes: int = 0,

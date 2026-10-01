@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from repair_context import dismiss_reopen_evidence
+from repair_control import run_owned_process
 from snapshot_focus import focus_interaction_snapshot
 import hashlib
 import os
@@ -144,6 +145,31 @@ def map_specs_to_nodes(spec_paths: list[str], node_ids: list[str]) -> tuple[dict
     return mapping, aliases
 
 
+def completed_step_prefix(steps: list[dict]) -> list[str]:
+    """Unknown/timed-out traces stay unknown; never count the failed action.
+
+    Playwright nests failed API steps inside test.step. An ancestor containing
+    an error is not a successful action even if it has no direct error field.
+    """
+    def failed(step):
+        return bool(step.get('error')) or any(failed(child) for child in step.get('steps', []))
+    prefix = []
+    def visit(rows):
+        for step in rows:
+            if step.get('error'):
+                return True
+            if failed(step):
+                return visit(step.get('steps', []))
+            # Leaf actions, excluding setup hooks, are stable enough to compare
+            # as a prefix. Do not double-count wrapper steps.
+            if step.get('steps'):
+                visit(step['steps'])
+            elif step.get('title') and not re.search(r'^(?:Before|After) Hooks$', step['title']):
+                prefix.append(step['title'])
+        return False
+    return prefix if visit(steps) else []
+
+
 @dataclass
 class TestOutcome:
     title: str
@@ -160,6 +186,7 @@ class TestOutcome:
     rendered_page: str = ""  # its accessibility snapshot, filled in by the runner
     spec_path: str = ""     # full relative spec path, including immutable publication version
     spec_line: int | None = None  # declaration line; error location is kept separately above
+    completed_steps: list[str] = field(default_factory=list)  # only an explicit successful prefix before a failed step
 
 
 @dataclass
@@ -242,7 +269,8 @@ def summarize_report(report: dict) -> RunSummary:
                     location=f"{loc_file}:{loc.get('line')}" if loc_file and loc.get("line") else loc_file,
                     message=_ANSI.sub("", str(err.get("message") or "") + "\n" + "\n".join(
                         line for line in str(err.get("stack") or "").splitlines() if line.strip().startswith("at "))).strip(),
-                    steps=steps, action_errors=[_ANSI.sub("", e)[:2000] for e in
+                    steps=steps, completed_steps=completed_step_prefix(last.get('steps', [])),
+                    action_errors=[_ANSI.sub("", e)[:2000] for e in
                         (report.get("action_errors", {}).get(spec.get("id"), []) or [])[:8] if isinstance(e, str)],
                     context_path=next((str(a.get("path") or "") for a in (last.get("attachments") or [])
                                        if isinstance(a, dict) and a.get("name") == "error-context"), "")))
@@ -1117,6 +1145,10 @@ class AppServer:
         # Non-blocking defects found while building (route conflicts, Express 5
         # wildcard misuse, unresettable module state): repair context, never a verdict.
         self.warnings: list[str] = []
+        self.deadline: float | None = None  # monotonic node/verification allowance
+
+    def time_left(self, timeout: float) -> float:
+        return min(timeout, max(0, self.deadline - time.monotonic())) if self.deadline is not None else timeout
 
     def preflight_warnings(self) -> list[str]:
         """Static warnings; build() replaces them with Express's own route table
@@ -1124,9 +1156,11 @@ class AppServer:
         return scaffold_warnings(self.project)
 
     def _run(self, cmd: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
+        timeout = self.time_left(timeout)
+        if timeout <= 0:
+            return 124, 'application time budget exhausted before command'
         try:
-            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                               env=dict(os.environ, **self.env_extra))
+            r = run_owned_process(cmd, cwd=cwd, timeout=timeout, env=dict(os.environ, **self.env_extra))
         except subprocess.TimeoutExpired:
             return 124, f"timeout after {timeout}s"
         except OSError as exc:
@@ -1223,7 +1257,7 @@ class AppServer:
         remote = external_browser_assets(frontend, built=True)
         if remote:
             return "built frontend uses external browser assets; bundle them locally instead:\n" + "\n".join(remote[:8])
-        self.warnings = scaffold_warnings(self.project, runtime=True)
+        self.warnings = scaffold_warnings(self.project, runtime=True, runtime_timeout=self.time_left(20))
         return None
 
     def reset_data_dir(self) -> None:
@@ -1236,6 +1270,9 @@ class AppServer:
         path.mkdir(parents=True, exist_ok=True)
 
     def start(self, wait_seconds: int = 45) -> str | None:
+        wait_seconds = self.time_left(wait_seconds)
+        if wait_seconds <= 0:
+            return 'application time budget exhausted before startup'
         free_port(self.port)
         self.reset_data_dir()
         if self.grader_like:
@@ -1254,13 +1291,14 @@ class AppServer:
                                              start_new_session=True)
         except OSError as exc:
             return f"backend `npm start` could not launch: {exc}"
-        deadline = time.time() + wait_seconds
-        while time.time() < deadline:
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
             if self.proc.poll() is not None:
                 return (f"backend `npm start` exited early (rc={self.proc.returncode}):\n"
                         f"{self.log_file.read_text(errors='replace')[-1500:]}")
             if port_open(self.port):
-                err = robustness_probe(self.port, self.proc)
+                probe_seconds = min(5, max(0.001, (deadline - time.monotonic()) / 3))
+                err = robustness_probe(self.port, self.proc, timeout=probe_seconds)
                 if not err and self.grader_like and self.extra_ports:
                     # Cloud 3f0124e82113: the specs default to :3301, the grader sets only PORT,
                     # the backend bound PORT alone -> 10x ERR_CONNECTION_REFUSED. Same handler on both.
@@ -1281,9 +1319,9 @@ class AppServer:
 
     def extra_ports_bound(self, wait_seconds: float = 5.0) -> str | None:
         """Grader-like start: every port the specs default to must answer too."""
-        deadline = time.time() + wait_seconds
+        deadline = time.monotonic() + self.time_left(wait_seconds)
         missing = list(self.extra_ports)
-        while missing and time.time() < deadline:
+        while missing and time.monotonic() < deadline:
             missing = [p for p in missing if not port_open(p)]
             if missing:
                 time.sleep(0.25)
@@ -1435,7 +1473,7 @@ class AcceptanceRunner:
                    NODE_PATH=str(self.root / "node_modules"), **self.env_extra)
         env.pop("FORCE_COLOR", None)
         try:
-            r = subprocess.run(cmd, cwd=self.work_dir, env=env, capture_output=True, text=True, timeout=wall_timeout)
+            r = run_owned_process(cmd, cwd=self.work_dir, env=env, timeout=wall_timeout)
         except subprocess.TimeoutExpired:
             return False, f"playwright --list exceeded {wall_timeout}s"
         except OSError as exc:
@@ -1512,7 +1550,7 @@ class AcceptanceRunner:
         env.pop("FORCE_COLOR", None)
         t0 = time.time()
         try:
-            r = subprocess.run(cmd, cwd=self.work_dir, env=env, capture_output=True, text=True, timeout=wall_timeout)
+            r = run_owned_process(cmd, cwd=self.work_dir, env=env, timeout=wall_timeout)
             tail = ((r.stdout or "") + (r.stderr or ""))[-2000:]
         except subprocess.TimeoutExpired:
             return RunSummary(error=f"playwright run exceeded {wall_timeout}s")

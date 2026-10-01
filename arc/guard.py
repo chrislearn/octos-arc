@@ -12,7 +12,7 @@ import re
 _VERIFY = re.compile(r"\b(npm run build|npm start|npm run start|node \S+\.js|curl\b|playwright|wget\b|node --check)", re.I)
 _CLAIM = re.compile(r"\b(implemented|complete[d]?|done|verified|passes|passing|finished|working)\b|✅", re.I)
 _WRITE_TOOLS = {"write_file", "edit_file", "apply_patch", "create_file", "append_file"}
-_SHELL_TOOLS = {"bash", "shell", "exec", "run_command"}
+_SHELL_TOOLS = {"bash", "shell", "exec", "exec_command", "run_command"}
 _REDIRECT = re.compile(r"(?:>>?|tee\s+(?:-a\s+)?|cp\s+\S+\s+|mv\s+\S+\s+|sed\s+-i\S*\s+(?:'[^']*'|\S+)\s+)\s*(\S+)")
 
 
@@ -25,6 +25,9 @@ class TurnMonitor:
         self.expect_verification = expect_verification
         self.wrote_files = False
         self.verified = False
+        self.verification_attempted = False
+        self.verification_commands_completed = 0
+        self.tool_completed = 0
         self.tool_calls = 0
         self.errors_in_a_row = 0
         self._last_error = None
@@ -48,13 +51,22 @@ class TurnMonitor:
             elif name in _SHELL_TOOLS:
                 cmd = str(args.get("cmd") or args.get("command") or "")
                 if _VERIFY.search(cmd):
-                    self.verified = True
+                    self.verification_attempted = True
                 if re.search(r"\b(cat|echo|printf|tee|cp|mv|sed)\b.*(>|tee|-i)", cmd) or re.search(r"\b(cp|mv)\s", cmd):
                     self.wrote_files = True
                     for m in _REDIRECT.finditer(cmd):
                         self._note_path(m.group(1).strip("'\""))
         elif method == "tool/completed":
+            pending = self._pending.pop(str(params.get('tool_call_id')), None)
+            if pending is not None:
+                self.tool_completed += 1
             ok = bool(params.get("success", True))
+            if pending and pending[0] in _SHELL_TOOLS:
+                command = str(pending[1].get('cmd') or pending[1].get('command') or '')
+                if _VERIFY.search(command):
+                    self.verification_commands_completed += 1
+                    # A completed successful command is still not business acceptance.
+                    self.verified = self.verified or params.get('success') is True
             preview = str(params.get("output_preview") or "")[:300]
             if not ok:
                 key = re.sub(r"\d+", "#", preview)
@@ -85,7 +97,7 @@ class TurnMonitor:
     def corrections(self) -> list[str]:
         out: list[str] = []
         if self.expect_verification and self.wrote_files and not self.verified and _CLAIM.search(self._final_text):
-            out.append("Your previous turn claimed completion without running any build, start or "
+            out.append("Your previous turn claimed completion without running any successfully completed build, start or "
                        "request command. Use the supplied isolated verification command before claiming success. "
                        "If no verification entry is supplied, build and exercise the app in a disposable copy "
                        "so validation does not change the delivered application's persistent data.")

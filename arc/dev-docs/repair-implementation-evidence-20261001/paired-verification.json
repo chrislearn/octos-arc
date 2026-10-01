@@ -1,0 +1,85 @@
+{
+  "purpose": "Same reconstructed source and four frozen cases; new verifier overrides both inherited states. Not a full cloud task benchmark.",
+  "runs": [
+    {
+      "inherited_state": "dirty",
+      "elapsed_seconds": 10.693,
+      "exit_code": 0,
+      "summary": {
+        "passed": 4,
+        "total": 4,
+        "error": null,
+        "failures": "",
+        "specs": [
+          "REQ-2-2-4.spec.ts",
+          "REQ-2-3.spec.ts"
+        ],
+        "workers": 1,
+        "scope_sha256": "625e353eb67c9fbc29e6e753f923aa77f710b922eb317e1bfdd8c06d1bdb4d35",
+        "scope": {
+          "specs": {
+            "REQ-2-2-4.spec.ts": "009421549f9791a729942fef49fb0e520b954f471bc815a8312799aa291dc1ae",
+            "REQ-2-3.spec.ts": "3391b50f9ca41eed5ecf910dbc9deccce6f7a586bbde38b92f889e3650c01737"
+          },
+          "prerequisites": {
+            "app-design.json": "03d80ef7d05bf2567a2c2b185c9061e452e9eb220815c2699cf694be638df544",
+            "business-review.json": "c00f4dd213795315e3a59886c621a34edd052db03898eda1a50c7e9c0804d73e",
+            "case-plan.json": "73afe3532aef8596fbd03e1a446bbd37b4d4a57e892076c2b0252291d2390ba8",
+            "domain-contracts.json": "7a8e74d8c61bdb9acc2edc58c41111e9456f963f9d4a8002e183745ff10904e5",
+            "fixtures.json": "57328c53ca9473c4e2efd060a0c7c74a2753d9ee28ee742deb255f6cee184de2",
+            "helpers.ts": "924c8f6d0cefc6dd69006899f0b7a73bfaee3b939fe4bd8e7bb730436c3f90a8",
+            "requirement-contracts.json": "59a7be8d4274a9fc80305a8a77642089f472908cdec50d6a7626285243716e3b",
+            "review.json": "e2272de9fd41c719cb29e6f278a3b584732eb1e5e2ea24d2ad459828dd731c9d",
+            "suite-origin.json": "db8aca51582b7c1bfe06d335519a27ceccf0df734ab6686d1217563269676013",
+            "test-obligations.json": "fbc1b1b25c7a8aa50e8b63f5653aadb7c59910bd0ec823134ff27b92ea7f1f96"
+          }
+        },
+        "source_sha256": "54fabbc8016630b124d91fed7f7e1d6b76d553200b01c31aed00fcf7719d3265",
+        "data_isolation": "private_per_invocation",
+        "data_isolation_id": "octos-verify-83c59wfs"
+      }
+    },
+    {
+      "inherited_state": "clean",
+      "elapsed_seconds": 10.994,
+      "exit_code": 0,
+      "summary": {
+        "passed": 4,
+        "total": 4,
+        "error": null,
+        "failures": "",
+        "specs": [
+          "REQ-2-2-4.spec.ts",
+          "REQ-2-3.spec.ts"
+        ],
+        "workers": 1,
+        "scope_sha256": "625e353eb67c9fbc29e6e753f923aa77f710b922eb317e1bfdd8c06d1bdb4d35",
+        "scope": {
+          "specs": {
+            "REQ-2-2-4.spec.ts": "009421549f9791a729942fef49fb0e520b954f471bc815a8312799aa291dc1ae",
+            "REQ-2-3.spec.ts": "3391b50f9ca41eed5ecf910dbc9deccce6f7a586bbde38b92f889e3650c01737"
+          },
+          "prerequisites": {
+            "app-design.json": "03d80ef7d05bf2567a2c2b185c9061e452e9eb220815c2699cf694be638df544",
+            "business-review.json": "c00f4dd213795315e3a59886c621a34edd052db03898eda1a50c7e9c0804d73e",
+            "case-plan.json": "73afe3532aef8596fbd03e1a446bbd37b4d4a57e892076c2b0252291d2390ba8",
+            "domain-contracts.json": "7a8e74d8c61bdb9acc2edc58c41111e9456f963f9d4a8002e183745ff10904e5",
+            "fixtures.json": "57328c53ca9473c4e2efd060a0c7c74a2753d9ee28ee742deb255f6cee184de2",
+            "helpers.ts": "924c8f6d0cefc6dd69006899f0b7a73bfaee3b939fe4bd8e7bb730436c3f90a8",
+            "requirement-contracts.json": "59a7be8d4274a9fc80305a8a77642089f472908cdec50d6a7626285243716e3b",
+            "review.json": "e2272de9fd41c719cb29e6f278a3b584732eb1e5e2ea24d2ad459828dd731c9d",
+            "suite-origin.json": "db8aca51582b7c1bfe06d335519a27ceccf0df734ab6686d1217563269676013",
+            "test-obligations.json": "fbc1b1b25c7a8aa50e8b63f5653aadb7c59910bd0ec823134ff27b92ea7f1f96"
+          }
+        },
+        "source_sha256": "54fabbc8016630b124d91fed7f7e1d6b76d553200b01c31aed00fcf7719d3265",
+        "data_isolation": "private_per_invocation",
+        "data_isolation_id": "octos-verify-y1k6h43o"
+      }
+    }
+  ],
+  "source_unchanged": true,
+  "inherited_dirty_data_unchanged": true,
+  "source_before_sha256": "54fabbc8016630b124d91fed7f7e1d6b76d553200b01c31aed00fcf7719d3265",
+  "dirty_before_sha256": "ceb68185226697cc1fbeb56761c40f70cd27edb9e6737a9a6fe19fe24aa4900f"
+}

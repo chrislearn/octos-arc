@@ -184,7 +184,8 @@ class FlowRegression(unittest.TestCase):
         self.assertEqual(f.repair_tool_turn.call_args.kwargs['request_budget'], 12)
         self.assertTrue(any('codegen prompt_unavailable:required_source_or_context_budget' in
                             str(call.args[0]) for call in log.call_args_list))
-        self.assertEqual(f.metric.call_args.kwargs['codegen_outcome'],
+        fallback = next(call for call in f.metric.call_args_list if call.args[0] == 'node_repair_fallback')
+        self.assertEqual(fallback.kwargs['codegen_outcome'],
                          'prompt_unavailable:required_source_or_context_budget')
 
     def test_completed_unchanged_codegen_gets_one_bounded_tool_window(self):

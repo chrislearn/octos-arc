@@ -12,8 +12,10 @@ from pathlib import Path
 import shutil
 import socket
 import tempfile
+import hashlib
+import time
 
-from acceptance import AcceptanceRunner, AppServer, RunSummary, failure_summaries
+from acceptance import AcceptanceRunner, AppServer, RunSummary, failure_summaries, tree_digest
 
 
 def copy_application(source: Path, destination: Path) -> None:
@@ -42,20 +44,35 @@ def verify(app: Path, tests: Path, playwright: Path, report_dir: Path,
     with tempfile.TemporaryDirectory(prefix='octos-verify-') as directory:
         copy = Path(directory) / 'app'
         copy_application(app, copy)
+        source_sha256 = hashlib.sha256(json.dumps(tree_digest(copy), sort_keys=True).encode()).hexdigest()
+        scope = {'specs': {spec: hashlib.sha256((tests / spec).read_bytes()).hexdigest() for spec in selected},
+                 'prerequisites': {str(p.relative_to(tests)): hashlib.sha256(p.read_bytes()).hexdigest()
+                                   for p in sorted(tests.rglob('*')) if p.is_file()
+                                   and p.suffix in {'.json', '.js', '.ts', '.mjs', '.cjs'}
+                                   and not p.name.endswith('.spec.ts')
+                                   and not {'node_modules', 'test-results', 'prepared', '.arc'} & set(p.parts)
+                                   and p != report_dir and report_dir not in p.parents}}
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
         log = lambda message: print(message, flush=True)
         runner = AcceptanceRunner(playwright, tests, report_dir / 'prepared', log, workers=workers)
-        server = AppServer(copy, port, log)
+        private_data = Path(directory) / 'runtime-data'
+        server = AppServer(copy, port, log, env_extra={'ARC_DATA_DIR': str(private_data)})
+        server.deadline = time.monotonic() + timeout
         try:
             error = server.build() or server.start()
-            summary = RunSummary(error=error) if error else runner.run(
-                selected, f'http://127.0.0.1:{port}', workers=workers, wall_timeout=timeout)
+            left = server.time_left(timeout)
+            summary = RunSummary(error=error or 'verification time budget exhausted') if error or left <= 0 else runner.run(
+                selected, f'http://127.0.0.1:{port}', workers=workers, wall_timeout=max(1, int(left)))
         finally:
             server.stop()
     result = {'passed': summary.passed, 'total': summary.total,
-              'error': summary.error, 'failures': failure_summaries(summary)}
+              'error': summary.error, 'failures': failure_summaries(summary),
+              'specs': selected, 'workers': workers,
+              'scope_sha256': hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest(),
+              'scope': scope, 'source_sha256': source_sha256,
+              'data_isolation': 'private_per_invocation', 'data_isolation_id': Path(directory).name}
     (report_dir / 'summary.json').write_text(json.dumps(result, ensure_ascii=False, indent=2))
     print(f'{summary.passed} passed, {summary.total - summary.passed} failed', flush=True)
     if summary.error:

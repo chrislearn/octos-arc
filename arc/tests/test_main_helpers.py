@@ -2423,6 +2423,9 @@ class VerificationDemandTests(unittest.TestCase):
     def test_should_still_demand_it_when_the_shell_is_there(self):
         self.assertTrue(self._monitor_for(set()).expect_verification)
 
+    def test_dropping_an_unrelated_tool_does_not_imply_no_shell(self):
+        self.assertTrue(self._monitor_for({'glob'}).expect_verification)
+
 
 class WorkerParityNoteTests(unittest.TestCase):
     """A memory limit can force the count below the grader's, and then the run

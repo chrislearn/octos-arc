@@ -144,6 +144,7 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
                      incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, prepare_edit_files, safe_relative_path,
                      source_protocol_errors, write_files, parse_context_request, has_context_request)
 from guard import TurnMonitor  # noqa: E402
+from repair_control import isolated_node_deadline, seconds_available, progress_snapshot, measured_progress  # noqa: E402
 from flow_policy import generation_tokens, node_seconds, phase_for_label, repair_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
 from runtime_diagnostics import (application_failures, backend_binding_health,
@@ -2151,6 +2152,7 @@ UI behavior follows the requirement and the current application:
 - Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
 - Specify ownership/keys and atomic command effects (including undo) from requirements; related mutations must commit together in one store update or database transaction, not separate file writes. Validate authoritatively on the server. Date-only values are calendar dates, not UTC instants; persist expiry deadlines across reloads, anchor countdowns to server time, and use a task-provided reference date only when explicitly required. Keep editable rich-text regions labeled (role=textbox, aria-multiline=true); use native select for a native selection contract, not a visually similar custom menu.
 - Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
+Keep page composition separate from feature dialogs, pure transformations and API helpers. Preserve stable record and column identifiers across display labels and request payloads. Show recoverable operation errors beside that operation while retaining the working page and unsaved input. Avoid repeatedly expanding a central editor for independent features.
 """
 
 # Bump when APP_DESIGN_PROMPT or the design schema changes: a stored design made
@@ -2214,6 +2216,7 @@ Packages: update package.json and the build script only for required dependencie
 Data: seed only a new store or migration; preserve edits/deletions across restarts. Use atomic aggregate updates for related state and server-side validation. Persist deadlines, distinguish calendar dates from timestamps. Label rich-text textbox regions; use native select when native selection is required.
 HTTP: 400 malformed, 401 unauthenticated (challenge), 403 forbidden, 404 missing, 409 conflict, consistent 400/422 validation. Honor explicit codes; no 2xx or partial writes on rejection.
 Rules: handle general inputs and preserve working behavior. Honor required roles/names and unique IDs; links use an anchor with href or Router Link. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Put each named control where the requirement places it (page/settings/menu/dialog), exact text; a control said to show a value (username) shows it. No two visible controls with the same role and name. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
+Structure: use feature modules for large editors. Keep stable IDs across UI/API labels. Recoverable operation errors must not unmount working controls. Register backend routes once; keep helpers outside auto-discovered root modules.
 Async: clicks do not await handlers. Mount usable editor/dialog controls before the first await; isolate background only for modal overlays. Await save and list refresh (or update optimistically); retain edits on failure.
 Output: FILE blocks for new files or necessary replacements; prefer exact anchored EDIT blocks for localized changes. Never rewrite an existing file without its full current source quoted here; request that path. Keep package and lock versions aligned. No changes: <<<NO CHANGE>>>.
 """
@@ -3393,12 +3396,16 @@ class Flow:
 
     def turn(self, prompt: str, timeout: int, label: str, expect_verification: bool = True,
              request_budget: int | None = None) -> tuple[bool, str]:
+        timeout = min(timeout, seconds_available(self))
         if timeout <= 0:
             self.last_turn_changed = False
             return False, "turn time allowance exhausted before execution"
         proxy = getattr(self, "llm_proxy", None)
         # The framework, rather than the author, owns verification in the layered flow.
-        no_shell = bool(getattr(proxy, "extra_drop_tools", None))
+        dropped = getattr(proxy, 'extra_drop_tools', ())
+        # Octos exposes shell/bash; exec_command is a compatibility alias we
+        # also drop in native editing, not a required installed capability.
+        no_shell = isinstance(dropped, (set, frozenset, list, tuple)) and {'bash', 'shell'}.issubset(dropped)
         monitor = TurnMonitor(self.protected_prefixes(),
                               expect_verification=expect_verification and not no_shell and getattr(self, "layered", None) is None,
                               allowed_prefixes=[".arc/design/", str(self.output_dir / ".arc" / "design")])
@@ -3422,6 +3429,8 @@ class Flow:
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", default))
             proxy.label = label
             proxy.phase = phase_for_label(label)
+            proxy.repair_round_id = getattr(self, '_repair_round_id', None)
+            proxy.executor = 'file_blocks' if getattr(proxy, 'no_tools', False) else 'structured_tools' if no_shell else 'full_tools'
             proxy.begin_turn(request_budget)
             proxy.turn_deadline = time.monotonic() + timeout
         # A model turn may change application files, even when it later fails.
@@ -3435,7 +3444,7 @@ class Flow:
         if (proxy is not None and getattr(proxy, "no_tools", False)
                 and proxy.phase in {"implement", "repair"}
                 and os.environ.get("OCTOS_ARC_STREAM_GUARD", "1") != "0"):
-            slack = max(0, self.remaining() - self.final_measurement_reserve() - timeout)
+            slack = max(0, seconds_available(self) - self.final_measurement_reserve() - timeout)
             extension = min(120, timeout * 0.25, slack)
             lease = ProgressDeadline(timeout, extension=extension)
             log(f"[flow] {label}: streaming progress grace ≤{extension:.0f}s; idle limit 120s")
@@ -3464,8 +3473,10 @@ class Flow:
                 reason = detail.get('stream_guard') or detail.get('stream_integrity') or 'unknown'
                 text += ' Interruption reason: ' + str(reason)
         elapsed = time.time() - t0
+        executor = 'file_blocks' if execution_mode == 'codegen' else 'structured_tools' if no_shell else 'full_tools'
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
-            f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
+            f"(executor={executor} tools={monitor.tool_calls} write_attempted={monitor.wrote_files} "
+            f"verification_command_succeeded={monitor.verified}): {text[-240:]!r}")
         if proxy is not None and getattr(proxy, "hard_budget_exhausted", False) is True:
             log(f"[guard] {label}: hard request budget {proxy.turn_budget} hit; turn incomplete")
         for c in monitor.corrections():
@@ -3488,7 +3499,19 @@ class Flow:
         self.metric("turn", label=label, phase=phase_for_label(label), mode=execution_mode,
                     ok=ok, elapsed_seconds=round(elapsed, 3),
                     changed=self.last_turn_changed if execution_mode == "tools" else None,
-                    tools=monitor.tool_calls)
+                    tools=monitor.tool_calls, executor=executor,
+                    tools_completed=monitor.tool_completed, write_attempted=monitor.wrote_files,
+                    verification_attempted=monitor.verification_attempted,
+                    verification_commands_completed=monitor.verification_commands_completed,
+                    verification_command_succeeded=monitor.verified,
+                    upstream_requests=getattr(proxy, 'turn_upstream_requests', None)
+                    if isinstance(getattr(proxy, 'turn_upstream_requests', None), int) else None,
+                    repair_round_id=getattr(self, '_repair_round_id', None),
+                    source_before=before_sources,
+                    source_after=self.app_source_digest() if before_sources is not None else None,
+                    stop_reason='segment_request_limit' if getattr(proxy, 'hard_budget_exhausted', False) is True
+                    else 'no_action_limit' if getattr(proxy, 'no_action_exhausted', False) is True
+                    else 'completed' if ok else 'incomplete')
         # Fatal provider responses still require protected-file restoration and
         # an accounting event. Do not jump past the common turn cleanup.
         if not ok and "local_token_budget_exhausted" in text:
@@ -3768,6 +3791,9 @@ class Flow:
             must_include = set(getattr(self, "refused_paths", ()))
         else:
             must_include = set(must_include)
+        closure_key = tuple(sorted(active_ids or [node_id]))
+        closures = getattr(self, '_source_closure_paths', {})
+        carried_paths = set(closures.get(closure_key, ()))
         # A small manifest is cheaper to quote than to lose and regenerate a
         # multi-file reply. The atomic write guard remains the authority.
         manifest = self.output_dir / "frontend/package.json"
@@ -3775,6 +3801,10 @@ class Flow:
                 and limit >= 12000 and len(spec) < limit * 0.45):
             must_include.add("frontend/package.json")
         scored = scored_sources(self.output_dir, spec + "\n" + evidence, entry, must_include=must_include) if existing else []
+        evidence_concrete = {str(row[3]) for row in scored if row[0] in (1, 2, 3)}
+        # Carried composition roots must not make scoring walk every unrelated
+        # page import. Promote their existing ranked rows after source discovery.
+        must_include |= carried_paths
         # A modified shared scaffold library can change every feature's API.
         # Keep it and its dependencies mandatory even in focused context.
         must_include |= {str(row[3]) for row in Flow.omit_unchanged_template_libraries(self, scored, must_include)
@@ -3788,10 +3818,12 @@ class Flow:
             scored = sorted([(1 if row[0] > 0 and str(row[3]) in must_include else row[0], *row[1:])
                              for row in scored], key=lambda row: row[:3])
         scored = Flow.omit_unchanged_template_libraries(self, scored, must_include)
+        closures[closure_key] = set(must_include)
+        self._source_closure_paths = closures
         if focused_sources is None:
             # Scope only when evidence names a concrete feature file. A shared
             # composition root alone cannot identify an unknown feature owner.
-            concrete = {str(row[3]) for row in scored if row[0] in (1, 2, 3)}
+            concrete = evidence_concrete
             hubs = {'App.jsx', 'App.tsx', 'app.js', 'router.js', 'main.jsx', 'main.tsx', 'package.json'}
             focused_sources = any(Path(path).name not in hubs for path in concrete)
         entry_indexes = [i for i, row in enumerate(scored)
@@ -3856,7 +3888,9 @@ class Flow:
                     inherited_owners=list(preservation.inherited),
                     required_source_paths=sorted(must_include), prompt_chars=len(prompt), limit=limit,
                     focused_sources=focused_sources, source_chars=len(sources),
-                    quoted_source_paths=sorted(quoted_paths(sources)))
+                    quoted_source_paths=sorted(quoted_paths(sources)),
+                    closure_versions={str(row[3]): hashlib.sha256(row[4].encode()).hexdigest()
+                                      for row in scored if str(row[3]) in must_include})
         return prompt
 
     def render_outlines(self, paths: list[str], room: int) -> str | None:
@@ -3895,7 +3929,7 @@ class Flow:
 
     def log_codegen_fallback(self, node_id: str) -> None:
         budget = self.codegen_budget
-        log(f"[flow] {node_id}: codegen budget exceeded; tool mode "
+        log(f"[flow] {node_id}: codegen unavailable; tool fallback "
             f"spec={budget.get('spec', '?')} entry={budget.get('entry', '?')} room={budget.get('room', '?')} "
             f"limit={budget.get('limit', '?')} reason={budget.get('reason') or 'unrecorded'}")
 
@@ -5011,7 +5045,12 @@ class Flow:
     def repair_tool_turn(self, prompt, timeout, label, request_budget: int | None = None):
         before = self.repair_source_index().versions
         prompt += self.repair_memory_context(prompt)
-        ok, text = self.turn(prompt, timeout, label, request_budget=request_budget)
+        # A missing full-source quotation does not require a shell. Range reads
+        # and native edits retain the protected-file policy and full acceptance.
+        if self.use_structured_edits(prompt, label) and len(prompt) <= self.codegen_context_chars():
+            ok, text = self.structured_edit_turn(prompt, timeout, label, request_budget=request_budget)
+        else:
+            ok, text = self.turn(prompt, timeout, label, request_budget=request_budget)
         after = self.repair_source_index().versions
         self.last_codegen_written = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
         self.generation_batch_check(label)
@@ -5663,7 +5702,7 @@ class Flow:
         sources = {str(p.relative_to(self.output_dir)): p.read_text(encoding="utf-8", errors="replace")
                    for p in app_source_files(self.output_dir)}
         index = SourceIndex(sources)
-        prompt += "\n" + index.render(scope) + "\n"
+        prompt += "\n" + index.render(scope, evidence=evidence) + "\n"
         related = index.related(scope)
         retained = 0
         retention_limit = max(0, int(os.environ.get('OCTOS_ARC_EDIT_SOURCE_CHARS', '32768')))
@@ -5903,6 +5942,11 @@ class Flow:
                    f"Read-only acceptance directory: {self.tests_dir.resolve()}. "
                    "Relative spec paths in failure reports refer to this directory. "
                    "Read relevant specs and helpers here when needed.\n")
+        fixture = self.tests_dir / 'fixtures.json'
+        if getattr(self, 'frozen_suite', None) and fixture.is_file():
+            context += (f'Frozen public fixture prerequisites (read-only): {fixture.resolve()} '
+                        f'sha256={hashlib.sha256(fixture.read_bytes()).hexdigest()}. '
+                        'Read named prerequisite records when needed; never modify the file.\n')
         runner = getattr(self, "runner", None)
         if runner:
             helper = BUNDLE_DIR / "verify_app.py"
@@ -5924,6 +5968,9 @@ class Flow:
                             "Use this command for acceptance checks so test writes do not alter the source application's data. "
                             "Edit the source application, not the disposable copy or read-only tests. "
                             "The command prints failures and a report path. The harness re-runs acceptance after your edits.\n")
+                if specs:
+                    context += ('This command selects the current and related proven test scope only. '
+                                'A scoped pass is not full-suite success. Final acceptance independently runs all specs.\n')
         return context
 
     def app_repair_prompt(self, **fields) -> str:
@@ -6283,8 +6330,10 @@ class Flow:
         env = {"ARC_DATA_DIR": str(self.runtime_data_dir(purpose))}
         if test_hooks:
             env["ARC_TEST_HOOKS"] = "1"
-        return AppServer(self.output_dir, self.smoke_port, log, env_extra=env, grader_like=grader_like,
+        server = AppServer(self.output_dir, self.smoke_port, log, env_extra=env, grader_like=grader_like,
                          extra_ports=[p for p in spec_base_ports(self.tests_dir) if p != self.web_port])
+        server.deadline = time.monotonic() + max(0, seconds_available(self))
+        return server
 
     def generated_load_errors(self, specs: list[str]) -> list[str]:
         if (not getattr(self, "derived_as_specs", False)
@@ -6311,6 +6360,30 @@ class Flow:
 
     def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False,
                   runner: AcceptanceRunner | None = None, *, audit_candidate: bool = False) -> RunSummary:
+        started = time.monotonic()
+        source = self.app_source_digest()
+        scope_versions = {spec: hashlib.sha256((self.tests_dir / spec).read_bytes()).hexdigest()
+                          if self.tests_dir and (self.tests_dir / spec).is_file() else None for spec in specs}
+        prior = getattr(self, '_last_repair_round', {})
+        summary = None
+        try:
+            summary = self._run_specs(specs, workers, grader_like, runner, audit_candidate=audit_candidate)
+            return summary
+        finally:
+            self.metric('acceptance_measurement', specs=specs, source_hash=source,
+                        source_after=self.app_source_digest(),
+                        repair_round_id=prior.get('round_id') if prior.get('source_after') == source else None,
+                        grader_like=grader_like, elapsed_seconds=round(time.monotonic() - started, 3),
+                        passed=summary.passed if summary is not None else None,
+                        total=summary.total if summary is not None else None,
+                        error=summary.error if summary is not None else 'measurement_exception',
+                        scope_hash=hashlib.sha256(json.dumps(scope_versions, sort_keys=True).encode()).hexdigest(),
+                        scope_versions=scope_versions,
+                        all_passed=bool(summary is not None and summary.all_passed
+                                        and self.suite_is_measured(summary, specs)))
+
+    def _run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False,
+                   runner: AcceptanceRunner | None = None, *, audit_candidate: bool = False) -> RunSummary:
         """Build, start, run the specs, then undo whatever the test run mutated
         (a persisted counter at -1 would otherwise be committed as the seed).
         `grader_like` starts the backend with only PORT set, as the platform does."""
@@ -6351,7 +6424,7 @@ class Flow:
         blocked = self.generated_load_errors(specs)
         if blocked:
             return RunSummary(error="generated test load blocked: " + "; ".join(blocked), load_errors=blocked)
-        if self.time_up():
+        if seconds_available(self) <= 0:
             return RunSummary(error="acceptance time budget exhausted")
         git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
         snapshot_worktree(git_run)
@@ -6387,7 +6460,7 @@ class Flow:
                 summary = self.run_isolated(runner or self.runner, specs, server, git_run, workers)
             else:
                 summary = (runner or self.runner).run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers,
-                                          wall_timeout=max(1, min(wall, int(self.remaining()))))
+                                          wall_timeout=max(1, min(wall, int(seconds_available(self)))))
             summary.server_errors = backend_error_digest(server.tail(5000))
             backend_failure = backend_http_failure_observation(summary)
             if backend_failure:
@@ -6449,11 +6522,11 @@ class Flow:
         merged = RunSummary()
         url = f"http://127.0.0.1:{self.smoke_port}"
         for index, spec in enumerate(specs):
-            if self.time_up():
+            if seconds_available(self) <= 0:
                 merged.error = merged.error or "acceptance time budget exhausted"
                 break
             part = runner.run([spec], url, workers=workers,
-                              wall_timeout=max(60, min(600, int(self.remaining()))))
+                              wall_timeout=max(1, min(600, int(seconds_available(self)))))
             if part.error and not part.results:
                 merged.error, merged.killed = part.error, part.killed
                 break
@@ -6505,14 +6578,14 @@ class Flow:
         report = browser_health(runner.root, f"http://127.0.0.1:{self.smoke_port}", destination,
                                 paths=paths, dynamic_patterns=dynamic_patterns,
                                 env=dict(os.environ, **runner.env_extra),
-                                timeout=min(50, max(1, int(self.remaining()))))
-        bindings = frontend_binding_health(self.output_dir / 'frontend')
+                                timeout=min(50, max(1, int(seconds_available(self)))))
+        bindings = frontend_binding_health(self.output_dir / 'frontend', timeout=min(20, max(1, int(seconds_available(self)))))
         report['frontend_bindings'] = bindings
         binding_failure = binding_failure_observation(bindings)
         if binding_failure:
             report['observations'].append(binding_failure)
             report['status'] = 'failed'
-        backend_bindings = backend_binding_health(self.output_dir)
+        backend_bindings = backend_binding_health(self.output_dir, timeout=min(20, max(1, int(seconds_available(self)))))
         report['backend_bindings'] = backend_bindings
         backend_failure = binding_failure_observation(backend_bindings, 'Backend')
         if backend_failure:
@@ -6634,6 +6707,32 @@ class Flow:
 
     def node_repair_turn(self, node_id: str, failures: str, timeout: float, label: str,
                          build_prompt) -> bool:
+        serial = getattr(self, '_repair_round_serial', 0) + 1
+        self._repair_round_serial = serial
+        previous_id = getattr(self, '_repair_round_id', None)
+        self._repair_round_id = f'{node_id}:{serial}'
+        self._repair_round_spent = 0
+        started = time.monotonic()
+        before = self.app_source_digest() if getattr(self, 'output_dir', None) is not None else None
+        accounted = False
+        try:
+            result = self._node_repair_turn(node_id, failures, min(timeout, seconds_available(self)), label, build_prompt)
+            accounted = True
+            return result
+        finally:
+            after = self.app_source_digest() if before is not None else None
+            self._last_repair_round = {'round_id': self._repair_round_id, 'source_after': after,
+                                       'changed': before != after if before is not None else None}
+            self.metric('repair_round', round_id=self._repair_round_id, node_id=node_id, label=label,
+                        upstream_requests=self._repair_round_spent,
+                        accounting_status='complete' if accounted else 'incomplete',
+                        elapsed_seconds=round(time.monotonic() - started, 3),
+                        source_before=before, source_after=after,
+                        changed=before != after if before is not None else None)
+            self._repair_round_id = previous_id
+
+    def _node_repair_turn(self, node_id: str, failures: str, timeout: float, label: str,
+                          build_prompt) -> bool:
         """Apply a repair before charging another acceptance round.
 
         A guard refusal is missing context, not an ineffective code change.
@@ -6666,6 +6765,7 @@ class Flow:
                                           force_files="Failed at: build/start" in failures,
                                           request_budget=allowance)
                 round_spent += getattr(self, "last_codegen_request_count", getattr(proxy, "turn_upstream_requests", 0))
+                self._repair_round_spent = round_spent
                 applied = applied or bool(self.last_codegen_written)
                 refused = self.last_codegen_refused | set(getattr(self, "last_codegen_context_requested", ()))
                 if self.last_codegen_written and not refused:
@@ -6692,7 +6792,9 @@ class Flow:
                     break
                 log(f"[flow] {label}: retrying codegen with {', '.join(sorted(refused))} quoted whole")
         left = deadline - time.monotonic()
-        if left < 30 or self.wound_down() or getattr(getattr(self, "llm_proxy", None), "hard_budget_exhausted", False) is True:
+        # begin_turn resets segment flags. A previous segment's flag says
+        # nothing about a fresh round or its still-unspent shared allowance.
+        if left < 30 or self.wound_down():
             return applied
         round_cap = self.node_repair_request_cap(failures, applied)
         allowance = round_cap - round_spent
@@ -6729,11 +6831,13 @@ class Flow:
                                        request_budget=allowance)
         changed = getattr(self, "last_turn_changed", None)
         spent = getattr(proxy, 'turn_upstream_requests', None)
-        if changed is False and not applied and ok and text and isinstance(spent, int) and spent > 0:
+        if isinstance(spent, int):
             round_spent += spent
+            self._repair_round_spent = round_spent
+        if changed is False and not applied and ok and text and isinstance(spent, int) and spent > 0:
             continuation = min(8, max(0, self.node_repair_request_cap(failures, applied) - round_spent))
             left = deadline - time.monotonic()
-            if outcome != 'unchanged' and continuation and left >= 30 and not self.wound_down() and getattr(proxy, 'hard_budget_exhausted', False) is not True:
+            if outcome != 'unchanged' and continuation and left >= 30 and not self.wound_down():
                 note = ("\nThe previous repair returned no application edit. Its proposed diagnosis is unverified; "
                         "check it against the current helper/API shapes. Use the available edit_file/write_file tools "
                         "to apply the focused fix now; do not finish by promising to implement it. "
@@ -6745,6 +6849,9 @@ class Flow:
                 self.last_turn_changed = None
                 self.repair_tool_turn(self.compact_tool_repair_prompt(build_prompt(), failures) + note, left,
                                       label + ' (apply unfinished repair)', request_budget=continuation)
+                spent = getattr(proxy, 'turn_upstream_requests', 0)
+                if isinstance(spent, int):
+                    self._repair_round_spent += spent
                 changed = getattr(self, 'last_turn_changed', None)
         if changed is False and not applied:
             log(f"[flow] {label}: no source changes after repair fallback; skipping duplicate acceptance")
@@ -7218,6 +7325,8 @@ class Flow:
         explicit_rounds = getattr(self, 'repair_rounds_explicit', True)
         maximum_rounds = 5 if not explicit_rounds and self.repair_rounds == 3 else self.repair_rounds
         failure_signatures = set()
+        previous_progress = {}
+        best_pass_keys = set()
         made_progress = False
         attempt = 0
         while attempt <= maximum_rounds:
@@ -7466,21 +7575,28 @@ class Flow:
                     log(f'[acceptance] {node_id}: repeated locator-role mismatch; continuing bounded repair')
                 if confirmed:
                     failures += '\nIndependent recheck (use the newer evidence when diagnosing):\n' + failure_summaries(confirmation)
-            # A changed concrete failure is progress. Unlocated prose alone
-            # cannot buy more rounds by changing a generic timeout's wording.
+            # A changed stack/line/diagnostic is not measured product progress.
             signature = (normalized if any(row.file or row.location for row in joint.results if not row.ok)
                          else tuple(sorted((row.title, row.status) for row in joint.results if not row.ok)))
-            if attempt and failure_signatures and signature and (signature not in failure_signatures):
+            current_progress = progress_snapshot(joint)
+            progress = measured_progress(previous_progress, current_progress) if measured else 'unknown'
+            if attempt and progress == 'advanced':
                 made_progress = True
                 stalls = 0
+            self.metric('repair_progress', node_id=node_id, attempt=attempt, outcome=progress,
+                        diagnostic_changed=bool(failure_signatures and signature not in failure_signatures))
+            if measured:
+                previous_progress = current_progress
             failure_signatures.add(signature)
-            quality = (int(not regression_failed), passed, sum(row.ok for row in regression_results))
+            lost_pass = any(key in current_progress and not current_progress[key][0] for key in best_pass_keys)
+            quality = (int(not regression_failed and not lost_pass), passed, sum(row.ok for row in regression_results))
             if measured and quality > best_quality:
-                made_progress = made_progress or attempt > 0
+                made_progress = made_progress or (attempt > 0 and progress == 'advanced')
                 if best_passed >= 0:
                     self.commit(f'{node_id} (repair {attempt}): {passed}/{summary.total} pass')
                 best_passed, best_sha, regressions, stalls = (passed, self.head(), 0, 0)
                 best_quality = quality
+                best_pass_keys |= {key for key, (ok, _) in current_progress.items() if ok}
             elif measured and quality == best_quality and (attempt > 0):
                 stalls += 1
                 if stalls >= 2 and (not (was_codegen and self.codegen_blocked)):
@@ -10382,11 +10498,26 @@ class Flow:
             return False
         if len(text) < cap or len(text) > self.codegen_context_chars() * 0.6:
             return False
-        if self.wound_down() or self.remaining() < self.min_repair_seconds + 300:
+        available = seconds_available(self)
+        if self.wound_down() or available < self.min_repair_seconds + 300:
             return False
-        attempted.add(rel)
         index = self.repair_source_index()
         importers = sorted(p for p, deps in index.dependencies.items() if rel in deps)
+        backend_route = rel.startswith('backend/routes/')
+        route_before = None
+        if backend_route:
+            from web_checks import runtime_route_report
+            entry = backend_entry(self.output_dir)
+            if entry is None:
+                return False
+            loader = str(entry.relative_to(self.output_dir))
+            importers = sorted(set(importers) | {loader})
+            # Actual registration is stronger than guessing a dynamic loader
+            # from static imports. Unsupported loaders keep the original tree.
+            route_before = runtime_route_report(self.output_dir, timeout=min(20, available))
+            if route_before is None:
+                self.metric('hub_split', path=rel, outcome='deferred_unknown_loader')
+                return False
         quoted = [f"--- {rel} ---\n{text.rstrip()}\n"]
         budget = int(self.codegen_context_chars() * 0.8) - len(text) - 3000
         for importer in importers:
@@ -10394,33 +10525,73 @@ class Flow:
             if source and len(source) <= budget:
                 quoted.append(f"--- {importer} ---\n{source.rstrip()}\n")
                 budget -= len(source)
+            else:
+                self.metric('hub_split', path=rel, outcome='deferred_importer_context', importer=importer)
+                return False
+        attempted.add(rel)
         target = max(2000, cap // 3)
         prompt = (stack_note(self.output_dir) +
                   f"Refactor ONLY the module structure ({reason}): {rel} is {len(text)} chars and can no longer be "
-                  f"edited safely. Split it into sibling feature modules of at most {target} chars each in the same "
-                  f"directory (for example pages/<area>/<Feature>.jsx or routes/<area>-<feature>.js), keeping every "
+                  f"edited safely. Split it into feature modules of at most {target} chars each in a child "
+                  f"directory (for example pages/<area>/<Feature>.jsx or routes/<area>/<feature>.js). "
+                  f"Never create sibling backend/routes/*.js registration modules: the entry may load all of them. Keep every "
                   f"exported name, route path, element id, accessible name, text and behavior IDENTICAL. Keep {rel} as "
                   f"a thin module that re-exports or composes the pieces so existing importers keep working, and update "
                   f"the importers shown here only where an import path must change ({', '.join(importers) or 'none'}). "
                   f"Do not add, remove or change features. Return complete <<<FILE>>> blocks for every new and changed "
                   f"file.\nCurrent source files (quoted whole):\n" + "".join(quoted))
         before = self.head()
+        # Refactoring can follow an uncommitted partial implementation. HEAD
+        # alone is not its rollback point: preserve those bytes and new files.
+        snapshot_paths = app_source_files(self.output_dir, exts=None) + [
+            self.output_dir / part / name for part in ('frontend', 'backend') for name in LOCKFILES
+            if (self.output_dir / part / name).is_file()]
+        source_before = {p.relative_to(self.output_dir): p.read_bytes() for p in snapshot_paths}
+        def restore_split():
+            if before:
+                self.restore_app(before)
+            current = app_source_files(self.output_dir, exts=None) + [
+                self.output_dir / part / name for part in ('frontend', 'backend') for name in LOCKFILES
+                if (self.output_dir / part / name).is_file()]
+            for p in current:
+                if p.relative_to(self.output_dir) not in source_before:
+                    p.unlink()
+            for name, content in source_before.items():
+                p = self.output_dir / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(content)
         self.last_codegen_written = []
         label = f"split {rel} (refactor)"
-        timeout = min(900, max(120, int(self.remaining() - self.min_repair_seconds)))
-        ok, _ = self.codegen_turn(prompt, timeout, label, spec_chars=0, force_files=True)
+        timeout = min(900, max(1, int(seconds_available(self) - self.min_repair_seconds)))
+        try:
+            ok, _ = self.codegen_turn(prompt, timeout, label, spec_chars=0, force_files=True)
+        except BaseException:
+            restore_split()
+            raise
         written = list(getattr(self, "last_codegen_written", []) or [])
         if not ok or not written:
+            if written:
+                restore_split()
             log(f"[flow] hub split of {rel} produced no files; keeping the tree")
             return False
         self._generation_gate_result = None
-        self.generation_batch_check(label)
+        try:
+            self.generation_batch_check(label)
+        except BaseException:
+            restore_split()
+            raise
         gate = getattr(self, "_generation_gate_result", None)
         if gate is None:
             # The batch check was skipped (no budget configured): build directly.
             build_error = self.app_server(False).build()
             gate = {"errors": [build_error] if build_error else []}
         errors = list(gate.get("errors") or [])
+        if backend_route:
+            unsafe = [p for p in written if p != rel and Path(p).parent == Path('backend/routes')]
+            route_after = runtime_route_report(self.output_dir, timeout=min(20, max(0.001, seconds_available(self))))
+            signature = lambda report: [(row.get('method'), row.get('path')) for row in report['routes']]
+            if (unsafe or route_after is None or signature(route_before) != signature(route_after)):
+                errors.append('Refactor changed/obscured actual route registration or added root route modules')
         regressed = False
         proven = sorted({spec for node, verdict in getattr(self, "test_verdict", {}).items() if verdict is True
                          for spec in (getattr(self, "spec_map", {}) or {}).get(node, [])})
@@ -10430,8 +10601,7 @@ class Flow:
         if errors or regressed:
             log(f"[flow] hub split of {rel} rolled back: "
                 + (errors[0][:200] if errors else f"{len(proven)} previously passing spec(s) regressed"))
-            if before:
-                self.restore_app(before)
+            restore_split()
             self.metric("hub_split", path=rel, outcome="rolled_back", errors=errors[:3], regressed=regressed)
             return False
         self.commit(f"refactor: split {rel} into feature modules")
@@ -11394,6 +11564,7 @@ class Flow:
             self.driver.end_scope("node")
         return True
 
+    @isolated_node_deadline
     def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int,
                    *, preimplemented: bool = False) -> None:
         if getattr(self, "layered", None) is not None:
@@ -11410,6 +11581,7 @@ class Flow:
         self.last_turn_changed = False
         self._generation_gate_result = None
         self.codegen_blocked = node_id in getattr(self, "whole_app_tool_ids", set())
+        self._source_closure_paths = {}
         source_versions = dict(self.repair_source_index().versions)
         implementation_versions = {path: version for path, version in source_versions.items()
                                    if not path.startswith("backend/data/")}
@@ -11429,6 +11601,7 @@ class Flow:
         if not self.node_start_budget_available(node_id, node_budget, measurement_only=preimplemented):
             return
         deadline = time.time() + node_budget
+        self._node_deadline = time.monotonic() + node_budget
         log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
 
         self.mark("design_started", node_id)
@@ -11526,7 +11699,24 @@ class Flow:
                                                         f"{node_id} implement (retry with {names})",
                                                         spec_chars=self.current_spec_chars)
                         else:
-                            log(f"[flow] {node_id}: {', '.join(sorted(refused))} cannot be quoted whole within the budget; no retry")
+                            log(f"[flow] {node_id}: {', '.join(sorted(refused))} cannot be quoted whole; inspecting current ranges with tools")
+                            left = min(implement_timeout, seconds_available(self) - self.min_repair_seconds)
+                            used = getattr(self, 'last_codegen_request_count', 0)
+                            cap = max(0, int(os.environ.get('OCTOS_ARC_IMPLEMENT_REQUESTS', '60')))
+                            allowance = cap - used if isinstance(used, int) else 0
+                            if left >= 30 and allowance > 0 and not self.wound_down():
+                                focused = self.with_preservation_context(
+                                    prompt + '\nFinish this node on the current disk snapshot using range reads and focused edits. '
+                                    'Earlier partial edits may already exist; do not repeat them or run tests.\n',
+                                    [node_id], spec_text)
+                                self.bind_edit_scope(focused, describe_node(node) + '\n' + spec_text,
+                                                     refused | set().union(*self._source_closure_paths.values()))
+                                self.metric('implementation_context_fallback', node_id=node_id,
+                                            reason='required_source_closure_unavailable', prior_requests=used,
+                                            request_allowance=allowance, seconds_left=round(left, 1))
+                                self.codegen_blocked = True
+                                ok, text = self.structured_edit_turn(focused, left, f'{node_id} implement (context recovery)',
+                                                                     request_budget=allowance)
             else:
                 if self.codegen_mode():
                     self.log_codegen_fallback(node_id)
@@ -12285,6 +12475,9 @@ class Flow:
         if len(all_specs) < 2 and (not unverified):
             return
         rounds = int(os.environ.get('OCTOS_FINAL_REPAIR_ROUNDS', '0'))
+        self.metric('effective_final_policy', repair_rounds=rounds,
+                    source='environment' if 'OCTOS_FINAL_REPAIR_ROUNDS' in os.environ else 'python_default',
+                    full_suite=True)
         confirm_runs = max(1, int(os.environ.get('OCTOS_ARC_FINAL_CONFIRM_RUNS', '1')))
         workers = workers_for_final(getattr(self, 'mem_limit', None), self.final_workers())
 

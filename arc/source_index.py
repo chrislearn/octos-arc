@@ -154,20 +154,45 @@ class SourceIndex:
                          if posixpath.basename(path).split('.', 1)[0].lower() == stem)
         return sorted(found)[:limit]
 
-    def render(self, paths, limit=5000):
+    def callables(self, path):
+        """Advisory declaration starts, never guessed function end boundaries."""
+        source = self.sources[path]
+        pattern = re.compile(r'(?m)^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?'
+            r'(?:function\s+(?P<function>\w+)\s*(?P<params>\([^)]{0,180}\))|'
+            r'(?:const|let)\s+(?P<arrow>\w+)\s*=\s*(?:async\s+)?'
+            r'(?P<args>\([^)]{0,180}\)|\w+)\s*=>)')
+        return [{'name': m['function'] or m['arrow'],
+                 'signature': (m['function'] or m['arrow']) + (m['params'] or m['args']),
+                 'line': source.count('\n', 0, m.start()) + 1 + m.group().count('\n', 0, len(m.group()) - len(m.group().lstrip())),
+                 'sha256': self.versions[path]} for m in pattern.finditer(source)]
+
+    def render(self, paths, limit=5000, evidence=''):
         lines = ['Source relationships (heuristic; verify callers before changing contracts):']
-        for path in sorted(self.related(paths)):
+        terms = set(re.findall(r'[a-zA-Z][a-zA-Z0-9_]{2,}', evidence.lower()))
+        priority = set(paths)
+        for path in sorted(self.related(paths), key=lambda p: (p not in priority, p)):
             source = self.sources[path]
-            symbols = re.findall(r'(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|class|const)\s+(\w+)', source)
-            signatures = re.findall(r'function\s+\w+\s*\([^)]{0,180}\)', source)
+            functions = self.callables(path)
+            functions.sort(key=lambda row: (-sum(term in row['name'].lower() for term in terms), row['line']))
             routes = re.findall(r'''\b(?:app|router)\.(?:get|post|put|patch|delete)\(\s*['"][^'"]+['"]''', source)
-            requests = re.findall(r'''\bfetch\(\s*['"`][^'"`\n]{1,120}['"`]''', source)
+            requests = []
+            for match in re.finditer(r'''\b(?:fetch|requestJson)\(\s*(['"`])([^'"`\n]{1,180})\1''', source):
+                options = re.match(r'\s*,\s*\{([^{}]{0,240})', source[match.end():])
+                method = re.search(r'''\bmethod\s*:\s*['"]([A-Z]+)['"]''', options[1]) if options else None
+                requests.append(f'L{source.count(chr(10), 0, match.start()) + 1} {match[0]} method={method[1] if method else "unknown"}')
+            requests.sort(key=lambda item: -sum(term in item.lower() for term in terms))
             props = re.findall(r'<([A-Z]\w*)\b([^<>]*?)/?>', source)
-            calls = [name + '(' + ','.join(re.findall(r'\b(\w+)\s*=', attrs)) + ')' for name, attrs in props]
-            lines.append(f'{path}: imports={",".join(sorted(self.dependencies[path]))}; symbols={",".join(symbols[:20])}; components={",".join(calls[:20])}')
-            if signatures or routes or requests:
-                lines.append('  contracts: ' + '; '.join(signatures[:6] + routes[:10] + requests[:10]))
-        return '\n'.join(lines)[:limit]
+            calls = [name + '(' + ','.join(re.findall(r'\b(\w+)\s*=(?!>)', attrs)) + ')' for name, attrs in props]
+            block = [f'{path}: sha256={self.versions[path]}; chars={len(source)}; lines={len(source.splitlines())}; imports={",".join(sorted(self.dependencies[path]))}',
+                     '  callables (start lines only; read current ranges): ' + '; '.join(f"L{row['line']} {row['signature']}" for row in functions[:12]),
+                     '  components: ' + ','.join(calls[:12])]
+            if routes or requests:
+                block.append('  contracts: ' + '; '.join(routes[:10] + requests[:10]))
+            # Omit complete entries, rather than cutting a path/hash in half.
+            for line in block:
+                if len('\n'.join(lines + [line])) <= limit:
+                    lines.append(line)
+        return '\n'.join(lines)[:max(0, limit)]
 
 
 def failure_groups(grouped, targets):

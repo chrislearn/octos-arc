@@ -379,7 +379,7 @@ class PrefixAndCorrectionBudgetTests(unittest.TestCase):
         flow.acceptance_loop = Mock(return_value=True)
         with patch.object(m, "log") as logged:
             flow.node_cycle(helpers.node("REQ-1", "Search"), [], 1, 1)
-        lines = [str(c.args[0]) for c in logged.call_args_list if "tool mode" in str(c.args[0])]
+        lines = [str(c.args[0]) for c in logged.call_args_list if "codegen unavailable; tool fallback" in str(c.args[0])]
         self.assertEqual(len(lines), 1)
         for field in ["spec=", "entry=", "room=", "limit=", "reason="]:
             self.assertIn(field, lines[0])

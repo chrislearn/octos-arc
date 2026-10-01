@@ -1,0 +1,54 @@
+{
+  "status": "development_and_focused_browser_checks_passed",
+  "baseline_commit": "05b02cc2",
+  "branch": "codex/arc-repair-plan-review",
+  "workspace": "/home/chris/.codex/worktrees/arc-repair-plan-review/octos-arc",
+  "checks": [
+    {
+      "name": "full-regression",
+      "command": "env PYTHONPATH=arc python3 -m unittest discover -s arc/tests",
+      "exit_code": 0,
+      "tests": 2275,
+      "seconds": 83.463,
+      "skipped": 33,
+      "failures": 0,
+      "errors": 0,
+      "summary": "Ran 2275 tests in 83.463s\n\nOK (skipped=33)",
+      "full_log": "full-regression.log.gz",
+      "full_log_sha256": "56e8b28cf1db969eb5daf2c586418a89766c5412a5c8c2904bcffd1d70eeb48c"
+    },
+    {
+      "name": "browser-regression",
+      "command": "env OCTOS_TEST_PLAYWRIGHT_ROOT=/home/chris/Works/octos-arc/arc/diagnostics/4f1ce8bdba65-647425dc8258-20261001/playwright PYTHONPATH=arc python3 -m unittest arc.tests.test_verify_app arc.tests.test_repair_speed_controls",
+      "exit_code": 0,
+      "tests": 26,
+      "seconds": 4.913,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "summary": "Ran 26 tests in 4.913s\n\nOK",
+      "full_log": "browser-regression.log.gz",
+      "full_log_sha256": "88c0ba0882ef20f648ac3617a7fd27c21b39bc711e93229cbccf2b15171b9578"
+    }
+  ],
+  "candidate_source_versions": {
+    "arc/acceptance.py": "d503cd6cfe9a0a873906f19f50ab6014be7bb5168414fad29e36448ea358c268",
+    "arc/arc-policy.toml": "42080e1b92016a885e809770e527251286190368bddcf333bc87da5dce065eae",
+    "arc/guard.py": "67c7293619930bf3f37ea5d7c2f3523412b39d17db0f00133ede536070ae6f09",
+    "arc/llm_proxy.py": "77a8cd820be21156bb9cac9e820ea8c0055816fc25dda5cc8e9e1164dbe66a3f",
+    "arc/main.py": "5a2950d1b0f1a63db659aca645f0149c57fea35efffc26daa33c92d1ccacc20c",
+    "arc/pack.sh": "c8c4f2c18a4ed260c70857cb676825825ab90c1cd7f4321b5e2ef59312e8a902",
+    "arc/prompts/codegen-prompt.md": "850457b3028408cfbeac725398419e185512d8eb257b0fcefad69b6cac6ca24f",
+    "arc/prompts/ui-contract-core.md": "4d7a1129b8f0a30630fca7929c146423ae5c74e9524f8b3acf3b4a1a4f043b8a",
+    "arc/repair_control.py": "c589b113316a6278bfb259e72192439dd45f2f1fb2dd9e7d092465d73d9c5f05",
+    "arc/source_index.py": "d45d6bc8b0b51adb01873b951b7fc68d950cd9e3473f4ee9b77f0497a0001b51",
+    "arc/verify_app.py": "be45e704b4cc6ae61554673755318b50722d81027c350d0a1c9d83953fe12cf7",
+    "arc/web_checks.py": "090c480fe808f12bca25e507aa9983db33322837a7783065be907a153c487f35"
+  },
+  "candidate_changed_source_fingerprint": "bb3af9118afa9b267afd170a7fe0579b70932c661f938df6604713114e94d6ac",
+  "packaging_smoke": "included in full suite: isolated unpack/import and exclusion checks",
+  "paired_replay": "paired-verification.json",
+  "editor_index": "editor-index-comparison.json",
+  "performance_status": "No new paired model generation experiment; no overall speed or full cloud success claim.",
+  "release_status": "not_published"
+}

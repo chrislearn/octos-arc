@@ -319,7 +319,7 @@ def module_state_issues(sources: dict[str, str]) -> list[str]:
     return issues
 
 
-def scaffold_warnings(project: Path, runtime: bool = False) -> list[str]:
+def scaffold_warnings(project: Path, runtime: bool = False, runtime_timeout: float = 20.0) -> list[str]:
     """Defects worth fixing that never stop a build or a measurement: they go
     to the repair context next to the failures they may explain."""
     if not _generic_entry(project):
@@ -329,7 +329,7 @@ def scaffold_warnings(project: Path, runtime: bool = False) -> list[str]:
     # per-wave checks. A public-page render cannot exercise an authenticated
     # handler that destructures a lost CommonJS property.
     from generation_checks import missing_backend_export_errors
-    report = runtime_route_report(project) if runtime else None
+    report = runtime_route_report(project, timeout=runtime_timeout) if runtime and runtime_timeout > 0 else None
     conflicts = report['conflicts'] if report is not None else static_route_conflicts(sources)
     warnings = [str(conflict.get('message')) for conflict in conflicts if conflict.get('message')]
     return (warnings + express5_param_issues(sources) + module_state_issues(sources)

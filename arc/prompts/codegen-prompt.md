@@ -12,3 +12,4 @@ Rules: implement the requirement for general valid inputs and preserve existing 
 For required blur-save, do not gate a valid captured origin on equality with current selection. Keep any ref for latest selection synchronized across loading, navigation and pointer transitions; older save responses must not overwrite the newly selected item's controls.
 
 Keep selection state, range and ref coherent when switching views.
+Structure: compose feature modules rather than repeatedly extending one large editor. Preserve stable identifiers between UI labels and API parameters. Recoverable operation errors must not unmount unrelated working controls. Keep internal backend route helpers outside the entry's auto-discovered root route directory and register every route exactly once.
