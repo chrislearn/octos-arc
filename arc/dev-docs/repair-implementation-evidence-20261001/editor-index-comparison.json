@@ -10,6 +10,7 @@
   "index_chars_before": 1147,
   "index_chars_after": 1947,
   "request_json_call_count": 28,
-  "source_snapshot": "editor-snapshot.jsx",
-  "index_implementation_sha256": "d45d6bc8b0b51adb01873b951b7fc68d950cd9e3473f4ee9b77f0497a0001b51"
+  "source_snapshot": "editor-snapshot.jsx.gz",
+  "index_implementation_sha256": "d45d6bc8b0b51adb01873b951b7fc68d950cd9e3473f4ee9b77f0497a0001b51",
+  "source_snapshot_format": "gzip of exact UTF-8 source bytes"
 }

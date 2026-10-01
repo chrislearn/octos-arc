@@ -50,5 +50,6 @@
   "paired_replay": "paired-verification.json",
   "editor_index": "editor-index-comparison.json",
   "performance_status": "No new paired model generation experiment; no overall speed or full cloud success claim.",
-  "release_status": "not_published"
+  "release_status": "not_published",
+  "implementation_commit": "805d2c14"
 }

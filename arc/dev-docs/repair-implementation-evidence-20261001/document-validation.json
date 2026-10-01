@@ -13,12 +13,12 @@
   },
   "evidence_hashes": {
     "browser-regression.log.gz": "4faf0250fd86e581292a303c8d1cbc58ebb0164876f15b2748064e3b2af7f160",
-    "editor-index-comparison.json": "fd2e9775b1fa756f326f25d4da54a19afbcb43273aa36d61c0fb51fe78e3ff22",
-    "editor-snapshot.jsx": "4c014e852c989aee604b915d1ccf06cca890a79cf2f70e9a072bd8413119d433",
+    "editor-index-comparison.json": "c43c431122bac20dd439aaee91bb73622ee42d26b99697b7f225263002ab8f34",
+    "editor-snapshot.jsx.gz": "c9cfad9e231ba765d4b4b6da097debe487b7001f9e8c1fc67a9593425b8c9e40",
     "full-regression.log.gz": "1454c3e0141e4e78df73d127614bd8fe19dd98555024da4742226885d8ff8c4f",
     "paired-clean.log": "ab7b2ce03d136df74764ddaae1647967d45ac132a82c5d0555f7d51c5618e679",
     "paired-dirty.log": "a17e7a4235de2e7c2f58f5d141c9a6e98eb65df7d411ffbe8822abd1566f0241",
     "paired-verification.json": "8f7e4ea5b7a17fdf9992ff026e3bb6a33544316857594891fd3339545f23fe12",
-    "verification.json": "83491a2d16ecc49919a99e580521f6033a6b13a0bf69e6b1570eefd0c4d72bd0"
+    "verification.json": "b8f22aa9b3c7753f516d91f9e42715e9662b6c3e78f22b615b811f661da82693"
   }
 }
