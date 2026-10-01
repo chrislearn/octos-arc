@@ -28,3 +28,18 @@ test("REQ-2-1-4: deletion removes complete sheet state and activates an adjacent
   await expect(h.button(page,'Filter Region')).toHaveCount(0); await expect(h.button(page,'Open dropdown for B2')).toHaveCount(0); await h.values(page,{B2:'',D2:''});
   await page.reload(); await expect(h.tab(page,'Sheet2')).toHaveCount(0); await h.tab(page,'Sheet1').click(); await h.values(page,{A1:'first'}); await h.tab(page,'Sheet3').click(); await h.values(page,{A1:'third'});
 });
+
+test("REQ-2-1-4: context REQ-2-1-1: worksheet addition reuses first unused SheetN and appends in persisted order", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.button(page,'Add worksheet').click(); await h.button(page,'Add worksheet').click(); await h.sheetMenu(page,'Sheet2','Delete');
+  await h.button(page.getByRole('dialog',{name:'Delete worksheet',exact:true}),'Delete worksheet').click(); await h.button(page,'Add worksheet').click();
+  await h.persisted(page,async()=>{ await h.tabOrder(page,['Sheet1','Sheet3','Sheet2']); await expect(h.tab(page,'Sheet2')).toHaveAttribute('aria-selected','true'); await h.selection(page,['A1'],['A2','B1']); });
+});
+
+test("REQ-2-1-4: context REQ-5-3-1: pivot naming reuses the first unused PivotN after a result sheet is deleted", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page); await h.pivot(page); await h.tab(page,'Sheet1').click(); await h.pivot(page,'COUNT'); await expect(h.tab(page,'Pivot2')).toHaveAttribute('aria-selected','true');
+  await h.sheetMenu(page,'Pivot1','Delete'); await h.button(page.getByRole('dialog',{name:'Delete worksheet',exact:true}),'Delete worksheet').click(); await h.tab(page,'Sheet1').click(); await h.pivot(page,'AVERAGE');
+  await h.persisted(page,async()=>{await h.tabOrder(page,['Sheet1','Pivot2','Pivot1']);await expect(h.tab(page,'Pivot1')).toHaveAttribute('aria-selected','true');await h.values(page,{B1:'AVERAGE of Sales',B2:'20',B3:'20',B4:'20'});});
+  await h.tab(page,'Pivot2').click(); await h.values(page,{B1:'COUNT of Sales',B2:'2',B3:'1',B4:'3'});
+});

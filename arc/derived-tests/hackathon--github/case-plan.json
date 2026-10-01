@@ -102,6 +102,20 @@
     "file": "REQ-1-1-2.spec.ts"
   },
   {
+    "node_id": "REQ-1-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2"
+    ],
+    "origin_node_id": "REQ-1-1-1",
+    "origin_file": "INTEGRATION-identity.spec.ts",
+    "origin_title": "INTEGRATION-identity: registered credentials work by email and survive a later browser session",
+    "title": "REQ-1-1-2: context REQ-1-1-1: registered credentials work by email and survive a later browser session",
+    "file": "REQ-1-1-2.spec.ts"
+  },
+  {
     "node_id": "REQ-1-1-3",
     "fixture": null,
     "phase": "node",
@@ -563,6 +577,56 @@
   },
   {
     "node_id": "REQ-4-4",
+    "fixture": "file-invalid-node",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1"
+    ],
+    "origin_node_id": "REQ-4-4",
+    "origin_file": "INTEGRATION-file-history.spec.ts",
+    "origin_title": "INTEGRATION-file-history: invalid path and empty message cannot change files or history",
+    "source_fixture": "file-invalid",
+    "title": "REQ-4-4: context REQ-4-4: invalid path and empty message cannot change files or history",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "file-history-node",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1",
+      "REQ-4-2-2"
+    ],
+    "origin_node_id": "REQ-4-4",
+    "origin_file": "INTEGRATION-file-history.spec.ts",
+    "origin_title": "INTEGRATION-file-history: successful file write adds a commit while an earlier revision keeps its original bytes",
+    "source_fixture": "file-history",
+    "title": "REQ-4-4: context REQ-4-4: successful file write adds a commit while an earlier revision keeps its original bytes",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "guide-team-access-node",
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-1-2",
+      "REQ-2-2-2",
+      "REQ-2-3",
+      "REQ-3-4",
+      "REQ-4-4"
+    ],
+    "origin_node_id": "REQ-2-3",
+    "origin_file": "INTEGRATION-team-access.spec.ts",
+    "origin_title": "INTEGRATION-team-access: guide: direct team grant changes effective permissions without hierarchy inheritance or account deletion",
+    "source_fixture": "guide-team-access",
+    "title": "REQ-4-4: context REQ-2-3: guide: direct team grant changes effective permissions without hierarchy inheritance or account deletion",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
     "fixture": "file-invalid",
     "phase": "integration",
     "requires": [
@@ -836,6 +900,21 @@
     "file": "REQ-6-2-3.spec.ts"
   },
   {
+    "node_id": "REQ-6-2-3",
+    "fixture": "check-success-node",
+    "phase": "node",
+    "requires": [
+      "REQ-6-1",
+      "REQ-6-2-3"
+    ],
+    "origin_node_id": "REQ-6-1",
+    "origin_file": "INTEGRATION-protection.spec.ts",
+    "origin_title": "INTEGRATION-protection: Admin changes current compare-commit check pending to success and persists setter",
+    "source_fixture": "check-success",
+    "title": "REQ-6-2-3: context REQ-6-1: Admin changes current compare-commit check pending to success and persists setter",
+    "file": "REQ-6-2-3.spec.ts"
+  },
+  {
     "node_id": "REQ-6-2-4",
     "fixture": "pr-draft-create",
     "phase": "node",
@@ -1013,6 +1092,27 @@
       "REQ-6-5"
     ],
     "title": "REQ-6-5: old-commit approval cannot satisfy a protected current-commit PR",
+    "file": "REQ-6-5.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-5",
+    "fixture": "guide-review-cycle-node",
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-4-2-1",
+      "REQ-4-2-2",
+      "REQ-4-4",
+      "REQ-6-1",
+      "REQ-6-3-3",
+      "REQ-6-3-4",
+      "REQ-6-5"
+    ],
+    "origin_node_id": "REQ-6-5",
+    "origin_file": "INTEGRATION-review-cycle.spec.ts",
+    "origin_title": "INTEGRATION-review-cycle: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal",
+    "source_fixture": "guide-review-cycle",
+    "title": "REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal",
     "file": "REQ-6-5.spec.ts"
   },
   {

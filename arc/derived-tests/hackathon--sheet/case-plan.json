@@ -179,6 +179,21 @@
     "file": "REQ-2-1-1.spec.ts"
   },
   {
+    "node_id": "REQ-2-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-3",
+      "REQ-1-2-1",
+      "REQ-2-1-1"
+    ],
+    "origin_node_id": "REQ-2-1-3",
+    "origin_file": "INTEGRATION-deferred-2-1-3.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-1-3: rename sheet trims and persists; duplicate and empty names preserve original",
+    "title": "REQ-2-1-1: context REQ-2-1-3: rename sheet trims and persists; duplicate and empty names preserve original",
+    "file": "REQ-2-1-1.spec.ts"
+  },
+  {
     "node_id": "REQ-2-1-2",
     "fixture": null,
     "phase": "node",
@@ -190,6 +205,134 @@
       "REQ-4-1-1"
     ],
     "title": "REQ-2-1-2: switch restores each sheet formula and selected cell and last active sheet",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-3-2",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-1-3-2",
+    "origin_file": "INTEGRATION-deferred-1-3-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-1-3-2: export reads only active worksheet and preserves selection and original formulas",
+    "title": "REQ-2-1-2: context REQ-1-3-2: export reads only active worksheet and preserves selection and original formulas",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-1",
+      "REQ-1-2-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1"
+    ],
+    "origin_node_id": "REQ-2-1-1",
+    "origin_file": "INTEGRATION-deferred-2-1-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-1-1: new sheet chooses first unused name and isolates previous data",
+    "title": "REQ-2-1-2: context REQ-2-1-1: new sheet chooses first unused name and isolates previous data",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-1",
+      "REQ-1-2-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-1-2",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-1-1",
+    "origin_file": "INTEGRATION-deferred-2-1-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-1-1: new sheet does not inherit filters or dropdown/numeric validation and preserves source state",
+    "title": "REQ-2-1-2: context REQ-2-1-1: new sheet does not inherit filters or dropdown/numeric validation and preserves source state",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: deleting populated row removes only the target and shifts all surviving record fields",
+    "title": "REQ-2-1-2: context REQ-2-2-1: deleting populated row removes only the target and shifts all surviving record fields",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: deleting populated column removes only the target and shifts all surviving record fields",
+    "title": "REQ-2-1-2: context REQ-2-2-2: deleting populated column removes only the target and shifts all surviving record fields",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-3",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2"
+    ],
+    "origin_node_id": "REQ-3-1-3",
+    "origin_file": "INTEGRATION-deferred-3-1-3.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-3: complete rectangle replaces and persists exact selected ARIA cells independently per sheet",
+    "title": "REQ-2-1-2: context REQ-3-1-3: complete rectangle replaces and persists exact selected ARIA cells independently per sheet",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-2-2-1",
+      "REQ-2-2-2",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-4-2-1",
+    "origin_file": "INTEGRATION-deferred-4-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-4-2-1: row and column movement recalculates direct/transitive formulas without changing another sheet",
+    "title": "REQ-2-1-2: context REQ-4-2-1: row and column movement recalculates direct/transitive formulas without changing another sheet",
     "file": "REQ-2-1-2.spec.ts"
   },
   {
@@ -276,6 +419,41 @@
       "REQ-5-2-1"
     ],
     "title": "REQ-2-1-4: deletion removes complete sheet state and activates an adjacent survivor",
+    "file": "REQ-2-1-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-1",
+      "REQ-1-2-1",
+      "REQ-2-1-4",
+      "REQ-3-1-3"
+    ],
+    "origin_node_id": "REQ-2-1-1",
+    "origin_file": "INTEGRATION-deferred-2-1-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-1-1: worksheet addition reuses first unused SheetN and appends in persisted order",
+    "title": "REQ-2-1-4: context REQ-2-1-1: worksheet addition reuses first unused SheetN and appends in persisted order",
+    "file": "REQ-2-1-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-2-1-4",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "origin_node_id": "REQ-5-3-1",
+    "origin_file": "INTEGRATION-deferred-5-3-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-5-3-1: pivot naming reuses the first unused PivotN after a result sheet is deleted",
+    "title": "REQ-2-1-4: context REQ-5-3-1: pivot naming reuses the first unused PivotN after a result sheet is deleted",
     "file": "REQ-2-1-4.spec.ts"
   },
   {
@@ -552,6 +730,77 @@
   {
     "node_id": "REQ-3-1-1",
     "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-1",
+      "REQ-1-2-1"
+    ],
+    "title": "REQ-3-1-1: failed cell save restores formula-bar input and keeps persisted cell; retry succeeds",
+    "file": "REQ-3-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1"
+    ],
+    "origin_node_id": "REQ-1-2-2",
+    "origin_file": "INTEGRATION-deferred-1-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-1-2-2: renaming is scoped to current workbook and updates refreshed home record",
+    "title": "REQ-3-1-1: context REQ-1-2-2: renaming is scoped to current workbook and updates refreshed home record",
+    "file": "REQ-3-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-3-1",
+      "REQ-3-1-1"
+    ],
+    "origin_node_id": "REQ-1-3-1",
+    "origin_file": "INTEGRATION-deferred-1-3-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-1-3-1: import treats first row as data and strips only the final csv extension from the file name",
+    "title": "REQ-3-1-1: context REQ-1-3-1: import treats first row as data and strips only the final csv extension from the file name",
+    "file": "REQ-3-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-2-1",
+      "REQ-1-2-2",
+      "REQ-3-1-1"
+    ],
+    "origin_node_id": "REQ-1-1-1",
+    "origin_file": "INTEGRATION-workbook-context.spec.ts",
+    "origin_title": "INTEGRATION-workbook-context: home/editor timestamp agrees with persisted renamed workbook and never loads another workbook",
+    "title": "REQ-3-1-1: context REQ-1-1-1: home/editor timestamp agrees with persisted renamed workbook and never loads another workbook",
+    "file": "REQ-3-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1"
+    ],
+    "origin_node_id": "REQ-1-1-1",
+    "origin_file": "INTEGRATION-workbook-context.spec.ts",
+    "origin_title": "INTEGRATION-workbook-context: edited workbook state is shared by saved address across independent browser sessions",
+    "title": "REQ-3-1-1: context REQ-1-1-1: edited workbook state is shared by saved address across independent browser sessions",
+    "file": "REQ-3-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-1",
+    "fixture": null,
     "phase": "integration",
     "requires": [
       "REQ-3-1-1",
@@ -642,6 +891,36 @@
       "REQ-3-1-1"
     ],
     "title": "REQ-3-1-2: plain paste clears middle and trailing empty fields and preserves outside cells",
+    "file": "REQ-3-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: row insert/delete moves complete records and persists",
+    "title": "REQ-3-1-2: context REQ-2-2-1: row insert/delete moves complete records and persists",
+    "file": "REQ-3-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: column insert/delete moves complete records and persists",
+    "title": "REQ-3-1-2: context REQ-2-2-2: column insert/delete moves complete records and persists",
     "file": "REQ-3-1-2.spec.ts"
   },
   {
@@ -756,6 +1035,31 @@
       "REQ-3-1-3"
     ],
     "title": "REQ-3-2-1: plain copy preserves source and cut clears source only after target paste",
+    "file": "REQ-3-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-3-2-1: overlapping cut preserves the complete target and only clears the uncovered source",
+    "file": "REQ-3-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2"
+    ],
+    "title": "REQ-3-2-1: external clipboard replacement after cut pastes new text and preserves the cut source",
     "file": "REQ-3-2-1.spec.ts"
   },
   {
@@ -946,6 +1250,155 @@
     "file": "REQ-4-1-1.spec.ts"
   },
   {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-3-2",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-1-3-2",
+    "origin_file": "INTEGRATION-deferred-1-3-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-1-3-2: CSV downloads actual values with escaping and leaves active state intact",
+    "title": "REQ-4-1-1: context REQ-1-3-2: CSV downloads actual values with escaping and leaves active state intact",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: insert below then delete referenced row adjusts original formulas",
+    "title": "REQ-4-1-1: context REQ-2-2-1: insert below then delete referenced row adjusts original formulas",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: insert right then delete source column adjusts formulas and invalid references",
+    "title": "REQ-4-1-1: context REQ-2-2-2: insert right then delete source column adjusts formulas and invalid references",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-3-1-2",
+    "origin_file": "INTEGRATION-deferred-3-1-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-2: paste rectangle through Ctrl+V preserves empties and outside cells",
+    "title": "REQ-4-1-1: context REQ-3-1-2: paste rectangle through Ctrl+V preserves empties and outside cells",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-3-1-2",
+    "origin_file": "INTEGRATION-deferred-3-1-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-2: paste rectangle through menu preserves empties and outside cells",
+    "title": "REQ-4-1-1: context REQ-3-1-2: paste rectangle through menu preserves empties and outside cells",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-3-1-2",
+    "origin_file": "INTEGRATION-deferred-3-1-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-2: bulk paste recalculates outside dependent formulas without overwriting them",
+    "title": "REQ-4-1-1: context REQ-3-1-2: bulk paste recalculates outside dependent formulas without overwriting them",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-3-2-1",
+    "origin_file": "INTEGRATION-deferred-3-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-1: cut rectangle clears every source only after all target values and formulas commit",
+    "title": "REQ-4-1-1: context REQ-3-2-1: cut rectangle clears every source only after all target values and formulas commit",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-2",
+      "REQ-1-2-1",
+      "REQ-2-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-3-2-2",
+    "origin_file": "INTEGRATION-deferred-3-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-2: undo row structure restores formulas and redo result persists",
+    "title": "REQ-4-1-1: context REQ-3-2-2: undo row structure restores formulas and redo result persists",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-3-2-1",
+      "REQ-4-1-1"
+    ],
+    "origin_node_id": "REQ-3-2-2",
+    "origin_file": "INTEGRATION-deferred-3-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-2: undo and redo a range cut restore both rectangles and original formulas as one operation",
+    "title": "REQ-4-1-1: context REQ-3-2-2: undo and redo a range cut restore both rectangles and original formulas as one operation",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
     "node_id": "REQ-4-1-2",
     "fixture": null,
     "phase": "node",
@@ -957,6 +1410,25 @@
       "REQ-4-1-1"
     ],
     "title": "REQ-4-1-2: copy adjusts relative references, keeps absolute references and rejects out-of-bounds",
+    "file": "REQ-4-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-4-1-2"
+    ],
+    "origin_node_id": "REQ-3-2-1",
+    "origin_file": "INTEGRATION-deferred-3-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-1: copy rectangle preserves every value, adjusted formula and outside data",
+    "title": "REQ-4-1-2: context REQ-3-2-1: copy rectangle preserves every value, adjusted formula and outside data",
     "file": "REQ-4-1-2.spec.ts"
   },
   {
@@ -1098,6 +1570,19 @@
     "file": "REQ-4-2-2.spec.ts"
   },
   {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "title": "REQ-4-2-2: aggregate formula keeps a stable source error and recalculates after repair",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
     "node_id": "REQ-5-1-1",
     "fixture": null,
     "phase": "node",
@@ -1170,6 +1655,22 @@
     "file": "REQ-5-1-1.spec.ts"
   },
   {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-3",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-5-1-1"
+    ],
+    "origin_node_id": "REQ-3-1-3",
+    "origin_file": "INTEGRATION-deferred-3-1-3.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-3: reverse-direction drag replaces a saved rectangle and sorting uses only that rectangle",
+    "title": "REQ-5-1-1: context REQ-3-1-3: reverse-direction drag replaces a saved rectangle and sorting uses only that rectangle",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
     "node_id": "REQ-5-1-2",
     "fixture": null,
     "phase": "node",
@@ -1233,6 +1734,40 @@
       "REQ-3-1-3"
     ],
     "title": "REQ-5-1-2: condition Is not empty persists exactly the matching rows and clearing restores originals",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: row insert/delete adjusts existing filter region without deleting or reordering hidden records",
+    "title": "REQ-5-1-2: context REQ-2-2-1: row insert/delete adjusts existing filter region without deleting or reordering hidden records",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: column insertion/deletion moves filter headers and preserves conditions on original data",
+    "title": "REQ-5-1-2: context REQ-2-2-2: column insertion/deletion moves filter headers and preserves conditions on original data",
     "file": "REQ-5-1-2.spec.ts"
   },
   {
@@ -1360,6 +1895,275 @@
       "REQ-3-2-1"
     ],
     "title": "REQ-5-2-1: dropdown validation rejects grid and whole clipboard/move rectangles without clearing any source",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-3",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-1-3",
+    "origin_file": "INTEGRATION-deferred-2-1-3.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-1-3: sheet rename preserves its slot, values, selection, rules and active state",
+    "title": "REQ-5-2-1: context REQ-2-1-3: sheet rename preserves its slot, values, selection, rules and active state",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: structure moves numeric validation with the original cell",
+    "title": "REQ-5-2-1: context REQ-2-2-1: structure moves numeric validation with the original cell",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: insertion moves dropdown and numeric rules with original values and leaves inserted cells unconstrained",
+    "title": "REQ-5-2-1: context REQ-2-2-1: insertion moves dropdown and numeric rules with original values and leaves inserted cells unconstrained",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: deleted row validation is removed rather than applied to the next surviving cell",
+    "title": "REQ-5-2-1: context REQ-2-2-1: deleted row validation is removed rather than applied to the next surviving cell",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: structure moves numeric validation with the original cell",
+    "title": "REQ-5-2-1: context REQ-2-2-2: structure moves numeric validation with the original cell",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: insertion moves dropdown and numeric rules with original values and leaves inserted cells unconstrained",
+    "title": "REQ-5-2-1: context REQ-2-2-2: insertion moves dropdown and numeric rules with original values and leaves inserted cells unconstrained",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: deleted column validation is removed rather than applied to the next surviving cell",
+    "title": "REQ-5-2-1: context REQ-2-2-2: deleted column validation is removed rather than applied to the next surviving cell",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-3-1-1",
+    "origin_file": "INTEGRATION-deferred-3-1-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-1: failed formula-bar commit retains original input and every dependent result",
+    "title": "REQ-5-2-1: context REQ-3-1-1: failed formula-bar commit retains original input and every dependent result",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-3-1-2",
+    "origin_file": "INTEGRATION-deferred-3-1-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-2: invalid clipboard rectangle is rejected atomically through Ctrl+V",
+    "title": "REQ-5-2-1: context REQ-3-1-2: invalid clipboard rectangle is rejected atomically through Ctrl+V",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-3-1-2",
+    "origin_file": "INTEGRATION-deferred-3-1-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-1-2: invalid clipboard rectangle is rejected atomically through Paste menu",
+    "title": "REQ-5-2-1: context REQ-3-1-2: invalid clipboard rectangle is rejected atomically through Paste menu",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-3-2-1",
+    "origin_file": "INTEGRATION-deferred-3-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-1: rejected range cut preserves source and all validated target cells atomically",
+    "title": "REQ-5-2-1: context REQ-3-2-1: rejected range cut preserves source and all validated target cells atomically",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-4-1-2",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-3-2-1",
+    "origin_file": "INTEGRATION-deferred-3-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-1: rejected copy preserves every source/target formula and outside dependent calculation",
+    "title": "REQ-5-2-1: context REQ-3-2-1: rejected copy preserves every source/target formula and outside dependent calculation",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-2",
+      "REQ-1-2-1",
+      "REQ-2-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-3-2-2",
+    "origin_file": "INTEGRATION-deferred-3-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-2: undo/redo row structure restores numeric rule ranges and last visible values",
+    "title": "REQ-5-2-1: context REQ-3-2-2: undo/redo row structure restores numeric rule ranges and last visible values",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-2",
+      "REQ-1-2-1",
+      "REQ-2-2-2",
+      "REQ-3-1-1",
+      "REQ-3-1-3",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-3-2-2",
+    "origin_file": "INTEGRATION-deferred-3-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-2: undo/redo column structure restores numeric rule ranges and last visible values",
+    "title": "REQ-5-2-1: context REQ-3-2-2: undo/redo column structure restores numeric rule ranges and last visible values",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2",
+      "REQ-1-2-1",
+      "REQ-1-3-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-5-1-2",
+    "origin_file": "INTEGRATION-deferred-5-1-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-5-1-2: value filtering is scoped to the selected region and clearing preserves formula and validation behavior",
+    "title": "REQ-5-2-1: context REQ-5-1-2: value filtering is scoped to the selected region and clearing preserves formula and validation behavior",
     "file": "REQ-5-2-1.spec.ts"
   },
   {
@@ -1605,6 +2409,173 @@
       "REQ-3-1-3"
     ],
     "title": "REQ-5-3-1: a deleted pivot field can be reselected and successful apply replaces the saved error-state result",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-2-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-3-2-2"
+    ],
+    "title": "REQ-5-3-1: undo and redo restore structural changes together with another sheet pivot source",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-3-1"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: overlapping row changes adjust pivot source range and leave old results until explicit refresh",
+    "title": "REQ-5-3-1: context REQ-2-2-1: overlapping row changes adjust pivot source range and leave old results until explicit refresh",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-3-1"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: pivot refresh tracks moved source headers after column insertion/deletion",
+    "title": "REQ-5-3-1: context REQ-2-2-2: pivot refresh tracks moved source headers after column insertion/deletion",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-2",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-2-2-2",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-3-1"
+    ],
+    "origin_node_id": "REQ-3-2-2",
+    "origin_file": "INTEGRATION-deferred-3-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-3-2-2: undo makes deleted pivot source fields valid again and preserves last result",
+    "title": "REQ-5-3-1: context REQ-3-2-2: undo makes deleted pivot source fields valid again and preserves last result",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-3-1"
+    ],
+    "origin_node_id": "REQ-5-1-2",
+    "origin_file": "INTEGRATION-deferred-5-1-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-5-1-2: filtered-out source rows still contribute to pivot summary after reopening",
+    "title": "REQ-5-3-1: context REQ-5-1-2: filtered-out source rows still contribute to pivot summary after reopening",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-2-1",
+      "REQ-1-2-2",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-5-1-2",
+      "REQ-5-2-1",
+      "REQ-5-3-1"
+    ],
+    "origin_node_id": "REQ-1-1-1",
+    "origin_file": "INTEGRATION-workbook-context.spec.ts",
+    "origin_title": "INTEGRATION-workbook-context: home reopening restores sheet order, formulas, filter, validation and pivot state together",
+    "title": "REQ-5-3-1: context REQ-1-1-1: home reopening restores sheet order, formulas, filter, validation and pivot state together",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-5-1-2",
+      "REQ-5-2-1",
+      "REQ-5-3-1"
+    ],
+    "origin_node_id": "REQ-1-2-1",
+    "origin_file": "INTEGRATION-workbook-context.spec.ts",
+    "origin_title": "INTEGRATION-workbook-context: new workbook has no imported values, filter, validation or pivot from another workbook",
+    "title": "REQ-5-3-1: context REQ-1-2-1: new workbook has no imported values, filter, validation or pivot from another workbook",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-1",
+      "REQ-1-1-1",
+      "REQ-1-2-1",
+      "REQ-1-3-2",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-2-2-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-3-2-2",
+      "REQ-4-1-1",
+      "REQ-4-2-1",
+      "REQ-5-1-2",
+      "REQ-5-2-1"
+    ],
+    "origin_node_id": "REQ-5-3-1",
+    "origin_file": "INTEGRATION-data-workflow.spec.ts",
+    "origin_title": "INTEGRATION-data-workflow: guide: validation, atomic paste, undo, filtered export and explicit pivot refresh preserve consistent state",
+    "title": "REQ-5-3-1: context REQ-5-3-1: guide: validation, atomic paste, undo, filtered export and explicit pivot refresh preserve consistent state",
     "file": "REQ-5-3-1.spec.ts"
   },
   {

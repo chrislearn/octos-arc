@@ -238,7 +238,7 @@ await expect(h.text(page,'Commit message is required').first()).toBeVisible(); a
 ''','file-invalid-message')
 g('REQ-4-4','invalid path and empty message cannot change files or history', r'''
 await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-invalid')); await h.link(page,'Commits').click(); const before=await h.historyLinks(page); await page.goto(address); await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
-await h.field(page,'File name').fill('../invalid.md'); await h.field(page,'File contents').fill('must not be saved'); await h.button(page,'Commit changes').click(); await expect(page.getByText(/Invalid file path|Commit message is required/)).toBeVisible(); await page.goto(address); await expect(h.link(page,'invalid.md')).toHaveCount(0); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page),{message:'Rejected commit must preserve history'}).toEqual(before); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
+await h.field(page,'File name').fill('../invalid.md'); await h.field(page,'File contents').fill('must not be saved'); await h.button(page,'Commit changes').click(); await expect(page.getByRole('alert').filter({hasText:/Invalid file path|Commit message is required/}).first()).toBeVisible(); await page.goto(address); await expect(h.link(page,'invalid.md')).toHaveCount(0); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page),{message:'Rejected commit must preserve history'}).toEqual(before); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
 ''','file-invalid', file='INTEGRATION-file-history', requires=['REQ-4-4','REQ-4-2-1'])
 g('REQ-5-1-1','Open/Closed live issue filters combine with keyword and survive refresh', r'''
 await h.repo(page); await h.link(page,'Issues').click(); await h.link(page,'Open').click(); await page.getByRole('searchbox',{name:'Search issues',exact:true}).fill('Improve onboarding'); await h.persisted(page, () => expect(h.link(page,'Improve onboarding')).toBeVisible());
@@ -405,9 +405,16 @@ from embedded_guided_cases import register as register_guidance
 register_guidance(g, s)
 from embedded_node_smokes import register as register_node_smokes
 register_node_smokes(s)
+from embedded_repair_cases import register as register_repair_cases
+register_repair_cases(s)
 from embedded_case_phases import partition_sheet_cases
 CASES['hackathon--sheet'] = partition_sheet_cases(CASES['hackathon--sheet'], yaml.safe_load(
     (Path(__file__).resolve().parent / 'tasks/hackathon--sheet/requirements.yaml').read_text()))
+
+from embedded_node_coverage import complete_node_coverage
+for _task in CASES:
+    CASES[_task] = complete_node_coverage(CASES[_task], yaml.safe_load(
+        (Path(__file__).resolve().parent / 'tasks' / _task / 'requirements.yaml').read_text()))
 
 def build():
     for task, nodes in CASES.items():

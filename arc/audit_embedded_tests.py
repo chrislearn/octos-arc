@@ -35,6 +35,7 @@ def fixtures(task,plan):
     orgs=[]
     case_ids=sorted({r['fixture'] for r in plan if r.get('fixture')})
     for fid in case_ids:
+        profile = next((row.get('source_fixture', fid) for row in plan if row.get('fixture') == fid), fid)
         organization='spec-org-'+fid
         org={'identifier':organization,'display_name':organization,'owners':['spec-owner'],
              'members':['spec-owner','spec-admin','spec-write','spec-maintain','spec-triage','spec-read','bob-reviewer'],
@@ -42,44 +43,44 @@ def fixtures(task,plan):
                       {'name':'frontend-child','direct_members':[],'parent':'frontend-team'},
                       {'name':'platform-team','direct_members':[],'parent':None}]}
         orgs.append(org)
-        repo={'name':'spec-'+fid,'owner':organization,'visibility':'Private' if fid in {'member-add','member-remove','visibility','guide-team-access'} else 'Public',
+        repo={'name':'spec-'+fid,'owner':organization,'visibility':'Private' if profile in {'member-add','member-remove','visibility','guide-team-access'} else 'Public',
               'direct_grants':dict(roles),'team_grants':{},'default_branch':'main',
               'branches':{'main':{'files':{'README.md':'search flow','src/search.ts':'export const search = "search flow";'},'commit_message':'Document search flow','author':'alice-dev','committed_at':'2026-09-01T12:00:00Z','parent_revision':{'files':{},'commit_message':'Initialize empty repository','author':'alice-dev','committed_at':'2026-08-31T12:00:00Z'}},
                           'feature-search':{'base':'main','files':{'README.md':'search flow','src/search.ts':'export const search = "merged search flow";','main-only.md':'feature-only content'},'commit_message':'Implement search flow','author':'spec-write'},
                           'draft-feature':{'base':'main','files':{'README.md':'draft changes','src/search.ts':'export const search = "search flow";'},'commit_message':'Draft update','author':'spec-write'}},
               'labels':['bug'],'milestones':['v1.0'],'issues':[], 'pull_requests':[], 'branch_protection':{}}
-        if fid=='member-add': repo['direct_grants'].pop('spec-new-member',None)
-        if fid=='grant-add': repo['team_grants']={}
-        if fid=='grant-replace': repo['team_grants']={'frontend-team':'Write'}
-        if fid=='guide-team-access':
+        if profile=='member-add': repo['direct_grants'].pop('spec-new-member',None)
+        if profile=='grant-add': repo['team_grants']={}
+        if profile=='grant-replace': repo['team_grants']={'frontend-team':'Write'}
+        if profile=='guide-team-access':
             repo['direct_grants'].pop('bob-reviewer')
             repo['team_grants']={'frontend-team':'Write'}
             org['teams'][0]['direct_members']=['bob-reviewer']
             org['teams'][1]['direct_members']=['spec-read']
-        if fid.startswith('issue-'):
-            repo['issues']=[{'number':1,'title':'Original issue title' if fid=='issue-edit-invalid' else 'Improve onboarding',
+        if profile.startswith('issue-'):
+            repo['issues']=[{'number':1,'title':'Original issue title' if profile=='issue-edit-invalid' else 'Improve onboarding',
                              'description':'Describe the onboarding improvement.','status':'Open','author':'spec-write','assignees':[],'labels':[],'milestone':None,'comments':[], 'activity':['Created issue']}]
         pr_ids={'check-success','pr-ready','review-comment','review-pending','review-approve','review-request-changes','review-request','merge-success','merge-blocked','pr-close','pr-close-read','guide-review-cycle'}
-        if fid in pr_ids or fid.startswith('merge-') or fid=='review-replace' or fid=='review-decision-comment':
-            draft=fid=='pr-ready'
+        if profile in pr_ids or fid.startswith('merge-') or fid=='review-replace' or fid=='review-decision-comment':
+            draft=profile=='pr-ready'
             pr={'number':1,'title':'Draft onboarding update' if draft else 'Improve onboarding',
                 'description':'Describe the onboarding improvement.','status':'Draft' if draft else 'Open',
                 'author':'spec-write','base':'main','compare':'draft-feature' if draft else 'feature-search',
                 'reviews':[],'reviewers':[],'inline_comments':[], 'check_test':'pending',
                 'discussion':[{'author':'spec-write','body':'Please review this update.'}]}
-            if fid in {'merge-success','merge-blocked','check-success','guide-review-cycle'}:
+            if profile in {'merge-success','merge-blocked','check-success','guide-review-cycle'}:
                 repo['branch_protection']={'main':{'require_1_approval':True,'require_status_check_test':True}}
-            if fid=='merge-success': pr.update(reviews=[{'reviewer':'bob-reviewer','decision':'Approve','commit':'current_compare'}],check_test='success')
-            if fid=='merge-blocked': pr['check_test']='success'
-            if fid=='merge-check-only':
+            if profile=='merge-success': pr.update(reviews=[{'reviewer':'bob-reviewer','decision':'Approve','commit':'current_compare'}],check_test='success')
+            if profile=='merge-blocked': pr['check_test']='success'
+            if profile=='merge-check-only':
                 repo['branch_protection']={'main':{'require_1_approval':False,'require_status_check_test':True}}
                 pr['check_test']='success'
-            if fid=='merge-approval-only':
+            if profile=='merge-approval-only':
                 repo['branch_protection']={'main':{'require_1_approval':True,'require_status_check_test':False}}
                 pr['reviews']=[{'reviewer':'bob-reviewer','decision':'Approve','commit':'current_compare'}]
-            if fid=='merge-request-changes':
+            if profile=='merge-request-changes':
                 pr['reviews']=[{'reviewer':'bob-reviewer','decision':'Request changes','commit':'current_compare'}]
-            if fid=='merge-stale-approval':
+            if profile=='merge-stale-approval':
                 repo['branch_protection']={'main':{'require_1_approval':True,'require_status_check_test':True}}
                 pr['check_test']='success'
                 pr['reviews']=[{'reviewer':'bob-reviewer','decision':'Approve','commit':'previous_compare'}]
@@ -116,7 +117,7 @@ Read fixtures.json before generating code. Provision the public records and role
 README += """
 The suite namespace is derived-tests for both embedded recipes and generated project files. REQ-*.spec.ts files are the per-node gates. INTEGRATION-*.spec.ts files describe final acceptance across multiple nodes; never alias them to the first requirement. Integration files are retained in the source suite and binary, but are temporarily omitted when exporting a suite into a project. They are currently unused in project acceptance. The exported suite-origin.json records export_policy, ignored_specs and source manifest identity; its case-plan, review, counts and file hashes describe only the exported REQ cases.
 
-case-plan.json records phase, primary node_id and requires (the contracts explicitly exercised by a case). A node gate cannot require a capability later in the original graph's document-stable topological order. INTEGRATION-deferred-* retains original Sheet cases using later capabilities. The primary ID is for traceability, not early scheduling. Guided cases use test.step to explain state transitions and assert the preserved state as well as the change. These retained source cases are temporarily excluded at export, rather than marked skip or deleted.
+case-plan.json records phase, primary node_id and requires (the contracts explicitly exercised by a case). A node gate cannot require a capability later in the original graph's document-stable topological order. INTEGRATION-deferred-* retains original Sheet cases using later capabilities. Every retained integration case also has an independently runnable REQ context regression at the last required capability; origin_file, origin_title and origin_node_id bind its provenance. Mutable GitHub witnesses own distinct fixture records. Exported node tests therefore keep these behavioral assertions even when integrations are omitted. The primary ID is for traceability, not early scheduling. Guided cases use test.step to explain state transitions and assert the preserved state as well as the change. These retained source cases are temporarily excluded at export, rather than marked skip or deleted.
 
 Sheet's row-node and column-node cases each own a dedicated seeded workbook so those early gates can test record movement before editing/paste exists. Q3 Sales stays read-only; all other mutations create their own workbooks through UI. Provision the seed fixtures rather than adding a private test API.
 
@@ -177,7 +178,7 @@ def audit(freeze=False):
             paths=sorted(p for p in directory.rglob('*') if p.is_file() and p.name!='suite-origin.json')
             manifest={'schema_version':1,'name':task,'root_name':tree['name'],'official':False,'review_status':'reviewed','frozen':True,'trusted':True,
                       'review_date':'2026-10-01','review_kind':'source_review','runtime_status':'not_run_against_product',
-                      'requirements_sha256':requirements_digest(tree),'spec_revision':3,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
+                      'requirements_sha256':requirements_digest(tree),'spec_revision':4,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
                       'node_spec_count':len(nodes),'integration_spec_count':len(specs)-len(nodes),
                       'node_case_count':sum(r['phase']=='node' for r in plan),'integration_case_count':sum(r['phase']=='integration' for r in plan),
                       'files':{p.relative_to(directory).as_posix():sha(p) for p in paths}}

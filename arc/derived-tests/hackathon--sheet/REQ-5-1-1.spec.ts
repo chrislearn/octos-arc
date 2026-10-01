@@ -39,3 +39,13 @@ test("REQ-5-1-1: sorting moves formulas with records, adjusts their original ref
   await h.persisted(page,async()=>{await h.values(page,{A2:'East',B2:'30',C2:'Closed',A3:'North',B3:'20',C3:'Closed'});await h.visibleRows(page,['A2','A3'],['A4']);await h.formula(page,'D2','=B2*2','60');await h.formula(page,'D3','=B3*2','40');});
   await h.data(page,'Clear filter'); await h.formula(page,'D4','=B4*2','20'); await h.edit(page,'B2','101'); await expect(page.getByText(/Please enter a number (?:from 0 to 100|between 0 and 100)/).first()).toBeVisible(); await h.values(page,{B2:'30',D2:'60'});
 });
+
+test("REQ-5-1-1: context REQ-3-1-3: reverse-direction drag replaces a saved rectangle and sorting uses only that rectangle", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.paste(page,'A1','outside-a\toutside-b\toutside-c\toutside-d\noutside-e\tRegion\tSales\toutside-f\noutside-g\tEast\t20\toutside-h\noutside-i\tNorth\t10\toutside-j');
+  await h.range(page,'C4','B2'); await h.selection(page,['B2','C2','B3','C3','B4','C4'],['A1','A2','A3','A4','B1','C1','D2','D3','D4']);
+  await h.data(page,'Sort range'); const dialog=page.getByRole('dialog',{name:'Sort range',exact:true}); await dialog.getByRole('checkbox',{name:'Data has header row',exact:true}).check();
+  await h.choose(dialog,'Sort by','Sales'); await h.choose(dialog,'Order','Ascending'); await h.button(dialog,'Sort').click();
+  await h.persisted(page,()=>h.values(page,{B2:'Region',C2:'Sales',B3:'North',C3:'10',B4:'East',C4:'20',A1:'outside-a',B1:'outside-b',C1:'outside-c',D1:'outside-d',A2:'outside-e',D2:'outside-f',A3:'outside-g',D3:'outside-h',A4:'outside-i',D4:'outside-j'}));
+  await h.range(page,'D5','E6'); await h.persisted(page,()=>h.selection(page,['D5','E5','D6','E6'],['B2','C2','B3','C3','C5','F6']));
+});

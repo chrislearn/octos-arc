@@ -56,6 +56,59 @@ class EmbeddedSuiteTests(unittest.TestCase):
         first=(ROOT/'derived-tests/hackathon--github/REQ-1-1-1.spec.ts').read_text()
         self.assertNotIn('h.signIn(',first)
 
+    def test_each_integration_assertion_has_an_independent_exportable_node_witness(self):
+        import build_embedded_tests
+        from requirement_order import topo_order
+        for name in NAMES.values():
+            tree=yaml.safe_load((ROOT/'tasks'/name/'requirements.yaml').read_text())
+            order={node['id']:i for i,node in enumerate(topo_order(tree))}
+            recipes=build_embedded_tests.CASES[name]
+            for file,rows in recipes.items():
+                if not file.startswith('INTEGRATION-'): continue
+                for source in rows:
+                    candidates=[row for node,rs in recipes.items() if node.startswith('REQ-') for row in rs
+                                if row.get('origin_file') == file+'.spec.ts'
+                                and row.get('origin_title') == file+': '+source['title']]
+                    self.assertEqual(len(candidates),1,(name,file,source['title']))
+                    witness=candidates[0]
+                    self.assertEqual(witness['phase'],'node')
+                    self.assertEqual(witness['node_id'],max(source['requires'],key=order.__getitem__))
+                    expected=source['body']
+                    if source.get('fixture'):
+                        self.assertNotEqual(witness['fixture'],source['fixture'])
+                        expected=expected.replace("'"+source['fixture']+"'", "'"+witness['fixture']+"'")
+                    self.assertEqual(witness['body'],expected)
+                    self.assertEqual(witness['requires'],source['requires'])
+
+    def test_local_requirement_export_preserves_each_witness_and_binds_only_present_specs(self):
+        from export_node_tests import export
+        from embedded_suites import PROJECT_EXPORT_POLICY
+        for name in NAMES.values():
+            destination=self.root/name
+            manifest=export(ROOT/'derived-tests'/name,destination)
+            self.assertEqual(manifest['export_policy'],PROJECT_EXPORT_POLICY)
+            self.assertEqual(manifest['case_count'],manifest['node_case_count'])
+            self.assertEqual(manifest['integration_case_count'],0)
+            self.assertFalse(list(destination.glob('INTEGRATION-*.spec.ts')))
+            plan=json.loads((destination/'case-plan.json').read_text())
+            self.assertTrue(all(row['phase']=='node' for row in plan))
+            self.assertTrue(any(row.get('origin_file') for row in plan))
+            self.assertEqual(manifest,export(ROOT/'derived-tests'/name,destination))
+
+    def test_local_export_refuses_to_overwrite_modified_or_unrelated_project_files(self):
+        from export_node_tests import export
+        source=ROOT/'derived-tests/hackathon--sheet'
+        destination=self.root/'project-export'
+        export(source,destination)
+        original=(destination/'helpers.ts').read_bytes()
+        (destination/'helpers.ts').write_text('user edit')
+        with self.assertRaises(ValueError): export(source,destination)
+        self.assertEqual((destination/'helpers.ts').read_text(),'user edit')
+        (destination/'helpers.ts').write_bytes(original)
+        (destination/'user-file.txt').write_text('keep')
+        with self.assertRaises(ValueError): export(source,destination)
+        self.assertEqual((destination/'user-file.txt').read_text(),'keep')
+
     def test_plan_rejects_unknown_requirements_wrong_phase_and_lost_atomic_gate(self):
         from copy import deepcopy
         from audit_embedded_tests import leaves, validate_plan

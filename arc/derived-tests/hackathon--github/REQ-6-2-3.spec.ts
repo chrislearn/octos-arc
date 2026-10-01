@@ -12,3 +12,8 @@ test("REQ-6-2-3: blank PR title keeps form and creates no PR", async ({ page, br
   test.setTimeout(60_000);
   await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('pr-create-invalid')); await h.link(page,'Pull requests').click(); await expect(h.link(page,'New pull request')).toBeVisible(); const before=await page.getByRole('link').allTextContents(),listAddress=page.url(); await h.compare(page,'pr-create-invalid'); await h.button(page,'Create pull request').click(); await h.field(page,'Title').fill('   '); await h.button(page,'Create pull request').click(); await expect(page.getByText('Title is required',{exact:false})).toBeVisible(); await expect(h.field(page,'Title')).toBeVisible(); await page.goto(listAddress); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before); await page.reload(); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before);
 });
+
+test("REQ-6-2-3: context REQ-6-1: Admin changes current compare-commit check pending to success and persists setter", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-admin'); await h.pr(page,'check-success-node'); await expect(h.text(page,'test: pending').first()).toBeVisible(); await h.choose(page,'test status','success'); await h.button(page,'Save').click(); await h.persisted(page, async () => { await expect(h.text(page,'test: success').first()).toBeVisible(); await expect(h.text(page,'spec-admin').last()).toBeVisible(); });
+});

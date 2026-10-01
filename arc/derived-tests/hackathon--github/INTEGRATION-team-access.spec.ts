@@ -22,9 +22,9 @@ test("INTEGRATION-team-access: guide: direct team grant changes effective permis
     await test.step('Removing direct membership revokes private access but preserves the account and other grants',async()=>{
       await h.signIn(adminOwner,'spec-owner'); await h.organization(adminOwner,'guide-team-access'); await h.link(adminOwner,'Teams').click(); await h.link(adminOwner,'frontend-team').click(); await h.link(adminOwner,'Members').click();
       await h.button(adminOwner,'Remove bob-reviewer').click(); await h.persisted(adminOwner,()=>expect(h.button(adminOwner,'Remove bob-reviewer')).toHaveCount(0));
-      await bob.goto(address); await expect(h.text(bob,'Access denied')).toBeVisible(); await expect(h.button(bob,'Account menu')).toBeVisible();
+      await bob.goto(address); await expect(h.text(bob,'Access denied').first()).toBeVisible(); await expect(h.button(bob,'Account menu')).toBeVisible();
       await childMember.reload(); await expect(childMember.getByRole('heading').filter({hasText:h.fixtureRepo('guide-team-access')})).toBeVisible();
-      await h.signOut(bob); await h.signIn(bob,'bob-reviewer'); await bob.goto(address); await expect(h.text(bob,'Access denied')).toBeVisible();
+      await h.signOut(bob); await h.signIn(bob,'bob-reviewer'); await bob.goto(address); await expect(h.text(bob,'Access denied').first()).toBeVisible();
     });
   } finally { await member.close(); await owner.close(); await child.close(); }
 });

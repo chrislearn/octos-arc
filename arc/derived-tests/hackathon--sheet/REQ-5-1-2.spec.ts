@@ -39,3 +39,18 @@ test("REQ-5-1-2: condition Is not empty persists exactly the matching rows and c
   await h.condition(page,'Date',"Is not empty",undefined); await h.persisted(page,async()=>{await h.filterHeaders(page,{A1:'Date',B1:'Record'});await h.visibleRows(page,["A2", "A3"],["A4"]);});
   await h.data(page,'Clear filter'); await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A1:'Date',B1:'Record',A2:'2026-01-01',B2:'early',A3:'2026-06-01',B3:'late',A4:'',B4:'empty'});});
 });
+
+test("REQ-5-1-2: context REQ-2-2-1: row insert/delete adjusts existing filter region without deleting or reordering hidden records", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page); await h.range(page,'A1','C4'); await h.data(page,'Create filter'); await h.filterValues(page,'Region',['East']); await h.structure(page,'row','2','Insert 1 row above');
+  await h.persisted(page,()=>h.visibleRows(page,['A3','A5'],['A4'])); await h.data(page,'Clear filter'); await h.values(page,{A2:'',A3:'East',B3:'10',A4:'North',B4:'20',A5:'East',B5:'30'});
+  await h.range(page,'A1','C5'); await h.data(page,'Create filter'); await h.filterValues(page,'Region',['East']); await h.structure(page,'row','3','Delete row');
+  await h.persisted(page,()=>h.visibleRows(page,['A4'],['A3'])); await h.data(page,'Clear filter'); await h.values(page,{A2:'',A3:'North',B3:'20',A4:'East',B4:'30'});
+});
+
+test("REQ-5-1-2: context REQ-2-2-2: column insertion/deletion moves filter headers and preserves conditions on original data", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page); await h.range(page,'A1','C4'); await h.data(page,'Create filter'); await h.condition(page,'Sales','Greater than','15'); await h.structure(page,'column','B','Insert 1 column left');
+  await h.persisted(page,()=>h.visibleRows(page,['A3','A4'],['A2'])); await expect(h.button(page,'Filter Sales')).toBeVisible(); await h.structure(page,'column','B','Delete column');
+  await h.persisted(page,()=>h.visibleRows(page,['A3','A4'],['A2'])); await h.data(page,'Clear filter'); await h.values(page,{B1:'Sales',B2:'10',B3:'20',B4:'30',C1:'Status',C2:'Open'});
+});

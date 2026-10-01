@@ -50,3 +50,10 @@ test("REQ-4-2-2: a malformed formula does not block unrelated recalculation and 
   await h.edit(page,'A1','4'); await h.formula(page,'B1','=1+','#ERROR!'); await h.formula(page,'C1','=A1*3','12'); await h.edit(page,'B1','=A1+2');
   await h.persisted(page,async()=>{await h.formula(page,'B1','=A1+2','6');await h.formula(page,'C1','=A1*3','12');await h.formula(page,'D1','=B1+1','7');});
 });
+
+test("REQ-4-2-2: aggregate formula keeps a stable source error and recalculates after repair", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.edit(page,'A1','=1/0'); await h.edit(page,'A2','5'); await h.edit(page,'B1','=SUM(A1:A2)');
+  await h.persisted(page,()=>h.formula(page,'B1','=SUM(A1:A2)','#DIV/0!'));
+  await h.edit(page,'A1','15'); await h.persisted(page,()=>h.formula(page,'B1','=SUM(A1:A2)','20'));
+});

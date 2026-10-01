@@ -20,7 +20,7 @@ def register(g, s):
         await h.signIn(review,'bob-reviewer'); await h.pr(review,'guide-review-cycle'); await h.link(review,'Files changed').click();
         await h.button(review,'Add comment').first().click(); await h.field(review,'Comment').fill(comment); await h.button(review,'Add single comment').click();
         await h.button(review,'Review changes').click(); await h.field(review,'Summary').fill(firstSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
-        await h.persisted(review,()=>expect(h.text(review,comment)).toBeVisible());
+        await h.persisted(review,()=>expect(h.text(review,comment).first()).toBeVisible());
       });
       await test.step('Approval and successful check together enable Maintain to merge',async()=>{
         await h.pr(page,'guide-review-cycle'); await h.choose(page,'test status','success'); await h.button(page,'Save').click(); await expect(h.text(page,'test: success')).toBeVisible();
@@ -35,11 +35,11 @@ def register(g, s):
       await test.step('Old decisions/check no longer satisfy protection; old line comment remains Outdated',async()=>{
         await merge.reload(); await expect(h.button(merge,'Merge pull request')).toBeDisabled(); await expect(h.text(merge,'Review required by branch protection')).toBeVisible();
         await page.reload(); await expect(h.text(page,'test: pending')).toBeVisible(); await review.reload();
-        await expect(h.text(review,firstSummary)).toBeVisible(); await expect(h.text(review,comment)).toBeVisible();
+        await expect(h.text(review,firstSummary)).toBeVisible(); await expect(h.text(review,comment).first()).toBeVisible();
         // Outdated is required for the anchored comment. Stale review decisions
         // are proved by the merge gate; their history needs no extra UI badge.
         // Exclude the neighbouring review so its badge cannot satisfy this check.
-        const marked=h.text(review,comment).locator(`xpath=ancestor::*[.//*[normalize-space(.)="Outdated"] and not(.//*[normalize-space(.)="${firstSummary}"])][1]`);
+        const marked=h.text(review,comment).first().locator(`xpath=ancestor::*[.//*[normalize-space(.)="Outdated"] and not(.//*[normalize-space(.)="${firstSummary}"])][1]`);
         await expect(h.text(marked,'Outdated').first()).toBeVisible();
       });
       await test.step('A renewed approval alone is insufficient until Admin sets the current check',async()=>{
@@ -74,9 +74,9 @@ def register(g, s):
       await test.step('Removing direct membership revokes private access but preserves the account and other grants',async()=>{
         await h.signIn(adminOwner,'spec-owner'); await h.organization(adminOwner,'guide-team-access'); await h.link(adminOwner,'Teams').click(); await h.link(adminOwner,'frontend-team').click(); await h.link(adminOwner,'Members').click();
         await h.button(adminOwner,'Remove bob-reviewer').click(); await h.persisted(adminOwner,()=>expect(h.button(adminOwner,'Remove bob-reviewer')).toHaveCount(0));
-        await bob.goto(address); await expect(h.text(bob,'Access denied')).toBeVisible(); await expect(h.button(bob,'Account menu')).toBeVisible();
+        await bob.goto(address); await expect(h.text(bob,'Access denied').first()).toBeVisible(); await expect(h.button(bob,'Account menu')).toBeVisible();
         await childMember.reload(); await expect(childMember.getByRole('heading').filter({hasText:h.fixtureRepo('guide-team-access')})).toBeVisible();
-        await h.signOut(bob); await h.signIn(bob,'bob-reviewer'); await bob.goto(address); await expect(h.text(bob,'Access denied')).toBeVisible();
+        await h.signOut(bob); await h.signIn(bob,'bob-reviewer'); await bob.goto(address); await expect(h.text(bob,'Access denied').first()).toBeVisible();
       });
     } finally { await member.close(); await owner.close(); await child.close(); }
     ''', 'guide-team-access', file='INTEGRATION-team-access', requires=['REQ-1-1-2','REQ-1-2','REQ-2-2-2','REQ-2-3','REQ-3-4','REQ-4-4'])

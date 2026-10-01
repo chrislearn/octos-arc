@@ -19,7 +19,7 @@ test("INTEGRATION-review-cycle: guide: new compare commit invalidates review/che
       await h.signIn(review,'bob-reviewer'); await h.pr(review,'guide-review-cycle'); await h.link(review,'Files changed').click();
       await h.button(review,'Add comment').first().click(); await h.field(review,'Comment').fill(comment); await h.button(review,'Add single comment').click();
       await h.button(review,'Review changes').click(); await h.field(review,'Summary').fill(firstSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
-      await h.persisted(review,()=>expect(h.text(review,comment)).toBeVisible());
+      await h.persisted(review,()=>expect(h.text(review,comment).first()).toBeVisible());
     });
     await test.step('Approval and successful check together enable Maintain to merge',async()=>{
       await h.pr(page,'guide-review-cycle'); await h.choose(page,'test status','success'); await h.button(page,'Save').click(); await expect(h.text(page,'test: success')).toBeVisible();
@@ -34,11 +34,11 @@ test("INTEGRATION-review-cycle: guide: new compare commit invalidates review/che
     await test.step('Old decisions/check no longer satisfy protection; old line comment remains Outdated',async()=>{
       await merge.reload(); await expect(h.button(merge,'Merge pull request')).toBeDisabled(); await expect(h.text(merge,'Review required by branch protection')).toBeVisible();
       await page.reload(); await expect(h.text(page,'test: pending')).toBeVisible(); await review.reload();
-      await expect(h.text(review,firstSummary)).toBeVisible(); await expect(h.text(review,comment)).toBeVisible();
+      await expect(h.text(review,firstSummary)).toBeVisible(); await expect(h.text(review,comment).first()).toBeVisible();
       // Outdated is required for the anchored comment. Stale review decisions
       // are proved by the merge gate; their history needs no extra UI badge.
       // Exclude the neighbouring review so its badge cannot satisfy this check.
-      const marked=h.text(review,comment).locator(`xpath=ancestor::*[.//*[normalize-space(.)="Outdated"] and not(.//*[normalize-space(.)="${firstSummary}"])][1]`);
+      const marked=h.text(review,comment).first().locator(`xpath=ancestor::*[.//*[normalize-space(.)="Outdated"] and not(.//*[normalize-space(.)="${firstSummary}"])][1]`);
       await expect(h.text(marked,'Outdated').first()).toBeVisible();
     });
     await test.step('A renewed approval alone is insufficient until Admin sets the current check',async()=>{
