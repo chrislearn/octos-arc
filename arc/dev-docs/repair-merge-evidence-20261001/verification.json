@@ -1,0 +1,59 @@
+{
+  "status": "merged_and_verified",
+  "implementation_commit": "9f356bdaee9f0cafbc3651248e698ce7e56de025",
+  "main_workspace": "/home/chris/Works/octos-arc",
+  "checks": [
+    {
+      "name": "full-regression",
+      "command": "env -u OCTOS_TEST_PLAYWRIGHT_ROOT PYTHONPATH=arc python3 -m unittest discover -s arc/tests",
+      "exit_code": 0,
+      "tests": 2278,
+      "seconds": 90.688,
+      "skipped": 28,
+      "failures": 0,
+      "errors": 0,
+      "log": "full-regression.log.gz",
+      "log_sha256": "d73459fb9a20d57a96976961f88552ab15e6b322cc9df98cfa93b17e6f17f38d",
+      "log_compressed_sha256": "137fa966ee854c62a691fd437ef725471d7d6fd851f2f3e0b0e38a34ee8944ae"
+    },
+    {
+      "name": "browser-regression",
+      "command": "env OCTOS_TEST_PLAYWRIGHT_ROOT=/home/chris/Works/octos-arc/arc/diagnostics/4f1ce8bdba65-647425dc8258-20261001/playwright PYTHONPATH=arc python3 -m unittest arc.tests.test_verify_app arc.tests.test_repair_speed_controls",
+      "exit_code": 0,
+      "tests": 29,
+      "seconds": 5.323,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "log": "browser-regression.log.gz",
+      "log_sha256": "69b3c514ce14bdc0eea088dcb227166dd98cb710cdbd170f44509d067ea8b886",
+      "log_compressed_sha256": "859c4bd065bdfc25ef163ca29027fd7dbc20d570486d244f176233e9d68a03ea"
+    }
+  ],
+  "source_versions": {
+    "arc/acceptance.py": "d503cd6cfe9a0a873906f19f50ab6014be7bb5168414fad29e36448ea358c268",
+    "arc/arc-policy.toml": "42080e1b92016a885e809770e527251286190368bddcf333bc87da5dce065eae",
+    "arc/guard.py": "67c7293619930bf3f37ea5d7c2f3523412b39d17db0f00133ede536070ae6f09",
+    "arc/llm_proxy.py": "77a8cd820be21156bb9cac9e820ea8c0055816fc25dda5cc8e9e1164dbe66a3f",
+    "arc/main.py": "381b4ecec47d92c8b57f01078c3062d69966fe2559c3a75d29148020b32e9fe4",
+    "arc/pack.sh": "c8c4f2c18a4ed260c70857cb676825825ab90c1cd7f4321b5e2ef59312e8a902",
+    "arc/prompts/codegen-prompt.md": "850457b3028408cfbeac725398419e185512d8eb257b0fcefad69b6cac6ca24f",
+    "arc/prompts/repair.md": "47869b59852ceb689d6e2f10518b1b85d94ad5dd9714e2ba31bebc92f0eb2c70",
+    "arc/prompts/ui-contract-core.md": "4d7a1129b8f0a30630fca7929c146423ae5c74e9524f8b3acf3b4a1a4f043b8a",
+    "arc/repair_control.py": "c589b113316a6278bfb259e72192439dd45f2f1fb2dd9e7d092465d73d9c5f05",
+    "arc/source_index.py": "d45d6bc8b0b51adb01873b951b7fc68d950cd9e3473f4ee9b77f0497a0001b51",
+    "arc/tests/test_diagnostic_repairs.py": "2a8677b74afadf6ad576a1cb9614395702ec7c15531a228f77800fb337a621a2",
+    "arc/tests/test_improvement_round.py": "fe4b69faa4e2adc733e9e1df0d3566ee9b2bd18da4efb3b982bc09d71655f6f5",
+    "arc/tests/test_joint_regression_repair.py": "b70508f1cb6e0c78f7ad2c6fc73b49e3941ef3a41e31abcf22568b5dae51df83",
+    "arc/tests/test_main_helpers.py": "49b7cd2101bbdc6cf7cd89ee633f1169e193e4f40a482cd5b5f4cafd1bde1e59",
+    "arc/tests/test_repair_speed_controls.py": "3baa10ebfe6d9d7f5c4766835dae2855b5659defac094e9d2b9e0ef261a53df4",
+    "arc/tests/test_token_optimization.py": "fd318807f55e48a91cb9e06035c31313708017dc64c63b22a641e12993f4e65a",
+    "arc/tests/test_whole_app_v5.py": "f327b467bbc87930d5a90d125dee1d68e4ab704ddc9cb8a3c1ddac248775a7df",
+    "arc/verify_app.py": "be45e704b4cc6ae61554673755318b50722d81027c350d0a1c9d83953fe12cf7",
+    "arc/web_checks.py": "090c480fe808f12bca25e507aa9983db33322837a7783065be907a153c487f35"
+  },
+  "integrity": "../../../arc/diagnostics/worktree-merge-review-20261001/merge-integrity.json",
+  "backup": "../../../arc/diagnostics/worktree-merge-review-20261001/premerge-backup.json",
+  "original_v15_3_archive_unchanged": true,
+  "full_model_comparison_completed": false
+}
