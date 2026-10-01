@@ -62,3 +62,16 @@ test("INTEGRATION-deferred-2-2-2: pivot refresh tracks moved source headers afte
   await h.tab(page,'Sheet1').click(); await h.structure(page,'column','B','Delete column'); await h.edit(page,'B2','5'); await h.tab(page,'Pivot1').click(); await h.values(page,{B2:'80',B4:'100'});
   await h.button(page,'Refresh pivot table').click(); await h.persisted(page,()=>h.values(page,{B2:'35',B4:'55'}));
 });
+
+test("INTEGRATION-deferred-2-2-2: insert right of a populated anchor keeps the anchor column", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);
+  await test.step('Populate the anchor and the following complete column',async()=>{
+    await h.paste(page,'A1','anchor\tnext\noutside-anchor\toutside-next');
+    await h.values(page,{A1:'anchor',B1:'next',A2:'outside-anchor',B2:'outside-next'});
+  });
+  await h.structure(page,'column','A','Insert 1 column right');
+  await test.step('The blank column follows the unchanged anchor, including after reload',async()=>{
+    await h.persisted(page,()=>h.values(page,{A1:'anchor',B1:'',C1:'next',A2:'outside-anchor',B2:'',C2:'outside-next'}));
+  });
+});

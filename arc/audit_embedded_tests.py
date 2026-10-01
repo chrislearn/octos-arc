@@ -13,6 +13,10 @@ from embedded_suites import requirements_digest
 
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
+REVIEWED_RELEASES = {
+    'hackathon--github': ('2026-10-01', 5),
+    'hackathon--sheet': ('2026-10-02', 6),
+}
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def write(path,data): path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
@@ -181,6 +185,7 @@ def audit(freeze=False,task_filter=None):
         for spec in directory.glob('*.spec.ts'):
             assert len(re.findall(r'^test\(',spec.read_text(),re.M))==sum(r['file']==spec.name for r in plan)
         if freeze:
+            review_date, spec_revision = REVIEWED_RELEASES[task]
             from build_embedded_models import build as build_model
             build_model(task)
             (directory/'requirements.yaml').write_bytes(source.read_bytes()); (directory/'README.md').write_text(README)
@@ -188,7 +193,7 @@ def audit(freeze=False,task_filter=None):
             reviews=[]
             for row in plan:
                 node=nodes[row['node_id']]
-                reviews.append({**row,'status':'reviewed','frozen':True,'reviewer':'Codex source review','review_date':'2026-10-01',
+                reviews.append({**row,'status':'reviewed','frozen':True,'reviewer':'Codex source review','review_date':review_date,
                                 'basis':'Atomic description + inherited role, scope, state and entry contracts; source review only',
                                 'requirement_quote':node['description'],'file_sha256':sha(directory/row['file']),
                                 'requirement_quotes':{rid:nodes[rid]['description'] for rid in row['requires']},
@@ -196,8 +201,8 @@ def audit(freeze=False,task_filter=None):
             write(directory/'review.json',{'schema_version':1,'review_status':'reviewed','frozen':True,'cases':reviews})
             paths=sorted(p for p in directory.rglob('*') if p.is_file() and p.name!='suite-origin.json')
             manifest={'schema_version':1,'name':task,'root_name':tree['name'],'official':False,'review_status':'reviewed','frozen':True,'trusted':True,
-                      'review_date':'2026-10-01','review_kind':'source_review','runtime_status':'not_run_against_product',
-                      'requirements_sha256':requirements_digest(tree),'spec_revision':5,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
+                      'review_date':review_date,'review_kind':'source_review','runtime_status':'not_run_against_product',
+                      'requirements_sha256':requirements_digest(tree),'spec_revision':spec_revision,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
                       'node_spec_count':len(nodes),'integration_spec_count':len(specs)-len(nodes),
                       'node_case_count':sum(r['phase']=='node' for r in plan),'integration_case_count':sum(r['phase']=='integration' for r in plan),
                       'files':{p.relative_to(directory).as_posix():sha(p) for p in paths}}

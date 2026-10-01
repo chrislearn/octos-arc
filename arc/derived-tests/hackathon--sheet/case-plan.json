@@ -571,6 +571,18 @@
   },
   {
     "node_id": "REQ-2-2-1",
+    "fixture": null,
+    "phase": "integration",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2"
+    ],
+    "title": "INTEGRATION-deferred-2-2-1: insert below a populated anchor keeps the anchor row",
+    "file": "INTEGRATION-deferred-2-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-1",
     "fixture": "row-node",
     "phase": "node",
     "requires": [
@@ -692,6 +704,18 @@
       "REQ-5-3-1"
     ],
     "title": "INTEGRATION-deferred-2-2-2: pivot refresh tracks moved source headers after column insertion/deletion",
+    "file": "INTEGRATION-deferred-2-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-2",
+    "fixture": null,
+    "phase": "integration",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-2"
+    ],
+    "title": "INTEGRATION-deferred-2-2-2: insert right of a populated anchor keeps the anchor column",
     "file": "INTEGRATION-deferred-2-2-2.spec.ts"
   },
   {
@@ -913,6 +937,21 @@
     "fixture": null,
     "phase": "node",
     "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-1",
+    "origin_file": "INTEGRATION-deferred-2-2-1.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-1: insert below a populated anchor keeps the anchor row",
+    "title": "REQ-3-1-2: context REQ-2-2-1: insert below a populated anchor keeps the anchor row",
+    "file": "REQ-3-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
       "REQ-2-2-2",
       "REQ-1-2-1",
       "REQ-3-1-2"
@@ -921,6 +960,21 @@
     "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
     "origin_title": "INTEGRATION-deferred-2-2-2: column insert/delete moves complete records and persists",
     "title": "REQ-3-1-2: context REQ-2-2-2: column insert/delete moves complete records and persists",
+    "file": "REQ-3-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-2"
+    ],
+    "origin_node_id": "REQ-2-2-2",
+    "origin_file": "INTEGRATION-deferred-2-2-2.spec.ts",
+    "origin_title": "INTEGRATION-deferred-2-2-2: insert right of a populated anchor keeps the anchor column",
+    "title": "REQ-3-1-2: context REQ-2-2-2: insert right of a populated anchor keeps the anchor column",
     "file": "REQ-3-1-2.spec.ts"
   },
   {
@@ -1580,6 +1634,19 @@
       "REQ-4-1-1"
     ],
     "title": "REQ-4-2-2: aggregate formula keeps a stable source error and recalculates after repair",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1"
+    ],
+    "title": "REQ-4-2-2: a dependent formula preserves a malformed source error and recovers",
     "file": "REQ-4-2-2.spec.ts"
   },
   {

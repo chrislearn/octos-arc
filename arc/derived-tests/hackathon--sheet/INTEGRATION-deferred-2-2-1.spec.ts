@@ -64,3 +64,16 @@ test("INTEGRATION-deferred-2-2-1: overlapping row changes adjust pivot source ra
   await h.tab(page,'Sheet1').click(); await h.structure(page,'row','3','Delete row'); await h.tab(page,'Pivot1').click(); await h.values(page,{A3:'South',B5:'65'}); await h.button(page,'Refresh pivot table').click();
   await h.persisted(page,()=>h.values(page,{A2:'East',B2:'40',A3:'North',B3:'20',A4:'Grand Total',B4:'60',A5:'',B5:''}));
 });
+
+test("INTEGRATION-deferred-2-2-1: insert below a populated anchor keeps the anchor row", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);
+  await test.step('Populate the anchor and the following complete record',async()=>{
+    await h.paste(page,'A1','anchor\t10\nnext\t20');
+    await h.values(page,{A1:'anchor',B1:'10',A2:'next',B2:'20'});
+  });
+  await h.structure(page,'row','1','Insert 1 row below');
+  await test.step('The blank row follows the unchanged anchor, including after reload',async()=>{
+    await h.persisted(page,()=>h.values(page,{A1:'anchor',B1:'10',A2:'',B2:'',A3:'next',B3:'20'}));
+  });
+});

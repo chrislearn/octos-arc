@@ -1,5 +1,30 @@
 """Independent requirement regressions for defects discovered in local execution."""
 def register(s):
+    # Filled anchors distinguish above/below and left/right. Clipboard setup
+    # belongs to a later capability, so the existing partition/witness pipeline
+    # places these regressions in the exportable REQ-3-1-2 context gate.
+    s('REQ-2-2-1', 'insert below a populated anchor keeps the anchor row', r'''
+    await h.blank(page);
+    await test.step('Populate the anchor and the following complete record',async()=>{
+      await h.paste(page,'A1','anchor\t10\nnext\t20');
+      await h.values(page,{A1:'anchor',B1:'10',A2:'next',B2:'20'});
+    });
+    await h.structure(page,'row','1','Insert 1 row below');
+    await test.step('The blank row follows the unchanged anchor, including after reload',async()=>{
+      await h.persisted(page,()=>h.values(page,{A1:'anchor',B1:'10',A2:'',B2:'',A3:'next',B3:'20'}));
+    });
+    ''',requires=['REQ-2-2-1','REQ-1-2-1','REQ-3-1-2'])
+    s('REQ-2-2-2', 'insert right of a populated anchor keeps the anchor column', r'''
+    await h.blank(page);
+    await test.step('Populate the anchor and the following complete column',async()=>{
+      await h.paste(page,'A1','anchor\tnext\noutside-anchor\toutside-next');
+      await h.values(page,{A1:'anchor',B1:'next',A2:'outside-anchor',B2:'outside-next'});
+    });
+    await h.structure(page,'column','A','Insert 1 column right');
+    await test.step('The blank column follows the unchanged anchor, including after reload',async()=>{
+      await h.persisted(page,()=>h.values(page,{A1:'anchor',B1:'',C1:'next',A2:'outside-anchor',B2:'',C2:'outside-next'}));
+    });
+    ''',requires=['REQ-2-2-2','REQ-1-2-1','REQ-3-1-2'])
     s('REQ-3-1-1', 'failed cell save restores formula-bar input and keeps persisted cell; retry succeeds', r'''
   await h.blank(page); await h.edit(page,'A1','original'); await h.values(page,{A1:'original'});
   const alerts=page.locator('[role="alert"]:visible').filter({hasText:/\S/}); await expect(alerts).toHaveCount(0);
@@ -33,6 +58,17 @@ def register(s):
     await h.blank(page); await h.edit(page,'A1','=1/0'); await h.edit(page,'A2','5'); await h.edit(page,'B1','=SUM(A1:A2)');
     await h.persisted(page,()=>h.formula(page,'B1','=SUM(A1:A2)','#DIV/0!'));
     await h.edit(page,'A1','15'); await h.persisted(page,()=>h.formula(page,'B1','=SUM(A1:A2)','20'));
+    ''',requires=['REQ-4-2-2','REQ-4-1-1','REQ-3-1-1','REQ-1-2-1'])
+    s('REQ-4-2-2', 'a dependent formula preserves a malformed source error and recovers', r'''
+    await h.blank(page);
+    await h.edit(page,'A1','=1+'); await h.edit(page,'B1','=A1+1');
+    await test.step('The source and its dependent preserve the malformed-expression error',async()=>{
+      await h.persisted(page,()=>h.values(page,{A1:'#ERROR!',B1:'#ERROR!'}));
+    });
+    await h.edit(page,'A1','4');
+    await test.step('Repairing the source recalculates and persists the dependent',async()=>{
+      await h.persisted(page,()=>h.values(page,{A1:'4',B1:'5'}));
+    });
     ''',requires=['REQ-4-2-2','REQ-4-1-1','REQ-3-1-1','REQ-1-2-1'])
     s('REQ-5-3-1', 'undo and redo restore structural changes together with another sheet pivot source', r'''
     await h.sourceData(page); await h.pivot(page);

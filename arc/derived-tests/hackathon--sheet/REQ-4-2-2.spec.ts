@@ -57,3 +57,16 @@ test("REQ-4-2-2: aggregate formula keeps a stable source error and recalculates 
   await h.persisted(page,()=>h.formula(page,'B1','=SUM(A1:A2)','#DIV/0!'));
   await h.edit(page,'A1','15'); await h.persisted(page,()=>h.formula(page,'B1','=SUM(A1:A2)','20'));
 });
+
+test("REQ-4-2-2: a dependent formula preserves a malformed source error and recovers", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);
+  await h.edit(page,'A1','=1+'); await h.edit(page,'B1','=A1+1');
+  await test.step('The source and its dependent preserve the malformed-expression error',async()=>{
+    await h.persisted(page,()=>h.values(page,{A1:'#ERROR!',B1:'#ERROR!'}));
+  });
+  await h.edit(page,'A1','4');
+  await test.step('Repairing the source recalculates and persists the dependent',async()=>{
+    await h.persisted(page,()=>h.values(page,{A1:'4',B1:'5'}));
+  });
+});
