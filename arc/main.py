@@ -5044,12 +5044,15 @@ class Flow:
 
     def repair_tool_turn(self, prompt, timeout, label, request_budget: int | None = None):
         before = self.repair_source_index().versions
-        prompt += self.repair_memory_context(prompt)
+        memory = self.repair_memory_context(prompt)
         # A missing full-source quotation does not require a shell. Range reads
         # and native edits retain the protected-file policy and full acceptance.
-        if self.use_structured_edits(prompt, label) and len(prompt) <= self.codegen_context_chars():
+        # Native dispatch and evidence are keyed by the original prompt. The
+        # structured executor adds memory itself after resolving that scope.
+        if self.use_structured_edits(prompt, label) and len(prompt + memory) <= self.codegen_context_chars():
             ok, text = self.structured_edit_turn(prompt, timeout, label, request_budget=request_budget)
         else:
+            prompt += memory
             ok, text = self.turn(prompt, timeout, label, request_budget=request_budget)
         after = self.repair_source_index().versions
         self.last_codegen_written = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
@@ -10577,27 +10580,27 @@ class Flow:
         self._generation_gate_result = None
         try:
             self.generation_batch_check(label)
+            gate = getattr(self, "_generation_gate_result", None)
+            if gate is None:
+                # The batch check was skipped (no budget configured): build directly.
+                build_error = self.app_server(False).build()
+                gate = {"errors": [build_error] if build_error else []}
+            errors = list(gate.get("errors") or [])
+            if backend_route:
+                unsafe = [p for p in written if p != rel and Path(p).parent == Path('backend/routes')]
+                route_after = runtime_route_report(self.output_dir, timeout=min(20, max(0.001, seconds_available(self))))
+                signature = lambda report: [(row.get('method'), row.get('path')) for row in report['routes']]
+                if (unsafe or route_after is None or signature(route_before) != signature(route_after)):
+                    errors.append('Refactor changed/obscured actual route registration or added root route modules')
+            regressed = False
+            proven = sorted({spec for node, verdict in getattr(self, "test_verdict", {}).items() if verdict is True
+                             for spec in (getattr(self, "spec_map", {}) or {}).get(node, [])})
+            if not errors and proven and getattr(self, "runner", None) is not None:
+                summary = self.run_specs(proven)
+                regressed = not self.suite_is_measured(summary, proven) or not summary.all_passed
         except BaseException:
             restore_split()
             raise
-        gate = getattr(self, "_generation_gate_result", None)
-        if gate is None:
-            # The batch check was skipped (no budget configured): build directly.
-            build_error = self.app_server(False).build()
-            gate = {"errors": [build_error] if build_error else []}
-        errors = list(gate.get("errors") or [])
-        if backend_route:
-            unsafe = [p for p in written if p != rel and Path(p).parent == Path('backend/routes')]
-            route_after = runtime_route_report(self.output_dir, timeout=min(20, max(0.001, seconds_available(self))))
-            signature = lambda report: [(row.get('method'), row.get('path')) for row in report['routes']]
-            if (unsafe or route_after is None or signature(route_before) != signature(route_after)):
-                errors.append('Refactor changed/obscured actual route registration or added root route modules')
-        regressed = False
-        proven = sorted({spec for node, verdict in getattr(self, "test_verdict", {}).items() if verdict is True
-                         for spec in (getattr(self, "spec_map", {}) or {}).get(node, [])})
-        if not errors and proven and getattr(self, "runner", None) is not None:
-            summary = self.run_specs(proven)
-            regressed = bool(summary.error) or summary.passed < summary.total or summary.total < len(proven)
         if errors or regressed:
             log(f"[flow] hub split of {rel} rolled back: "
                 + (errors[0][:200] if errors else f"{len(proven)} previously passing spec(s) regressed"))

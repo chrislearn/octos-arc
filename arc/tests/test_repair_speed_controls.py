@@ -235,6 +235,73 @@ class SchedulingControls(unittest.TestCase):
         f.structured_edit_turn.assert_called_once()
         f.turn.assert_not_called()
 
+    def test_repair_memory_preserves_bound_native_scope_and_is_added_once(self):
+        f = self.flow; root = Path(self.temp.name)
+        path = root / 'frontend/src/Editor.jsx'; path.parent.mkdir(parents=True)
+        path.write_text('function helper() {}\n' * 100 + 'const applyFilter = () => {};\n')
+        prompt, evidence = 'Repair the current failing operation.', 'apply filter'
+        f.bind_edit_scope(prompt, evidence, {'frontend/src/Editor.jsx'})
+        f.repair_memory_context = Mock(return_value='\nPrevious bounded repair: unchanged.\n')
+        f.codegen_context_chars = Mock(return_value=90000)
+        f.turn = Mock(return_value=(True, 'done'))
+        f.generation_batch_check = Mock(); f.remember_repair = Mock()
+        Flow.repair_tool_turn(f, prompt, 100, 'A repair', request_budget=24)
+        delivered = f.turn.call_args.args[0]
+        self.assertIn('Source relationships', delivered)
+        self.assertIn('applyFilter', delivered)
+        self.assertEqual(delivered.count('Previous bounded repair: unchanged.'), 1)
+        self.assertIn('(structured edits)', f.turn.call_args.args[2])
+
+    def test_post_refactor_verification_exception_restores_pending_sources(self):
+        f = self.flow; root = Path(self.temp.name)
+        path = root / 'frontend/src/Editor.jsx'; path.parent.mkdir(parents=True)
+        original = 'export default function Editor() {}\n' + '// pending feature\n' * 3000
+        path.write_text(original)
+        helper = path.parent / 'feature/Helper.jsx'
+        f.head = Mock(return_value='before'); f.restore_app = Mock(); f.commit = Mock()
+        f.codegen_context_chars = Mock(return_value=196608)
+        def split(*args, **kwargs):
+            path.write_text('refactored entry'); helper.parent.mkdir(exist_ok=True)
+            helper.write_text('new refactor helper')
+            f.last_codegen_written = ['frontend/src/Editor.jsx', 'frontend/src/feature/Helper.jsx']
+            return True, 'split'
+        f.codegen_turn = Mock(side_effect=split)
+        for phase in ('fallback_build', 'regression'):
+            with self.subTest(phase=phase):
+                f.hub_splits_attempted = set(); path.write_text(original); helper.unlink(missing_ok=True)
+                f.generation_batch_check = Mock(side_effect=lambda _: setattr(
+                    f, '_generation_gate_result', None if phase == 'fallback_build' else {'errors': []}))
+                f.app_server = Mock(return_value=Mock(build=Mock(side_effect=RuntimeError('cancelled verification'))))
+                f.test_verdict = {'old': True}; f.spec_map = {'old': ['old.spec.ts']}; f.runner = Mock()
+                f.run_specs = Mock(side_effect=RuntimeError('cancelled verification'))
+                with self.assertRaisesRegex(RuntimeError, 'cancelled verification'):
+                    f.split_oversized_hub('frontend/src/Editor.jsx', 'context')
+                self.assertEqual(path.read_text(), original)
+                self.assertFalse(helper.exists())
+                f.commit.assert_not_called()
+
+    def test_refactor_rejects_passing_counts_with_a_missing_proven_spec(self):
+        f = self.flow; root = Path(self.temp.name)
+        path = root / 'frontend/src/Editor.jsx'; path.parent.mkdir(parents=True)
+        original = 'export default function Editor() {}\n' + '// pending feature\n' * 3000
+        path.write_text(original)
+        f.head = Mock(return_value='before'); f.restore_app = Mock(); f.commit = Mock()
+        f.codegen_context_chars = Mock(return_value=196608)
+        def split(*args, **kwargs):
+            path.write_text('refactored entry')
+            f.last_codegen_written = ['frontend/src/Editor.jsx']
+            return True, 'split'
+        f.codegen_turn = Mock(side_effect=split)
+        f.generation_batch_check = Mock(side_effect=lambda _: setattr(f, '_generation_gate_result', {'errors': []}))
+        f.test_verdict = {'A': True, 'B': True}; f.spec_map = {'A': ['A.spec.ts'], 'B': ['B.spec.ts']}
+        f.runner = Mock()
+        f.run_specs = Mock(return_value=RunSummary(passed=2, total=2, results=[
+            TestOutcome('A first', True, 'passed', 1, file='A.spec.ts'),
+            TestOutcome('A second', True, 'passed', 1, file='A.spec.ts')]))
+        self.assertFalse(f.split_oversized_hub('frontend/src/Editor.jsx', 'context'))
+        self.assertEqual(path.read_text(), original)
+        f.commit.assert_not_called()
+
     def test_request_attribution_survives_a_later_turn(self):
         import threading
         from llm_proxy import LlmProxy
