@@ -529,6 +529,17 @@ mod tests {
             let review: Value = serde_json::from_slice(&files["review.json"]).unwrap();
             let cases = review["cases"].as_array().unwrap();
             let plan: Value = serde_json::from_slice(&files["case-plan.json"]).unwrap();
+            let source_plan: Value = serde_json::from_slice(&all["case-plan.json"]).unwrap();
+            for row in plan.as_array().unwrap() {
+                assert!(source_plan.as_array().unwrap().contains(row), "export must preserve case setup metadata");
+            }
+            if name == "hackathon--github" {
+                let team = plan.as_array().unwrap().iter()
+                    .find(|row| row["file"] == "REQ-2-2-1.spec.ts").unwrap();
+                let setup = team["setup_requires"].as_array().unwrap();
+                assert!(setup.contains(&json!("REQ-3-1")));
+                assert!(setup.contains(&json!("REQ-3-3")));
+            }
             assert_eq!(plan.as_array().unwrap().len(), cases.len());
             assert_eq!(json!(cases.len()), exported["case_count"]);
             assert_eq!(exported["node_case_count"], exported["case_count"]);

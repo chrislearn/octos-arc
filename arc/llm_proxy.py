@@ -318,7 +318,14 @@ def cap_reasoning_effort(body: bytes) -> bytes:
     if not isinstance(data, dict):
         return body
     changed = False
-    if data.get('reasoning_effort') in ('high', 'xhigh', 'max', 'ultra'):
+    # GLM-5.3-Flash accepts low/high/max, and unsupported values (including
+    # medium) fall back to max. The greatest supported effort below this
+    # release's medium ceiling is low, not the literal string "medium".
+    glm_flash = bool(re.search(r'(?:^|/)glm-5\.3-flash(?:-|$)', str(data.get('model') or '').lower()))
+    if glm_flash and 'reasoning_effort' in data and data['reasoning_effort'] != 'low':
+        data['reasoning_effort'] = 'low'
+        changed = True
+    elif data.get('reasoning_effort') in ('high', 'xhigh', 'max', 'ultra'):
         data['reasoning_effort'] = 'medium'
         changed = True
     if isinstance(data.get('reasoning'), dict) and data['reasoning'].get('effort') in ('high', 'xhigh', 'max', 'ultra'):
@@ -382,8 +389,8 @@ def route_request(body: bytes, rules: list[dict], phase: str, reasoning_mode: st
                     if turn_label else default_reasoning_for_model(data["model"]))
             if reasoning_mode and (explicit_turn or mode in {"auto", "passthrough"}):
                 mode = reasoning_mode
-            if mode in {"low", "medium", "high"}:
-                data["reasoning_effort"] = mode
+            if mode in {"none", "off", "disabled", "low", "medium", "high"}:
+                data = json.loads(inject_reasoning(json.dumps(data).encode(), mode, force=True))
         elif re.search(r"(?:^|/)qwen3\.7-plus(?:-|$)", selected_model):
             # Hybrid thinking has a separate on/off toggle. Send the effort
             # level as well; merely enabling thinking leaves provider intensity
@@ -405,8 +412,9 @@ def route_request(body: bytes, rules: list[dict], phase: str, reasoning_mode: st
 
 def inject_reasoning(body: bytes, mode: str, *, force: bool = False) -> bytes:
     """mode: "low"|"medium"|"high" -> reasoning_effort (+ thinking enabled);
-    "none"/"off" -> thinking disabled. A caller's explicit effort is preserved
-    unless the proxy enforces a turn mode; explicit route options apply later."""
+    "none"/"off" -> thinking disabled where supported, otherwise the lowest
+    supported effort. A caller's explicit effort is preserved unless the proxy
+    enforces a turn mode; explicit route options apply later."""
     if not mode or mode == "passthrough":
         return body
     try:
@@ -428,9 +436,19 @@ def inject_reasoning(body: bytes, mode: str, *, force: bool = False) -> bytes:
             data["reasoning_effort"] = mode
         return json.dumps(data, ensure_ascii=False).encode("utf-8")
     if re.search(r"(?:^|/)glm-5\.3-flash(?:-|$)", model):
-        if mode in ("low", "medium", "high") and (force or data.get("reasoning_effort") in
-                                                 (None, "none", "off", "disabled")):
-            data["reasoning_effort"] = mode
+        # Official GLM-5.3-Flash docs: thinking cannot be disabled. Its model
+        # card accepts low/high/max, defaults to max for missing/invalid effort.
+        # An intended off or medium turn must therefore explicitly use low.
+        # https://docs.z.ai/guides/vlm/glm-5.3-flash
+        # https://huggingface.co/zai-org/GLM-5.3-Flash
+        if mode in ("none", "off", "disabled", "low", "medium", "high"):
+            effort = 'high' if mode == 'high' else 'low'
+            if (force or mode in ('none', 'off', 'disabled')
+                    or data.get('reasoning_effort') not in ('low', 'high', 'max')):
+                data['reasoning_effort'] = effort
+            thinking = data.get('thinking') if isinstance(data.get('thinking'), dict) else {}
+            data['thinking'] = dict(thinking, type='enabled')
+            data.pop('enable_thinking', None)
         return json.dumps(data, ensure_ascii=False).encode("utf-8")
     if "deepseek" not in model:
         return body
@@ -975,12 +993,36 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
     details = usage.get("completion_tokens_details") or {}
     if isinstance(details, dict) and "reasoning_tokens" in details:
         rec["reasoning_tokens"] = details["reasoning_tokens"]
+    elif "reasoning_tokens" in usage:
+        # The configured gateway's GLM usage places this at the top level.
+        # It is a subset of completion_tokens, never an extra billed count.
+        rec["reasoning_tokens"] = usage["reasoning_tokens"]
     # The ARC endpoint reports cache hits OpenAI-style (prompt_tokens_details.
     # cached_tokens), not DeepSeek-style; fold either into one field.
     pdetails = usage.get("prompt_tokens_details") or {}
     if "prompt_cache_hit_tokens" not in rec and isinstance(pdetails, dict) and "cached_tokens" in pdetails:
         rec["prompt_cache_hit_tokens"] = pdetails["cached_tokens"]
     return rec
+
+
+def retryable_transport_error(status: int, payload: bytes) -> bool:
+    """Recognize gateway transport failures without retrying ordinary bad requests."""
+    if status >= 500:
+        return True
+    if status != 400:
+        return False
+    try:
+        data = json.loads(payload)
+        error = data.get('error')
+        if not isinstance(error, dict) or data.get('choices'):
+            return False
+        identity = {str(error.get(key, '')).lower() for key in ('type', 'code')}
+        message = str(error.get('message', '')).lower()
+        return ('proxy_error' in identity and any(marker in message for marker in (
+            'unexpected eof', 'connection reset by peer',
+            'remote end closed connection without response')))
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 def terminal_account_error(status: int, payload: bytes) -> bool:
@@ -1349,7 +1391,7 @@ class LlmProxy:
                     exc.close()
                 except Exception as exc:  # noqa: BLE001
                     result = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
-                failure = (result[0] >= 500 and not may_have_generated
+                failure = (retryable_transport_error(result[0], result[1]) and not may_have_generated
                            and usage_record(result[1], 0, self.mode) is None)
                 with self._lock:
                     self._upstream_failures = self._upstream_failures + 1 if failure else 0
@@ -1377,7 +1419,7 @@ class LlmProxy:
                             meta['consecutive_no_action'] = self.no_action_count
                         else:
                             self.no_action_count = 0
-            if (key is not None and status >= 500 and not may_have_generated
+            if (key is not None and retryable_transport_error(status, payload) and not may_have_generated
                     and usage_record(payload, 0, self.mode) is None):
                 with self._lock:
                     self.turn_upstream_requests = max(0, self.turn_upstream_requests - 1)

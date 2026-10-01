@@ -1,5 +1,6 @@
 """Repair scheduling primitives; diagnostics never substitute for acceptance."""
 from functools import wraps
+from contextlib import contextmanager
 import time
 import os
 import signal
@@ -62,6 +63,17 @@ def isolated_node_deadline(method):
         finally:
             flow._node_deadline = previous
     return scoped
+
+
+@contextmanager
+def repair_deadline(flow, deadline):
+    """All repair segments share a cutoff; acceptance keeps the node window."""
+    previous = getattr(flow, '_node_deadline', None)
+    flow._node_deadline = min(previous, deadline) if previous is not None else deadline
+    try:
+        yield
+    finally:
+        flow._node_deadline = previous
 
 
 def startup_recovery_deadline(method):

@@ -517,6 +517,7 @@ class BestRepairStateTests(unittest.TestCase):
         flow.runner = object()
         flow.repair_rounds = 2
         flow.min_repair_seconds = 0
+        flow.remaining = lambda: 2000
         flow.node_timeout = 60
         flow.smoke_port = 43219
         flow.web_port = 3000
@@ -554,6 +555,7 @@ class VerifiedBehaviorRewriteTests(unittest.TestCase):
         flow.runner = object()
         flow.repair_rounds = 1
         flow.min_repair_seconds = 0
+        flow.remaining = lambda: 2000
         flow.node_timeout = 60
         flow.tests_dir = None
         flow.pending_corrections = []
@@ -604,6 +606,7 @@ class RepairModeTransitionTests(unittest.TestCase):
                 flow.runner = object()
                 flow.repair_rounds = rounds
                 flow.min_repair_seconds = 0
+                flow.remaining = lambda: 2000
                 flow.node_timeout = 60
                 flow.smoke_port = 43219
                 flow.web_port = 3000

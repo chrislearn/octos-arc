@@ -110,7 +110,8 @@ class RepeatedContextRequest(ValueError):
     """A valid request for source versions already supplied in this turn."""
 
 
-def context_evidence(root: Path, request: dict, available: set[str], seen: dict) -> tuple[str, dict]:
+def context_evidence(root: Path, request: dict, available: set[str], seen: dict,
+                     supplied: str = '') -> tuple[str, dict]:
     """Read only source snapshots; symlinks/data and duplicate requests fail closed."""
     versions, blocks = {}, []
     for name in request['paths']:
@@ -120,7 +121,17 @@ def context_evidence(root: Path, request: dict, available: set[str], seen: dict)
         content = path.read_text(encoding='utf-8')
         version = hashlib.sha256(content.encode()).hexdigest()
         versions[name] = version
-        if seen.get(name) != version:
+        # A whole-file heading alone is insufficient: it may describe a stale
+        # snapshot. Match the current body before treating it as supplied.
+        body = content.rstrip()
+        quoted = False
+        for heading in re.finditer(r'^--- ' + re.escape(name) + r' ---[ \t]*\n', supplied, re.M):
+            end = heading.end() + len(body)
+            if (supplied.startswith(body, heading.end())
+                    and (end == len(supplied) or supplied[end:end + 1] == '\n')):
+                quoted = True
+                break
+        if seen.get(name) != version and not quoted:
             blocks.append(f'--- {name} ---\n{content}\n')
     if not blocks:
         raise RepeatedContextRequest('context request repeats unchanged evidence; use the supplied source')

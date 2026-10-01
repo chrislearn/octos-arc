@@ -32,3 +32,24 @@ test('history snapshot waits for an asynchronously rendered immutable history', 
   },200));
   await expect.poll(()=>h.historyLinks(page)).toEqual(['GitHub','Document search flow','Initialize empty repository']);
 });
+
+test('password validation accepts either or both allowed visible messages', async ({ page }) => {
+  for (const messages of [
+    ['Current password is incorrect'],
+    ['Password confirmation does not match'],
+    ['Current password is incorrect', 'Password confirmation does not match'],
+  ]) {
+    await page.setContent(messages.map(message=>`<div role="alert">${message}</div>`).join(''));
+    await expect(page.getByText(/^(Current password is incorrect|Password confirmation does not match)$/)
+      .filter({visible:true}).first()).toBeVisible();
+  }
+});
+
+test('password validation rejects missing, unrelated and hidden feedback', async ({ page }) => {
+  for (const html of ['<main></main>', '<div role="alert">Password updated</div>',
+    '<div hidden>Current password is incorrect</div><div style="display:none">Password confirmation does not match</div>']) {
+    await page.setContent(html);
+    await expect(page.getByText(/^(Current password is incorrect|Password confirmation does not match)$/)
+      .filter({visible:true})).toHaveCount(0);
+  }
+});

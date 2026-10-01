@@ -21,16 +21,22 @@ test("REQ-3-1-1: formula bar Escape cancels and grid blur commits without changi
 test("REQ-3-1-1: failed cell save restores formula-bar input and keeps persisted cell; retry succeeds", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.blank(page); await h.edit(page,'A1','original'); await h.values(page,{A1:'original'});
-  let attempts=0;
-  await page.route('**/api/workbooks/*/worksheets/*',async route=>{
-    const request=route.request(); const body=request.postDataJSON();
-    if(request.method()==='PATCH' && body?.cells){ attempts++; if(attempts===1){ await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'Unable to save cell'})}); return; } }
-    await route.continue();
-  });
-  await h.edit(page,'A1','rejected'); await expect(page.getByRole('alert').filter({hasText:'Unable to save cell'})).toBeVisible();
-  await h.values(page,{A1:'original'}); await expect(h.field(page,'Formula bar')).toHaveValue('original'); expect(attempts).toBe(1);
-  await page.reload(); await h.values(page,{A1:'original'}); await h.edit(page,'A1','retry');
-  await h.persisted(page,()=>h.values(page,{A1:'retry'})); expect(attempts).toBe(2);
+  const alerts=page.locator('[role="alert"]:visible').filter({hasText:/\S/}); await expect(alerts).toHaveCount(0);
+    let rejectedAttempts=0, retryAttempts=0; const rejected=h.unique(), retried=h.unique(); const origin=new URL(page.url()).origin;
+    // Inject the failed value's actual write, independently of API route or
+    // whether the app persists one cell, a worksheet, or the whole workbook.
+    await page.route('**/*',async route=>{
+      const request=route.request(); const body=request.postData()||'';
+      if(new URL(request.url()).origin===origin && ['PATCH','PUT','POST'].includes(request.method())){
+        if(body.includes(retried)) retryAttempts++;
+        else if(body.includes(rejected)){ rejectedAttempts++; await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'Unable to save cell'})}); return; }
+      }
+      await route.continue();
+    });
+  await h.edit(page,'A1',rejected); await expect(alerts.first()).toBeVisible();
+    await h.values(page,{A1:'original'}); await expect(h.field(page,'Formula bar')).toHaveValue('original'); expect(rejectedAttempts).toBeGreaterThan(0);
+    await page.reload(); await h.values(page,{A1:'original'}); await h.edit(page,'A1',retried);
+    await h.persisted(page,()=>h.values(page,{A1:retried})); expect(retryAttempts).toBeGreaterThan(0);
 });
 
 test("REQ-3-1-1: context REQ-1-2-2: renaming is scoped to current workbook and updates refreshed home record", async ({ page, browser }) => {

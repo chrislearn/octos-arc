@@ -138,6 +138,9 @@ def validate_plan(plan,nodes,specs):
         requires=row['requires']
         assert requires and len(requires)==len(set(requires)) and set(requires)<=set(nodes),('invalid requirement references',row)
         assert row['node_id'] in requires,('primary requirement not exercised',row)
+        setup=row.get('setup_requires',[])
+        assert isinstance(setup,list) and len(setup)==len(set(setup)) and set(setup)<=set(nodes),('invalid setup references',row)
+        assert row['node_id'] not in setup,('self setup reference',row)
         phase='integration' if row['file'].startswith('INTEGRATION-') else 'node'
         assert row['phase']==phase,('phase/filename mismatch',row)
         if phase=='node':
@@ -145,14 +148,30 @@ def validate_plan(plan,nodes,specs):
             assert all(order[rid]<=order[row['node_id']] for rid in requires),('node gate uses a later capability',row)
         else: assert len(requires)>=2,('cross-node case needs multiple contracts',row)
 
-def audit(freeze=False):
-    catalogue={'schema_version':1,'suites':{}}
+def audit(freeze=False,task_filter=None):
+    catalogue=(json.loads((SUITES/'manifest.json').read_text()) if task_filter is not None
+               else {'schema_version':1,'suites':{}})
+    if task_filter is not None and not (SUITES/task_filter).is_dir():
+        raise ValueError('Unknown embedded task: '+task_filter)
     for directory in sorted(p for p in SUITES.iterdir() if p.is_dir()):
+        if task_filter is not None and directory.name!=task_filter: continue
         task=directory.name; source=ROOT/'tasks'/task/'requirements.yaml'; tree=yaml.safe_load(source.read_text()); nodes={n['id']:n for n in leaves(tree)}
         plan=json.loads((directory/'case-plan.json').read_text()); specs={p.stem.removesuffix('.spec') for p in directory.glob('*.spec.ts')}
         mutable=[r['fixture'] for r in plan if r.get('fixture')]
         assert len(mutable)==len(set(mutable)),(task,'mutable fixture reused across cases')
         validate_plan(plan,nodes,specs)
+        if task=='hackathon--github':
+            from frozen_setup import github_setup_features, frozen_setup_dependencies, setup_generation_order
+            from build_embedded_tests import CASES
+            helpers=(directory/'helpers.ts').read_text()
+            recipes={r['title']:r for rows in CASES[task].values() for r in rows}
+            for row in plan:
+                recipe=recipes.get(row['title'].split(': ',1)[1])
+                # Node witness titles include provenance; match the generated recipe title.
+                assert recipe is not None,('missing source recipe',row['title'])
+                expected=github_setup_features(recipe['body'],helpers)-{row['node_id']}
+                assert set(row.get('setup_requires',[]))==expected,('helper setup closure mismatch',row)
+            setup_generation_order(tree,frozen_setup_dependencies(directory,{'name':task},tree))
         names=set()
         for row in plan:
             source_text=(directory/row['file']).read_text(); title=row['title']; assert title not in names; names.add(title)
@@ -178,7 +197,7 @@ def audit(freeze=False):
             paths=sorted(p for p in directory.rglob('*') if p.is_file() and p.name!='suite-origin.json')
             manifest={'schema_version':1,'name':task,'root_name':tree['name'],'official':False,'review_status':'reviewed','frozen':True,'trusted':True,
                       'review_date':'2026-10-01','review_kind':'source_review','runtime_status':'not_run_against_product',
-                      'requirements_sha256':requirements_digest(tree),'spec_revision':4,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
+                      'requirements_sha256':requirements_digest(tree),'spec_revision':5,'spec_count':len(specs),'case_count':len(plan),'node_ids':sorted(nodes),
                       'node_spec_count':len(nodes),'integration_spec_count':len(specs)-len(nodes),
                       'node_case_count':sum(r['phase']=='node' for r in plan),'integration_case_count':sum(r['phase']=='integration' for r in plan),
                       'files':{p.relative_to(directory).as_posix():sha(p) for p in paths}}
@@ -192,4 +211,6 @@ def audit(freeze=False):
     if freeze: write(SUITES/'manifest.json',catalogue)
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('--freeze',action='store_true'); audit(parser.parse_args().freeze)
+    parser=argparse.ArgumentParser(); parser.add_argument('--freeze',action='store_true')
+    parser.add_argument('--task',choices=['hackathon--github','hackathon--sheet'])
+    args=parser.parse_args(); audit(args.freeze,args.task)

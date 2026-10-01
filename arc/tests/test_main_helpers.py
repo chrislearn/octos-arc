@@ -22,6 +22,7 @@ class LocatorRaceAdmissionTests(unittest.TestCase):
         flow.remaining.return_value = 600
         flow.final_phase_reserve.return_value = 0
         flow.repair_minimum.return_value = 60
+        flow.node_measurement_reserve.return_value = 72
         flow.suite_is_measured.return_value = True
         flow.wound_down.return_value = False
         flow.time_up.return_value = False

@@ -10,7 +10,7 @@
   "review_kind": "source_review",
   "runtime_status": "not_run_against_product",
   "requirements_sha256": "7822c558a0d5fef7c25a162f825471d77ea25e8e4bc9976ad33041781488675f",
-  "spec_revision": 4,
+  "spec_revision": 5,
   "spec_count": 52,
   "case_count": 111,
   "node_ids": [
@@ -77,7 +77,7 @@
     "REQ-1-1-2.spec.ts": "5c3e0484adbc419c9bfb3dac0523f90c5f1cf52d1e8b423b4c9d5165ebaa249f",
     "REQ-1-1-3.spec.ts": "af53f478782a1b1eac61b333c6860580dad3fe45e2f4a96b49522a12fdcd5006",
     "REQ-1-2.spec.ts": "e9a4756539f16fcdb8b2d37ba313b33eeb8e28d1544484873c19bb22c1f92777",
-    "REQ-1-3.spec.ts": "48ff29e7be497694edae4d020285b7721f4d67f92b72f51821e00dc09c1d4ebb",
+    "REQ-1-3.spec.ts": "e27c9a0a700cab2fac3100b4b986efd9cb053ee8afbc32bb406f86f5852b3a58",
     "REQ-2-1-1.spec.ts": "1b482616daf0184ced5664655fbc82e6bc91d118dbadbafb3a68c3326ba26350",
     "REQ-2-1-2.spec.ts": "afcb6eb04f8a9401650406607688c12f19a10d4de9a7497f9aea9023b79cc87e",
     "REQ-2-2-1.spec.ts": "ee8811af19b312cf2b5134e16cbecfec85969cac8ffb93b180778d0b43ebfc35",
@@ -122,13 +122,13 @@
     "REQ-6-6.spec.ts": "abee7b6ec159472b483dbab01c0576b6fa894608e1013f3f273b1171a090e3ec",
     "app-design.json": "03d80ef7d05bf2567a2c2b185c9061e452e9eb220815c2699cf694be638df544",
     "business-review.json": "c00f4dd213795315e3a59886c621a34edd052db03898eda1a50c7e9c0804d73e",
-    "case-plan.json": "95b6c6a8167c5bb25a3a909c1b699652c14acb14f5ecea73a0bfd808703f35cf",
+    "case-plan.json": "3b6629e18d8aa564db589b3053fbf672200626c0a3d035627d1f09c97200f5f5",
     "domain-contracts.json": "7a8e74d8c61bdb9acc2edc58c41111e9456f963f9d4a8002e183745ff10904e5",
     "fixtures.json": "682cc03eb3f1e84a8cf4db0271bd5aef8feaac31c3feb7e4f7dfaa9d3926173b",
     "helpers.ts": "64116a02a3bcf5094f94e38527bae4c6de9548518c50ee14e6cafe924f45f5c2",
     "requirement-contracts.json": "59a7be8d4274a9fc80305a8a77642089f472908cdec50d6a7626285243716e3b",
     "requirements.yaml": "bdc17d23265a6b1948aec150e69d0b2accfa37db4c569305c97be7ff7f3b0b8f",
-    "review.json": "762e4f1c76aa9175eed2982ab2591863d854f2b2be2efa57140b940e4d028ac9",
+    "review.json": "9e1ef93c92b21bee2a018f75268bbf15bb3a44be29c0006801b816d68a4d4884",
     "test-obligations.json": "fbc1b1b25c7a8aa50e8b63f5653aadb7c59910bd0ec823134ff27b92ea7f1f96"
   }
 }

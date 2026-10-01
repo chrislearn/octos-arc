@@ -89,14 +89,14 @@ await expect(h.button(page,'Account menu')).toBeVisible(); await expect(page).to
 await page.reload(); await expect(h.link(page,'Sign in')).toBeVisible(); await page.goBack(); await expect(h.button(page,'Account menu')).toHaveCount(0); await page.goto(protectedAddress); await expect(h.link(page,'Sign in')).toBeVisible();
 ''')
 g('REQ-1-3','password change uses current account and old password no longer signs in', r'''
-const {username}=await h.register(page); await h.signIn(page,username); await h.button(page,'Account menu').click(); await h.link(page,'Settings').click(); await h.link(page,'Password and authentication').click();
-await h.field(page,'Current password').fill(h.PASSWORD); await h.field(page,'New password').fill('New-password-456!'); await h.field(page,'Confirm password').fill('New-password-456!'); await h.button(page,'Update password').click(); await expect(h.text(page,'Password updated').first()).toBeVisible(); await h.signOut(page);
-await h.signIn(page,username,'New-password-456!'); await h.signOut(page); await h.link(page,'Sign in').click(); await h.field(page,'Username or email').fill(username); await h.field(page,'Password').fill(h.PASSWORD); await h.button(page,'Sign in').click(); await expect(h.text(page,'Invalid credentials').first()).toBeVisible();
+const { username } = await h.register(page); await h.signIn(page, username); await h.button(page, 'Account menu').click(); await h.link(page, 'Settings').click(); await h.link(page, 'Password and authentication').click();
+await h.field(page, 'Current password').fill(h.PASSWORD); await h.field(page, 'New password').fill('New-password-456!'); await h.field(page, 'Confirm password').fill('New-password-456!'); await h.button(page, 'Update password').click(); await expect(h.text(page, 'Password updated').first()).toBeVisible(); await h.signOut(page);
+await h.signIn(page, username, 'New-password-456!'); await h.signOut(page); await h.link(page, 'Sign in').click(); await h.field(page, 'Username or email').fill(username); await h.field(page, 'Password').fill(h.PASSWORD); await h.button(page, 'Sign in').click(); await expect(h.text(page, 'Invalid credentials').first()).toBeVisible();
 ''')
 g('REQ-1-3','missing current password and mismatch leave original credentials usable', r'''
-const {username}=await h.register(page); await h.signIn(page,username); await h.button(page,'Account menu').click(); await h.link(page,'Settings').click(); await h.link(page,'Password and authentication').click();
-await h.field(page,'New password').fill('Required-password-789!'); await h.field(page,'Confirm password').fill('Required-password-789!'); await h.button(page,'Update password').click(); await expect(page.getByText('Current password is required',{exact:false})).toBeVisible();
-await h.field(page,'Current password').fill('Wrong-password-456!'); await h.field(page,'New password').fill('Required-password-789!'); await h.field(page,'Confirm password').fill('does-not-match'); await h.button(page,'Update password').click(); await expect(page.getByText(/Current password is incorrect|Password confirmation does not match/)).toBeVisible(); await h.signOut(page); await h.signIn(page,username);
+const { username } = await h.register(page); await h.signIn(page, username); await h.button(page, 'Account menu').click(); await h.link(page, 'Settings').click(); await h.link(page, 'Password and authentication').click();
+await h.field(page, 'New password').fill('Required-password-789!'); await h.field(page, 'Confirm password').fill('Required-password-789!'); await h.button(page, 'Update password').click(); await expect(page.getByText('Current password is required', { exact: false })).toBeVisible();
+await h.field(page, 'Current password').fill('Wrong-password-456!'); await h.field(page, 'New password').fill('Required-password-789!'); await h.field(page, 'Confirm password').fill('does-not-match'); await h.button(page, 'Update password').click(); await expect(page.getByText(/^(Current password is incorrect|Password confirmation does not match)$/).filter({ visible: true }).first()).toBeVisible(); await h.signOut(page); await h.signIn(page, username);
 ''')
 g('REQ-2-1-1','organization live repository filter exposes public result and hides private result', r'''
 await h.organization(page); await h.link(page,'Repositories').click(); await h.field(page,'Find a repository').fill('acme-docs'); await expect(h.link(page,'acme-docs')).toBeVisible();
@@ -416,8 +416,16 @@ for _task in CASES:
     CASES[_task] = complete_node_coverage(CASES[_task], yaml.safe_load(
         (Path(__file__).resolve().parent / 'tasks' / _task / 'requirements.yaml').read_text()))
 
-def build():
+from frozen_setup import annotate_github_setup
+CASES['hackathon--github'] = annotate_github_setup(CASES['hackathon--github'],
+    (ROOT / 'hackathon--github/helpers.ts').read_text())
+
+def build(task_filter=None):
+    if task_filter is not None and task_filter not in CASES:
+        raise ValueError('Unknown embedded task: ' + task_filter)
     for task, nodes in CASES.items():
+        if task_filter is not None and task != task_filter:
+            continue
         directory = ROOT / task
         for path in directory.glob('*.spec.ts'): path.unlink()
         plan=[]
@@ -432,4 +440,8 @@ def build():
         (directory/'case-plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2)+'\n')
         print(task,len(nodes),'files',len(plan),'cases')
 
-if __name__=='__main__': build()
+if __name__=='__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--task', choices=sorted(CASES))
+    build(parser.parse_args().task)

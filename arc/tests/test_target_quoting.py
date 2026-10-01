@@ -106,7 +106,9 @@ class RefusalRetryTests(unittest.TestCase):
                 prompts.append(prompt)
                 if len(prompts) == 1:
                     flow.refused_paths.add("frontend/src/ticket-orders.html")
+                    flow.last_codegen_refused = {"frontend/src/ticket-orders.html"}
                     return False, "codegen reply only rewrote files it was not shown: frontend/src/ticket-orders.html"
+                flow.last_codegen_refused = set()
                 return True, "generated"
             flow.codegen_turn.side_effect = codegen_turn
             m.Flow.node_cycle(flow, {"id": "REQ-9", "description": "orders"}, [], 1, 1)

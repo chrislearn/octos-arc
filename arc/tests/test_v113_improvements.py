@@ -629,12 +629,13 @@ class ModuleAndStreamTests(unittest.TestCase):
             self.assertEqual(json.loads(route_request(body, rules, 'implement', 'low',
                                                       'whole application implement'))['reasoning_effort'], 'low')
             self.assertEqual(json.loads(inject_reasoning(body.replace(b'base', b'glm-5.3-flash'), 'medium'))
-                             ['reasoning_effort'], 'medium')
+                             ['reasoning_effort'], 'low')  # GLM medium would default to max.
             for model in ('glm-5.3-flash', 'qwen3.7-plus'):
                 kernel = json.dumps({'model': model, 'messages': [], 'reasoning_effort': 'medium'}).encode()
                 lowered = json.loads(inject_reasoning(kernel, 'low', force=True))
                 self.assertEqual(lowered['reasoning_effort'], 'low')
-                self.assertEqual(json.loads(inject_reasoning(kernel, 'low'))['reasoning_effort'], 'medium')
+                self.assertEqual(json.loads(inject_reasoning(kernel, 'low'))['reasoning_effort'],
+                                 'low' if model == 'glm-5.3-flash' else 'medium')
         with patch.dict('os.environ', {'OCTOS_ARC_REASONING': 'low'}):
             self.assertEqual(json.loads(route_request(body, rules, 'implement'))['reasoning_effort'], 'low')
         rules[0]['parameters'] = {'reasoning_effort': 'high'}

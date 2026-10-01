@@ -281,9 +281,9 @@ class EmbeddedSuiteTests(unittest.TestCase):
                 self.assertEqual(record['model_calls_during_handoff'],0)
                 self.assertEqual(flow.turn.call_count,1)
 
-    def _run_trusted_source_flow(self,verdict=True,rehearsed=True,final_timeout=False,turn_error=None,cleanup_error=None):
+    def _run_trusted_source_flow(self,verdict=True,rehearsed=True,final_timeout=False,turn_error=None,cleanup_error=None,suite_name='hackathon--sheet'):
         """Exercise coordinator + real node_cycle; model and product execution are stubbed."""
-        flow=Flow(argparse.Namespace(web_port=3000,trusted_tests=True,test_suite='hackathon--sheet'),self.root,self.root/'requirements')
+        flow=Flow(argparse.Namespace(web_port=3000,trusted_tests=True,test_suite=suite_name),self.root,self.root/'requirements')
         runtime=SimpleNamespace(events=Mock(),traceability=Mock(),git=Mock())
         runtime.traceability.list_interfaces.return_value=[]
         flow.runner=Mock()
@@ -324,7 +324,7 @@ class EmbeddedSuiteTests(unittest.TestCase):
                      'pre_review_derived_system_check','review_derived_after_implementation',
                      'design','inline_design_instruction','review_domain_design']:
             setattr(flow,name,Mock(side_effect=AssertionError(f'Trusted run must skip {name}')))
-        manifest=verify_directory(self.directory,self.tree,'hackathon--sheet')
+        manifest=verify_directory(self.directory,self.tree,suite_name)
         with patch('main.AgentRuntime.from_env',return_value=runtime), \
                 patch('main.load_requirement_tree',return_value=self.tree), \
                 patch('main.previous_requirement_records',return_value={}), \

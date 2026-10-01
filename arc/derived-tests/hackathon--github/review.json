@@ -10,6 +10,7 @@
       "requires": [
         "REQ-1-1-1"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-1: registration entry accepts valid account and redirects to sign-in without exposing password",
       "file": "REQ-1-1-1.spec.ts",
       "status": "reviewed",
@@ -31,6 +32,7 @@
       "requires": [
         "REQ-1-1-1"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-1: all invalid fields show errors together and clear sensitive values",
       "file": "REQ-1-1-1.spec.ts",
       "status": "reviewed",
@@ -52,6 +54,7 @@
       "requires": [
         "REQ-1-1-1"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-1: duplicate username preserves both attempted non-sensitive values",
       "file": "REQ-1-1-1.spec.ts",
       "status": "reviewed",
@@ -72,6 +75,9 @@
       "phase": "integration",
       "requires": [
         "REQ-1-1-1",
+        "REQ-1-1-2"
+      ],
+      "setup_requires": [
         "REQ-1-1-2"
       ],
       "title": "INTEGRATION-identity: registered credentials work by email and survive a later browser session",
@@ -96,6 +102,7 @@
       "requires": [
         "REQ-1-1-2"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-2: existing alice-dev creates persistent session",
       "file": "REQ-1-1-2.spec.ts",
       "status": "reviewed",
@@ -117,6 +124,7 @@
       "requires": [
         "REQ-1-1-2"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-2: existing alice.dev@example.test creates persistent session",
       "file": "REQ-1-1-2.spec.ts",
       "status": "reviewed",
@@ -138,6 +146,7 @@
       "requires": [
         "REQ-1-1-2"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-2: generic credential rejection for unknown-reviewer / account state",
       "file": "REQ-1-1-2.spec.ts",
       "status": "reviewed",
@@ -159,6 +168,7 @@
       "requires": [
         "REQ-1-1-2"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-2: generic credential rejection for alice-dev / wrong password",
       "file": "REQ-1-1-2.spec.ts",
       "status": "reviewed",
@@ -180,6 +190,7 @@
       "requires": [
         "REQ-1-1-2"
       ],
+      "setup_requires": [],
       "title": "REQ-1-1-2: generic credential rejection for spec-unavailable / account state",
       "file": "REQ-1-1-2.spec.ts",
       "status": "reviewed",
@@ -200,6 +211,9 @@
       "phase": "node",
       "requires": [
         "REQ-1-1-2",
+        "REQ-1-1-1"
+      ],
+      "setup_requires": [
         "REQ-1-1-1"
       ],
       "title": "REQ-1-1-2: guide: a newly registered identity signs in by email and username across reload and an independent session",
@@ -228,6 +242,9 @@
       "origin_node_id": "REQ-1-1-1",
       "origin_file": "INTEGRATION-identity.spec.ts",
       "origin_title": "INTEGRATION-identity: registered credentials work by email and survive a later browser session",
+      "setup_requires": [
+        "REQ-1-1-1"
+      ],
       "title": "REQ-1-1-2: context REQ-1-1-1: registered credentials work by email and survive a later browser session",
       "file": "REQ-1-1-2.spec.ts",
       "status": "reviewed",
@@ -250,6 +267,11 @@
       "requires": [
         "REQ-1-1-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2",
+        "REQ-1-2"
+      ],
       "title": "REQ-1-1-3: valid local recovery updates only registered credentials; invalid code preserves old password",
       "file": "REQ-1-1-3.spec.ts",
       "status": "reviewed",
@@ -270,6 +292,10 @@
       "phase": "node",
       "requires": [
         "REQ-1-1-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2"
       ],
       "title": "REQ-1-1-3: unknown email shows the same fixed code and reset form but cannot update an account",
       "file": "REQ-1-1-3.spec.ts",
@@ -292,6 +318,9 @@
       "requires": [
         "REQ-1-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
       "title": "REQ-1-2: cancel retains session and confirm invalidates protected page after reload/back/direct entry",
       "file": "REQ-1-2.spec.ts",
       "status": "reviewed",
@@ -312,6 +341,10 @@
       "phase": "node",
       "requires": [
         "REQ-1-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2"
       ],
       "title": "REQ-1-2: sign-out invalidates only this browser session and preserves another session",
       "file": "REQ-1-2.spec.ts",
@@ -334,6 +367,11 @@
       "requires": [
         "REQ-1-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2",
+        "REQ-1-2"
+      ],
       "title": "REQ-1-3: password change uses current account and old password no longer signs in",
       "file": "REQ-1-3.spec.ts",
       "status": "reviewed",
@@ -342,7 +380,7 @@
       "review_date": "2026-10-01",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The security form has uniquely labeled password inputs “Current password”, “New password”, and “Confirm password”, and a button “Update password”; submitting an empty current-password field must display the visible application message “Current password is required”. A failure with an incorrect current password and confirmation “does-not-match” must display the corresponding current-password or confirmation error and leave the old credentials usable. Each password-change scenario starts with its own verified account in the stated credential state and a different compliant candidate password. “Password and authentication” is the security page in account Settings used to change the current account credentials; the change affects only the current account's password record and does not alter any other accounts or resources outside the session. The user must provide the current password, a new password compliant with the REQ-1 password rules, and a character-for-character identical confirmation password; all three fields are required. The system validates the change, prevents unauthorized updates, and applies the new password to subsequent sign-in attempts. If the current password is incorrect, the new password is noncompliant, the confirmation does not match, or any field is missing, the system displays the reason in the corresponding field and does not modify the credentials; the applicable visible message is “Current password is incorrect”, “Password confirmation does not match”, or “Current password is required”. The old password remains valid and the new password must not work for sign-in. After a successful update, the page displays “Password updated”, the new password is immediately used for subsequent password-based sign-ins, and the old password must no longer work for new sign-ins.\n\nSeed password-change values are `New-password-456!` for the successful update and\n`Required-password-789!` for the missing-current-password scenario.\n\nScreenshot reference:\n![image](reference/github-password-settings.png)",
-      "file_sha256": "48ff29e7be497694edae4d020285b7721f4d67f92b72f51821e00dc09c1d4ebb",
+      "file_sha256": "e27c9a0a700cab2fac3100b4b986efd9cb053ee8afbc32bb406f86f5852b3a58",
       "requirement_quotes": {
         "REQ-1-3": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The security form has uniquely labeled password inputs “Current password”, “New password”, and “Confirm password”, and a button “Update password”; submitting an empty current-password field must display the visible application message “Current password is required”. A failure with an incorrect current password and confirmation “does-not-match” must display the corresponding current-password or confirmation error and leave the old credentials usable. Each password-change scenario starts with its own verified account in the stated credential state and a different compliant candidate password. “Password and authentication” is the security page in account Settings used to change the current account credentials; the change affects only the current account's password record and does not alter any other accounts or resources outside the session. The user must provide the current password, a new password compliant with the REQ-1 password rules, and a character-for-character identical confirmation password; all three fields are required. The system validates the change, prevents unauthorized updates, and applies the new password to subsequent sign-in attempts. If the current password is incorrect, the new password is noncompliant, the confirmation does not match, or any field is missing, the system displays the reason in the corresponding field and does not modify the credentials; the applicable visible message is “Current password is incorrect”, “Password confirmation does not match”, or “Current password is required”. The old password remains valid and the new password must not work for sign-in. After a successful update, the page displays “Password updated”, the new password is immediately used for subsequent password-based sign-ins, and the old password must no longer work for new sign-ins.\n\nSeed password-change values are `New-password-456!` for the successful update and\n`Required-password-789!` for the missing-current-password scenario.\n\nScreenshot reference:\n![image](reference/github-password-settings.png)"
       },
@@ -355,6 +393,11 @@
       "requires": [
         "REQ-1-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2",
+        "REQ-1-2"
+      ],
       "title": "REQ-1-3: missing current password and mismatch leave original credentials usable",
       "file": "REQ-1-3.spec.ts",
       "status": "reviewed",
@@ -363,7 +406,7 @@
       "review_date": "2026-10-01",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The security form has uniquely labeled password inputs “Current password”, “New password”, and “Confirm password”, and a button “Update password”; submitting an empty current-password field must display the visible application message “Current password is required”. A failure with an incorrect current password and confirmation “does-not-match” must display the corresponding current-password or confirmation error and leave the old credentials usable. Each password-change scenario starts with its own verified account in the stated credential state and a different compliant candidate password. “Password and authentication” is the security page in account Settings used to change the current account credentials; the change affects only the current account's password record and does not alter any other accounts or resources outside the session. The user must provide the current password, a new password compliant with the REQ-1 password rules, and a character-for-character identical confirmation password; all three fields are required. The system validates the change, prevents unauthorized updates, and applies the new password to subsequent sign-in attempts. If the current password is incorrect, the new password is noncompliant, the confirmation does not match, or any field is missing, the system displays the reason in the corresponding field and does not modify the credentials; the applicable visible message is “Current password is incorrect”, “Password confirmation does not match”, or “Current password is required”. The old password remains valid and the new password must not work for sign-in. After a successful update, the page displays “Password updated”, the new password is immediately used for subsequent password-based sign-ins, and the old password must no longer work for new sign-ins.\n\nSeed password-change values are `New-password-456!` for the successful update and\n`Required-password-789!` for the missing-current-password scenario.\n\nScreenshot reference:\n![image](reference/github-password-settings.png)",
-      "file_sha256": "48ff29e7be497694edae4d020285b7721f4d67f92b72f51821e00dc09c1d4ebb",
+      "file_sha256": "e27c9a0a700cab2fac3100b4b986efd9cb053ee8afbc32bb406f86f5852b3a58",
       "requirement_quotes": {
         "REQ-1-3": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The security form has uniquely labeled password inputs “Current password”, “New password”, and “Confirm password”, and a button “Update password”; submitting an empty current-password field must display the visible application message “Current password is required”. A failure with an incorrect current password and confirmation “does-not-match” must display the corresponding current-password or confirmation error and leave the old credentials usable. Each password-change scenario starts with its own verified account in the stated credential state and a different compliant candidate password. “Password and authentication” is the security page in account Settings used to change the current account credentials; the change affects only the current account's password record and does not alter any other accounts or resources outside the session. The user must provide the current password, a new password compliant with the REQ-1 password rules, and a character-for-character identical confirmation password; all three fields are required. The system validates the change, prevents unauthorized updates, and applies the new password to subsequent sign-in attempts. If the current password is incorrect, the new password is noncompliant, the confirmation does not match, or any field is missing, the system displays the reason in the corresponding field and does not modify the credentials; the applicable visible message is “Current password is incorrect”, “Password confirmation does not match”, or “Current password is required”. The old password remains valid and the new password must not work for sign-in. After a successful update, the page displays “Password updated”, the new password is immediately used for subsequent password-based sign-ins, and the old password must no longer work for new sign-ins.\n\nSeed password-change values are `New-password-456!` for the successful update and\n`Required-password-789!` for the missing-current-password scenario.\n\nScreenshot reference:\n![image](reference/github-password-settings.png)"
       },
@@ -375,6 +418,10 @@
       "phase": "node",
       "requires": [
         "REQ-2-1-1"
+      ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-2-1-1: organization live repository filter exposes public result and hides private result",
       "file": "REQ-2-1-1.spec.ts",
@@ -397,6 +444,9 @@
       "requires": [
         "REQ-2-1-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
       "title": "REQ-2-1-2: create organization persists identifier and creator Owner relationship",
       "file": "REQ-2-1-2.spec.ts",
       "status": "reviewed",
@@ -417,6 +467,9 @@
       "phase": "node",
       "requires": [
         "REQ-2-1-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2"
       ],
       "title": "REQ-2-1-2: duplicate organization and malformed input remain retryable without creating organization",
       "file": "REQ-2-1-2.spec.ts",
@@ -439,6 +492,12 @@
       "requires": [
         "REQ-2-2-1"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-2-2-1: Owner creates unique team without optional description or parent",
       "file": "REQ-2-2-1.spec.ts",
       "status": "reviewed",
@@ -459,6 +518,12 @@
       "phase": "node",
       "requires": [
         "REQ-2-2-1"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-2-2-1: invalid team name leaves creation form and no team",
       "file": "REQ-2-2-1.spec.ts",
@@ -481,6 +546,12 @@
       "requires": [
         "REQ-2-2-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-2-2-2: Owner adds and immediately removes direct team member with persistence",
       "file": "REQ-2-2-2.spec.ts",
       "status": "reviewed",
@@ -501,6 +572,12 @@
       "phase": "node",
       "requires": [
         "REQ-2-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-2-2-2: cycle rejects and preserves original parent value across reload",
       "file": "REQ-2-2-2.spec.ts",
@@ -523,6 +600,13 @@
       "requires": [
         "REQ-2-2-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-2-2-3: adding Member is immediate, listed after own login, but grants no private access",
       "file": "REQ-2-2-3.spec.ts",
       "status": "reviewed",
@@ -543,6 +627,12 @@
       "phase": "node",
       "requires": [
         "REQ-2-2-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-2-2-3: unknown and duplicate member keep form open and do not duplicate membership",
       "file": "REQ-2-2-3.spec.ts",
@@ -565,6 +655,13 @@
       "requires": [
         "REQ-2-2-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-2-2-4: Owner removes membership and associated access without deleting account",
       "file": "REQ-2-2-4.spec.ts",
       "status": "reviewed",
@@ -585,6 +682,12 @@
       "phase": "node",
       "requires": [
         "REQ-2-2-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-2-2-4: ordinary member has no removal controls",
       "file": "REQ-2-2-4.spec.ts",
@@ -607,6 +710,11 @@
       "requires": [
         "REQ-2-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-2-3: live team search creates one Write grant and reload retains it",
       "file": "REQ-2-3.spec.ts",
       "status": "reviewed",
@@ -627,6 +735,11 @@
       "phase": "node",
       "requires": [
         "REQ-2-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-2-3: native Read selection replaces Write rather than appending a grant",
       "file": "REQ-2-3.spec.ts",
@@ -649,6 +762,9 @@
       "requires": [
         "REQ-3-1"
       ],
+      "setup_requires": [
+        "REQ-3-3"
+      ],
       "title": "REQ-3-1: global search opens public identity and excludes private repository",
       "file": "REQ-3-1.spec.ts",
       "status": "reviewed",
@@ -670,6 +786,7 @@
       "requires": [
         "REQ-3-1"
       ],
+      "setup_requires": [],
       "title": "REQ-3-1: empty repository search is repeatable without stale results",
       "file": "REQ-3-1.spec.ts",
       "status": "reviewed",
@@ -690,6 +807,9 @@
       "phase": "node",
       "requires": [
         "REQ-3-2-1"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2"
       ],
       "title": "REQ-3-2-1: default personal namespace creates initialized Private repository and saved README",
       "file": "REQ-3-2-1.spec.ts",
@@ -712,6 +832,9 @@
       "requires": [
         "REQ-3-2-1"
       ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
       "title": "REQ-3-2-1: duplicate and empty repository names retain form and create no repository",
       "file": "REQ-3-2-1.spec.ts",
       "status": "reviewed",
@@ -732,6 +855,11 @@
       "phase": "node",
       "requires": [
         "REQ-3-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-3-2-2: fork records source relationship and independent readable history",
       "file": "REQ-3-2-2.spec.ts",
@@ -754,6 +882,11 @@
       "requires": [
         "REQ-3-2-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-3-2-2: conflicting fork name cannot open or modify an existing repository",
       "file": "REQ-3-2-2.spec.ts",
       "status": "reviewed",
@@ -774,6 +907,10 @@
       "phase": "node",
       "requires": [
         "REQ-3-2-3"
+      ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-3-2-3: copy complete HTTPS clone value without modifying repository",
       "file": "REQ-3-2-3.spec.ts",
@@ -796,6 +933,10 @@
       "requires": [
         "REQ-3-2-3"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-3-2-3: copy complete SSH clone value without modifying repository",
       "file": "REQ-3-2-3.spec.ts",
       "status": "reviewed",
@@ -816,6 +957,9 @@
       "phase": "node",
       "requires": [
         "REQ-3-3"
+      ],
+      "setup_requires": [
+        "REQ-3-1"
       ],
       "title": "REQ-3-3: visitor public repository overview and Code navigation persist",
       "file": "REQ-3-3.spec.ts",
@@ -838,6 +982,11 @@
       "requires": [
         "REQ-3-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-3-4: Admin makes Private repository Public and fresh visitor reads saved identity",
       "file": "REQ-3-4.spec.ts",
       "status": "reviewed",
@@ -858,6 +1007,11 @@
       "phase": "node",
       "requires": [
         "REQ-3-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-3-4: non-Admin cannot activate visibility change",
       "file": "REQ-3-4.spec.ts",
@@ -880,6 +1034,10 @@
       "requires": [
         "REQ-4-1"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-1: visitor directory/file navigation persists exact path content",
       "file": "REQ-4-1.spec.ts",
       "status": "reviewed",
@@ -900,6 +1058,10 @@
       "phase": "node",
       "requires": [
         "REQ-4-2-1"
+      ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-2-1: branch commit history displays exact message, author and relative timestamp",
       "file": "REQ-4-2-1.spec.ts",
@@ -922,6 +1084,10 @@
       "requires": [
         "REQ-4-2-2"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-2-2: visitor commit diff reads changed file and exact additions/deletions from the parent snapshot",
       "file": "REQ-4-2-2.spec.ts",
       "status": "reviewed",
@@ -942,6 +1108,10 @@
       "phase": "node",
       "requires": [
         "REQ-4-2-3"
+      ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-2-3: repository code result opens matching file with persisted code context",
       "file": "REQ-4-2-3.spec.ts",
@@ -964,6 +1134,10 @@
       "requires": [
         "REQ-4-2-3"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-2-3: no code matches retain exact query across repeated searches",
       "file": "REQ-4-2-3.spec.ts",
       "status": "reviewed",
@@ -984,6 +1158,10 @@
       "phase": "node",
       "requires": [
         "REQ-4-3-1"
+      ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-3-1: branch live selector switches file snapshot and persists current page branch",
       "file": "REQ-4-3-1.spec.ts",
@@ -1006,6 +1184,10 @@
       "requires": [
         "REQ-4-3-1"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-3-1: unknown branch leaves original branch intact after Escape and refresh",
       "file": "REQ-4-3-1.spec.ts",
       "status": "reviewed",
@@ -1026,6 +1208,11 @@
       "phase": "node",
       "requires": [
         "REQ-4-3-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-3-2: Write branch creation defaults to current head and switches immediately",
       "file": "REQ-4-3-2.spec.ts",
@@ -1048,6 +1235,11 @@
       "requires": [
         "REQ-4-3-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-3-2: invalid branch is rejected live and never created",
       "file": "REQ-4-3-2.spec.ts",
       "status": "reviewed",
@@ -1068,6 +1260,11 @@
       "phase": "node",
       "requires": [
         "REQ-4-3-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-3-2: spec-read cannot create branch reference",
       "file": "REQ-4-3-2.spec.ts",
@@ -1090,6 +1287,11 @@
       "requires": [
         "REQ-4-3-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-3-2: spec-triage cannot create branch reference",
       "file": "REQ-4-3-2.spec.ts",
       "status": "reviewed",
@@ -1110,6 +1312,11 @@
       "phase": "node",
       "requires": [
         "REQ-4-3-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-3-3: Admin changes native default branch and old branch still exists",
       "file": "REQ-4-3-3.spec.ts",
@@ -1132,6 +1339,11 @@
       "requires": [
         "REQ-4-3-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-3-3: non-Admin default-branch edit controls are absent",
       "file": "REQ-4-3-3.spec.ts",
       "status": "reviewed",
@@ -1152,6 +1364,11 @@
       "phase": "node",
       "requires": [
         "REQ-4-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-4: file creation persists exact contents",
       "file": "REQ-4-4.spec.ts",
@@ -1174,6 +1391,11 @@
       "requires": [
         "REQ-4-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-4: invalid path rejects even with a valid commit message",
       "file": "REQ-4-4.spec.ts",
       "status": "reviewed",
@@ -1194,6 +1416,11 @@
       "phase": "node",
       "requires": [
         "REQ-4-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-4-4: empty commit message rejects even with a valid file path",
       "file": "REQ-4-4.spec.ts",
@@ -1221,6 +1448,11 @@
       "origin_file": "INTEGRATION-file-history.spec.ts",
       "origin_title": "INTEGRATION-file-history: invalid path and empty message cannot change files or history",
       "source_fixture": "file-invalid",
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-4: context REQ-4-4: invalid path and empty message cannot change files or history",
       "file": "REQ-4-4.spec.ts",
       "status": "reviewed",
@@ -1249,6 +1481,11 @@
       "origin_file": "INTEGRATION-file-history.spec.ts",
       "origin_title": "INTEGRATION-file-history: successful file write adds a commit while an earlier revision keeps its original bytes",
       "source_fixture": "file-history",
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-4: context REQ-4-4: successful file write adds a commit while an earlier revision keeps its original bytes",
       "file": "REQ-4-4.spec.ts",
       "status": "reviewed",
@@ -1281,6 +1518,13 @@
       "origin_file": "INTEGRATION-team-access.spec.ts",
       "origin_title": "INTEGRATION-team-access: guide: direct team grant changes effective permissions without hierarchy inheritance or account deletion",
       "source_fixture": "guide-team-access",
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-4-4: context REQ-2-3: guide: direct team grant changes effective permissions without hierarchy inheritance or account deletion",
       "file": "REQ-4-4.spec.ts",
       "status": "reviewed",
@@ -1308,6 +1552,11 @@
         "REQ-4-4",
         "REQ-4-2-1"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "INTEGRATION-file-history: invalid path and empty message cannot change files or history",
       "file": "INTEGRATION-file-history.spec.ts",
       "status": "reviewed",
@@ -1332,6 +1581,11 @@
         "REQ-4-2-1",
         "REQ-4-2-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "INTEGRATION-file-history: successful file write adds a commit while an earlier revision keeps its original bytes",
       "file": "INTEGRATION-file-history.spec.ts",
       "status": "reviewed",
@@ -1355,6 +1609,10 @@
       "requires": [
         "REQ-5-1-1"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-5-1-1: Open/Closed live issue filters combine with keyword and survive refresh",
       "file": "REQ-5-1-1.spec.ts",
       "status": "reviewed",
@@ -1375,6 +1633,11 @@
       "phase": "node",
       "requires": [
         "REQ-5-1-2"
+      ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1"
       ],
       "title": "REQ-5-1-2: visitor issue detail shows complete title, description and readable timeline",
       "file": "REQ-5-1-2.spec.ts",
@@ -1397,6 +1660,11 @@
       "requires": [
         "REQ-5-2-1"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-5-2-1: Write creates issue with exact title/body and list reads same persisted record",
       "file": "REQ-5-2-1.spec.ts",
       "status": "reviewed",
@@ -1417,6 +1685,11 @@
       "phase": "node",
       "requires": [
         "REQ-5-2-1"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-5-2-1: blank issue title creates neither issue nor partial record",
       "file": "REQ-5-2-1.spec.ts",
@@ -1439,6 +1712,13 @@
       "requires": [
         "REQ-5-2-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
       "title": "REQ-5-2-2: Maintain saves issue title and body with separate commit actions and persists both",
       "file": "REQ-5-2-2.spec.ts",
       "status": "reviewed",
@@ -1459,6 +1739,13 @@
       "phase": "node",
       "requires": [
         "REQ-5-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
       ],
       "title": "REQ-5-2-2: blank edited title preserves exact original title after reload",
       "file": "REQ-5-2-2.spec.ts",
@@ -1481,6 +1768,13 @@
       "requires": [
         "REQ-5-2-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
       "title": "REQ-5-2-2: spec-read cannot edit issue content",
       "file": "REQ-5-2-2.spec.ts",
       "status": "reviewed",
@@ -1501,6 +1795,13 @@
       "phase": "node",
       "requires": [
         "REQ-5-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
       ],
       "title": "REQ-5-2-2: spec-triage cannot edit issue content",
       "file": "REQ-5-2-2.spec.ts",
@@ -1523,6 +1824,13 @@
       "requires": [
         "REQ-5-2-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
       "title": "REQ-5-2-3: Write comment stores full body and author and survives reload",
       "file": "REQ-5-2-3.spec.ts",
       "status": "reviewed",
@@ -1543,6 +1851,13 @@
       "phase": "node",
       "requires": [
         "REQ-5-2-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
       ],
       "title": "REQ-5-2-3: blank comment adds no article or activity through either allowed UI behavior",
       "file": "REQ-5-2-3.spec.ts",
@@ -1565,6 +1880,13 @@
       "requires": [
         "REQ-5-3-1"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
       "title": "REQ-5-3-1: eligible assignee is saved live and removed without erasing timeline",
       "file": "REQ-5-3-1.spec.ts",
       "status": "reviewed",
@@ -1585,6 +1907,13 @@
       "phase": "node",
       "requires": [
         "REQ-5-3-1"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
       ],
       "title": "REQ-5-3-1: spec-read does not acquire metadata authority from role name",
       "file": "REQ-5-3-1.spec.ts",
@@ -1607,6 +1936,13 @@
       "requires": [
         "REQ-5-3-1"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
       "title": "REQ-5-3-1: spec-write does not acquire metadata authority from role name",
       "file": "REQ-5-3-1.spec.ts",
       "status": "reviewed",
@@ -1627,6 +1963,13 @@
       "phase": "node",
       "requires": [
         "REQ-5-3-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
       ],
       "title": "REQ-5-3-2: existing label toggle immediately saves and removes association",
       "file": "REQ-5-3-2.spec.ts",
@@ -1649,6 +1992,13 @@
       "requires": [
         "REQ-5-3-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
       "title": "REQ-5-3-3: milestone selection saves immediately and None removes only association",
       "file": "REQ-5-3-3.spec.ts",
       "status": "reviewed",
@@ -1669,6 +2019,13 @@
       "phase": "node",
       "requires": [
         "REQ-5-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
       ],
       "title": "REQ-5-4: Maintain closes and reopens issue preserving title, body and state",
       "file": "REQ-5-4.spec.ts",
@@ -1691,6 +2048,13 @@
       "requires": [
         "REQ-5-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-5-1-1",
+        "REQ-5-1-2"
+      ],
       "title": "REQ-5-4: Read viewer has neither issue status control",
       "file": "REQ-5-4.spec.ts",
       "status": "reviewed",
@@ -1712,6 +2076,11 @@
       "requires": [
         "REQ-6-1"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-6-1: Admin stores exact branch protection toggles and reload displays summaries",
       "file": "REQ-6-1.spec.ts",
       "status": "reviewed",
@@ -1732,6 +2101,11 @@
       "phase": "node",
       "requires": [
         "REQ-6-1"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "REQ-6-1: non-Admin cannot create protection rule",
       "file": "REQ-6-1.spec.ts",
@@ -1755,6 +2129,13 @@
         "REQ-6-1",
         "REQ-6-2-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "INTEGRATION-protection: Admin changes current compare-commit check pending to success and persists setter",
       "file": "INTEGRATION-protection.spec.ts",
       "status": "reviewed",
@@ -1777,6 +2158,10 @@
       "requires": [
         "REQ-6-2-1"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3"
+      ],
       "title": "REQ-6-2-1: visitor Open PR list filter reads same persisted PR after repeated navigation",
       "file": "REQ-6-2-1.spec.ts",
       "status": "reviewed",
@@ -1797,6 +2182,12 @@
       "phase": "node",
       "requires": [
         "REQ-6-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1"
       ],
       "title": "REQ-6-2-2: native base/compare show exact changed file and comparable commits",
       "file": "REQ-6-2-2.spec.ts",
@@ -1819,6 +2210,12 @@
       "requires": [
         "REQ-6-2-2"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1"
+      ],
       "title": "REQ-6-2-2: equal base and compare disable creation before compare button and afterward",
       "file": "REQ-6-2-2.spec.ts",
       "status": "reviewed",
@@ -1840,6 +2237,13 @@
       "requires": [
         "REQ-6-2-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-2-2"
+      ],
       "title": "REQ-6-2-3: create Open PR from comparison persists exact title and description",
       "file": "REQ-6-2-3.spec.ts",
       "status": "reviewed",
@@ -1860,6 +2264,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-2-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-2-2"
       ],
       "title": "REQ-6-2-3: blank PR title keeps form and creates no PR",
       "file": "REQ-6-2-3.spec.ts",
@@ -1887,6 +2298,13 @@
       "origin_file": "INTEGRATION-protection.spec.ts",
       "origin_title": "INTEGRATION-protection: Admin changes current compare-commit check pending to success and persists setter",
       "source_fixture": "check-success",
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-2-3: context REQ-6-1: Admin changes current compare-commit check pending to success and persists setter",
       "file": "REQ-6-2-3.spec.ts",
       "status": "reviewed",
@@ -1909,6 +2327,13 @@
       "requires": [
         "REQ-6-2-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-2-2"
+      ],
       "title": "REQ-6-2-4: Draft creation is persistent and has present disabled merge action",
       "file": "REQ-6-2-4.spec.ts",
       "status": "reviewed",
@@ -1929,6 +2354,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-2-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-2-4: author marks Draft ready without changing title or branches",
       "file": "REQ-6-2-4.spec.ts",
@@ -1951,6 +2383,11 @@
       "requires": [
         "REQ-6-3-1"
       ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1"
+      ],
       "title": "REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen",
       "file": "REQ-6-3-1.spec.ts",
       "status": "reviewed",
@@ -1971,6 +2408,12 @@
       "phase": "node",
       "requires": [
         "REQ-6-3-2"
+      ],
+      "setup_requires": [
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-3-2: visitor diff displays exact path and exact aggregate additions/deletions from both changed files",
       "file": "REQ-6-3-2.spec.ts",
@@ -1993,6 +2436,13 @@
       "requires": [
         "REQ-6-3-3"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-3-3: single inline comment persists at changed line",
       "file": "REQ-6-3-3.spec.ts",
       "status": "reviewed",
@@ -2013,6 +2463,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-3-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-3-3: pending review draft persists at changed line",
       "file": "REQ-6-3-3.spec.ts",
@@ -2035,6 +2492,13 @@
       "requires": [
         "REQ-6-3-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-3-4: Approve submission persists current-commit review",
       "file": "REQ-6-3-4.spec.ts",
       "status": "reviewed",
@@ -2055,6 +2519,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-3-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-3-4: Request changes submission persists current-commit review",
       "file": "REQ-6-3-4.spec.ts",
@@ -2077,6 +2548,13 @@
       "requires": [
         "REQ-6-3-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-3-4: Comment submission persists current-commit review",
       "file": "REQ-6-3-4.spec.ts",
       "status": "reviewed",
@@ -2097,6 +2575,14 @@
       "phase": "node",
       "requires": [
         "REQ-6-3-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-3-4: latest Comment replaces Request changes while retaining history",
       "file": "REQ-6-3-4.spec.ts",
@@ -2119,6 +2605,13 @@
       "requires": [
         "REQ-6-4"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-4: author requests and removes live eligible reviewer without confirmation",
       "file": "REQ-6-4.spec.ts",
       "status": "reviewed",
@@ -2139,6 +2632,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-5"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-5: Maintain merge commits actual changes to base branch and persists terminal status",
       "file": "REQ-6-5.spec.ts",
@@ -2161,6 +2661,13 @@
       "requires": [
         "REQ-6-5"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-5: missing required approval blocks merge before click and retains PR and branch",
       "file": "REQ-6-5.spec.ts",
       "status": "reviewed",
@@ -2181,6 +2688,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-5"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-5: check-only enforces only its configured merge prerequisites",
       "file": "REQ-6-5.spec.ts",
@@ -2203,6 +2717,13 @@
       "requires": [
         "REQ-6-5"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-5: approval-only enforces only its configured merge prerequisites",
       "file": "REQ-6-5.spec.ts",
       "status": "reviewed",
@@ -2223,6 +2744,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-5"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-5: unprotected enforces only its configured merge prerequisites",
       "file": "REQ-6-5.spec.ts",
@@ -2245,6 +2773,13 @@
       "requires": [
         "REQ-6-5"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-5: current Request changes blocks an otherwise unprotected PR",
       "file": "REQ-6-5.spec.ts",
       "status": "reviewed",
@@ -2265,6 +2800,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-5"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-5: old-commit approval cannot satisfy a protected current-commit PR",
       "file": "REQ-6-5.spec.ts",
@@ -2298,6 +2840,13 @@
       "origin_file": "INTEGRATION-review-cycle.spec.ts",
       "origin_title": "INTEGRATION-review-cycle: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal",
       "source_fixture": "guide-review-cycle",
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal",
       "file": "REQ-6-5.spec.ts",
       "status": "reviewed",
@@ -2326,6 +2875,13 @@
       "requires": [
         "REQ-6-6"
       ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
+      ],
       "title": "REQ-6-6: author closes and reopens PR while discussion and branches persist",
       "file": "REQ-6-6.spec.ts",
       "status": "reviewed",
@@ -2346,6 +2902,13 @@
       "phase": "node",
       "requires": [
         "REQ-6-6"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "REQ-6-6: Read viewer has no close or reopen action",
       "file": "REQ-6-6.spec.ts",
@@ -2374,6 +2937,13 @@
         "REQ-6-3-3",
         "REQ-6-3-4",
         "REQ-6-5"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-3-1",
+        "REQ-3-3",
+        "REQ-6-2-1",
+        "REQ-6-3-1"
       ],
       "title": "INTEGRATION-review-cycle: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal",
       "file": "INTEGRATION-review-cycle.spec.ts",
@@ -2407,6 +2977,13 @@
         "REQ-2-3",
         "REQ-3-4",
         "REQ-4-4"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-1-2",
+        "REQ-2-1-1",
+        "REQ-3-1",
+        "REQ-3-3"
       ],
       "title": "INTEGRATION-team-access: guide: direct team grant changes effective permissions without hierarchy inheritance or account deletion",
       "file": "INTEGRATION-team-access.spec.ts",

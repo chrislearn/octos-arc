@@ -145,7 +145,7 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
                      incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, prepare_edit_files, safe_relative_path,
                      source_protocol_errors, write_files, parse_context_request, has_context_request)
 from guard import TurnMonitor  # noqa: E402
-from repair_control import isolated_node_deadline, startup_recovery_deadline, seconds_available, progress_snapshot, measured_progress  # noqa: E402
+from repair_control import isolated_node_deadline, startup_recovery_deadline, repair_deadline, seconds_available, progress_snapshot, measured_progress  # noqa: E402
 from flow_policy import (generation_tokens, node_seconds, phase_for_label, repair_seconds,
                          reasoning_for_phase, is_test_infrastructure_error, measurement_seconds, startup_failure_summary)  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
@@ -5278,7 +5278,7 @@ class Flow:
         caller's retry still receives concrete feedback. Never replay a prompt
         after any source was written, nor loop on an identical rejection.
         """
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + min(timeout, seconds_available(self))
         spent, seen = 0, set()
         context_state = {"versions": {}, "rounds": 0}
         retries = max(0, min(3, int(os.environ.get("OCTOS_ARC_CORRECTION_ROUNDS", "2"))))
@@ -5310,6 +5310,35 @@ class Flow:
             prompt = getattr(self, "last_codegen_prompt", prompt)
             outcome = getattr(self, "last_codegen_outcome", "")
             fingerprint = (outcome, reason)
+            if (outcome in {"needs_context", "needs_context_repeated"} and not ok and not raw_target
+                    and not getattr(self, "last_codegen_written", [])
+                    and getattr(self, "llm_proxy", None) is not None
+                    and os.environ.get("OCTOS_ARC_STRUCTURED_EDITS", "1") != "0"):
+                left = min(240, deadline - time.monotonic(), seconds_available(self))
+                allowance = min(8, max(0, request_budget - spent)) if request_budget is not None else 8
+                configured = os.environ.get('OCTOS_ARC_EDIT_REQUESTS')
+                if configured is not None:
+                    allowance = min(allowance, max(0, int(configured)))
+                if left >= 30 and allowance > 0 and not self.wound_down():
+                    scope = self.edit_scope(prompt) | set(self.last_codegen_context_requested)
+                    context_note = ("The requested source versions were already supplied. "
+                                    if outcome == 'needs_context_repeated' else
+                                    "Whole-source context could not be supplied within this turn's limits. "
+                                    "Read current ranges of the requested files before editing. ")
+                    focused = prompt + ("\n" + context_note +
+                                        "Use focused read/edit/write tools to finish the implementation. "
+                                        "Do not repeat the unchanged context request or alter tests.\n")
+                    self.bind_edit_scope(focused, reason, scope)
+                    self.last_codegen_refused = set()
+                    self.last_codegen_context_requested = set()
+                    self.metric("codegen_context_fallback", label=label, prior_requests=spent,
+                                request_allowance=allowance, seconds_left=round(left, 1),
+                                context_outcome=outcome)
+                    ok, reason = self.structured_edit_turn(focused, left, label + " (context recovery)",
+                                                          request_budget=allowance)
+                    used = getattr(self.llm_proxy, "turn_upstream_requests", allowance)
+                    self.last_codegen_request_count = spent + (used if type(used) is int else allowance)
+                    return ok, reason
             if (ok or raw_target or getattr(self, "last_codegen_written", [])
                     or outcome not in actionable or attempt == retries or fingerprint in seen):
                 return ok, reason
@@ -5456,6 +5485,7 @@ class Flow:
             request = parse_context_request(text) if ok and not raw_target else None
             if not request:
                 break
+            self.last_codegen_context_requested = set(request['paths'])
             available = {str(p.relative_to(self.output_dir)) for p in app_source_files(self.output_dir)
                          if not str(p.relative_to(self.output_dir)).startswith("backend/data/")}
             if phase_for_label(label) == 'repair':
@@ -5475,7 +5505,8 @@ class Flow:
                                       'return to local source check or tool edit', 'needs_context_repeated')
                     self._repair_context_versions = seen_repairs | {key}
             try:
-                evidence, versions = context_evidence(self.output_dir, request, available, seen_context)
+                evidence, versions = context_evidence(self.output_dir, request, available, seen_context,
+                                                      supplied=prompt)
             except RepeatedContextRequest as exc:
                 self.last_codegen_context_requested = set(request['paths'])
                 self.metric('context_recovery', label=label, outcome='same_version_limit',
@@ -5494,6 +5525,7 @@ class Flow:
             self.last_codegen_prompt = prompt
             self.metric("context_recovery", label=label, outcome="provided", round=context_round + 1,
                         initial_limit=context_rounds, maximum=context_max, hashes=versions)
+            self.last_codegen_context_requested = set()
             ok, text = self.text_turn(prompt + "\n" + format_instructions, int(left),
                                       label + f" (context {context_round + 1})", system=system,
                                       spec_chars=spec_chars,
@@ -6442,23 +6474,95 @@ class Flow:
         source = self.app_source_digest()
         scope_versions = {spec: hashlib.sha256((self.tests_dir / spec).read_bytes()).hexdigest()
                           if self.tests_dir and (self.tests_dir / spec).is_file() else None for spec in specs}
+        case_scope = self.measurement_case_scope(specs)
+        run_config = self.measurement_run_config(specs, runner)
         prior = getattr(self, '_last_repair_round', {})
         summary = None
         try:
             summary = self._run_specs(specs, workers, grader_like, runner, audit_candidate=audit_candidate)
             return summary
         finally:
+            elapsed = time.monotonic() - started
+            scope_hash = hashlib.sha256(json.dumps(scope_versions, sort_keys=True).encode()).hexdigest()
+            complete = bool(summary is not None and self.suite_is_measured(summary, specs))
+            if (complete and case_scope is not None and not audit_candidate
+                    and (runner is None or runner is self.runner)):
+                timings = getattr(self, '_acceptance_timings', [])
+                self._acceptance_timings = (timings + [{
+                    'scope_hash': scope_hash, 'workers': self.spec_workers(workers, runner),
+                    'seconds': elapsed, 'case_scope': case_scope, 'grader_like': grader_like,
+                    'run_config': run_config,
+                }])[-64:]
             self.metric('acceptance_measurement', specs=specs, source_hash=source,
                         source_after=self.app_source_digest(),
                         repair_round_id=prior.get('round_id') if prior.get('source_after') == source else None,
-                        grader_like=grader_like, elapsed_seconds=round(time.monotonic() - started, 3),
+                        grader_like=grader_like, elapsed_seconds=round(elapsed, 3),
                         passed=summary.passed if summary is not None else None,
                         total=summary.total if summary is not None else None,
                         error=summary.error if summary is not None else 'measurement_exception',
-                        scope_hash=hashlib.sha256(json.dumps(scope_versions, sort_keys=True).encode()).hexdigest(),
+                        scope_hash=scope_hash,
                         scope_versions=scope_versions,
-                        all_passed=bool(summary is not None and summary.all_passed
-                                        and self.suite_is_measured(summary, specs)))
+                        all_passed=bool(complete and summary.all_passed))
+
+    def measurement_case_scope(self, specs: list[str]) -> str | None:
+        """Selected cases, not just file names, define compatible timings."""
+        try:
+            layered = getattr(self, 'layered', None)
+            if layered is not None:
+                previous = layered.case_inclusions
+                try:
+                    active, excluded = layered.selected(specs)
+                    included = layered.case_inclusions
+                finally:
+                    layered.case_inclusions = previous
+            elif getattr(self, 'derived_as_specs', False):
+                active, excluded = self.derived_case_selection(specs)
+                included = {}
+            else:
+                active, excluded, included = None, {}, {}
+            selection = {'active': active, 'included': included,
+                         'excluded': {spec: sorted(titles) for spec, titles in excluded.items()}}
+            return hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
+        except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            # Scheduling metadata cannot replace the runner's origin/load verdict.
+            self.metric('measurement_timing_scope', specs=specs, outcome='unavailable',
+                        error_kind=type(exc).__name__)
+            return None
+
+    def measurement_run_config(self, specs: list[str], runner=None) -> dict:
+        timeout_ms = getattr(runner or self.runner, 'timeout_ms', 10000)
+        if not isinstance(timeout_ms, (int, float)):
+            timeout_ms = 10000
+        return {'timeout_ms': timeout_ms,
+                'isolated': bool(getattr(self, 'derived_as_specs', False) and len(specs) > 1
+                                 and os.environ.get('OCTOS_ARC_DERIVED_ISOLATE', '1') != '0')}
+
+    def node_measurement_window(self, specs: list[str], grader_like: bool = False) -> float:
+        """Reserve a build/start/test run, using only complete, compatible timings."""
+        workers = self.spec_workers()
+        versions = {spec: hashlib.sha256((self.tests_dir / spec).read_bytes()).hexdigest()
+                    if self.tests_dir and (self.tests_dir / spec).is_file() else None
+                    for spec in sorted(set(specs))}
+        scope_hash = hashlib.sha256(json.dumps(versions, sort_keys=True).encode()).hexdigest()
+        case_scope = self.measurement_case_scope(specs)
+        run_config = self.measurement_run_config(specs)
+        timings = getattr(self, '_acceptance_timings', [])
+        samples = [row['seconds'] for row in timings
+                   if row['scope_hash'] == scope_hash and row['workers'] == workers
+                   and row['case_scope'] == case_scope and row['grader_like'] == grader_like
+                   and case_scope is not None and row.get('run_config') == run_config
+                   and row['seconds'] > 0]
+        if samples:
+            return max(30.0, max(samples[-5:]) * 1.25 + 15.0)
+        return measurement_seconds(self.tests_dir, specs, run_config['timeout_ms'], workers)
+
+    def node_measurement_reserve(self, specs: list[str], related: list[str]) -> float:
+        window = self.node_measurement_window(specs)
+        if related:
+            # A green target still needs the joint scope, including the target
+            # again. This is scheduling capacity, never a passing verdict.
+            window += self.node_measurement_window(sorted(set(specs) | set(related)), grader_like=True)
+        return window
 
     def _run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False,
                    runner: AcceptanceRunner | None = None, *, audit_candidate: bool = False) -> RunSummary:
@@ -7388,6 +7492,15 @@ class Flow:
             return self.test_verdict.get(node_id)
         if self.runner is None or not specs:
             return None
+        missing = Flow.missing_frozen_setup(self, node_id)
+        if missing:
+            pending = getattr(self, '_pending_frozen_acceptance', set())
+            self._pending_frozen_acceptance = pending | {node_id}
+            self.last_node_own_pass = False
+            self.metric('frozen_test_wait', node_id=node_id, decision='waiting_for_capability',
+                        missing=sorted(missing))
+            log(f'[acceptance] {node_id}: public test entry awaits implementation of {sorted(missing)}')
+            return None
         if getattr(self, 'derived_as_specs', False) is True and (not self.derived_has_runnable_cases(node_id)):
             self.last_node_own_pass = False
             self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases', specs=specs)
@@ -7719,48 +7832,59 @@ class Flow:
             if attempt >= repair_cap or self.wound_down():
                 self.metric('repair_stop', node_id=node_id, reason='hard_run_budget' if self.wound_down() else 'repair_round_cap', attempt=attempt, effective_cap=repair_cap)
                 break
-            left = deadline - time.time()
             needed = self.repair_minimum()
             reserve = self.final_phase_reserve()
-            if left < needed or (reserve and self.remaining() < needed + reserve) or self.time_up():
-                reason = f'{self.remaining():.0f}s run time leaves the {reserve:.0f}s final-phase reserve' if reserve and self.remaining() < needed + reserve else f'{left:.0f}s node time is below the {needed:.0f}s a repair needs'
-                log(f'[flow] {node_id}: {reason}; keeping the best state for full-suite repair')
+            related_window = sorted(set(related_specs) | pending_regression_specs)
+            measurement = self.node_measurement_reserve(specs, related_window)
+            available = min(deadline - time.time(), seconds_available(self), self.remaining() - reserve)
+            left = available - measurement
+            cutoff = time.monotonic() + max(0, left)
+            self.metric('node_repair_window', node_id=node_id, round=attempt,
+                        available_seconds=round(available, 3), measurement_seconds=round(measurement, 3),
+                        repair_seconds=round(max(0, left), 3), specs=specs,
+                        related_specs=related_window, decision='repair' if left >= needed else 'keep_measured_state')
+            if left < needed or self.time_up():
+                log(f'[flow] {node_id}: {available:.0f}s available leaves {measurement:.0f}s for '
+                    f'node/regression measurement, below the {needed:.0f}s a repair needs; '
+                    'keeping the best state for full-suite repair')
                 break
-            self.snapshot_sources(node_id, attempt)
-            slow = summary.slow(self.slow_test_ms())
-            slow_text = 'These tests exceeded the configured slow-test threshold: ' + '; '.join(slow) + '. Inspect the failed operations and measured timings before optimizing.\n' + self.perf_text() if slow else ''
-            if measured and passed == 0 and not role_conflict_confirmed and (rebuild_prompt is not None) and (not rewrite_used) and (not getattr(self, 'derived_as_specs', False)) and (best_passed <= 0) and self.can_rewrite_from_scratch() and (os.environ.get('OCTOS_ARC_REWRITE_ON_ZERO', '1') != '0'):
-                rewrite_used = True
-                log(f'[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch')
-                prompt = rebuild_prompt(failures or '(no detail)')
-                if self.codegen_mode():
-                    self.codegen_turn(prompt, min(self.node_timeout, left), f'{node_id} rewrite (repair {attempt + 1})', spec_chars=getattr(self, 'current_spec_chars', 0))
-                    repair_applied = bool(self.last_codegen_written)
-                else:
-                    self.last_turn_changed = None
-                    self.turn(prompt, min(self.node_timeout, left), f'{node_id} rewrite (repair {attempt + 1})', request_budget=int(os.environ.get('OCTOS_ARC_IMPLEMENT_REQUESTS', '20')))
-                    repair_applied = self.last_turn_changed is not False
-                if repair_applied:
-                    attempt += 1
-                    continue
-                self.pending_corrections.append('The rewrite did not change application sources. Apply the pending fix before retesting.')
-                left = deadline - time.time()
-                if left < self.repair_minimum() or self.wound_down():
+            with repair_deadline(self, cutoff):
+                self.snapshot_sources(node_id, attempt)
+                slow = summary.slow(self.slow_test_ms())
+                slow_text = 'These tests exceeded the configured slow-test threshold: ' + '; '.join(slow) + '. Inspect the failed operations and measured timings before optimizing.\n' + self.perf_text() if slow else ''
+                if measured and passed == 0 and not role_conflict_confirmed and (rebuild_prompt is not None) and (not rewrite_used) and (not getattr(self, 'derived_as_specs', False)) and (best_passed <= 0) and self.can_rewrite_from_scratch() and (os.environ.get('OCTOS_ARC_REWRITE_ON_ZERO', '1') != '0'):
+                    rewrite_used = True
+                    log(f'[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch')
+                    prompt = rebuild_prompt(failures or '(no detail)')
+                    left = seconds_available(self)
+                    if self.codegen_mode():
+                        self.codegen_turn(prompt, min(self.node_timeout, left), f'{node_id} rewrite (repair {attempt + 1})', spec_chars=getattr(self, 'current_spec_chars', 0))
+                        repair_applied = bool(self.last_codegen_written)
+                    else:
+                        self.last_turn_changed = None
+                        self.turn(prompt, min(self.node_timeout, left), f'{node_id} rewrite (repair {attempt + 1})', request_budget=int(os.environ.get('OCTOS_ARC_IMPLEMENT_REQUESTS', '20')))
+                        repair_applied = self.last_turn_changed is not False
+                    if repair_applied:
+                        attempt += 1
+                        continue
+                    self.pending_corrections.append('The rewrite did not change application sources. Apply the pending fix before retesting.')
+                left = seconds_available(self)
+                if left < needed or self.wound_down():
                     break
-            corrections = self.corrections_text()
-            if not measured:
-                corrections = str(corrections) + '\nNo functional acceptance verdict was obtained. Fix the reported build/start/load failure in place; preserve the generated application instead of rewriting it from scratch.\n'
+                corrections = self.corrections_text()
+                if not measured:
+                    corrections = str(corrections) + '\nNo functional acceptance verdict was obtained. Fix the reported build/start/load failure in place; preserve the generated application instead of rewriting it from scratch.\n'
 
-            def repair_prompt():
-                nonlocal corrections
-                corrections = str(corrections) + str(self.corrections_text())
-                related = [owner for owner, paths in getattr(self, 'spec_map', {}).items()
-                           if owner != node_id and paths and set(paths) & pending_regression_specs]
-                context = ''.join(self.repair_requirements(owner) + '\n' + self.spec_bodies(owner)
-                                  for owner in related)
-                return self.app_repair_prompt(node_id=node_id, passed=passed, total=summary.total, failures=failures or '(no detail)', test_location=self.repair_test_location(sorted(set(specs + related_specs))), corrections=corrections, slow=slow_text, smoke=self.smoke_port, port=self.web_port, sources=self.repair_requirements(node_id) + context + self.sources_text())
-            if not self.node_repair_turn(node_id, failures, min(self.node_timeout, left), f'{node_id} repair {attempt + 1}/{repair_cap} (maximum {maximum_rounds})', repair_prompt):
-                break
+                def repair_prompt():
+                    nonlocal corrections
+                    corrections = str(corrections) + str(self.corrections_text())
+                    related = [owner for owner, paths in getattr(self, 'spec_map', {}).items()
+                               if owner != node_id and paths and set(paths) & pending_regression_specs]
+                    context = ''.join(self.repair_requirements(owner) + '\n' + self.spec_bodies(owner)
+                                      for owner in related)
+                    return self.app_repair_prompt(node_id=node_id, passed=passed, total=summary.total, failures=failures or '(no detail)', test_location=self.repair_test_location(sorted(set(specs + related_specs))), corrections=corrections, slow=slow_text, smoke=self.smoke_port, port=self.web_port, sources=self.repair_requirements(node_id) + context + self.sources_text())
+                if not self.node_repair_turn(node_id, failures, min(self.node_timeout, left), f'{node_id} repair {attempt + 1}/{repair_cap} (maximum {maximum_rounds})', repair_prompt):
+                    break
             repair_applied = True
             attempt += 1
         startup_regression = bool(getattr(self, '_unresolved_startup_error', '') and best_passed >= 0)
@@ -11181,6 +11305,33 @@ class Flow:
         getattr(self, "whole_app_deferred_ids", set()).discard(node_id)
         return True
 
+    def missing_frozen_setup(self, node_id: str) -> set[str]:
+        from frozen_setup import missing_setup
+        setup = getattr(self, '_frozen_setup_dependencies', {})
+        if not isinstance(setup, dict) or not setup:
+            return set()
+        implemented = {owner for owner, row in getattr(self, 'implementation_evidence', {}).items()
+                       if row.get('status') in {'implemented_unverified', 'behavior_verified'}}
+        implemented |= {owner for owner, verdict in self.test_verdict.items() if verdict is True}
+        return missing_setup(node_id, setup, implemented)
+
+    def resume_frozen_acceptance(self, ordered: list[dict]) -> None:
+        """Measure waiting leaves once public entry owners have implementation evidence."""
+        pending = getattr(self, '_pending_frozen_acceptance', set())
+        for node in ordered:
+            owner = str(node['id'])
+            if owner not in pending or self.missing_frozen_setup(owner):
+                continue
+            window = min(self.node_timeout, seconds_available(self),
+                         self.remaining() - self.final_phase_reserve())
+            if self.wound_down() or window < self.min_repair_seconds:
+                return
+            pending.remove(owner)
+            self.metric('frozen_test_wait', node_id=owner, decision='resume_after_capability')
+            deadline = time.time() + window
+            with repair_deadline(self, time.monotonic() + window):
+                self.test_verdict[owner] = self.acceptance_loop(owner, list(self.spec_map.get(owner, [])), deadline)
+
     def implement_sequential(self, tree: dict, ordered: list[dict], unchanged: set[str]) -> None:
         """Keep the dependency-ordered queue alive across bounded startup recovery."""
         if getattr(self, "layered", None) is not None:
@@ -11242,6 +11393,7 @@ class Flow:
                 self.driver.end_scope("node")
                 continue
             if not (isinstance(proxy, LlmProxy) and proxy.provider_unavailable):
+                self.resume_frozen_acceptance(ordered)
                 self.regression_checkpoint(index, len(ordered))
             self.driver.end_scope("node")
 
@@ -11801,6 +11953,7 @@ class Flow:
             self.current_spec_chars = len(self.spec_bodies(node_id))
             codegen_prompt = self.codegen_implement_prompt(node, self.spec_bodies(node_id), corrections)
         elif (getattr(self, 'layered', None) is None and not corrections and self.runner is not None and self.codegen_mode()
+              and not Flow.missing_frozen_setup(self, node_id)
               and self.tiny_mode(len(self.spec_bodies(node_id)))):
             tiny_ok = self.tiny_turn(node_id, specs, implement_timeout, node)
             self.current_spec_chars = len(self.spec_bodies(node_id))
@@ -11813,14 +11966,13 @@ class Flow:
             if codegen_prompt is not None:
                 self.current_spec_chars = len(spec_text)
                 write_codegen_manifests(self.output_dir)
-                before = set(self.refused_paths)
                 ok, text = self.codegen_turn(codegen_prompt, implement_timeout, f"{node_id} implement",
                                             spec_chars=self.current_spec_chars, defer_shared_refusals=True)
                 # Requote an unshown application file immediately: cloud
                 # fcec6ac02a95 showed that waiting there can cost 30-80 tool
                 # requests. Only pristine shared helpers with other valid
                 # output defer that request until acceptance proves it needed.
-                refused = self.refused_paths - before
+                refused = set(self.last_codegen_refused)
                 if refused and refused == getattr(self, "last_codegen_deferred", set()):
                     log(f"[flow] {node_id}: testing generated app before requoting shared helpers")
                 elif refused and self.codegen_mode():
@@ -11906,6 +12058,7 @@ class Flow:
             # before paying for a tool turn: later nodes can be satisfied by a
             # shared earlier feature (v4.2 grid-by-default: 20 needless tools).
             if (self.has_app() and self.runner is not None and specs
+                    and not Flow.missing_frozen_setup(self, node_id)
                     and not (getattr(self, 'derived_as_specs', False) is True
                              and self.derived_review_needed(node_id))):
                 probe = self.run_specs(specs)
@@ -13724,6 +13877,16 @@ class Flow:
                 + (f" / absolute {self.max_total_tokens_abs}" if self.max_total_tokens_abs else ""))
 
             self.prepare_test_spec_source(tree, ordered)
+
+            if getattr(self, 'frozen_suite', None) and getattr(self, 'test_specs_trusted', False):
+                from frozen_setup import frozen_setup_dependencies, setup_generation_order
+                self._frozen_setup_dependencies = frozen_setup_dependencies(
+                    self.tests_dir, self.frozen_suite, tree)
+                ordered, cycles = setup_generation_order(tree, self._frozen_setup_dependencies)
+                node_ids = [str(node['id']) for node in ordered]
+                self.metric('frozen_setup_order', node_ids=node_ids, preparation_cycles=cycles)
+                if self._frozen_setup_dependencies:
+                    log(f'[flow] frozen public-entry implementation order: {node_ids}; preparation cycles={cycles}')
 
             self.maybe_probe(node_ids)
             self.runtime.git.ensure_repo()
