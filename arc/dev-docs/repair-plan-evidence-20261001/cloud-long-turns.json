@@ -1,0 +1,178 @@
+{
+  "snapshot_beijing": "2026-10-01T12:24:11+08:00",
+  "timestamp_basis": "rows contain UTC completion time on 2026-10-01",
+  "runs": {
+    "github": "https://arc-bench.com/runs/e11e610bb3ca",
+    "sheet": "https://arc-bench.com/runs/2c6418d39ccd"
+  },
+  "source": "Manual transcription of authenticated browser stdout observations in this chat; NOT an original stdout export. Raw cloud request ledger and source snapshots unavailable.",
+  "definition": "strictly >20 tool/started events per completed agent turn; NOT >20 LLM requests; initial implementation and repair separated",
+  "long_turns": [
+    {
+      "run": "github",
+      "finished_utc": "01:29:51",
+      "node": "REQ-2-2-2",
+      "phase": "repair",
+      "repair_round": 1,
+      "executor": "structured",
+      "wall_seconds": 322,
+      "tool_calls": 23,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 2
+    },
+    {
+      "run": "github",
+      "finished_utc": "02:22:24",
+      "node": "REQ-3-2-1",
+      "phase": "implement",
+      "repair_round": 0,
+      "executor": "structured",
+      "wall_seconds": 437,
+      "tool_calls": 50,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 2
+    },
+    {
+      "run": "github",
+      "finished_utc": "02:42:10",
+      "node": "REQ-3-2-2",
+      "phase": "implement",
+      "repair_round": 0,
+      "executor": "structured",
+      "wall_seconds": 529,
+      "tool_calls": 55,
+      "immediate_target_passed": 1,
+      "immediate_target_total": 2
+    },
+    {
+      "run": "github",
+      "finished_utc": "02:54:38",
+      "node": "REQ-3-4",
+      "phase": "implement",
+      "repair_round": 0,
+      "executor": "structured",
+      "wall_seconds": 233,
+      "tool_calls": 25,
+      "immediate_target_passed": 1,
+      "immediate_target_total": 2
+    },
+    {
+      "run": "github",
+      "finished_utc": "02:59:35",
+      "node": "REQ-3-4",
+      "phase": "repair",
+      "repair_round": 1,
+      "executor": "full_tool",
+      "wall_seconds": 222,
+      "tool_calls": 43,
+      "immediate_target_passed": 2,
+      "immediate_target_total": 2
+    },
+    {
+      "run": "github",
+      "finished_utc": "03:06:59",
+      "node": "REQ-4-1",
+      "phase": "implement",
+      "repair_round": 0,
+      "executor": "structured",
+      "wall_seconds": 377,
+      "tool_calls": 27,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 1
+    },
+    {
+      "run": "github",
+      "finished_utc": "03:15:39",
+      "node": "REQ-4-1",
+      "phase": "repair",
+      "repair_round": 1,
+      "executor": "full_tool",
+      "wall_seconds": 397,
+      "tool_calls": 23,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 1
+    },
+    {
+      "run": "github",
+      "finished_utc": "03:28:23",
+      "node": "REQ-4-2-1",
+      "phase": "implement",
+      "repair_round": 0,
+      "executor": "structured",
+      "wall_seconds": 340,
+      "tool_calls": 37,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 1
+    },
+    {
+      "run": "github",
+      "finished_utc": "03:51:46",
+      "node": "REQ-4-2-3",
+      "phase": "implement",
+      "repair_round": 0,
+      "executor": "structured",
+      "wall_seconds": 491,
+      "tool_calls": 33,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 2
+    },
+    {
+      "run": "github",
+      "finished_utc": "04:20:52",
+      "node": "REQ-4-3-1",
+      "phase": "implement",
+      "repair_round": 0,
+      "executor": "structured",
+      "wall_seconds": 247,
+      "tool_calls": 34,
+      "immediate_target_passed": 2,
+      "immediate_target_total": 2
+    },
+    {
+      "run": "sheet",
+      "finished_utc": "03:57:12",
+      "node": "REQ-5-1-1",
+      "phase": "repair",
+      "repair_round": 1,
+      "executor": "full_tool",
+      "wall_seconds": 278,
+      "tool_calls": 27,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 5
+    },
+    {
+      "run": "sheet",
+      "finished_utc": "04:14:54",
+      "node": "REQ-5-1-1",
+      "phase": "repair",
+      "repair_round": 2,
+      "executor": "full_tool",
+      "wall_seconds": 926,
+      "tool_calls": 23,
+      "immediate_target_passed": 0,
+      "immediate_target_total": 5
+    }
+  ],
+  "run_aggregates": {
+    "github": {
+      "completed_turns": 59,
+      "tool_turns": 35,
+      "turn_wall_seconds": 12493,
+      "acceptance_invocations": 100,
+      "acceptance_seconds": 2614
+    },
+    "sheet": {
+      "completed_turns": 60,
+      "tool_turns": 17,
+      "turn_wall_seconds": 12418,
+      "acceptance_invocations": 75,
+      "acceptance_seconds": 2662
+    }
+  },
+  "limits": [
+    "unfinished turns excluded",
+    "elapsed turn time includes model wait and tool execution; cannot sum with acceptance time into a disjoint wall-time budget without interval traces",
+    "same node eventual success does not establish causal value of >20 calls",
+    "no count of >20 LLM request turns can be inferred from tool counts"
+  ]
+}

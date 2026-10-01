@@ -1,0 +1,30 @@
+{
+  "status": "passed",
+  "issues": [],
+  "documents_sha256": {
+    "sheet-editor-context-analysis-20261001.md": "9ae23232d1e89207cbbc869358defab189b180ec8bc5d42f1b0495d4185e45af",
+    "repair-speed-fix-plan-20261001.md": "11ba24158ded0670f6ae96671745d5cf371ff614347acd0953ed22d8e0367ddf",
+    "repair-speed-fix-review-20261001.md": "cb56ffa08c057926b3ac72ceec4a56a608607702bd697e5da84f397bd0ac1c41"
+  },
+  "checked_local_links": 19,
+  "local_evidence_copies": [
+    {
+      "file": "editor-local-validation-context.json",
+      "hash_matches": true
+    },
+    {
+      "file": "editor-local-sort-context.json",
+      "hash_matches": true
+    }
+  ],
+  "context_arithmetic_verified": true,
+  "release_source_count": 128,
+  "release_source_mismatches": [],
+  "original_tracked_diff_unchanged": true,
+  "worktree_imported_tracked_diff_unchanged": true,
+  "git_diff_check_exit": 0,
+  "runtime_changes_added": false,
+  "candidate_tests_run": false,
+  "prior_document_validation_note": "document-validation.json preserves the first delivery hashes; this file validates the supplemental/current documents.",
+  "browser_evidence_limit": "DOM transcription, not a byte-perfect downloaded archive; original cloud acceptance not replayed."
+}

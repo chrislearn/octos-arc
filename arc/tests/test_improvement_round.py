@@ -203,7 +203,9 @@ class TestExecutionBoundaries(unittest.TestCase):
         flow.pending_corrections = []
         flow.node_repair_turn('B', 'failure', 100, 'B repair', lambda: 'prompt')
         self.assertEqual(flow.codegen_turn.call_args.kwargs['request_budget'], 36)
-        self.assertEqual(flow.repair_tool_turn.call_args.kwargs['request_budget'], 28)
+        # The shared round still has 28 requests; a completed unchanged
+        # diagnosis now receives the shorter no-edit tool window within it.
+        self.assertEqual(flow.repair_tool_turn.call_args.kwargs['request_budget'], 8)
 
     def test_protocol_retry_spends_only_remaining_round_allowance(self):
         with tempfile.TemporaryDirectory() as folder:

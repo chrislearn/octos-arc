@@ -1,0 +1,38 @@
+{
+  "code": "adapter/main.py:6695, adapter/llm_proxy.py:begin_turn",
+  "native_node": "REQ-5-2-1",
+  "native_first_repair": [
+    {
+      "elapsed_seconds": 277.906,
+      "hard_request_budget": 36,
+      "changed": true
+    },
+    {
+      "round": 1,
+      "target": [
+        1,
+        7
+      ],
+      "affected": [
+        33,
+        33
+      ],
+      "effective_cap": 5
+    }
+  ],
+  "native_next": "r1 snapshot -> best restore -> REQ-2-1-2, no second repair request",
+  "probe": [
+    {
+      "prior_turn_hard_budget_exhausted": true,
+      "return_applied": false,
+      "fresh_turn_called": false
+    },
+    {
+      "prior_turn_hard_budget_exhausted": false,
+      "return_applied": true,
+      "fresh_turn_called": true
+    }
+  ],
+  "network_used": false,
+  "native_app_changed": false
+}

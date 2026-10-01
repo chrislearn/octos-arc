@@ -1,0 +1,156 @@
+{
+  "node": "REQ-5-2-1",
+  "initial_and_retry_contexts": [
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-5-2-1",
+      "design_chars": 24285,
+      "preservation_owners": [
+        "REQ-1-1-1",
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-1-3",
+        "REQ-3-2-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-1-3-1",
+        "REQ-1-3-2",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-4-1-1",
+        "REQ-4-1-2",
+        "REQ-4-2-1",
+        "REQ-4-2-2"
+      ],
+      "preservation_chars": 16269,
+      "inherited_owners": [
+        "ROOT",
+        "REQ-5",
+        "REQ-5-2"
+      ],
+      "required_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ],
+      "prompt_chars": 177843,
+      "limit": 196608,
+      "focused_sources": true,
+      "source_chars": 90914,
+      "quoted_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "backend/server.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Editor.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ]
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-5-2-1",
+      "design_chars": 24285,
+      "preservation_owners": [
+        "REQ-1-1-1",
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-1-3",
+        "REQ-3-2-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-1-3-1",
+        "REQ-1-3-2",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-4-1-1",
+        "REQ-4-1-2",
+        "REQ-4-2-1",
+        "REQ-4-2-2"
+      ],
+      "preservation_chars": 16269,
+      "inherited_owners": [
+        "ROOT",
+        "REQ-5",
+        "REQ-5-2"
+      ],
+      "required_source_paths": [
+        "backend/lib/collection.js",
+        "backend/lib/csv.js",
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "backend/lib/store.js",
+        "backend/lib/undoHistory.js",
+        "backend/lib/workbooks.js",
+        "backend/routes/workbooks.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ],
+      "prompt_chars": 187858,
+      "limit": 196608,
+      "focused_sources": true,
+      "source_chars": 100745,
+      "quoted_source_paths": [
+        "backend/lib/collection.js",
+        "backend/lib/csv.js",
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "backend/lib/store.js",
+        "backend/lib/undoHistory.js",
+        "backend/lib/workbooks.js",
+        "backend/routes/workbooks.js",
+        "backend/server.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ]
+    }
+  ],
+  "recovery_metrics": [
+    {
+      "kind": "context_recovery",
+      "label": "REQ-5-2-1 implement",
+      "outcome": "budget_blocked",
+      "round": 1
+    },
+    {
+      "kind": "context_recovery",
+      "label": "REQ-5-2-1 implement (retry with backend/routes/workbooks.js)",
+      "outcome": "budget_blocked",
+      "round": 1
+    }
+  ],
+  "editor_snapshot_chars": 40299,
+  "retry_prompt_with_editor_minimum_chars": 228157,
+  "current_limit_chars": 196608,
+  "cause": "Initial prompt includes Editor but excludes backend route; retry promotes backend route and libraries and excludes previously quoted Editor. Requested Editor no longer fits. No source changes applied; original target testing continues.",
+  "source_mutated_by_diagnostics": false,
+  "initial_target_grade": [
+    0,
+    7
+  ],
+  "native_next_step": "tool fallback repair; required_wave_sources_exceed_budget"
+}

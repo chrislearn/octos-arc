@@ -1,0 +1,61 @@
+{
+  "cloud_counts": {
+    "completed_long_turns": 12,
+    "tool_calls": 400,
+    "wall_seconds": 4799,
+    "target_all_pass": 2,
+    "repair_turns": 5,
+    "repair_seconds": 2145,
+    "repair_target_all_pass": 1,
+    "distinct_nodes": 9
+  },
+  "per_run_long_turns": {
+    "github": {
+      "turns": 10,
+      "seconds": 3595,
+      "tools": 350
+    },
+    "sheet": {
+      "turns": 2,
+      "seconds": 1204,
+      "tools": 50
+    }
+  },
+  "local_evidence_copies": {
+    "count": 4,
+    "mismatches": []
+  },
+  "release_sources": {
+    "count": 128,
+    "mismatches": []
+  },
+  "original_tracked_diff_unchanged": true,
+  "imported_worktree_tracked_diff_unchanged": true,
+  "frozen_source_documents_match_manifest": true,
+  "original_untracked_documents_updated_externally": [
+    {
+      "file": "v15.3-full-qwen-analysis-20261001.md",
+      "frozen_sha256": "f5289f8429709002b1de5170f7262b59a7fc4aec8e8dd538b43675fffb1293ee",
+      "current_original_sha256": "b11a4e19c0ff244aff9595550c920191255717f64116cace52765eedb562c7af"
+    }
+  ],
+  "plan_table_matches_transcribed_json": true,
+  "local_link_counts": {
+    "repair-speed-fix-plan-20261001.md": 7,
+    "repair-speed-fix-review-20261001.md": 3
+  },
+  "document_sha256": {
+    "repair-speed-fix-plan-20261001.md": "77ca57d65f7526e7cd38f28991a1cf366fc556986783df4f38bf179bc60c14ca",
+    "repair-speed-fix-review-20261001.md": "e27f821f6ec89542a68cfe31e7b87d3ec2ddea9bfbc26a13052e933bcb163b51"
+  },
+  "git_diff_check_exit": 0,
+  "runtime_implementation_added": false,
+  "candidate_tests_executed": false,
+  "limitations": [
+    "Cloud data is a chat observation transcription, not a raw export.",
+    "Checks validate documents and frozen evidence, not future runtime changes.",
+    "The original local experiment report is still updated by its ongoing task; the copied snapshot is frozen."
+  ],
+  "issues": [],
+  "status": "passed"
+}

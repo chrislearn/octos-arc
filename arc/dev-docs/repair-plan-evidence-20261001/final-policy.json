@@ -1,0 +1,32 @@
+{
+  "state": "source verified; native final-stage behavior pending",
+  "python_entry": {
+    "path": "adapter/main.py",
+    "sha256": "be41fd010a8118a74dd958a3ac9d1a7d015e66a75edb053b7226958417fc195a",
+    "final_rounds_default": 0,
+    "line": 12287,
+    "trusted_frozen_path": "adopt_frozen_business sets derived_as_specs=False, so ordinary final_acceptance_passes/final_acceptance apply."
+  },
+  "policy_reference": {
+    "path": "adapter/arc-policy.toml",
+    "sha256": "7d54d09f44a27ed612665a8f20edf4b6eb8df9c5ed0015002baa13b2b521ec5f",
+    "repair.final_rounds": 2,
+    "loader": "file declares kernel octos arc run --policy; our user-requested benchmark Python entry does not load TOML."
+  },
+  "experiment_environment": "harness removes inherited OCTOS_*; api_environment only supports API key/base/model/visual model; overrides do not set final rounds. No default was changed.",
+  "result": "When final_acceptance is admitted, default range is measurement round 0, no model repair round. Large remaining time/token allowance does not enable final repairs.",
+  "limitation": "Do not confuse this with per-leaf retries, which remain enabled and reached four repair rounds for sort. Native final-stage events will be captured after generation.",
+  "native_sheet_confirmation": {
+    "generation_exit_code": 1,
+    "native_final_score": [
+      65,
+      72
+    ],
+    "final_suite_rounds": [
+      0
+    ],
+    "post_implementation_model_repairs": 0,
+    "final_llm_usage_rows": 389,
+    "log": "sheet/run.log"
+  }
+}

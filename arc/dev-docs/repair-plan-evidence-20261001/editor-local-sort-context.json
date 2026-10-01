@@ -1,0 +1,187 @@
+{
+  "node": "REQ-5-1-1",
+  "own_grade": [
+    0,
+    5
+  ],
+  "network": [
+    {
+      "case": "REQ-5-1-1-REQ-5-1-1-Ascend-859c1-serves-header-outside-cells",
+      "method": "POST",
+      "status": 404
+    },
+    {
+      "case": "REQ-5-1-1-REQ-5-1-1-sortin-3bfcb--validation-filter-behavior",
+      "method": "POST",
+      "status": 404
+    },
+    {
+      "case": "REQ-5-1-1-REQ-5-1-1-numeri-7c3f5-ical-or-single-column-order",
+      "method": "POST",
+      "status": 404
+    },
+    {
+      "case": "REQ-5-1-1-REQ-5-1-1-Descen-d7f4f-serves-header-outside-cells",
+      "method": "POST",
+      "status": 404
+    },
+    {
+      "case": "REQ-5-1-1-REQ-5-1-1-date-k-30493-eys-and-intact-full-records",
+      "method": "POST",
+      "status": 404
+    }
+  ],
+  "contexts": [
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-5-1-1",
+      "design_chars": 19222,
+      "preservation_owners": [
+        "REQ-1-1-1",
+        "REQ-1-3-1",
+        "REQ-1-3-2",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-1-3",
+        "REQ-3-2-1",
+        "REQ-4-1-1",
+        "REQ-4-2-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-2-1-2",
+        "REQ-4-1-2",
+        "REQ-4-2-2"
+      ],
+      "preservation_chars": 16896,
+      "inherited_owners": [
+        "ROOT",
+        "REQ-5",
+        "REQ-5-1"
+      ],
+      "required_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Editor.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ],
+      "prompt_chars": 181549,
+      "limit": 196608,
+      "focused_sources": true,
+      "source_chars": 101430,
+      "quoted_source_paths": [
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "backend/server.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Editor.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ]
+    },
+    {
+      "kind": "implementation_context",
+      "node_id": "REQ-5-1-1",
+      "design_chars": 19222,
+      "preservation_owners": [
+        "REQ-1-1-1",
+        "REQ-1-3-1",
+        "REQ-1-3-2",
+        "REQ-2-2-1",
+        "REQ-2-2-2",
+        "REQ-3-1-1",
+        "REQ-3-1-2",
+        "REQ-3-1-3",
+        "REQ-3-2-1",
+        "REQ-4-1-1",
+        "REQ-4-2-1",
+        "REQ-1-2-1",
+        "REQ-1-2-2",
+        "REQ-2-1-2",
+        "REQ-4-1-2",
+        "REQ-4-2-2"
+      ],
+      "preservation_chars": 16896,
+      "inherited_owners": [
+        "ROOT",
+        "REQ-5",
+        "REQ-5-1"
+      ],
+      "required_source_paths": [
+        "backend/lib/collection.js",
+        "backend/lib/csv.js",
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "backend/lib/store.js",
+        "backend/lib/undoHistory.js",
+        "backend/lib/workbooks.js",
+        "backend/routes/workbooks-cells.js",
+        "backend/routes/workbooks-crud.js",
+        "backend/routes/workbooks-filters.js",
+        "backend/routes/workbooks-import.js",
+        "backend/routes/workbooks-rows-cols.js",
+        "backend/routes/workbooks-undo.js",
+        "backend/routes/workbooks-validation.js",
+        "backend/routes/workbooks-worksheets.js",
+        "backend/routes/workbooks.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ],
+      "prompt_chars": 186874,
+      "limit": 196608,
+      "focused_sources": true,
+      "source_chars": 106563,
+      "quoted_source_paths": [
+        "backend/lib/collection.js",
+        "backend/lib/csv.js",
+        "backend/lib/errors.js",
+        "backend/lib/formula.js",
+        "backend/lib/store.js",
+        "backend/lib/undoHistory.js",
+        "backend/lib/workbooks.js",
+        "backend/routes/workbooks-cells.js",
+        "backend/routes/workbooks-crud.js",
+        "backend/routes/workbooks-filters.js",
+        "backend/routes/workbooks-import.js",
+        "backend/routes/workbooks-rows-cols.js",
+        "backend/routes/workbooks-undo.js",
+        "backend/routes/workbooks-validation.js",
+        "backend/routes/workbooks-worksheets.js",
+        "backend/routes/workbooks.js",
+        "backend/server.js",
+        "frontend/package.json",
+        "frontend/src/App.jsx",
+        "frontend/src/components/WorksheetGrid.jsx",
+        "frontend/src/index.html",
+        "frontend/src/main.jsx",
+        "frontend/src/pages/Home.jsx",
+        "frontend/src/shared/interactions.jsx",
+        "frontend/src/shared/request.js"
+      ]
+    }
+  ],
+  "post_refactor_retry_editor_chars": 57427,
+  "last_retry_prompt_chars": 186874,
+  "cause": "Initial valid frontend UI applied, unquoted backend refused; backend split succeeded then retry promoted backend closure, omitted Editor. Model asks Editor, no backend sort written; POSTsort404 followed by editor fatal error removesgrid.",
+  "native_final_fix": "toolrepair1 active",
+  "minimum_with_editor_chars": 244301
+}

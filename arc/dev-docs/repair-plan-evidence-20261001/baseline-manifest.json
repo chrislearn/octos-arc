@@ -1,0 +1,73 @@
+{
+  "worktree": "/home/chris/.codex/worktrees/arc-repair-plan-review/octos-arc",
+  "branch": "codex/arc-repair-plan-review",
+  "base_commit": "dad20db0d33d5a277c686bd09f3e44bf3515fd0d",
+  "baseline_import": "Original workspace tracked uncommitted diff imported without changing the original; three existing untracked v15.3 analysis documents copied. Imported changes are pre-existing, not this plan implementation.",
+  "imported_patch_sha256": "1fa001b23132cca56a0046fbf76a2d4c8a7ac36b2e2284b0bdbc2b984fe24365",
+  "imported_tracked_files": [
+    "arc/dev-docs/78f8-repair-improvement-review-20260930.md",
+    "arc/main.py",
+    "arc/prompts/codegen-prompt.md",
+    "arc/prompts/repair.md",
+    "arc/prompts/ui-contract-core.md",
+    "arc/tests/test_diagnostic_repairs.py",
+    "arc/tests/test_improvement_round.py",
+    "arc/tests/test_joint_regression_repair.py",
+    "arc/tests/test_token_optimization.py",
+    "arc/tests/test_whole_app_v5.py"
+  ],
+  "copied_existing_documents": [
+    "4f1c-6474-repair-analysis-20261001.md",
+    "v15.3-release-review-20261001.md",
+    "v15.3-full-qwen-analysis-20261001.md"
+  ],
+  "zip_sha256": "8805497bad8e0fb4ccd684cf79a56af779d9ae43a77887a65939bddada157183",
+  "bundle_adapter": {
+    "scope": "adapter_python_and_blueprints",
+    "files": 63,
+    "sha256": "d18dea950e25e8d90535102c5fbd7da1fefe2017aaeea079fa59ec60953c8264"
+  },
+  "package_source_count": 128,
+  "package_source_mismatches": [],
+  "key_source_sha256": {
+    "main.py": "be41fd010a8118a74dd958a3ac9d1a7d015e66a75edb053b7226958417fc195a",
+    "llm_proxy.py": "2de56b445c22045758d607517914024c02108377e04fd99280fd6d5f1c293ee6",
+    "guard.py": "6d56b7c86984692f9188a27ec98f92cfab1ce8ca792e9b5b91d58cf3a06885fc",
+    "verify_app.py": "efc40e025089d472da365aab4b3c8eed713ee7c1f59ee0d1251d24b18297bd5b"
+  },
+  "local_evidence": [
+    {
+      "file": "data-isolation.json",
+      "original_path": "/home/chris/Works/octos-arc/arc/diagnostics/v153-full-qwen-20261001/controls/github-verification-data-isolation/evidence.json",
+      "sha256": "5cd11ab1c2afd377fd5a4cb7b77f81fe4fe90e27e383a21f83b33b52f7413d2f",
+      "evidence_type": "local_control_not_requested_cloud_run"
+    },
+    {
+      "file": "stale-turn-budget.json",
+      "original_path": "/home/chris/Works/octos-arc/arc/diagnostics/v153-full-qwen-20261001/sheet/stale-turn-budget-flag-evidence.json",
+      "sha256": "b6b3657c4a1ad6ab46603b47e7864088d1e0bde82c98dc2cb9d5818448d97b7b",
+      "evidence_type": "local_control_not_requested_cloud_run"
+    },
+    {
+      "file": "route-registration.json",
+      "original_path": "/home/chris/Works/octos-arc/arc/diagnostics/v153-full-qwen-20261001/controls/sheet-refactor-registration/evidence.json",
+      "sha256": "751c44f7654b68d9e8c4a15c25a9d4fcf3b20d4c53913415e67acf07df4cf59b",
+      "evidence_type": "local_control_not_requested_cloud_run"
+    },
+    {
+      "file": "final-policy.json",
+      "original_path": "/home/chris/Works/octos-arc/arc/diagnostics/v153-full-qwen-20261001/final-repair-default-policy-mismatch.json",
+      "sha256": "a83257c310b0b18032fb1990bebd6d4f8ee2dc33f8e2438d0427bc4721435de1",
+      "evidence_type": "local_control_not_requested_cloud_run"
+    }
+  ],
+  "cloud_evidence_file": "cloud-long-turns.json",
+  "cloud_evidence_is_raw_export": false,
+  "implementation_status": "plan_only_no_new_runtime_changes",
+  "copied_existing_document_sha256": {
+    "4f1c-6474-repair-analysis-20261001.md": "dd23e7cbbd919eba7d6dd33fa6ef04657d48032f72e5170a64caf5d1dab658e0",
+    "v15.3-release-review-20261001.md": "80fe0138bfd151669779936cc7d87fe1ad38d77cce5f929ef64ab64b44ebc86c",
+    "v15.3-full-qwen-analysis-20261001.md": "f5289f8429709002b1de5170f7262b59a7fc4aec8e8dd538b43675fffb1293ee"
+  },
+  "copied_document_note": "Frozen copies for this plan. The original local experiment report may continue updating in another active task; do not refresh these copies silently."
+}

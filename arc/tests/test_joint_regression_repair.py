@@ -121,6 +121,51 @@ class JointRepairTests(unittest.TestCase):
         self.assertEqual([str(c) for c in f.pending_corrections],
                          ['Related regression checks after the targeted repair:\nother red', 'Preserve shared interfaces'])
 
+    def test_counterfactual_retains_concurrent_actor_and_workers_on_both_sources(self):
+        f = self.flow
+        scope = ['csv.spec.ts', 'rename.spec.ts']
+        f._regression_controls = {'rename': {'specs': scope, 'workers': 2}}
+        f.run_specs = Mock(side_effect=[self.bad, self.bad, self.target])
+        self.assertTrue(f.settle_failed_extension('rename', 'before', ['csv'], node_passed=True))
+        calls = f.run_specs.call_args_list
+        self.assertEqual([c.args[0] for c in calls], [scope, scope, ['rename.spec.ts']])
+        self.assertTrue(all(c.kwargs == {'workers': 2, 'grader_like': True} for c in calls))
+        self.assertTrue(f.test_verdict['rename'])
+        self.assertIsNone(f.test_verdict['csv'])
+
+    def test_missing_control_cannot_keep_extension_from_failed_prior_only_recheck(self):
+        f = self.flow
+        f.run_specs = Mock(return_value=measured(outcome('csv', False)))
+        self.assertFalse(f.settle_failed_extension('rename', 'before', ['csv'], node_passed=True))
+        f.restore_app.assert_called_once_with('before')
+
+    def test_incomplete_counterfactual_cannot_keep_extension(self):
+        f = self.flow
+        f._regression_controls = {'rename': {'specs': ['csv.spec.ts', 'rename.spec.ts'], 'workers': 2}}
+        f.run_specs = Mock(side_effect=[self.bad, measured(outcome('csv', False))])
+        self.assertFalse(f.settle_failed_extension('rename', 'before', ['csv'], node_passed=True))
+        self.assertIsNone(f.test_verdict['csv'])
+        f.restore_app.assert_called_once_with('before')
+
+    def test_kept_extension_requires_fresh_target_pass_on_selected_source(self):
+        f = self.flow
+        f._regression_controls = {'rename': {'specs': ['csv.spec.ts', 'rename.spec.ts'], 'workers': 2}}
+        f.run_specs = Mock(side_effect=[self.bad, self.bad, measured(outcome('rename', False))])
+        self.assertFalse(f.settle_failed_extension('rename', 'before', ['csv'], node_passed=True))
+        self.assertEqual([c.args[0] for c in f.restore_app.call_args_list], ['before', 'source', 'before'])
+        self.assertIsNone(f.test_verdict['rename'])
+
+    def test_internal_concurrency_defaults_to_one_and_preserves_operator_override(self):
+        f = self.flow
+        f.runner.workers = 2
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(f.spec_workers(), 2)
+            f.frozen_suite = {'name': 'reviewed'}
+            self.assertEqual(f.spec_workers(), 1)
+            self.assertEqual(f.spec_workers(3), 3)
+        with patch.dict(os.environ, {'OCTOS_ARC_TEST_WORKERS': '2'}):
+            self.assertEqual(f.spec_workers(), 2)
+
     def test_invalidated_generated_oracle_does_not_leave_a_repair_obligation(self):
         f = self.flow
         approved = {'rename', 'csv'}

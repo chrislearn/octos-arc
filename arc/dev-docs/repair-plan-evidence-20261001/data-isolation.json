@@ -1,0 +1,80 @@
+{
+  "state": "finished",
+  "purpose": "Paired diagnostic of inherited persisted test state. Same source and four frozen cases; difference only initial isolated ARC_DATA_DIR. No change or feedback to native app.",
+  "source_note": "Current native source copy with ManageAccess.jsx restored to native Search-r0 version preceding the data-driven grant UI repair. Home/Settings retain native duplicate-entry fixes. This is an explicitly reconstructed diagnostic source, not a final native snapshot.",
+  "restored_source": "/home/chris/Works/octos-arc/arc/diagnostics/v153-full-qwen-20261001/github/app/.arc/codegen/REQ-3-1-r0/frontend/src/pages/ManageAccess.jsx",
+  "restored_sha256": "cae9875b1317e61fbba9cb76480b69b81ca942780ca834cd5e1380dea29e7f27",
+  "specs": [
+    "REQ-2-2-4.spec.ts",
+    "REQ-2-3.spec.ts"
+  ],
+  "source_hashes": {
+    "frontend/src/main.jsx": "169cdbfe4232084157264837a7e6b7c6b955240b98e97bacdaf808d9ad271efa",
+    "frontend/src/App.jsx": "02877f5b29a4a4a5cf6b7880ccf49506818d9f20be839b19fca05a646f7ff3e4",
+    "frontend/src/pages/Settings.jsx": "765e44174a63bf4a5b25f120b9cd62b60ea99d9b60470be372d4c8e76d3cc582",
+    "frontend/src/pages/PasswordAndAuthentication.jsx": "cd3c19c5781d4a33a63325a61e544b4c304c7d4fee34fb5a7d443baab20c6400",
+    "frontend/src/pages/PeopleTab.jsx": "d66e2f81ea525e88b8a951f02c4cb48881caa5a47f56feba061abedf61260e97",
+    "frontend/src/pages/YourOrganizations.jsx": "b3fcbcd6dd4156f852ba999ef755498c8f10ee9c042800fae9e139bc2099f5c7",
+    "frontend/src/pages/Organization.jsx": "de6832e94908c8f2fc95f3125e0cf782967864c12344c0dd7a45f12c018406ca",
+    "frontend/src/pages/NewTeam.jsx": "5c72024a75048539a32426f800c6c80fd743cf457a9eacd7190944f96c1545bc",
+    "frontend/src/pages/ManageAccess.jsx": "cae9875b1317e61fbba9cb76480b69b81ca942780ca834cd5e1380dea29e7f27",
+    "frontend/src/pages/Home.jsx": "e1396629c32a157d8c35e2c761f004393a8e765668b581d55c7c0a7e592950eb",
+    "frontend/src/pages/Register.jsx": "a888c7439ad0394ff8cd0d97c2b48d9a78e64e1c00c5f01d7f82c0fb3c5d7020",
+    "frontend/src/pages/Repository.jsx": "6768de67c89caf88ea72bd7c00b22a783f7308d8874175a38cdee226a11e07e8",
+    "frontend/src/pages/RepositorySettings.jsx": "dd19c14dc0dc668c2cd3cade7339201c62ceecba8411182d754a96ec8cba2a79",
+    "frontend/src/pages/NewOrganization.jsx": "e4a1a1de87592f0bb514db575523488dbd5ded548697a26fdb65f8701594e566",
+    "frontend/src/pages/SignIn.jsx": "7eef28c9e5b4de2af31b66a4f75c9296a83550731bdd2a734ae676bfbc9c111a",
+    "frontend/src/pages/Recover.jsx": "0cfc5ba689b9a95244e3afe4f3df8a1fa209d55bc13d00163edd06bd3961bd03",
+    "frontend/src/pages/Team.jsx": "3723329447911f8e42a66b716be0c5c88b1bb3db98522c4ef00b3b116db76f15",
+    "frontend/src/pages/Search.jsx": "6872b9cbda88bcf0b3d2b89e64071b0b467b5db6a8f3453a14531215ca413ebe",
+    "frontend/src/layouts/MainLayout.jsx": "b4bbbc6dc57695e473f20461c26e0262486352d2bb2fc00a735485acbb8853a4",
+    "frontend/src/shared/request.js": "3bdf18013563ff2fb4e29ba582fc61f9c699d7e152d16e93635eb6465d1fd3c5",
+    "frontend/src/shared/auth.jsx": "f3157b39c93b2a7ea4666e1444d024960b0793f58350be2b987a977c50d47f68",
+    "frontend/src/shared/interactions.jsx": "f67ba607a8da34d59366078e7159554f0724ebfc4966bfd70a90fc07ecc79b25",
+    "backend/server.js": "7adb1ecb0d486f6bd089ad054272d7cee564b17307de925266efd6190278d9ff",
+    "backend/routes/recover.js": "0d72a077802cf79848939b144406ef91ed8065b00f40814c60a6b48873cb3040",
+    "backend/routes/accounts.js": "4d7b5d519dae9887f862872ff11a754f8934aeea8c0cb155cff06081b467295e",
+    "backend/routes/repository_grants.js": "087b6b797572f2f99625245ef7f35dc554f6990b40862561c298c4ba0de94380",
+    "backend/routes/auth.js": "b3733f2836ab9634742b878b26ebfb3f1febf379cf6a471204a37a2d03a6a233",
+    "backend/routes/teams.js": "b85129ea959105ac4413f4236890c8f01f72ab49a0d98eab5d72b12f2230db2c",
+    "backend/routes/organizations.js": "9879f7f58315d2f04415a2fad7956b8e41120959a1650872def28a3df1f1c0ef",
+    "backend/routes/repositories.js": "c73ddf736210b1a1514ab8d09d8719e9bf3d424dcdaa42be3eb9038cfd7729b4",
+    "backend/lib/query.js": "049fe22173bb83f05204b7ca876cf443eab1f44207df4d62d3fb118209efb933",
+    "backend/lib/errors.js": "1098c3830609b5c6d0e004b3fe1a1670302ccf43a5885402197e2629f1f97ee8",
+    "backend/lib/collection.js": "74e01252cc1015c5271799cf4b9408442db0ad71b6561909a3b8850481e43493",
+    "backend/lib/accounts.js": "ef63fd45d9cda36667b41b1f0c9d8efd408ea5a14f6abb0f96021948df1b2a75",
+    "backend/lib/repository_grants.js": "10dba18e474a7c62ced04bf8154f8bd8f7ed7c7b3d870654fea0e0dd9d3b2d78",
+    "backend/lib/teams.js": "7faa93cc0d08b544ec34d6ee57d32f07f9b73ef0379afff22885a9c6a0d0854f",
+    "backend/lib/organizations.js": "8b68ddfc9d4602cbb69221a6ec489f2c1f3b1b10b69edaf2d4a6ae12c0c9162c",
+    "backend/lib/sessions.js": "99075fa9b3537f763407f5c5615b9f6f7abcf886c9007b1becf1bff63ab102c4",
+    "backend/lib/repositories.js": "4d6953eabe487376275877ef44c85c7d376922e785c868ef8f955d34a5473fc1",
+    "backend/lib/arc.js": "b52462c0e45e8a7896dc8889b3066143929d54ed1585f785969af16c7c280b06",
+    "backend/lib/store.js": "01dad5d98dfa8e76b1b19335721bf4e2caf7e359d9a78b16c5f93326c2d222c1"
+  },
+  "initial_data": {
+    "dirty": "Copied tool state: member removed, existing grant Read",
+    "clean": "Empty private data directory, module seeds initialize Write and member"
+  },
+  "results": {
+    "dirty": {
+      "exit_code": 1,
+      "elapsed_seconds": 79.267,
+      "summary": {
+        "passed": 2,
+        "total": 4,
+        "error": null,
+        "failures": "- Feature: REQ-2-2-4: Owner removes membership and associated access without deleting account\n  Failed at: REQ-2-2-4.spec.ts:8\n  Observation: TIMED OUT after 60071 ms. Inspect the failed operation below; a missing or hidden element can also cause a timeout. Error: locator.click: Test timeout of 60000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: 'Member menu bob-reviewer', exact: true })\n\n\n   6 | test(\"REQ-2-2-4: Owner removes membership and associated access without deleting account\", async ({ page, browser }) => {\n   7 |   test.setTimeout(60_000);\n>  8 |   await h.signIn(page,'spec-owner'); await h.organization(page,'member-remove'); await h.link(page,'People').click(); await h.button(page,'Member menu bob-reviewer').click(); await page.getByRole('menuitem',{name:'Remove from organization',exact:true}).click(); await h.button(page,'Remove').click(); await h.persisted(page, () => expect(h.text(page,'bob-reviewer')).toHaveCount(0));\n     |                                                                     \n  Steps: waiting for getByRole('button', { name: 'Member menu bob-reviewer', exact: true })\n  Page URL at failure: http://127.0.0.1:48203/org/spec-org-member-remove\n  Browser observation: Browser observation (diagnostic only):\nPage URL at failure: http://127.0.0.1:48203/org/spec-org-member-remove | Browser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/auth/me: null | Browser observation (diagnostic only):\nResponse schema POST http://127.0.0.1:48203/api/auth/login: object(keys=id,username,email) | Browser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/repositories/search: array(length=1)\n  Page at failure (what the app actually rendered; roles and accessible names the test could see):\n    - generic [ref=f1e2]:\n      - banner [ref=f1e3]:\n        - link \"Octos\" [ref=f1e4] [cursor=pointer]:\n          - /url: /\n        - generic [ref=f1e5]:\n          - generic [ref=f1e6]: Search\n          - searchbox \"Search\" [ref=f1e7]: spec-member-remove\n        - button \"Account menu\" [ref=f1e9] [cursor=pointer]\n      - main [ref=f1e10]:\n        - heading \"spec-org-member-remove\" [level=1] [ref=f1e11]\n        - navigation [ref=f1e12]:\n          - link \"Repositories\" [ref=f1e13] [cursor=pointer]:\n            - /url: /org/spec-org-member-remove?tab=repositories\n          - link \"People\" [active] [ref=f1e14] [cursor=pointer]:\n            - /url: /org/spec-org-member-remove?tab=people\n          - link \"Teams\" [ref=f1e15] [cursor=pointer]:\n            - /url: /org/spec-org-member-remove?tab=teams\n        - generic [ref=f1e16]:\n          - generic [ref=f1e17]:\n            - heading \"Members\" [level=2] [ref=f1e18]\n            - button \"Add member\" [ref=f1e19] [cursor=pointer]\n          - list [ref=f1e20]:\n            - listitem [ref=f1e21]:\n              - generic [ref=f1e22]: spec-owner\n              - generic [ref=f1e23]: Owner\n  Browser diagnostics (helpers may have recovered; correlate with the final failure):\nBrowser observation (diagnostic only):\nPage URL at failure: http://127.0.0.1:48203/org/spec-org-member-remove\nActions preceding the final failed step (diagnostic only):\nNavigate / -> Fill \"spec-member-remove\" getByRole('searchbox', { name: 'Search', exact: true }) -> Press \"Enter\" getByRole('searchbox', { name: 'Search', exact: true }) -> Click getByRole('link', { name: 'spec-member-remove', exact: true }) -> Click getByRole('link', { name: 'spec-org-member-remove', exact: true }) -> Click getByRole('link', { name: 'People', exact: true })\nBrowser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/auth/me: null\nBrowser observation (diagnostic only):\nResponse schema POST http://127.0.0.1:48203/api/auth/login: object(keys=id,username,email)\nBrowser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/repositories/search: array(length=1)\nClick getByRole('button', { name: 'Member menu bob-reviewer', exact: true }) (59488 ms) at REQ-2-2-4.spec.ts:8:\nError: locator.click: Test timeout of 60000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: 'Member menu bob-reviewer', exact: true })\n\n- Feature: REQ-2-3: native Read selection replaces Write rather than appending a grant\n  Failed at: REQ-2-3.spec.ts:14\n  Observation: Error: expect(locator).toHaveText(expected) failed\n\nLocator:  getByRole('row', { name: /frontend-team/ }).getByRole('combobox', { name: 'Role', exact: true }).locator('option:checked')\nExpected: \"Write\"\nReceived: \"Read\"\nTimeout:  10000ms\n\nCall log:\n  - Expect \"toHaveText\" getByRole('row', { name: /frontend-team/ }).getByRole('combobox', { name: 'Role', exact: true }).locator('option:checked') with timeout 10000ms\n  - waiting for getByRole('row', { name: /frontend-team/ }).getByRole('combobox', { name: 'Role', exact: true }).locator('option:checked')\n    23 × locator resolved to <option value=\"Read\">Read</option>\n       - unexpected value \"Read\"\n\n    at /home/chris/Works/octos-arc/arc/diagnostics/v153-full-qwen-20261001/controls/github-verification-data-isolation/dirty-grade/prepared/tests/REQ-2-3.spec.ts:14:276\n  Steps: Expect \"toHaveText\" getByRole('row', { name: /frontend-team/ }).getByRole('combobox', { name: 'Role', exact: true }).loc -> waiting for getByRole('row', { name: /frontend-team/ }).getByRole('combobox', { name: 'Role', exact: true }).locator('op -> 23 × locator resolved to <option value=\"Read\">Read</option> -> unexpected value \"Read\"\n  Page URL at failure: http://127.0.0.1:48203/repo/spec-grant-replace/settings/access\n  Browser observation: Browser observation (diagnostic only):\nPage URL at failure: http://127.0.0.1:48203/repo/spec-grant-replace/settings/access | Browser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/auth/me: null | Browser observation (diagnostic only):\nResponse schema POST http://127.0.0.1:48203/api/auth/login: object(keys=id,username,email) | Browser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/repositories/search: array(length=1)\n  Page at failure (what the app actually rendered; roles and accessible names the test could see):\n    - banner:\n      - link \"Octos\":\n        - /url: /\n      - text: Search\n      - searchbox \"Search\": spec-grant-replace\n      - button \"Account menu\"\n    - main:\n      - heading \"spec-org-grant/spec-grant-replace - Manage access\" [level=1]:\n        - link \"spec-org-grant\":\n          - /url: /org/spec-org-grant\n        - text: /spec-grant-replace - Manage access\n      - button \"Add people or teams\"\n      - heading \"Access list\" [level=2]\n      - table:\n        - rowgroup:\n          - row \"Subject Role Actions\":\n            - columnheader \"Subject\"\n            - columnheader \"Role\"\n            - columnheader \"Actions\"\n        - rowgroup:\n          - row \"frontend-team(team) Role Read Save\":\n            - cell \"frontend-team(team)\"\n            - cell \"Role Read\":\n              - text: Role\n              - combobox \"Role\":\n                - option \"Read\" [selected]\n                - option \"Triage\"\n                - option \"Write\"\n                - option \"Maintain\"\n                - option \"Admin\"\n            - cell \"Save\":\n              - button \"Save\" [disabled]\n  Browser diagnostics (helpers may have recovered; correlate with the final failure):\nBrowser observation (diagnostic only):\nPage URL at failure: http://127.0.0.1:48203/repo/spec-grant-replace/settings/access\nActions preceding the final failed step (diagnostic only):\nNavigate / -> Fill \"spec-grant-replace\" getByRole('searchbox', { name: 'Search', exact: true }) -> Press \"Enter\" getByRole('searchbox', { name: 'Search', exact: true }) -> Click getByRole('link', { name: 'spec-grant-replace', exact: true }) -> Click getByRole('link', { name: 'Settings', exact: true }) -> Click getByRole('link', { name: 'Manage access', exact: true })\nBrowser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/auth/me: null\nBrowser observation (diagnostic only):\nResponse schema POST http://127.0.0.1:48203/api/auth/login: object(keys=id,username,email)\nBrowser observation (diagnostic only):\nResponse schema GET http://127.0.0.1:48203/api/repositories/search: array(length=1)"
+      }
+    },
+    "clean": {
+      "exit_code": 0,
+      "elapsed_seconds": 10.931,
+      "summary": {
+        "passed": 4,
+        "total": 4,
+        "error": null,
+        "failures": ""
+      }
+    }
+  }
+}

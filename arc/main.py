@@ -41,6 +41,7 @@ Environment (all optional):
     OCTOS_ARC_CORRECTION_ROUNDS  corrective retries for unapplied protocol/contract rejections (default 2, max 3)
     OCTOS_ARC_APP_DESIGN_CHARS  preferred design budget (24000 chars); mandatory contracts may grow it, within the complete prompt limit
     OCTOS_ARC_GRADER_WORKERS   expected grading concurrency (default 1, based on observed platform logs)
+    OCTOS_ARC_TEST_WORKERS     local acceptance workers (default 1 for reviewed internal suites, otherwise 2)
     OCTOS_ARC_FINAL_WORKERS    internal full-suite override (default GRADER_WORKERS; larger values are stress tests)
     OCTOS_ARC_SHARED_REPAIR    "0" disables the single shared runtime-error repair before leaf cycles
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
@@ -64,6 +65,7 @@ Environment (all optional):
     OCTOS_ARC_FINAL_CONFIRM_RUNS  unchanged-app full-suite runs required before acceptance (default 1)
     OCTOS_ARC_PARTIAL_CONFIRM_RATIO / OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES  near-green confirmation (0.9 / 3)
     OCTOS_ARC_NO_WRITE_SECONDS  elapsed structured-edit time before late read tools close (180; after half the requests)
+    OCTOS_ARC_NOOP_TOOL_SECONDS / OCTOS_ARC_NOOP_TOOL_REQUESTS  one tool fallback after completed unchanged codegen (180 seconds / 8 requests)
     OCTOS_ARC_DEGENERATE_MAX_TOKENS  codegen ceiling after repeated/no-op output (8192; 0 disables)
     OCTOS_ARC_RECOVERY_REASONING  optional reasoning after degeneration (none by default)
     OCTOS_ARC_SIBLING_BATCH_SIZE  max independent sibling leaves per codegen request (default 1; no batching)
@@ -2145,6 +2147,7 @@ UI behavior follows the requirement and the current application:
 - Treat required built-in/default records and their accessible navigation names as invariants when the requirements say they are fixed. If users may rename or remove other records, distinguish those from the protected record in both server validation and UI; do not let an edit to shared data silently rename an unrelated required destination.
 - Treat a UI action as a state transition: mount usable editor/dialog controls synchronously before the first await. Isolate background controls for modal dialogs, not ordinary inline editors or non-modal menus. A browser click does not await an async event listener. After a mutation, await persistence and refresh (or apply a consistent optimistic update) before exposing stale state as final; handle failure without losing the user's edits. Derive Save/Cancel/autosave transitions from requirements; cancelling a draft must not commit it.
 - For nested editors, menus and dialogs, define which layer owns outside click, Escape and focus transitions. A child's Escape should not close or save its parent unless that is the required action. A controlled dialog's onOpenChange must not turn an incidental close/open signal into a premature commit; verify the editor remains mounted and editable after its entry gesture.
+- Keep a pending edit's origin separate from the current selection or focus. Pointer-down can change selection before blur commits the old draft. Commit and cancel using the draft's captured record/cell ID, and inspect guards in the called commit function as well as the outer event handler. Verify typing, selecting another item, blur/Enter, reload and cancellation; preserving the text alone does not prove it was saved to the right item. Keep any ref for latest selection synchronized across loading, navigation and pointer transitions; older save responses must not overwrite the newly selected item's controls. Keep selection state, range and ref coherent when switching views.
 - Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
 - Specify ownership/keys and atomic command effects (including undo) from requirements; related mutations must commit together in one store update or database transaction, not separate file writes. Validate authoritatively on the server. Date-only values are calendar dates, not UTC instants; persist expiry deadlines across reloads, anchor countdowns to server time, and use a task-provided reference date only when explicitly required. Keep editable rich-text regions labeled (role=textbox, aria-multiline=true); use native select for a native selection contract, not a visually similar custom menu.
 - Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
@@ -2220,6 +2223,18 @@ FORM_VALIDATION_GUIDANCE = (
     "use noValidate to prevent native validation intercepting submission; validate all fields on "
     "the server and render errors together. Preserve non-sensitive drafts and clear password/confirmation "
     "after rejection when required. Enforce required unique identity fields before creating a record.\n")
+
+DRAFT_ORIGIN_GUIDANCE = (
+    "Draft identity: keep the pending edit's origin separate from current selection/focus. "
+    "Pointer-down may change selection before blur. Commit/cancel using the captured record/cell ID; "
+    "check inner commit guards as well as outer event handlers. Verify saving to the original item, "
+    "reload and cancellation, preserving unrelated values.\n"
+    "For required blur-save, do not gate a valid captured origin on equality with current selection. "
+    "Keep any ref for latest selection synchronized across loading, navigation and pointer transitions; "
+    "keep selection state, range and ref coherent when switching views. "
+    "Older save responses must not overwrite the newly selected item's controls.\n"
+)
+CODEGEN_RULES += DRAFT_ORIGIN_GUIDANCE
 
 GENERIC_TEMPLATE_NOTE = COLLECTION_MIGRATION_CONTRACT + """\
 JSX (including Context providers) needs .jsx/.tsx, not .js/.ts; update imports. Fix source parse errors before changing build config.
@@ -5920,7 +5935,7 @@ class Flow:
         form_context = str(node.get('description') or '') + '\n' + str(fields.get('failures') or '')
         if re.search(r'\b(?:form|password|e-?mail|validat\w*|register|registration)\b', form_context, re.I):
             result += '\n' + FORM_VALIDATION_GUIDANCE
-        return result
+        return result + '\n' + DRAFT_ORIGIN_GUIDANCE
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         result = self._tests_prompt_for(node_id, skeleton)
@@ -6075,7 +6090,11 @@ class Flow:
             return None
         limit = container_memory_limit()
         self.mem_limit = limit
-        workers = workers_for_memory(limit, int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
+        # Reviewed internal suites share one mutable application store, just
+        # like the final grader. Concurrent files can invalidate each other's
+        # before/after assertions even when the application is correct.
+        default_workers = "1" if getattr(self, "frozen_suite", None) else "2"
+        workers = workers_for_memory(limit, int(os.environ.get("OCTOS_ARC_TEST_WORKERS", default_workers)))
         runner = AcceptanceRunner(root, tests_dir, acceptance_work_dir(root), log,
                                   timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
                                   workers=workers, env_extra=env_extra)
@@ -6310,6 +6329,7 @@ class Flow:
         selected_runner = runner or self.runner
         if selected_runner is None:
             return RunSummary(error='acceptance runner unavailable')
+        workers = self.spec_workers(workers, selected_runner)
         if getattr(self, 'frozen_suite', None):
             from embedded_suites import verify_directory
             try:
@@ -6406,6 +6426,16 @@ class Flow:
                 summary.store_changes = store_changes_by_tests(git_run, self.output_dir,
                                                                summary.stores_written)
             restore_worktree(git_run)
+
+    def spec_workers(self, workers: int | None = None, runner=None) -> int:
+        """Resolve once so a rollback control uses the same concurrency."""
+        if workers is not None:
+            return max(1, workers)
+        if getattr(self, 'derived_as_specs', False):
+            return max(1, int(os.environ.get('OCTOS_ARC_DERIVED_WORKERS', '1')))
+        if getattr(self, 'frozen_suite', None) and 'OCTOS_ARC_TEST_WORKERS' not in os.environ:
+            return 1
+        return max(1, int(getattr(runner or self.runner, 'workers', 1)))
 
     def run_isolated(self, runner: AcceptanceRunner, specs: list[str], server, git_run, workers) -> RunSummary:
         """One spec file at a time; the store is reset whenever a file mutated it.
@@ -6678,6 +6708,13 @@ class Flow:
             outcome = getattr(self, "codegen_repair_unavailable_reason", "") or "prompt_unavailable"
         else:
             outcome = getattr(self, "last_codegen_outcome", "unapplied")
+        # A completed unchanged reply is different from a refused patch or
+        # missing source context. Give it one short tool opportunity, keeping
+        # partial writes and context recovery on their normal allowance.
+        if not applied and outcome == 'unchanged':
+            left = min(left, max(30, float(os.environ.get('OCTOS_ARC_NOOP_TOOL_SECONDS', '180'))))
+            deadline = time.monotonic() + left
+            allowance = min(allowance, max(1, int(os.environ.get('OCTOS_ARC_NOOP_TOOL_REQUESTS', '8'))))
         log(f"[flow] {label}: codegen {outcome}; tool fallback has {allowance} request(s) "
             f"and {left:.0f}s remaining")
         self.metric("node_repair_fallback", node_id=node_id, label=label, codegen_outcome=outcome,
@@ -6696,7 +6733,7 @@ class Flow:
             round_spent += spent
             continuation = min(8, max(0, self.node_repair_request_cap(failures, applied) - round_spent))
             left = deadline - time.monotonic()
-            if continuation and left >= 30 and not self.wound_down() and getattr(proxy, 'hard_budget_exhausted', False) is not True:
+            if outcome != 'unchanged' and continuation and left >= 30 and not self.wound_down() and getattr(proxy, 'hard_budget_exhausted', False) is not True:
                 note = ("\nThe previous repair returned no application edit. Its proposed diagnosis is unverified; "
                         "check it against the current helper/API shapes. Use the available edit_file/write_file tools "
                         "to apply the focused fix now; do not finish by promising to implement it. "
@@ -7175,6 +7212,7 @@ class Flow:
         checked_failed_versions = set()
         pending_regression_specs = set()
         last_regression_evidence = ''
+        getattr(self, '_regression_controls', {}).pop(node_id, None)
         initial_versions = source_versions if source_versions is not None else self.repair_source_index().versions
         self.codegen_blocked = False
         explicit_rounds = getattr(self, 'repair_rounds_explicit', True)
@@ -7285,7 +7323,12 @@ class Flow:
                     else:
                         regression_specs = prior_specs
                 if regression_specs and (not self.wound_down()) and (self.remaining() > self.final_measurement_reserve()):
-                    regression = self.run_specs(regression_specs, grader_like=True)
+                    regression_workers = self.spec_workers()
+                    controls = getattr(self, '_regression_controls', None)
+                    if controls is None:
+                        controls = self._regression_controls = {}
+                    controls[node_id] = {'specs': list(regression_specs), 'workers': regression_workers}
+                    regression = self.run_specs(regression_specs, workers=regression_workers, grader_like=True)
                     if getattr(self, 'derived_as_specs', False) is True:
                         regression = self.audit_related_derived_specs(regression_specs, regression)
                         disputed = self.disputed_generated_failures(regression)
@@ -7354,6 +7397,10 @@ class Flow:
                     self.commit(f'{node_id} (accepted): {passed}/{summary.total} acceptance tests pass')
                     return True
             joint = dc_replace(summary, results=summary.results + regression_results)
+            if (regression_failed and attempt >= int(os.environ.get('OCTOS_ARC_CODEGEN_REPAIRS', '2'))
+                    and self.codegen_mode()):
+                self.codegen_blocked = True
+                log(f'[flow] {node_id}: affected behavior still failing; repairs use tool mode')
             normalized = failure_signature(joint) if joint.results else failures
             if repair_applied and normalized and normalized == previous_failures:
                 self.codegen_blocked = True
@@ -11802,26 +11849,28 @@ class Flow:
 
     def settle_failed_extension(self, node_id: str, before_sha: str, regressed_proven: list[str],
                                 node_passed: bool) -> bool:
-        """Roll a failed extension back -- unless the "regression" reproduces without it.
+        """Compare both sources with the full failed scope and concurrency.
 
-        A failed extension has no verified value that justifies shipping known
-        damage to previously passing behavior, so the tree returns to the exact
-        pre-node commit. But v9.1 (run 2a839b37d3e8) rolled REQ-1-1-2 back for a
-        REQ-1-1-1 check that still failed on the restored source: a prior that
-        fails without the node's changes is flaky or stateful, not regressed by
-        the node. When every "regressed" prior still fails after the restore and
-        the node's own specs had passed, the node's work is re-applied and kept.
-        Returns True when the extension was kept.
+        Removing a concurrent mutating test while restoring source confounds
+        the comparison. Missing or incomplete controls cannot justify keeping
+        an extension; re-applying it also requires a fresh target measurement.
         """
         after_sha = self.head()
+        prior_specs = sorted({spec for prior in regressed_proven for spec in self.spec_map.get(prior, [])})
+        control = getattr(self, '_regression_controls', {}).get(node_id)
+        scope = sorted(set(prior_specs) | set(control['specs'])) if control else prior_specs
+        workers = control['workers'] if control else self.spec_workers()
+        # The selected best source can differ from the last failed round.
+        # Measure the source actually being considered for retention.
+        extension = (self.run_specs(scope, workers=workers, grader_like=True)
+                     if control and scope and self.remaining() > self.final_measurement_reserve() + 90 else None)
         self.restore_app(before_sha)
         self.commit(f"{node_id}: restore verified behavior after failed extension")
         restored_sha = before_sha  # restore_app returns this exact source tree
-        prior_specs = sorted({spec for prior in regressed_proven for spec in self.spec_map.get(prior, [])})
-        restored = (self.run_specs(prior_specs, grader_like=True) if prior_specs
+        restored = (self.run_specs(scope, workers=workers, grader_like=True) if scope
                     and self.remaining() > self.final_measurement_reserve() + 30 else None)
         still_failing: list[str] = []
-        if restored is not None and self.suite_is_measured(restored, prior_specs):
+        if restored is not None and self.suite_is_measured(restored, scope):
             for prior in regressed_proven:
                 paths = self.spec_map.get(prior, [])
                 rows = [row for row in restored.results if any(
@@ -11849,27 +11898,47 @@ class Flow:
                 self.test_verdict[prior] = None  # source restored; behavior not remeasured
                 self.mark("test_unverified", prior,
                           f"restored source {restored_sha}; previous result needs remeasurement")
-        if still_failing and len(still_failing) == len(regressed_proven) and node_passed and after_sha:
+        matched = bool(control and extension is not None and restored is not None
+                       and self.suite_is_measured(extension, scope)
+                       and self.suite_is_measured(restored, scope))
+        self.metric('failed_extension_control', node_id=node_id, specs=scope, workers=workers,
+                    matched=matched, before=before_sha, after=after_sha,
+                    before_passed=restored.passed if restored else None,
+                    after_passed=extension.passed if extension else None)
+        if (matched and still_failing and len(still_failing) == len(regressed_proven)
+                and node_passed and after_sha and self.remaining() > self.final_measurement_reserve() + 30):
             self.restore_app(after_sha)
-            self.commit(f"{node_id}: keep extension; prior failures reproduce without it")
+            target_specs = self.spec_map.get(node_id, [])
+            target = self.run_specs(target_specs, workers=workers, grader_like=True) if target_specs else None
+            fresh_pass = bool(target is not None and self.suite_is_measured(target, target_specs)
+                              and target.all_passed and not self.derived_review_needed(node_id))
+            if not fresh_pass:
+                self.restore_app(before_sha)
+                self.commit(f"{node_id}: rollback; retained target was not freshly verified")
+                self.test_verdict[node_id] = None
+                self.metric('failed_extension_rollback', node_id=node_id, restored=before_sha,
+                            regressed_nodes=regressed_proven, reason='target_remeasurement_failed')
+                return False
+            self.commit(f"{node_id}: keep extension; matched prior failures reproduce without it")
             self.test_verdict[node_id] = True
-            self.mark("test_passed", node_id, f"extension source {after_sha}; node passed on this source")
+            self.record_tests(node_id, target_specs, target)
+            self.mark("test_passed", node_id, f"extension source {after_sha}; target freshly measured")
             for prior in regressed_proven:
                 self.test_verdict[prior] = None
                 self.mark("test_unverified", prior,
                           f"extension source {after_sha}; restored-source measurement is stale")
             self.metric('failed_extension_kept', node_id=node_id, restored=after_sha,
-                        flaky_priors=regressed_proven)
+                        unverified_priors=regressed_proven, control_specs=scope, workers=workers)
             log(f"[acceptance] {node_id}: {regressed_proven} fail without this node's changes too; "
-                f"not a regression -- extension kept ({after_sha[:8]})")
+                f"matched control remains unresolved; extension kept ({after_sha[:8]})")
             return True
         green_specs = {spec for prior in regressed_proven if self.test_verdict.get(prior) is True
                        for spec in self.spec_map.get(prior, [])}
         self.pending_corrections = [c for c in self.pending_corrections
                                    if not isinstance(c, RegressionEvidence) or not c.specs <= green_specs]
         self.metric('failed_extension_rollback', node_id=node_id, restored=before_sha,
-                    regressed_nodes=regressed_proven)
-        log(f"[acceptance] {node_id}: failed extension regressed {regressed_proven}; "
+                    regressed_nodes=regressed_proven, matched_control=matched)
+        log(f"[acceptance] {node_id}: failed extension has unresolved prior behavior {regressed_proven}; "
             f"restored pre-node source {before_sha[:8]}")
         return False
 

@@ -187,6 +187,59 @@ class FlowRegression(unittest.TestCase):
         self.assertEqual(f.metric.call_args.kwargs['codegen_outcome'],
                          'prompt_unavailable:required_source_or_context_budget')
 
+    def test_completed_unchanged_codegen_gets_one_bounded_tool_window(self):
+        from types import SimpleNamespace
+        f = self.flow
+        f.codegen_mode = Mock(return_value=True)
+        f.codegen_repair_prompt = Mock(return_value='quoted source')
+        def unchanged(*args, **kwargs):
+            f.last_codegen_outcome = 'unchanged'
+            f.last_codegen_request_count = 1
+            return True, 'This may be a test isolation issue'
+        def no_edit(*args, **kwargs):
+            f.last_turn_changed = False
+            f.llm_proxy.turn_upstream_requests = 1
+            return True, 'diagnosis only'
+        f.codegen_turn = Mock(side_effect=unchanged)
+        f.repair_tool_turn = Mock(side_effect=no_edit)
+        f.llm_proxy = SimpleNamespace(turn_upstream_requests=0, hard_budget_exhausted=False)
+        with patch.dict(os.environ, {'OCTOS_ARC_NOOP_TOOL_SECONDS': '90', 'OCTOS_ARC_NOOP_TOOL_REQUESTS': '4'}):
+            self.assertFalse(f.node_repair_turn('A', 'failure', 900, 'A repair', lambda: 'prompt'))
+        f.repair_tool_turn.assert_called_once()
+        self.assertLessEqual(f.repair_tool_turn.call_args.args[1], 90)
+        self.assertEqual(f.repair_tool_turn.call_args.kwargs['request_budget'], 4)
+
+    def test_missing_context_repair_retains_full_tool_allowance(self):
+        f = self.flow
+        f.codegen_mode = Mock(return_value=True)
+        f.codegen_repair_prompt = Mock(return_value=None)
+        f.codegen_repair_unavailable_reason = 'preservation_contracts_need_tool_reads'
+        f.repair_tool_turn = Mock(return_value=(True, 'applied'))
+        with patch.dict(os.environ, {'OCTOS_ARC_NOOP_TOOL_SECONDS': '30'}):
+            self.assertTrue(f.node_repair_turn('A', 'failure', 900, 'A repair', lambda: 'prompt'))
+        self.assertGreater(f.repair_tool_turn.call_args.args[1], 800)
+
+    def test_draft_origin_rule_reaches_compact_generation_and_structured_tool_prompt(self):
+        from types import SimpleNamespace
+        f = self.flow
+        node = leaf('A', 'Commit a draft on blur when selection changes')
+        prompt = f.codegen_implement_prompt(node, 'Type a draft, select another item, then reload')
+        self.assertIsNotNone(prompt)
+        self.assertIn('captured record/cell ID', prompt)
+        f.llm_proxy = SimpleNamespace(extra_drop_tools=set(), tool_max_tokens=0,
+                                      compact_reads=False, bounded_edits=False)
+        f.turn = Mock(return_value=(True, 'done'))
+        f.structured_edit_turn(prompt, 60, 'A repair')
+        sent = f.turn.call_args.args[0]
+        self.assertIn('captured record/cell ID', sent)
+        self.assertIn('check inner commit guards', sent)
+        self.assertIn('ref for latest selection synchronized', sent)
+        f.requirement_nodes = {'A': node}
+        tool = f.app_repair_prompt(node_id='A', passed=0, total=1, failures='blur lost edit',
+                                  test_location='tests', corrections='', slow='', smoke=3001,
+                                  port=3000, sources='source')
+        self.assertIn('captured record/cell ID', tool)
+
     def test_structured_repair_has_short_initial_budget_and_one_measured_extension(self):
         from types import SimpleNamespace
         f = self.flow

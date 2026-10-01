@@ -6,3 +6,9 @@ The official acceptance tests for requirement node {node_id} just ran against yo
 Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Work within the configured request budget. Use the supplied evidence to identify the cause, read relevant sources when needed, and make focused edits. For a failed post-action assertion, trace the preceding actions and identify the element and record actually acted on. With repeated controls, inspect locator scope, ordering, visibility, and hover/focus state before assuming a storage or rendering failure. Preserve keyboard access and the required interaction semantics when resolving ambiguity. Preserve behavior beyond the tested inputs. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 {port_rules}
+
+Draft identity: keep the pending edit's origin separate from current selection/focus. Pointer-down may change selection before blur. Commit/cancel using the captured record/cell ID; check inner commit guards as well as outer event handlers. Verify saving to the original item, reload and cancellation, preserving unrelated values.
+
+For required blur-save, do not gate a valid captured origin on equality with current selection. Keep any ref for latest selection synchronized across loading, navigation and pointer transitions; older save responses must not overwrite the newly selected item's controls.
+
+Keep selection state, range and ref coherent when switching views.

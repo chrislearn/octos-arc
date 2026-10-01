@@ -1,0 +1,228 @@
+# ARC 修复速度与工具模式改进方案
+
+本文针对两个进行中的云端任务，提出适配器的具体修复步骤、开发验收和真实模型对照。状态是**方案完成，候选修复未实现、未发布**。已有 v15.3 改动只是导入的分析基线，不能算作本方案的实施结果。
+
+## 分析基线与证据范围
+
+云端分析对象为 [GitHub 任务](https://arc-bench.com/runs/e11e610bb3ca) 与 [工作表任务](https://arc-bench.com/runs/2c6418d39ccd)。统计冻结于 **2026-10-01 12:24:11 北京时间**，不代表之后的进度或最终成绩。日志表中的时刻使用 UTC，北京时间加八小时。两任务的部署版本为 v15.3，模型为 qwen3.7-plus、low reasoning；冻结内部测试一个 worker，容器 2048 MiB。
+
+新 worktree 为 `/home/chris/.codex/worktrees/arc-repair-plan-review/octos-arc`，分支 `codex/arc-repair-plan-review`，Git 起点 `dad20db0d33d5a277c686bd09f3e44bf3515fd0d`。由于该提交不包含当前已交付 v15.3 的未提交改动，已导入原工作目录的 tracked diff，并复制三份已有分析文档。本次未改动原工作目录；复制的本地实验报告已冻结，原任务继续更新报告时不自动同步到此方案。导入列表与摘要见 [基线清单](repair-plan-evidence-20261001/baseline-manifest.json)。
+
+发行 ZIP SHA-256 为 `8805497bad8e0fb4ccd684cf79a56af779d9ae43a77887a65939bddada157183`；63 个 Python/blueprint 部署文件指纹为 `d18dea950e25e8d90535102c5fbd7da1fefe2017aaeea079fa59ec60953c8264`。本 worktree 核对了发行元数据列出的 **128 个源文件**，逐文件摘要全部相同；128 文件清单与 63 文件聚合指纹是两个不同范围。
+
+证据分为三类，结论不得互换：
+
+| 类型 | 能支持的判断 | 不能支持的判断 |
+| --- | --- | --- |
+| 两个指定云端任务的浏览器 stdout 观察 | 节点耗时、已结束 turn 的工具次数、紧随其后的内部验收 | 原始请求 token/TTFT、供应商排队时间、未取得的生成源码根因、最终官方成绩 |
+| 与发行包逐字节一致的适配器源码 | 预算状态、上下文选择、模式路由、验证标志的实现问题 | 具体云端应用一定触发了每个问题 |
+| 另一次本地 v15.3 完整 Qwen 实验的隔离对照 | 相同应用源码和用例下改变单一条件后的结果 | 指定云端任务也发生了相同应用缺陷 |
+
+云端观察已整理成 [长 turn 数据](repair-plan-evidence-20261001/cloud-long-turns.json)，这是本次会话浏览器观察的转录，**不是原始 stdout 导出**。本地对照的原始 JSON 已复制并记录 SHA-256。详细背景见 [已有本地实验报告](v15.3-full-qwen-analysis-20261001.md)；本文不把其中排序最终 5/5、本地工作表全套 65/72 贴到指定云端任务上。
+
+## 速度慢在哪里
+
+GitHub 在观察点完成 23 个节点，第 24/47 个节点进行中；工作表完成 22 个节点，第 23/24 个节点进行中。下面是已结束事件的累计时长，不能直接分解成互斥的全程占比：工具 turn 内可以包含模型主动自验，且缺少完整区间账本。
+
+| 已结束事件 | GitHub | 工作表 |
+| --- | ---: | ---: |
+| agent turn 数 | 59 | 60 |
+| 含工具调用的 turn 数 | 35 | 17 |
+| turn 累计墙钟 | 12493 秒，208.2 分钟 | 12418 秒，207.0 分钟 |
+| 适配器记录的验收调用 | 100 次 | 75 次 |
+| 验收调用累计时长 | 2614 秒，43.6 分钟 | 2662 秒，44.4 分钟 |
+
+主要可见成本是生成/修复 turn、重复补上下文、较慢的失败验收和重复联合回归。turn 时长包含模型等待和工具执行，现有证据不足以把 208 分钟全称为模型推理时间，也不足以归因为服务端排队。启动 pip 约 3 秒、preflight 8.287 秒，与这些成本不在同一量级。
+
+工作表的选区、筛选、校验和排序四个节点分别约 52:07、32:21、32:08、36:46，总计 153:22，约为观察点任务已运行时间的 58%。其中选区修复后最终恢复节点前源码，排序在观察点仍 0/5；这是集中改进的首批样本。选区略超 50 分钟的节点上限也提醒我们，模型调用的预算限制没有完整覆盖之后的验收、重构及收尾。
+
+上下文容量和交付机制是两层问题。`main.py:3802` 在计算总 prompt 剩余空间前，先因保留契约独立的 24000 字符限额返回 `preservation_contracts_need_tool_reads`；单独增大 196608 总字符限额无效。另一些节点确有必须源码闭包放不下、重组时丢失上一轮 Editor 等问题；它们需要按版本保留闭包并提供按需读取，不能概括为总容量一定充足。
+
+## 超过 20 次工具调用是否值得
+
+这里的“超过 20”严格指一个已结束 agent turn 内 **tool/started > 20**，包含读文件、写文件和命令。一个模型请求可以发多个工具调用，因此这不是“超过 20 次模型请求”，也不是“超过 20 轮修复”。当前云端证据不能回答后两个口径的数量。
+
+| UTC 结束时刻 | 任务 / 节点 | 阶段与实际执行器 | 秒 | 工具次数 | 紧随其后的目标验收 |
+| --- | --- | --- | ---: | ---: | --- |
+| 01:29:51 | GitHub REQ-2-2-2 | repair 1 / structured | 322 | 23 | 0/2 |
+| 02:22:24 | GitHub REQ-3-2-1 | implement / structured | 437 | 50 | 0/2 |
+| 02:42:10 | GitHub REQ-3-2-2 | implement / structured | 529 | 55 | 1/2 |
+| 02:54:38 | GitHub REQ-3-4 | implement / structured | 233 | 25 | 1/2 |
+| 02:59:35 | GitHub REQ-3-4 | repair 1 / full tool | 222 | 43 | 2/2 |
+| 03:06:59 | GitHub REQ-4-1 | implement / structured | 377 | 27 | 0/1 |
+| 03:15:39 | GitHub REQ-4-1 | repair 1 / full tool | 397 | 23 | 0/1 |
+| 03:28:23 | GitHub REQ-4-2-1 | implement / structured | 340 | 37 | 0/1 |
+| 03:51:46 | GitHub REQ-4-2-3 | implement / structured | 491 | 33 | 0/2 |
+| 04:20:52 | GitHub REQ-4-3-1 | implement / structured | 247 | 34 | 2/2 |
+| 03:57:12 | 工作表 REQ-5-1-1 | repair 1 / full tool | 278 | 27 | 0/5 |
+| 04:14:54 | 工作表 REQ-5-1-1 | repair 2 / full tool | 926 | 23 | 0/5 |
+
+共 12 个长 turn，400 次工具调用、4799 秒（80.0 分钟）；GitHub 10 个、工作表 2 个。紧随其后的目标全绿为 **2/12**。只算修复 turn 则为 **1/5**，耗时 2145 秒。这些长 turn 涉及的 9 个不同节点中，观察点前 8 个最终通过目标验收；许多由后续更短修复完成，不能把 8/9 当作长 turn 的因果成功率。2/12 也只是这批选择样本的结果，不能外推成所有工具模式的成功概率。
+
+多轮工具修复有可验证的价值：GitHub 代码搜索目标先达 2/2，但旧功能只有 39/41；后续联合修复到 40/41，最后 41/41。找回密码连续 1/2 的失败从退出控件角色、弹窗角色移到首页入口，最后工具修复 2/2、旧功能 10/10。相反，目录浏览第一次 full tool 虽日志 `verified=True`，目标仍 0/1；第二次修路由后才 1/1。**切换执行模式、调用构建、目标通过和联合修复完成必须分别记录。**
+
+工作表排序第一次工具修复虽然仍 0/5，失败已从缺菜单推进到单元格结果断言；这说明有局部进展，但尚未完成。第二次 926 秒之后仍 0/5，缺少当前应用源码，不能断言其真实算法根因。新的停止规则必须既防止空转，又保留有证据的失败步骤推进。
+
+## 修复成功和继续修复的契约
+
+新增 `RepairEvidence`，由适配器根据实际工具结果和正式验收生成，禁止从模型总结推断成功：
+
+```text
+run_id, node_id, repair_round_id, segment_id, executor
+source_digest_before, source_digest_after
+request_count, tool_started_count, tool_completed_count
+build_status = not_run | passed | failed | incomplete
+target = {scope_hash, expected_cases, executed_cases, passed, error}
+regression = {scope_hash, expected_cases, executed_cases, passed, error}
+measurement = {source_digest, workers, data_isolation_id, grader_like}
+failure_frontier = {case_id, step_id, operation, locator, expected, received}
+decision = accepted | partial_progress | stalled | regressed | unmeasured
+```
+
+目标实现成功要求：构建/启动成功，目标完整执行且全绿。节点可接受还要求同一源码上的规定旧功能范围完整执行且全绿；若有旧功能本就未验证，保持未验证，按现有 v15.3 同条件对照规则处理，不能消除待办。最终完整成功要求原始全套、全场景的独立副本验收，不以部分已验证范围代替。
+
+缺失用例、0/0、超时、测试 runner 错误、源码摘要不一致均为 `unmeasured` 或失败，不能从 `passed==total` 直接标绿。`wrote` 只作动作信息，是否改变源码由磁盘摘要决定；改测试、运行时数据和报告不算应用源码进展。
+
+源码摘要覆盖应用前后端代码、装配入口、依赖清单和规范种子，排除构建产物与可变运行时数据；测试、helpers、fixture、配置和初始数据种子分别记录摘要。`data_isolation_id` 是每次验收的唯一身份，不要求两次相同；可比条件是初始种子/config hash 相同、目录都私有。scope hash 附实际 case ID 清单，预期用例数来自冻结清单，不能根据本次 runner 返回的条数反推预期数量。
+
+进展分两层：单个 turn 内最多允许一次有界续跑，前提为受保护路径之外的有效源码变化与剩余额度；跨正式修复轮，以目标/回归通过集合增加，或同一用例已完成动作前缀严格增长且旧通过项未失守为依据。仅文字、行号或泛化 timeout 描述变化不能换取额度。无法稳定提取动作前缀时，标记未知，依靠实际验收集合和原有硬上限；不凭主观诊断无限延长。
+
+## 实施工作包
+
+### R01 P0 工具验收使用私有初始数据
+
+修改 `verify_app.py:verify` 和测试 `tests/test_verify_app.py`。为每次调用在其 TemporaryDirectory 内分配 `runtime-data`，使用 `AppServer(copy, ..., env_extra={"ARC_DATA_DIR": private_data})`；明确覆盖继承值。先停服务再清理目录，复制、构建和测试异常同样清理。这里只隔离本地文件数据，不声称已隔离外部数据库或应用硬编码绝对路径。
+
+本地相同重建源码、相同四用例，仅改变初始私有数据，残留状态 2/4、79.267 秒，空私有目录 4/4、10.931 秒，见 [数据隔离对照](repair-plan-evidence-20261001/data-isolation.json)。这足以优先修复验证器，不证明云端也发生了同一污染。
+
+验收：继承目录放哨兵文件并设 `ARC_DATA_DIR`，连续两次 verify 各用不同私有目录；原目录摘要不变，两次初始种子相同；AppServer 失败、runner 超时和 copy 失败路径不泄漏服务。用原四冻结用例做同源码对照，修复后无论调用方状态如何均为 4/4。不能通过清空调用方目录“修复”。
+
+### R02 P0 请求额度归属修复轮，消除跨轮状态泄漏
+
+修改 `main.py:node_repair_turn`、`node_repair_request_cap` 与 `llm_proxy.py:begin_turn` 的调用边界；增加 `RepairRoundBudget`，至少包含 `round_id / request_limit / requests_spent / deadline`。代理每次 segment 的临时标志必须绑定 `turn_serial`；调用方查询带 segment 身份的结果，或从 round ledger 判断当前额度。
+
+`main.py:6695` 在新 full tool 调用 `begin_turn` 前检查旧 `hard_budget_exhausted`，可使新轮未发送任何请求便退出。本地无网络探针只改变前轮 flag，结果分别为“新工具不启动”和“启动”，见 [额度状态对照](repair-plan-evidence-20261001/stale-turn-budget.json)。
+
+新修复轮创建新 round ledger，不读上一轮额度耗尽；同一轮的 compact、协议纠正、full tool、续跑共用剩余额度。不要每次 fallback 都重置完整额度。全场耗尽仍立即停止，供应商重试的计费口径也从当前实际上游请求计入。
+
+验收放入 `tests/test_diagnostic_repairs.py` 和 `tests/test_llm_proxy.py`：上一轮耗尽、新轮 compact=None，仍启动新轮；同轮 compact 耗尽不再 fallback；部分写入后切工具额度只剩余额；原子拒绝不增加额度；上一轮计数不串入新轮；整场耗尽无网络请求。恢复/取消并发到达时，旧 segment 的完成事件不能归属新轮。
+
+### R03 P0 明确执行器与验收结果，替换误导性 verified
+
+修改 `guard.py:TurnMonitor.observe`、`main.py` turn 日志和实际调度入口，使用 `executor=file_blocks | structured_tools | full_tools`。`codegen_mode` 是策略偏好，`codegen_blocked` 是路由状态，均不能充当执行器。
+
+当前 `guard.py:48` 在 shell **started** 时，只因命令匹配 build/curl/node 就置 `verified=True`；它甚至不证明命令成功。新增 `verification_attempted`、命令完成结果、源码变化及 R01 正式验收引用；迁移现有消费者，短期保留旧字段时加 `legacy_attempt_flag` 标注。启动脚本 exit=0 也不能自动成为业务验收通过。
+
+验收放入 `tests/test_guard.py`：未完成/失败 build、成功 curl、只读 node 命令均不能令 `acceptance_passed=True`；失败 write 只能记录尝试，不能宣称实际写入；正式验收引用必须匹配源摘要与范围。实际 structured edit 不能打印成“无工具”；已在 full tools 时不再记录一次虚假的“切到工具”。
+
+### R04 P1 保留按版本的上下文闭包，缺上下文直接路由
+
+修改 `main.py:preservation_context`、源码选择、`codegen_repair_prompt`、实现阶段 NEEDS_CONTEXT 分支，配合 `preservation_context.py`、`context_ledger.py`、`source_index.py`。新增请求 manifest：`path / digest / reason / required / delivery`，以及契约 owner 与权威文本摘要。重组保留所有已确认必需的源码路径；文件变化则更新版本，不能悄悄替换成更旧快照。
+
+保留契约完整权威文字，按 owner 精确交付；当整文件闭包不能装入 prompt 时，路由到具备只读源码/契约/冻结夹具投影的 native tools。允许补齐一次必需上下文；仍无法完整引用则直接 `full_tools` 实现当前节点，而不是先测试没有实现该节点的旧应用，再让“修复”承担初次实现。控制器把必需路径和读取清单交给模型；批量预读仅用于必要、可装入上下文的文本，禁止把大闭包再次整体塞满。
+
+不得截断需求语义或修改冻结测试。夹具投影通过只读允许列表和原文 hash 交付，排除凭据、宿主文件和未来节点非必需数据；记录缺失分区的实际原因，把 `preservation_contracts_need_tool_reads` 与真正超总容量分开，修改 `log_codegen_fallback` 的泛称。
+
+验收放入 `tests/test_preservation_context.py`、`test_repair_context.py`、`test_token_optimization.py`：24000 契约分区溢出但总空间充足；总闭包确实超容量；连续两次 NEEDS_CONTEXT 不丢 Editor；部分写入使文件版本更新；按需读取可交付完整契约；冻结 fixtures 可读但不可写；缺文件时显式未交付，不能伪称 quoted whole。切工具仍保持预算、源保护和完整验收。
+
+### R05 P1 以可定位的行为进展控制续跑
+
+修改 `main.py:7470` 附近失败签名、quality、stalls 与最佳版本选择；新增 `FailureProgress`。当前“具体签名变了”会重置 stalls，但还缺稳定的动作推进度量，quality 相同的有用版本也未必成为 best。
+
+先按冻结 case ID 关联，通过集合增加是硬进展；其次只在同用例已完成动作前缀增长、同条件测量完整、所有旧通过项保留时接受 `frontier_advanced`。未知或只是 error 文本变化不给额外轮。最佳候选先保证旧功能不退，再比较目标通过集合，再比较严格推进；同分只改变风格不更新 best。退步候选继续使用 v15.3 同条件回滚、恢复后复测。
+
+同分真实推进最多申请一个额外正式修复轮，受既有最大五轮、节点时间与全场额度约束。候选初始默认：无源码变化诊断 segment 最多 180 秒/8 请求；读取已证明必需但尚未交付的闭包可申请一次额外 180 秒/8 请求，总计仍在该轮 ledger 内。补丁批次完整并通过构建检查后退出到正式验收，再按验收结果决定下一轮。不能在第一个 write 后强制截断多文件事务；在 proxy/hook 中记录批次边界，超时的部分写入进入现有 batch check 和未测恢复路径。180/8 是试验参数，不是已证明的最优值；不对所有 turn 武断设置 20 次工具上限。
+
+前轮耗尽标志的修复与短诊断预算应分别提交、分别验证。R02 解决错误停止，R05 解决有效额度被低价值等待消耗；不能用提前结束所有 turn 掩盖 R02，也不能取消上限来掩盖 R05。
+
+验收放入 `tests/test_improvement_round.py`、`test_joint_regression_repair.py`：同为 0/5 但缺菜单→输入结果断言可获一次续轮并保留候选；相同断言换行号不获续轮；通过数相同但旧通过项丢失是退步；39/41→40/41→41/41 允许有界联合修复；跨源码/跨范围的失败证据不可比较；无稳定动作数据不会无限重置 stalls。
+
+### R06 P1 节点统一 deadline，预留验收与恢复时间
+
+修改节点入口 `main.py:11425`、`node_repair_turn`、`split_oversized_hub` 与 `run_specs`。统一使用 monotonic deadline，向模型、重构、构建、测试、回滚复测传播剩余时间；所有阶段取节点、全场和分段额度的最小值。
+
+启动新模型段之前，预留实际可用的构建+目标+规定回归+必要恢复时间。根据已观测耗时估计 reserve，并给上下界；缺历史值使用保守配置，记录其来源。不足则不启动新改动。已经有部分写入但来不及完整验收时，恢复上一个已测量版本并保持未验证；不能保留未测改动后标成功。
+
+验收用假 monotonic 时钟放入 `tests/test_diagnostic_repairs.py`、`test_whole_app_v5.py`：hub split 不能借用节点之外的全场时间；模型耗尽后仍有收尾预算；测试超时向 runner 传播且杀进程；恢复复测计入 reserve；系统时间跳变不扩额。停止必须记录 `node_deadline / run_deadline / request_cap / stalled / reserve_insufficient` 等独立原因。取消传到活跃请求和工具；已发出的请求可能仍计费，不能声称取消必然省掉全部费用。
+
+### R07 P1 工具自验只能执行当前目标与已证明旧功能
+
+修改 `verify_app.py` 的参数/报告、`main.py:verify_text`、工具提示和验证命令的生成。控制器生成具体 `--spec` 清单与 scope hash，范围为当前目标加受影响、已通过的旧功能；模型如需扩大范围，要显式说明 scope，不能默认把未来未实现节点全跑。
+
+本地实验出现局部修复自验全部 47 spec，300 秒失败后增至 600 秒，而有效范围诊断只需 20.869 秒；此处是验证范围错，不是证明模型一定需要更长超时。自验成功与正式门禁分开；重复自验仅在源码、测试、初始数据或待确认的环境条件变化时有意义。
+
+默认缓存只跳过已有确定性 build/static 结果；业务验收仍执行规定门禁。若后续引入自验复用，key 至少含源码、spec/helpers、fixture、配置/数据种子、worker、grader_like 和工具链版本 hash，失败复测和显式确认请求不能命中成功缓存。最终全套必须重新在独立副本执行。
+
+验收：命令清单不含未来节点；目标/历史范围没有混淆；冻结用例不变；全套入口明确保留未完成节点；新源码、数据种子或 worker 改变使静态/自验记录不可复用。开发测试放入 `test_verify_app.py`、`test_repair_context.py`。
+
+### R08 P1 拆分模块之前识别实际加载入口
+
+修改 `main.py:split_oversized_hub` 提示与 batch gate，补 `source_index.py` 动态加载关系。当前提示只看静态 importers，却要求 routes 同目录分模块；若 server 自动扫描 routes 顶层，汇总模块与分模块会被重复执行。
+
+本地真实注册函数的隔离对照为“自动发现+汇总”52 次注册/26 唯一端点，“仅汇总”26/26，见 [注册对照](repair-plan-evidence-20261001/route-registration.json)。这证明该本地重构有结构缺陷；指定云端只有告警观察，尚不能凭告警推断相同注册次数或功能损失。
+
+预读实际入口、目录扫描与 glob 装配规则；分模块放入入口不扫描的子目录，或明确调整 allowlist。通过私有、无业务数据副作用的注册探针比较 method/path/export/实际装配次数，禁止用 endpoint 的 set 去重后遗漏重复。无法安全探测动态加载时，本次自动 split 不执行，继续 native tools 按文件读取；不依靠“旧 UI 全绿”证明装配正确。
+
+验收放入 `tests/test_source_index.py`、`test_whole_app_v5.py`：自动扫描+汇总样本能检出双注册；端点数相同仍能检出新增重复；原本重复不能被当作新 baseline 默许扩大；未知入口保守拒绝；split 后静态契约与规定旧功能通过。新功能实现必须继续保留前后端消费者上下文，不能拆完即宣称上下文问题解决。
+
+### R09 P1 末轮修复配置显式化并预留预算
+
+修改 `main.py:final_acceptance`、配置日志和 `arc-policy.toml` 注释。Python 入口 `OCTOS_FINAL_REPAIR_ROUNDS` 默认 0，TOML 声明 2 且用于另一内核入口；本地已记录最终只有 round0，见 [配置对照](repair-plan-evidence-20261001/final-policy.json)。这影响末轮是否补修，不影响叶子节点已有重试，不能把整场都说成“未修复”。
+
+第一步保留 Python 默认 0，输出来源为 env/default 的实际 effective config，修正两入口默认一致的错误暗示。第二步增加显式实验 profile：末轮最多 2 轮，只有足够生成、完整全套和恢复验收 reserve 时启动。不得仅改缺省为 2 而无视时间预算；不会因为轮数有额度就保证全绿。
+
+验收放入 `tests/test_suite_repair.py`：默认0只测量；显式2可按失败全套启动有界修复；预算不足保持已测版本和未验证项；无失败不耗模型额度；修复后全套重新执行。声明启用末轮修复的发行 profile 必须记录有效值与来源。
+
+### R10 P1 增加可归因的请求与时间账本
+
+修改 `llm_proxy.py`、`main.py` metric、验收 summary，关联 run/node/round/segment/request ID，记录请求发起/首响应/完成（若实际可观测）、实际 executor、上游请求计数、工具类型、上下文各分区字符数、必需但未交付路径、源摘要、验收范围与初始数据身份。
+
+先保留元数据和错误类别，默认不记录请求全文、凭据、cookie 或数据内容。输出 token 与 reasoning token、prompt 与 cached token 明确包含关系，不重复相加；网关没有金额就留空，不编造费用。未提供首 token/queue 数据时用 unknown，不能把请求时长命名为 provider queue。
+
+验收：所有修复段能关联正式验收，孤立事件标未知；截断、硬额度停止、无修改结束分别计数；长 turn 的 LLM 请求数与工具次数独立；计数能够按原始 ID 去重并纳入超时/取消段；时间区间可重叠，不把累计时长直接相加成全场分解。开发测试放入 `test_llm_proxy.py`、`test_diagnostic_repairs.py`。
+
+### R11 P1 页面职责拆分与可定位的源码索引
+
+补充检查指定云端Sheet的File页，Editor界面1509行、DOM还原58118字符、30个useState；占196608字符额度29.6%，超过structured整文件预置32768字符。stdout有17次显式codegen写Editor、11个显式请求补Editor的turn；不是17次整文件重写，也不是原生模型请求数。详细证据、现有应用风险和拆分边界见 [Editor大文件分析](sheet-editor-context-analysis-20261001.md)。原12:24云端统计保持冻结，此项来自随后重新读取的页面返回版本。
+
+修改初始骨架/生成提示的页面职责规则、`source_index.py:render`和R04的闭包选择。先把Dialog、Grid、Toolbar等纯呈现部分提取，再以明确草稿对象与异步响应版本的接口迁移session/editing hooks；复用现有ValidationDialog、RangeSelector与剪贴板模块。错误行为修复与纯重构分别提交，不向运行中云端注入补丁。约12000字符/功能文件、150—300行协调层是首轮设计目标，不是所有项目适用的硬门禁。
+
+索引按当前需求/失败定位相关符号，输出start/end和源摘要，支持箭头处理函数与requestJson；不能只列前20个局部const，把后半段筛选/排序遗漏。匿名回调按对应API调用位置交付。依赖闭包保留直接消费者与共享契约；若仍递归引用全部Editor imports，明确报告完整闭包没有缩小，不能凭拆分文件数宣称节省上下文。解析不完整保持unknown与按需读取。
+
+验收加入`tests/test_source_index.py`、`test_repair_context.py`、`test_whole_app_v5.py`：1500行Editor末尾的箭头处理函数与requestJson可定位；源码变化使行范围失效并重新读取；拆分后每次闭包能交付当前功能/协调接口而不遗漏消费者；纯呈现提取保留DOM角色、草稿提交和弹窗焦点；普通操作错误不卸载Grid另行验收。真实模型对照分开比较只拆文件、只改交付索引、两者同时，记录全文/范围读与FILE/锚点输出字节、重复补上下文、完整成功与墙钟。该候选尚未实现。
+
+## 应用实现方向与诊断边界
+
+指定云端工作表没有取得完整应用源码，因此不在适配器里硬编码排序、筛选或校验补丁。工具修复应先交付“失败动作→请求/响应→前端消费者→持久化结果”的证据，再提出改动。本地同版本实验提供值得优先排查的方向：筛选清除的 204 与前端期待完整 workbook 不一致；日期 Before 对空值处理；筛选可见性在排序后重算；拒绝输入时错误状态不应卸载 Grid；单格与粘贴应同时覆盖。它们是本地已定位缺陷，不是指定云端已确认根因。
+
+GitHub 优先检查路由 splat、共享 owner 字段、入口重复和规范种子/历史版本保真。目标测试通过仍可能掩盖字节保真缺口；保留需求、夹具与全量验收，不能通过迁就单个 locator 改坏共享数据。由 R04/R05 提供诊断和推进约束，不按应用名称注入固定实现。
+
+## 实施顺序与提交边界
+
+| 建议提交 | 内容 | 前置条件 | 完成标准 |
+| --- | --- | --- | --- |
+| A | R01 私有验收数据、R02 round ledger | v15.3 基线核对 | 两个确定性缺陷的回归与隔离对照通过 |
+| B | R03 实际执行器、R10 账本 | A 的 round/segment ID | 能从机器记录回答多少请求、工具、已测改动 |
+| C | R04 闭包保持、直接路由、只读夹具 | A/B 的身份与记录 | 所有拒绝/NEEDS_CONTEXT 测试通过且保护不减弱 |
+| D | R05 进展规则、R06 deadline | B 的证据结构，C 的路由 | 同分推进和空转的正反样本、取消/恢复通过 |
+| E | R07 验证范围、R08 安全拆分 | C/D | 不跑未来节点，不新增重复装配，无未测重构保留 |
+| F | R09 配置澄清与显式末轮实验 | D 的 reserve，E 的全套 | 默认语义可复核，实验2轮有界并完整复验 |
+| G | R11 页面结构与源码索引 | C的闭包、D的事务/时间、E的重构验收 | 后半段功能可定位，配对证实闭包/读写成本改善且成功率不退 |
+
+A 与 B 优先落地；C—F 每次只引入一个可归因的策略变化。提交使用真实的实现范围命名；不能将十个工作包的纸面复审标为“全部修复完成”。保留 v15.3 ZIP，不覆盖两个正在运行的云端任务，不热切换其实现。
+
+## 验证与放行
+
+开发回归针对行为边界，除上述测试外，相关改动通过后执行适配器现有全套。v15.3 历史报告中的 2251/0/28 是旧结果，不能替代候选新版本回归。文档本次只核对摘要、引用和算术，不声称运行了新修复测试。
+
+真实模型对照使用冻结输入、相同 v15.3 节点前源码、相同用例/helpers/fixture hash、模型参数、worker 和每次私有数据。首批选择工作表选区/筛选/校验/排序，GitHub 目录浏览/代码搜索，以及两个原先较短成功节点作保护样本。当前云端节点前快照若仍不可下载，应明确采用本地等价样本，不能称为云端同快照复现。
+
+每样本先 1 次基线与 1 次候选作故障筛查，通过后各至少 3 次；顺序交替，保留失败、截断和中断结果。候选包含隔离与统计修复的实验报告须同时解释基线可能存在的污染，不能把测量条件改变全当作模型策略提速。用同版本应用源码另做纯验证器对照，将这一效果单列。
+
+工具预算价值实验在上述正确性基础上单独比较“当前策略”与“受控分段/按实测进展续轮”；如比较 12/20/36 请求额度，严格使用**模型请求**口径，并保留按工具调用次数分组的另一张表。它衡量整个策略的效果，不证明某个长 turn 的第21次工具调用单独产生了收益。
+
+记录目标成功率、联合成功率、最终全套、墙钟 p50/p90、上游请求、token、无源码变化分钟、重复读取/自验数，以及失败动作前缀。中断为 censored/未测，报告已花费的时间与请求，不能从成本表删除。
+
+放行条件：冻结输入与测试 hash 不变；保护及额度回归全通过；同源码验证器对照稳定；首次 8 类样本候选未新增目标或联合失败；全部原始冻结套件在独立副本完整执行，无遗漏。相较基线不得新增失败；既有失败继续公开，不能声称全绿。若宣称“两个应用已修复”，必须分别拿到其原始全套全绿证据。速度以配对原始数据报告，样本少时不作总体显著性承诺，也不预设“节省50%”。
+
+发布前生成候选 ZIP、源摘要、有效配置、测试/实验报告，保留可回退 v15.3。任何降低联合成功、额度绕过、未测源码保留或冻结测试变化都阻止发布。当前交付物到此为方案，后续实施和真实验收仍待执行。

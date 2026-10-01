@@ -1914,16 +1914,20 @@ class DerivedSuiteVerificationTests(WholeAppTests):
 class RollbackAttributionTests(WholeAppTests):
     """v9.1 run 2a839b37d3e8: REQ-1-1-2 passed 2/2, a proven REQ-1-1-1 check failed
     in the combined run, the node's work was rolled back -- and REQ-1-1-1 still
-    failed on the restored source. A prior that fails without the node's changes
-    is not a regression of the node; its work must be kept."""
+    failed on the restored source. Keep work only after a matched full-scope
+    comparison and fresh target verification; the prior remains unverified."""
 
     def test_rollback_is_undone_when_the_prior_fails_on_the_restored_source_too(self):
         flow = self.flow
         flow.head = Mock(side_effect=["after-node"])
         flow.restore_app = Mock()
-        flow.run_specs = Mock(return_value=RunSummary(passed=1, total=2, results=[
+        joint = RunSummary(passed=2, total=3, results=[
             TestOutcome(title="A ok", ok=True, status="passed", duration_ms=1, file="A.spec.ts"),
-            TestOutcome(title="A flaky", ok=False, status="failed", duration_ms=1, file="A.spec.ts")]))
+            TestOutcome(title="A flaky", ok=False, status="failed", duration_ms=1, file="A.spec.ts"),
+            TestOutcome(title="B ok", ok=True, status="passed", duration_ms=1, file="B.spec.ts")])
+        flow._regression_controls = {'B': {'specs': ['A.spec.ts', 'B.spec.ts'], 'workers': 2}}
+        target = RunSummary(passed=1, total=1, results=[joint.results[-1]])
+        flow.run_specs = Mock(side_effect=[joint, joint, target])
         flow.test_verdict = {"A": False, "B": True}
         flow.final_measurement_reserve = Mock(return_value=0)
         kept = flow.settle_failed_extension("B", before_sha="before-node", regressed_proven=["A"], node_passed=True)
