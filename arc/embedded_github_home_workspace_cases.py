@@ -45,6 +45,7 @@ def register(g):
     ''')
     g('REQ-5-1-2', 'home workspace: colliding titles remain operable with repository-specific accessible names', r'''
     await h.home(page); await expect(h.link(page,'Improve onboarding')).toHaveCount(1);
+    await expect(page.getByText('Improve onboarding',{exact:true})).toHaveCount(1);
     const alternatives=page.getByRole('link',{name:/^Improve onboarding — /});
     await expect(alternatives.first()).toBeVisible(); const label=await alternatives.first().getAttribute('aria-label');
     expect(label).toMatch(/Improve onboarding — .+\/.+/);
