@@ -83,6 +83,7 @@ def register(g):
     g('REQ-2-2-4', 'last Owner removal is rejected and retains organization and direct team membership', r'''
     await h.signIn(page,'spec-owner'); await h.organization(page,'last-owner'); await h.link(page,'People').click();
     await expect(h.containsValue(page,'spec-owner').first()).toBeVisible();
+    await expect(h.button(page,'Member menu spec-owner')).toBeVisible();
     await h.button(page,'Member menu spec-owner').click(); await page.getByRole('menuitem',{name:'Remove from organization',exact:true}).click();
     const remove=h.button(page,'Remove'); if(await remove.isEnabled()) await h.attemptSubmission(page,remove);
     await h.organization(page,'last-owner'); await h.link(page,'People').click();

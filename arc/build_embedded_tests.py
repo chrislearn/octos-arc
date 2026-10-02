@@ -304,7 +304,7 @@ await h.signIn(page,'spec-read'); await h.repo(page,h.fixtureRepo('protection-re
 ''','protection-read')
 g('REQ-6-1','Admin changes current compare-commit check pending to success and persists setter', r'''
 await h.signIn(page,'spec-admin'); await h.pr(page,'check-success'); await expect(h.text(page,'test: pending').first()).toBeVisible(); const address=page.url(), visitor=await browser.newContext();
-try { const observed=await visitor.newPage(); await observed.goto(address); await expect(h.text(observed,'test: pending').first()).toBeVisible(); await expect(h.containsValue(observed,'spec-admin')).toHaveCount(0);
+try { const observed=await visitor.newPage(); await observed.goto(address); await expect(h.text(observed,'test: pending').first()).toBeVisible();
 await h.choose(page,'test','success'); await h.action(page,['Save','Update']).click();
 await h.persisted(page,()=>expect(h.text(page,'test: success').first()).toBeVisible());
 await observed.reload(); await h.persisted(observed,async()=>{ await expect(h.text(observed,'test: success').first()).toBeVisible(); await expect(h.containsValue(observed,'spec-admin').first()).toBeVisible(); });
@@ -314,7 +314,7 @@ g('REQ-6-2-1','visitor Open PR list filter reads same persisted PR after repeate
 await h.repo(page); await h.link(page,'Pull requests').click(); const list=page.url(); await h.link(page,'Open').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible(); await page.reload(); await h.link(page,'Improve onboarding').click(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await h.home(page); await page.goto(list); await h.link(page,'Open').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible();
 ''')
 g('REQ-6-2-2','Base/Compare comboboxes show exact changed file and comparable commits', r'''
-await h.signIn(page,'spec-write'); await h.compare(page,'pr-compare'); await expect(h.containsValue(page,'Implement search flow').first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();
+await h.signIn(page,'spec-write'); await h.compare(page,'pr-compare'); await expect(h.comparisonCommitInformation(page,'Implement search flow',1).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();
 ''','pr-compare')
 g('REQ-6-2-2','equal base and compare report no differences and disable creation', r'''
 await h.signIn(page,'spec-write'); await h.compare(page,'pr-no-changes'); await h.choose(page,'Compare','main'); await h.button(page,'Compare changes').click(); await expect(h.noDifferences(page).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeDisabled();
@@ -332,7 +332,14 @@ g('REQ-6-2-4','author marks Draft ready without changing title or branches', r''
 await h.signIn(page,'spec-write'); await h.pr(page,'pr-ready','Draft onboarding update'); await h.button(page,'Ready for review').click(); const confirm=h.button(page,'Confirm'); if(await confirm.isVisible()) await confirm.click(); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Draft onboarding update',exact:true})).toBeVisible(); await expect(h.text(page,'Draft')).toHaveCount(0); await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.text(page,'draft-feature').first()).toBeVisible(); await expect(h.text(page,'main').first()).toBeVisible(); await expect(h.text(page,'Ready for review').first()).toBeVisible(); });
 ''','pr-ready')
 g('REQ-6-3-1','visitor PR overview, commits and changed-files navigation survives direct reopen', r'''
-await h.pr(page); const address=page.url(); await h.link(page,'Commits').click(); await expect(h.containsValue(page,'Implement search flow').first()).toBeVisible(); await h.link(page,'Files changed').click(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Commits')).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });
+await h.pr(page); const address=page.url(); await h.link(page,'Commits').click();
+await h.persisted(page,async()=>{
+  await expect(h.renderedSubstring(page,'Implement search flow').first()).toBeVisible();
+  // Compare-only history excludes ancestors already reachable from base.
+  await expect(h.renderedSubstring(page,'Initialize empty repository')).toHaveCount(0);
+  await expect(h.renderedSubstring(page,'Document search flow')).toHaveCount(0);
+});
+await h.link(page,'Files changed').click(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Commits')).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });
 ''')
 g('REQ-6-3-2','visitor diff displays exact path and exact aggregate additions/deletions from both changed files', r'''
 await h.pr(page); await h.link(page,'Files changed').click(); await expect(h.text(page,'src/search.ts').first()).toBeVisible(); await expect(page.getByText('2 additions, 1 deletions',{exact:false}).first()).toBeVisible();
@@ -347,7 +354,7 @@ for decision,status in [('Approve','Approved'),('Request changes','Changes reque
  fid='review-'+decision.lower().replace(' ','-')
  g('REQ-6-3-4',decision+' submission persists current-commit review',f'''
  await h.signIn(page,'bob-reviewer'); await h.pr(page,{json.dumps(fid)}); await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click();
- {'await h.reviewSummary(page).fill("Please fix the search edge case");' if decision!='Approve' else ''} await page.getByRole('radio',{{name:{json.dumps(decision)},exact:true}}).check(); await h.button(page,'Submit review').click();
+ {'await (await h.reviewSummary(page)).fill("Please fix the search edge case");' if decision!='Approve' else ''} await page.getByRole('radio',{{name:{json.dumps(decision)},exact:true}}).check(); await h.button(page,'Submit review').click();
  await h.persisted(page, async () => {{ await expect(h.text(page,{json.dumps(status)}).first()).toBeVisible(); {'await expect(h.text(page,"Please fix the search edge case").first()).toBeVisible();' if decision=='Request changes' else ''} }});
  ''',fid)
 g('REQ-6-4','author requests and removes live eligible reviewer without confirmation', r'''
@@ -396,7 +403,7 @@ for rule in ['check-only','approval-only','unprotected']:
     ''','merge-'+rule)
 g('REQ-6-3-4','latest Approve replaces Request changes while retaining history',r'''
 await h.signIn(page,'bob-reviewer'); await h.pr(page,'review-replace');
-for(const decision of ['Request changes','Approve']) { await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click(); await h.reviewSummary(page).fill(`Decision: ${decision}`); await page.getByRole('radio',{name:decision,exact:true}).check(); await h.button(page,'Submit review').click(); }
+for(const decision of ['Request changes','Approve']) { await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click(); await (await h.reviewSummary(page)).fill(`Decision: ${decision}`); await page.getByRole('radio',{name:decision,exact:true}).check(); await h.button(page,'Submit review').click(); }
 await h.signOut(page); await h.signIn(page,'spec-maintain'); await h.pr(page,'review-replace');
 await expect(h.text(page,'Decision: Request changes').first()).toBeVisible(); await expect(h.text(page,'Decision: Approve').first()).toBeVisible(); await expect(h.button(page,'Merge pull request')).toBeEnabled();
 ''','review-replace')

@@ -1,0 +1,402 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-02",
+  "branch": "v17",
+  "baseline_commit": "2a8f93f2",
+  "official_score": false,
+  "scope": "Run complete internal source suites including retained integration cases; investigate product defects and improve specifications. No application business code was changed.",
+  "evidence_root": "/home/chris/Works/octos-arc/audit/20261002-v17-examples",
+  "application_preservation": {
+    "github": {
+      "path": "/home/chris/Works/octos-arc2/arc/test-examples/hackathon--github",
+      "original_source_preserved": true,
+      "source_sha256": "0b83e75b50b797e22ad69a64b48cf6f56661e79da1d6480d56ac4c13418cc2e2",
+      "diagnostic_copy_existing_files_changed": [
+        "backend/lib/demo-data.json"
+      ]
+    },
+    "sheet": {
+      "path": "/home/chris/Works/octos-arc2/arc/test-examples/hackathon--sheet",
+      "original_source_preserved": true,
+      "source_sha256": "390a2fb742128bd872950683f52a8c50eb23472801fc41c0f46555a51fd4e7a9",
+      "diagnostic_copy_existing_files_changed": []
+    }
+  },
+  "canonical_runs": [
+    {
+      "run": "github-final",
+      "variant": "original application, final revision 9 specifications",
+      "passed": 161,
+      "total": 172,
+      "error": null,
+      "workers": 1,
+      "retries": 0,
+      "skipped": 0,
+      "source_sha256": "0b83e75b50b797e22ad69a64b48cf6f56661e79da1d6480d56ac4c13418cc2e2",
+      "scope_sha256": "38d1ec36c0b501850c214771f32ae273e95f0a451aed062314f452dcadded65b",
+      "data_isolation": "private_per_invocation",
+      "report": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/summary.json",
+      "report_sha256": "fa989cb75652bfec9328a2fd687fb27401830a695cae6728b92d2a25e0cc729a",
+      "stats": {
+        "startTime": "2026-10-02T08:12:19.469Z",
+        "duration": 337773.298,
+        "expected": 161,
+        "skipped": 0,
+        "unexpected": 11,
+        "flaky": 0
+      },
+      "failures": [
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: invalid team name leaves creation form and no team",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Team name is invalid')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Team name is invalid') with timeout 10000ms\n  - waiting for getByText('Team name is invalid')\n\n\n  13 |   test.setTimeout(60_000);\n  14 |   await h.signIn(page,'spec-owner'); await h.organization(page,'team-invalid'); await h.link(page,'Teams').click(); await h.link(page,'New team').click(); await h.field(page,'Team name').fill('-invalid'); await h.button(page,'Create team').click();\n> 15 |   await expect(page.getByText('Team name is invalid',{exact:false})).toBeVisible(); await page.reload(); await expect(page.getByRole('heading',{name:'-invalid',exact:true})).toHaveCount(0);\n     |                                                                      ^\n  16 | });\n  17 |\n  18 | test(\"REQ-2-2-1: team legal length 50 is accepted and overlong 51 is refused without creating a team\", async ({ page, browser }) => {\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-2-2-1.spec.ts:15:70"
+          ]
+        },
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: team legal length 50 is accepted and overlong 51 is refused without creating a team",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'spec-team-boundaries', exact: true }).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'spec-team-boundaries', exact: true }).first() with timeout 10000ms\n  - waiting for getByRole('link', { name: 'spec-team-boundaries', exact: true }).first()\n\n\n   at helpers.ts:105\n\n  103 | export async function repo(p: Page, name = 'acme-docs') {\n  104 |   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });\n> 105 |   await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();\n      |                                                                                                                      ^\n  106 |   if (name === 'acme-docs' && await matches.count() > 1) {\n  107 |     const index = await matches.evaluateAll(els => els.findIndex(el => {\n  108 |       for (let parent = el.parentElement; parent; parent = parent.parentElement) {\n    at repo (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:105:118)\n    at Object.organization (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:123:3)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-2-2-1.spec.ts:20:38"
+          ]
+        },
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: duplicate team in the same organization does not create a second relationship",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'spec-team-duplicate', exact: true }).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'spec-team-duplicate', exact: true }).first() with timeout 10000ms\n  - waiting for getByRole('link', { name: 'spec-team-duplicate', exact: true }).first()\n\n\n   at helpers.ts:105\n\n  103 | export async function repo(p: Page, name = 'acme-docs') {\n  104 |   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });\n> 105 |   await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();\n      |                                                                                                                      ^\n  106 |   if (name === 'acme-docs' && await matches.count() > 1) {\n  107 |     const index = await matches.evaluateAll(els => els.findIndex(el => {\n  108 |       for (let parent = el.parentElement; parent; parent = parent.parentElement) {\n    at repo (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:105:118)\n    at Object.organization (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:123:3)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-2-2-1.spec.ts:30:38"
+          ]
+        },
+        {
+          "file": "REQ-2-2-2.spec.ts",
+          "title": "REQ-2-2-2: valid parent change persists independently of the earlier parent relationship",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'spec-team-parent-valid', exact: true }).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'spec-team-parent-valid', exact: true }).first() with timeout 10000ms\n  - waiting for getByRole('link', { name: 'spec-team-parent-valid', exact: true }).first()\n\n\n   at helpers.ts:105\n\n  103 | export async function repo(p: Page, name = 'acme-docs') {\n  104 |   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });\n> 105 |   await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();\n      |                                                                                                                      ^\n  106 |   if (name === 'acme-docs' && await matches.count() > 1) {\n  107 |     const index = await matches.evaluateAll(els => els.findIndex(el => {\n  108 |       for (let parent = el.parentElement; parent; parent = parent.parentElement) {\n    at repo (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:105:118)\n    at Object.organization (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:123:3)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-2-2-2.spec.ts:21:38"
+          ]
+        },
+        {
+          "file": "REQ-2-2-4.spec.ts",
+          "title": "REQ-2-2-4: last Owner removal is rejected and retains organization and direct team membership",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'spec-last-owner', exact: true }).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'spec-last-owner', exact: true }).first() with timeout 10000ms\n  - waiting for getByRole('link', { name: 'spec-last-owner', exact: true }).first()\n\n\n   at helpers.ts:105\n\n  103 | export async function repo(p: Page, name = 'acme-docs') {\n  104 |   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });\n> 105 |   await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();\n      |                                                                                                                      ^\n  106 |   if (name === 'acme-docs' && await matches.count() > 1) {\n  107 |     const index = await matches.evaluateAll(els => els.findIndex(el => {\n  108 |       for (let parent = el.parentElement; parent; parent = parent.parentElement) {\n    at repo (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:105:118)\n    at Object.organization (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:123:3)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-2-2-4.spec.ts:19:38"
+          ]
+        },
+        {
+          "file": "REQ-4-1.spec.ts",
+          "title": "REQ-4-1: visitor directory/file navigation persists exact path content",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Document search flow', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Document search flow', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first() with timeout 10000ms\n  - waiting for getByText('Document search flow', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first()\n\n\n   6 | test(\"REQ-4-1: visitor directory/file navigation persists exact path content\", async ({ page, browser }) => {\n   7 |   test.setTimeout(60_000);\n>  8 |   await h.repo(page); await h.link(page,'src').click(); await h.link(page,'search.ts').click(); await h.persisted(page, () => expect(h.text(page,'export const search = \"search flow\";')).toBeVisible()); await expect(page.locator('body')).toContainText('src'); await h.repo(page); await h.link(page,'README.md').click(); await h.persisted(page,()=>expect(h.text(page,'Document search flow').first()).toBeVisible());\n     |                                                                                                                                                                                                                                                                                                                                                                                                               ^\n   9 | });\n  10 |\n  11 | import { register as __octosObservePageErrors } from \"../page_errors\";\n    at assertion (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-4-1.spec.ts:8:399)\n    at Object.persisted (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:143:82)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-4-1.spec.ts:8:328"
+          ]
+        },
+        {
+          "file": "REQ-4-2-3.spec.ts",
+          "title": "REQ-4-2-3: repository code result opens matching file with persisted code context",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Document search flow', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Document search flow', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first() with timeout 10000ms\n  - waiting for getByText('Document search flow', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first()\n\n\n   6 | test(\"REQ-4-2-3: repository code result opens matching file with persisted code context\", async ({ page, browser }) => {\n   7 |   test.setTimeout(60_000);\n>  8 |   await h.repo(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await h.persisted(page, () => expect(h.text(page,'Document search flow').first()).toBeVisible()); await expect(h.link(page,'README.md')).toBeVisible();\n     |                                                                                                                                                                                                                                                                                                                        ^\n   9 | });\n  10 |\n  11 | test(\"REQ-4-2-3: no code matches retain exact query across repeated searches\", async ({ page, browser }) => {\n    at assertion (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-4-2-3.spec.ts:8:312)\n    at Object.persisted (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:143:82)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-4-2-3.spec.ts:8:238"
+          ]
+        },
+        {
+          "file": "REQ-5-2-2.spec.ts",
+          "title": "REQ-5-2-2: Write saves title and description independently without Triage metadata authority",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'spec-issue-write-edit', exact: true }).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'spec-issue-write-edit', exact: true }).first() with timeout 10000ms\n  - waiting for getByRole('link', { name: 'spec-issue-write-edit', exact: true }).first()\n\n\n   at helpers.ts:105\n\n  103 | export async function repo(p: Page, name = 'acme-docs') {\n  104 |   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });\n> 105 |   await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();\n      |                                                                                                                      ^\n  106 |   if (name === 'acme-docs' && await matches.count() > 1) {\n  107 |     const index = await matches.evaluateAll(els => els.findIndex(el => {\n  108 |       for (let parent = el.parentElement; parent; parent = parent.parentElement) {\n    at repo (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:105:118)\n    at Object.issue (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:131:3)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-5-2-2.spec.ts:33:38"
+          ]
+        },
+        {
+          "file": "REQ-5-3-2.spec.ts",
+          "title": "REQ-5-3-2: Triage toggles a label without receiving Write content authority",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'spec-issue-triage-label', exact: true }).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'spec-issue-triage-label', exact: true }).first() with timeout 10000ms\n  - waiting for getByRole('link', { name: 'spec-issue-triage-label', exact: true }).first()\n\n\n   at helpers.ts:105\n\n  103 | export async function repo(p: Page, name = 'acme-docs') {\n  104 |   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });\n> 105 |   await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();\n      |                                                                                                                      ^\n  106 |   if (name === 'acme-docs' && await matches.count() > 1) {\n  107 |     const index = await matches.evaluateAll(els => els.findIndex(el => {\n  108 |       for (let parent = el.parentElement; parent; parent = parent.parentElement) {\n    at repo (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:105:118)\n    at Object.issue (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:131:3)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-5-3-2.spec.ts:13:39"
+          ]
+        },
+        {
+          "file": "REQ-5-4.spec.ts",
+          "title": "REQ-5-4: Triage closes and reopens an issue without receiving Write content authority",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('link', { name: 'spec-issue-triage-status', exact: true }).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('link', { name: 'spec-issue-triage-status', exact: true }).first() with timeout 10000ms\n  - waiting for getByRole('link', { name: 'spec-issue-triage-status', exact: true }).first()\n\n\n   at helpers.ts:105\n\n  103 | export async function repo(p: Page, name = 'acme-docs') {\n  104 |   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });\n> 105 |   await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();\n      |                                                                                                                      ^\n  106 |   if (name === 'acme-docs' && await matches.count() > 1) {\n  107 |     const index = await matches.evaluateAll(els => els.findIndex(el => {\n  108 |       for (let parent = el.parentElement; parent; parent = parent.parentElement) {\n    at repo (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:105:118)\n    at Object.issue (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:131:3)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-5-4.spec.ts:51:39"
+          ]
+        },
+        {
+          "file": "REQ-6-3-1.spec.ts",
+          "title": "REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  getByText('Initialize empty repository').and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).visible()\nExpected: 0\nReceived: 1\nTimeout:  10000ms\n\nCall log:\n  - Expect \"toHaveCount\" getByText('Initialize empty repository').and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).visible() with timeout 10000ms\n  - waiting for getByText('Initialize empty repository').and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).visible()\n    24 × locator resolved to 1 element\n       - unexpected value \"1\"\n\n\n  10 |     await expect(h.renderedSubstring(page,'Implement search flow').first()).toBeVisible();\n  11 |     // Compare-only history excludes ancestors already reachable from base.\n> 12 |     await expect(h.renderedSubstring(page,'Initialize empty repository')).toHaveCount(0);\n     |                                                                           ^\n  13 |     await expect(h.renderedSubstring(page,'Document search flow')).toHaveCount(0);\n  14 |   });\n  15 |   await h.link(page,'Files changed').click(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Commits')).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-6-3-1.spec.ts:12:75\n    at Object.persisted (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/helpers.ts:143:76)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final/prepared/tests/REQ-6-3-1.spec.ts:9:3"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "github-final-fixtures-aligned",
+      "variant": "diagnostic copy: only demo-data.json aligned to current fixtures; business implementation unchanged",
+      "passed": 168,
+      "total": 172,
+      "error": null,
+      "workers": 1,
+      "retries": 0,
+      "skipped": 0,
+      "source_sha256": "f7904eeed3fe79d7f686924a5e6c432c3c48579ce11b881ca95c10cf662e12a2",
+      "scope_sha256": "38d1ec36c0b501850c214771f32ae273e95f0a451aed062314f452dcadded65b",
+      "data_isolation": "private_per_invocation",
+      "report": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final-fixtures-aligned/summary.json",
+      "report_sha256": "9d3bd565d243bb1ca980359a11b472b1839115c757795ec53a542e0dfa801b78",
+      "stats": {
+        "startTime": "2026-10-02T08:12:19.443Z",
+        "duration": 269860.588,
+        "expected": 168,
+        "skipped": 0,
+        "unexpected": 4,
+        "flaky": 0
+      },
+      "failures": [
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: invalid team name leaves creation form and no team",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Team name is invalid')\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Team name is invalid') with timeout 10000ms\n  - waiting for getByText('Team name is invalid')\n\n\n  13 |   test.setTimeout(60_000);\n  14 |   await h.signIn(page,'spec-owner'); await h.organization(page,'team-invalid'); await h.link(page,'Teams').click(); await h.link(page,'New team').click(); await h.field(page,'Team name').fill('-invalid'); await h.button(page,'Create team').click();\n> 15 |   await expect(page.getByText('Team name is invalid',{exact:false})).toBeVisible(); await page.reload(); await expect(page.getByRole('heading',{name:'-invalid',exact:true})).toHaveCount(0);\n     |                                                                      ^\n  16 | });\n  17 |\n  18 | test(\"REQ-2-2-1: team legal length 50 is accepted and overlong 51 is refused without creating a team\", async ({ page, browser }) => {\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final-fixtures-aligned/prepared/tests/REQ-2-2-1.spec.ts:15:70"
+          ]
+        },
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: team legal length 50 is accepted and overlong 51 is refused without creating a team",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByText('Team name is invalid', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first()\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByText('Team name is invalid', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first() with timeout 10000ms\n  - waiting for getByText('Team name is invalid', { exact: true }).and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).first()\n\n\n  21 |   const list=page.url(), name=h.unique('team').padEnd(50,'x');\n  22 |   await h.link(page,'New team').click(); await h.field(page,'Team name').fill(name+'x'); await h.button(page,'Create team').click();\n> 23 |   await expect(h.text(page,'Team name is invalid').first()).toBeVisible(); await page.goto(list);\n     |                                                             ^\n  24 |   await expect(h.link(page,name+'x')).toHaveCount(0); await h.link(page,'New team').click(); await h.field(page,'Team name').fill(name);\n  25 |   await h.button(page,'Create team').click(); await h.persisted(page,()=>expect(page.getByRole('heading').filter({hasText:name})).toBeVisible());\n  26 | });\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final-fixtures-aligned/prepared/tests/REQ-2-2-1.spec.ts:23:61"
+          ]
+        },
+        {
+          "file": "REQ-2-2-4.spec.ts",
+          "title": "REQ-2-2-4: last Owner removal is rejected and retains organization and direct team membership",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toBeVisible() failed\n\nLocator: getByRole('button', { name: 'Member menu spec-owner', exact: true })\nExpected: visible\nTimeout: 10000ms\nError: element(s) not found\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('button', { name: 'Member menu spec-owner', exact: true }) with timeout 10000ms\n  - waiting for getByRole('button', { name: 'Member menu spec-owner', exact: true })\n\n\n  19 |   await h.signIn(page,'spec-owner'); await h.organization(page,'last-owner'); await h.link(page,'People').click();\n  20 |   await expect(h.containsValue(page,'spec-owner').first()).toBeVisible();\n> 21 |   await expect(h.button(page,'Member menu spec-owner')).toBeVisible();\n     |                                                         ^\n  22 |   await h.button(page,'Member menu spec-owner').click(); await page.getByRole('menuitem',{name:'Remove from organization',exact:true}).click();\n  23 |   const remove=h.button(page,'Remove'); if(await remove.isEnabled()) await h.attemptSubmission(page,remove);\n  24 |   await h.organization(page,'last-owner'); await h.link(page,'People').click();\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final-fixtures-aligned/prepared/tests/REQ-2-2-4.spec.ts:21:57"
+          ]
+        },
+        {
+          "file": "REQ-6-3-1.spec.ts",
+          "title": "REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen",
+          "status": "failed",
+          "retry": 0,
+          "errors": [
+            "Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  getByText('Initialize empty repository').and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).visible()\nExpected: 0\nReceived: 1\nTimeout:  10000ms\n\nCall log:\n  - Expect \"toHaveCount\" getByText('Initialize empty repository').and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).visible() with timeout 10000ms\n  - waiting for getByText('Initialize empty repository').and(locator(':not(input):not(textarea):not([contenteditable=\"true\"])')).visible()\n    24 × locator resolved to 1 element\n       - unexpected value \"1\"\n\n\n  10 |     await expect(h.renderedSubstring(page,'Implement search flow').first()).toBeVisible();\n  11 |     // Compare-only history excludes ancestors already reachable from base.\n> 12 |     await expect(h.renderedSubstring(page,'Initialize empty repository')).toHaveCount(0);\n     |                                                                           ^\n  13 |     await expect(h.renderedSubstring(page,'Document search flow')).toHaveCount(0);\n  14 |   });\n  15 |   await h.link(page,'Files changed').click(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Commits')).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final-fixtures-aligned/prepared/tests/REQ-6-3-1.spec.ts:12:75\n    at Object.persisted (/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final-fixtures-aligned/prepared/tests/helpers.ts:143:76)\n    at /home/chris/Works/octos-arc/audit/20261002-v17-examples/github-final-fixtures-aligned/prepared/tests/REQ-6-3-1.spec.ts:9:3"
+          ]
+        }
+      ]
+    },
+    {
+      "run": "sheet-serial",
+      "variant": "original application; unchanged executable Sheet specifications; final revision 9 changes documentation/manifest only",
+      "passed": 196,
+      "total": 196,
+      "error": null,
+      "workers": 1,
+      "retries": 0,
+      "skipped": 0,
+      "source_sha256": "390a2fb742128bd872950683f52a8c50eb23472801fc41c0f46555a51fd4e7a9",
+      "scope_sha256": "8aca849cecd001e2d90b376eadf1135ca5e11f0424fdee46d528669084966d41",
+      "data_isolation": "private_per_invocation",
+      "report": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/sheet-serial/summary.json",
+      "report_sha256": "754e06618c663b97b71a7f901a2e5412041442df7b2eed2f59328a91e037d4b1",
+      "stats": {
+        "startTime": "2026-10-02T08:05:21.908Z",
+        "duration": 381474.857,
+        "expected": 196,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "failures": []
+    }
+  ],
+  "baseline_diagnostics": [
+    {
+      "run": "github-full",
+      "workers": 2,
+      "passed": 149,
+      "total": 172,
+      "classification": "revision 8 baseline, includes selector and extra-contract assertion defects"
+    },
+    {
+      "run": "sheet-full",
+      "workers": 2,
+      "passed": 195,
+      "total": 196,
+      "classification": "one global-list snapshot contaminated by concurrent workbook creation; superseded by serial 196/196"
+    }
+  ],
+  "implementation_findings": [
+    {
+      "id": "GH-ATOMIC-REMOVAL",
+      "priority": "P1",
+      "requirements": [
+        "REQ-2-2 inherited folder contract"
+      ],
+      "source": "/home/chris/Works/octos-arc2/arc/test-examples/hackathon--github/backend/routes/organizations.js",
+      "line": 167,
+      "observation": "Induced failure persisting teams.json during member deletion returns 500 after organization membership was deleted; team membership and direct repository grant remain. Cross-store removal is not atomic.",
+      "evidence": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/organization-atomicity.json",
+      "adapter": "arc/reviews/probes/github-organization-atomicity.cjs",
+      "observed_status": 500,
+      "rollback_preserved": false
+    },
+    {
+      "id": "GH-PR-COMMIT-SCOPE",
+      "priority": "P2",
+      "requirements": [
+        "REQ-6 folder contract",
+        "REQ-6-3-1"
+      ],
+      "source": "/home/chris/Works/octos-arc2/arc/test-examples/hackathon--github/backend/routes/branchProtections.js",
+      "line": 76,
+      "observation": "PR detail excludes only the base commit itself, rather than subtracting the entire base reachable history from compare reachable history. UI includes the base ancestor; a direct probe also includes an unrelated sibling branch commit.",
+      "evidence": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/domain-semantics.json",
+      "expected_commits": [
+        "probe-feature"
+      ],
+      "actual_commits": [
+        "probe-root",
+        "probe-feature",
+        "probe-sibling"
+      ],
+      "gate": "REQ-6-3-1.spec.ts"
+    },
+    {
+      "id": "GH-OWNER-REMOVAL-UI",
+      "priority": "P2",
+      "requirements": [
+        "REQ-2-2-4"
+      ],
+      "source": "/home/chris/Works/octos-arc2/arc/test-examples/hackathon--github/frontend/src/pages/Organization.jsx",
+      "line": 150,
+      "observation": "All Owner rows hide Member menu; not limited to preventing the last Owner removal. Browser refusal witness cannot reach the mandated menu. Backend last-Owner rejection is correct (400 and relationships preserved); backend removal of another Owner in a two-Owner organization succeeds (200). Do not interpret the UI failure as a broken backend last-Owner guard.",
+      "evidence": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/domain-semantics.json",
+      "last_owner_guard": {
+        "status": 400,
+        "response": {
+          "error": "Cannot remove the last owner of the organization"
+        },
+        "allRelationshipsPreserved": true
+      },
+      "other_owner_removal": {
+        "status": 200,
+        "remainingOwners": [
+          "acc-spec-owner"
+        ],
+        "removedFromTeam": true
+      },
+      "gate": "REQ-2-2-4.spec.ts"
+    },
+    {
+      "id": "GH-TEAM-VALIDATION-MESSAGE",
+      "priority": "P2",
+      "requirements": [
+        "REQ-2-2-1"
+      ],
+      "source": "/home/chris/Works/octos-arc2/arc/test-examples/hackathon--github/backend/routes/teams.js",
+      "line": 38,
+      "observation": "Invalid and overlong team names show Team name format is invalid; the source requires the exact message Team name is invalid. Keep the source-prescribed assertion.",
+      "gate": "REQ-2-2-1.spec.ts"
+    }
+  ],
+  "fixture_compatibility": {
+    "original_github_failed_setup_cases": 7,
+    "missing_repositories": [
+      "spec-issue-triage-label",
+      "spec-issue-triage-status",
+      "spec-issue-write-edit",
+      "spec-last-owner",
+      "spec-team-boundaries",
+      "spec-team-duplicate",
+      "spec-team-parent-valid"
+    ],
+    "original_readme_seed_mismatch_cases": 2,
+    "expected_readme_content": "Document search flow",
+    "actual_readme_content": "search flow",
+    "classification": "Stale/incomplete project seeds. The diagnostic variant changes only the disposable copy seed JSON; its score is not the score of the original project.",
+    "improvement": "Perform a fixture-manifest preflight and report setup failures distinctly while retaining all enabled acceptance assertions."
+  },
+  "specification_changes": [
+    {
+      "change": "Scope reviewSummary to textbox Summary or the review form Comment textbox; exclude optional Comment radio and mounted inline comment editors.",
+      "baseline_false_failures": 9
+    },
+    {
+      "change": "Remove the unsupported assumption that pending checks cannot already have a setter. Retain the independent visitor check of persisted status and setter.",
+      "baseline_false_failures": 2
+    },
+    {
+      "change": "Allow comparison commit information as the seeded message or exact compare-only commit count, without forcing one presentation format.",
+      "baseline_false_failures": 1
+    },
+    {
+      "change": "Use a rendered message witness that permits an adjacent inline SHA, while preserving strict identity token matching. Assert PR history excludes base and base ancestors.",
+      "baseline_false_failures": 1,
+      "newly_detected_semantic_defect": "GH-PR-COMMIT-SCOPE"
+    },
+    {
+      "change": "Document one worker per server/data instance; parallel execution needs isolated server/storage per worker. Preserve full-list absence-of-partial-record assertions."
+    },
+    {
+      "change": "Record cross-store organization member removal in the remaining implementation-harness coverage gaps; retain reproducible target-specific fault probes separately from portable gates."
+    }
+  ],
+  "validation": {
+    "github_backend_tests": {
+      "passed": 41,
+      "total": 41,
+      "log": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/github-backend-tests.log"
+    },
+    "sheet_backend_tests": {
+      "passed": 39,
+      "total": 39,
+      "log": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/sheet-backend-tests.log"
+    },
+    "browser_oracle_calibration": {
+      "passed": 24,
+      "total": 24,
+      "report": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/helper-final/report.json"
+    },
+    "repository_unit_tests": {
+      "run": 2379,
+      "skipped": 31,
+      "status": "OK",
+      "command": "PYTHONPATH=arc python3 -m unittest discover -s arc/tests",
+      "log": "/home/chris/Works/octos-arc/audit/20261002-v17-examples/infrastructure-final-configured.log"
+    },
+    "frozen_source_audit": "Both source suites audited after revision 9 freeze; case counts remain GitHub 172 and Sheet 196.",
+    "setup_incidents": [
+      "Initial unconfigured browser calibration lacked NODE_PATH; rerun with local-grader/node_modules succeeded.",
+      "Initial whole-repository unittest discovery lacked PYTHONPATH for two imported modules; configured discovery completed successfully."
+    ]
+  },
+  "limits": [
+    "A passing portable browser suite does not certify all authorization, storage-failure, real restart, concurrent commit graph, or locale/date grammar clauses.",
+    "Sheet showed no product defect in the 196 browser cases and 39 existing backend tests; previously recorded coverage gaps still apply.",
+    "Implementation findings were reproduced and documented; application implementation fixes are outside this execution/audit request."
+  ]
+}

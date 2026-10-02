@@ -38,6 +38,18 @@ test('a complete account value can appear in a sentence but cannot match another
   }
 });
 
+test('commit information accepts an inline SHA or the seeded count, but rejects a wrong count and editor-only data', async ({ page }) => {
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  for(const html of ['<li><code>abc123f</code>Implement search flow</li>', '<p>1 commit ahead</p>', '<p>1 commits on feature-search relative to main</p>']) {
+    await page.setContent(html); await expect(h.comparisonCommitInformation(page,'Implement search flow',1).first()).toBeVisible();
+  }
+  await page.setContent('<li><code>abc123f</code>Implement search flow</li>');
+  await expect(h.renderedSubstring(page,'Implement search flow')).toBeVisible();
+  for(const html of ['<p>11 commits ahead</p>', '<p>0 commits ahead</p>', '<p hidden>1 commit ahead</p>', '<textarea>Implement search flow</textarea>']) {
+    await page.setContent(html); await expect(h.comparisonCommitInformation(page,'Implement search flow',1)).toHaveCount(0);
+  }
+});
+
 test('a visible file rejection requires no alert role, but hidden feedback and editor content are insufficient', async ({ page }) => {
   for(const html of ['<p>Invalid file path</p>', '<div role="alert">Commit message is required</div>']) {
     await page.setContent(html); await expect(fileValidationReason(page).first()).toBeVisible();
@@ -128,8 +140,8 @@ test('no actionable control accepts absent hidden or disabled controls and refus
 test('review summary aliases and allowed save labels preserve the actual saved text',async({page})=>{
   const h=await import('../../derived-tests/hackathon--github/helpers');
   for(const label of ['Summary','Comment']) {
-    await page.setContent(`<textarea aria-label="${label}"></textarea><button onclick="document.querySelector('output').textContent=document.querySelector('textarea').value">Update</button><output></output>`);
-    await h.reviewSummary(page).fill('Exact summary 中文'); await h.action(page,['Save','Update']).click();
+    await page.setContent(`<textarea aria-label="${label}"></textarea><input type="radio" aria-label="Comment"><button onclick="document.querySelector('output').textContent=document.querySelector('textarea').value">Update</button><output></output>`);
+    await (await h.reviewSummary(page)).fill('Exact summary 中文'); await h.action(page,['Save','Update']).click();
     await expect(text(page,'Exact summary 中文')).toBeVisible();
   }
 });
@@ -157,5 +169,15 @@ test('recovery supports both a displayed one-step form and email-triggered form 
   for(const oneStep of [false,true]) {
     await page.setContent(`<a href="#" onclick="document.querySelector('main').hidden=false">Forgot password</a><main hidden><input aria-label="Email"><button onclick="document.querySelector('section').hidden=false">${oneStep?'Reset password':'Send reset link'}</button><section ${oneStep?'':'hidden'}><p>Your verification code is 123456</p><input aria-label="Verification code"><input aria-label="New password" type="password"><input aria-label="Confirm password" type="password"></section></main>`);
     await h.recovery(page,'alice.dev@example.test'); await expect(page.getByLabel('Email')).toHaveValue('alice.dev@example.test');
+  }
+});
+
+test('review Summary wins over a mounted line Comment editor, and Comment fallback stays in the review form',async({page})=>{
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  for(const label of ['Summary','Comment']) {
+    await page.setContent(`<div><textarea aria-label="Comment">existing line comment</textarea></div><section><textarea aria-label="${label}"></textarea><label><input type="radio">Approve</label><label><input type="radio">Request changes</label><label><input type="radio">Comment</label><button>Submit review</button></section>`);
+    await (await h.reviewSummary(page)).fill('precise review summary');
+    await expect(page.locator('section textarea')).toHaveValue('precise review summary');
+    await expect(page.locator('div textarea')).toHaveValue('existing line comment');
   }
 });

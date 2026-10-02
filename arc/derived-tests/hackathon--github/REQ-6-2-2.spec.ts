@@ -5,7 +5,7 @@ import * as h from './helpers';
 
 test("REQ-6-2-2: Base/Compare comboboxes show exact changed file and comparable commits", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,'spec-write'); await h.compare(page,'pr-compare'); await expect(h.containsValue(page,'Implement search flow').first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();
+  await h.signIn(page,'spec-write'); await h.compare(page,'pr-compare'); await expect(h.comparisonCommitInformation(page,'Implement search flow',1).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();
 });
 
 test("REQ-6-2-2: equal base and compare report no differences and disable creation", async ({ page, browser }) => {

@@ -560,6 +560,32 @@
       "product_certification": false
     },
     {
+      "requirement_id": "REQ-6-2-2",
+      "behavior": "comparison shows the seeded commit message or exact compare-only commit count",
+      "basis": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-6-2-2.spec.ts",
+          "title": "REQ-6-2-2: Base/Compare comboboxes show exact changed file and comparable commits"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-6-3-1",
+      "behavior": "PR compare-only commits exclude the seeded base commit and its ancestor after reload",
+      "basis": "The public PR detail view displays the exact persisted title as a heading. `Commits` and `Files changed` are links that show commit information and a changed-files summary for the same PR. The overview remains available after reload or reopening it from the home page; viewing does not mutate PR data.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-6-3-1.spec.ts",
+          "title": "REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
       "requirement_id": "REQ-6-3-4",
       "behavior": "author, Draft, Read and Triage cannot persist review decisions",
       "basis": "From Files changed, a non-author reviewer can use `Review changes`\nto open a form with Approve and Request changes radio controls, an optional\nsummary/comment field, and `Submit review`. Approve creates visible Approved\nstatus. Request changes stores and displays the exact summary with Changes\nrequested status, which persists after reload.",
@@ -624,10 +650,12 @@
     {
       "requirements": [
         "ROOT",
+        "REQ-2-2",
+        "REQ-3-1",
         "REQ-4-4",
         "REQ-6-5"
       ],
-      "behavior": "server authorization independent of hidden UI; real storage failure, restart and rollback",
+      "behavior": "server authorization independent of hidden UI; real storage failure, restart and rollback, including member removal across organization/team/grant stores and initialized repository creation",
       "status": "requires_implementation_harness",
       "reason": "Needs legitimate request construction and target process/storage control. No private API or filesystem schema is imposed."
     },

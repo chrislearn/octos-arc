@@ -103,7 +103,7 @@ def register(g):
         await publicView.goto(address); await expect(h.text(publicView,published)).toHaveCount(0); await expect(h.text(publicView,privateDraft)).toHaveCount(0);
       });
       await test.step('Submitting Bob’s review publicly releases his comment and retains the other draft',async()=>{
-        await h.button(page,'Review changes').click(); await h.reviewSummary(page).fill('Publish my current-commit draft');
+        await h.button(page,'Review changes').click(); await (await h.reviewSummary(page)).fill('Publish my current-commit draft');
         await page.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(page,'Submit review').click();
         await publicView.reload(); await expect(h.text(publicView,published).first()).toBeVisible(); await expect(h.text(publicView,privateDraft)).toHaveCount(0);
         await second.reload(); await expect(h.text(second,privateDraft).first()).toBeVisible();

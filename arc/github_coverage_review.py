@@ -31,6 +31,8 @@ def coverage_review(tree, plan):
         ('REQ-5-2-3', 'blank comment preserves loaded discussion; Read/Triage cannot comment', ['blank comment adds no article', 'cannot publish a comment']),
         ('REQ-5-3-3', 'PR milestone add/remove, cross-repository exclusion and role denial', ['PR milestone toggles', 'cannot change a PR milestone']),
         ('REQ-6-2-1', 'Open excludes Draft/Closed and a PR after a real merge', ['Open filter excludes Draft Closed']),
+        ('REQ-6-2-2', 'comparison shows the seeded commit message or exact compare-only commit count', ['Base/Compare comboboxes']),
+        ('REQ-6-3-1', 'PR compare-only commits exclude the seeded base commit and its ancestor after reload', ['visitor PR overview, commits']),
         ('REQ-6-3-4', 'author, Draft, Read and Triage cannot persist review decisions', ['cannot persist a review decision']),
         ('REQ-6-5', 'Write/Read/Triage cannot merge; failed required check blocks an approved PR', ['cannot merge or change the base branch', 'failed required check']),
     ]
@@ -45,7 +47,7 @@ def coverage_review(tree, plan):
                          'status': 'executable_source_reviewed', 'product_certification': False})
     gaps = [
         {'requirements': ['REQ-1-1-1','REQ-2-2-1','REQ-2-2-4'], 'behavior': 'remaining empty-input and team legal-length-1 witnesses, same-name teams across organizations, last-Owner direct grants and unrelated-organization/personal-repository preservation', 'status': 'requires_additional_witnesses', 'reason': 'Isolated invalid inputs and team/People rollback now have witnesses; they do not certify every legal boundary or every untouched relationship.'},
-        {'requirements': ['ROOT', 'REQ-4-4', 'REQ-6-5'], 'behavior': 'server authorization independent of hidden UI; real storage failure, restart and rollback',
+        {'requirements': ['ROOT', 'REQ-2-2', 'REQ-3-1', 'REQ-4-4', 'REQ-6-5'], 'behavior': 'server authorization independent of hidden UI; real storage failure, restart and rollback, including member removal across organization/team/grant stores and initialized repository creation',
          'status': 'requires_implementation_harness',
          'reason': 'Needs legitimate request construction and target process/storage control. No private API or filesystem schema is imposed.'},
         {'requirements': ['REQ-6-5'], 'behavior': 'conflicts, confirmation-time concurrent head changes and both merge parents',

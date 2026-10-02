@@ -19,7 +19,7 @@ def register(g, s):
       await test.step('Publish a line comment and approve the current compare commit',async()=>{
         await h.signIn(review,'bob-reviewer'); await h.pr(review,'guide-review-cycle'); await h.link(review,'Files changed').click();
         await h.button(review,'Add comment').first().click(); await h.field(review,'Comment').fill(comment); await h.button(review,'Add single comment').click();
-        await h.button(review,'Review changes').click(); await h.reviewSummary(review).fill(firstSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
+        await h.button(review,'Review changes').click(); await (await h.reviewSummary(review)).fill(firstSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
         await h.persisted(review,()=>expect(h.text(review,comment).first()).toBeVisible());
       });
       await test.step('Approval and successful check together enable Maintain to merge',async()=>{
@@ -43,7 +43,7 @@ def register(g, s):
         await expect(h.text(marked,'Outdated').first()).toBeVisible();
       });
       await test.step('A renewed approval alone is insufficient until Admin sets the current check',async()=>{
-        await h.button(review,'Review changes').click(); await h.reviewSummary(review).fill(nextSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
+        await h.button(review,'Review changes').click(); await (await h.reviewSummary(review)).fill(nextSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
         await expect(h.text(review,nextSummary)).toBeVisible(); await merge.reload(); await expect(h.button(merge,'Merge pull request')).toBeDisabled();
         await h.choose(page,'test','success'); await h.action(page,['Save','Update']).click(); await expect(h.text(page,'test: success')).toBeVisible();
         await merge.reload(); await expect(h.button(merge,'Merge pull request')).toBeEnabled(); await h.button(merge,'Merge pull request').click(); await h.button(merge,'Confirm merge').click(); await h.persisted(merge,()=>expect(h.text(merge,'Merged').first()).toBeVisible());

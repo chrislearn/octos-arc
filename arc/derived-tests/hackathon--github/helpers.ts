@@ -22,6 +22,13 @@ export const visibleText = (p: Page | Locator, value: string) => text(p, value).
 export const containsValue = (p: Page | Locator, value: string) => p.getByText(
   new RegExp(`(?<![\\w-])${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`)
 ).and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
+// Inline commit SHAs need not be separated from messages by a DOM text-space.
+// Keep strict identity matching in containsValue; messages are rendered content.
+export const renderedSubstring = (p: Page | Locator, value: string) => p.getByText(value, { exact: false })
+  .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
+export const comparisonCommitInformation = (p: Page, message: string, count: number) => renderedSubstring(p, message)
+  .or(p.getByText(new RegExp(`\\b${count}\\s+commits?\\b`, 'i'))
+    .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true }));
 export const fileValidationReason = (p: Page) => p.getByText(/Invalid file path|Commit message is required/)
   .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
 export const passwordValidationReason = (p: Page) => p.getByText(/Current password is incorrect|Password confirmation does not match/)
@@ -157,7 +164,19 @@ export async function chosen(p: Page | Locator, name: string, value: string) {
   else if (await control.evaluate(el => el.tagName === 'INPUT')) await expect(control).toHaveValue(value);
   else await expect(control).toContainText(value);
 }
-export const reviewSummary = (p: Page) => field(p, 'Summary').or(field(p, 'Comment')).filter({ visible: true });
+export async function reviewSummary(p: Page) {
+  const summary=p.getByRole('textbox',{name:'Summary',exact:true}).filter({visible:true});
+  if(await summary.count()) return summary;
+  // A diff comment editor may remain mounted beside the review form. Discover
+  // the smallest review group instead of filling an unrelated line comment.
+  let group=button(p,'Submit review').locator('..');
+  for(let depth=0;depth<20;depth++,group=group.locator('..')) {
+    if(await group.getByRole('radio',{name:'Approve',exact:true}).count()
+        && await group.getByRole('radio',{name:'Request changes',exact:true}).count())
+      return group.getByRole('textbox',{name:'Comment',exact:true}).filter({visible:true});
+  }
+  return p.getByRole('textbox',{name:'Comment',exact:true}).filter({visible:true});
+}
 export const action = (p: Page, names: string[]) => names.map(name => button(p, name)).reduce((a, b) => a.or(b)).filter({ visible: true });
 export async function recovery(p: Page, email: string) {
   await link(p, 'Forgot password').click(); await field(p, 'Email').fill(email);

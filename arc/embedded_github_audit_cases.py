@@ -97,7 +97,7 @@ def register(g):
           await open.click(); const decision=page.getByRole('radio',{{name:'Approve',exact:true}});
           await decision.waitFor({{state:'visible',timeout:2000}}).catch(error=>{{ if(error.name!=='TimeoutError') throw error; }});
           if(await decision.count() && await decision.isVisible() && await decision.isEnabled()) {{
-            await decision.check(); if(await h.reviewSummary(page).count()) await h.reviewSummary(page).fill(summary);
+            await decision.check(); if(await (await h.reviewSummary(page)).count()) await (await h.reviewSummary(page)).fill(summary);
             const submit=h.button(page,'Submit review'); if(await submit.count() && await submit.isEnabled()) await h.attemptSubmission(page,submit);
           }}
         }}
