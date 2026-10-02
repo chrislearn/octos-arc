@@ -5,7 +5,7 @@ import * as h from './helpers';
 
 test("REQ-4-2-3: repository code result opens matching file with persisted code context", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.repo(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await h.persisted(page, () => expect(h.text(page,'search flow').first()).toBeVisible()); await expect(h.link(page,'README.md')).toBeVisible();
+  await h.repo(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await h.persisted(page, () => expect(h.text(page,'Document search flow').first()).toBeVisible()); await expect(h.link(page,'README.md')).toBeVisible();
 });
 
 test("REQ-4-2-3: no code matches retain exact query across repeated searches", async ({ page, browser }) => {

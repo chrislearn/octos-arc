@@ -46,6 +46,26 @@ test("REQ-1-1-2: guide: a newly registered identity signs in by email and userna
   });
 });
 
+test("REQ-1-1-2: registration accepts password boundary 12 and trimmed email; email sign-in persists", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const username=h.unique('accepted'), email=`${username}@example.test`, password='Aa1!'+'x'.repeat(12-4);
+  await h.home(page); await h.link(page,'Sign in').click(); await h.link(page,'Create an account').click();
+  await h.field(page,'Username').fill(username); await h.field(page,'Email').fill(`  ${email}  `);
+  await h.field(page,'Password').fill(password); await h.field(page,'Confirm password').fill(password);
+  await page.getByRole('checkbox',{name:'Agree to the terms',exact:true}).check(); await h.button(page,'Create account').click();
+  await expect(h.field(page,'Username or email')).toBeVisible(); await h.signIn(page,email,password,username);
+});
+
+test("REQ-1-1-2: registration accepts password boundary 128 and trimmed email; email sign-in persists", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const username=h.unique('accepted'), email=`${username}@example.test`, password='Aa1!'+'x'.repeat(128-4);
+  await h.home(page); await h.link(page,'Sign in').click(); await h.link(page,'Create an account').click();
+  await h.field(page,'Username').fill(username); await h.field(page,'Email').fill(`  ${email}  `);
+  await h.field(page,'Password').fill(password); await h.field(page,'Confirm password').fill(password);
+  await page.getByRole('checkbox',{name:'Agree to the terms',exact:true}).check(); await h.button(page,'Create account').click();
+  await expect(h.field(page,'Username or email')).toBeVisible(); await h.signIn(page,email,password,username);
+});
+
 test("REQ-1-1-2: context REQ-1-1-1: registered credentials work by email and survive a later browser session", async ({ page, browser }) => {
   test.setTimeout(60_000);
   const {username,email}=await h.register(page); await h.signIn(page,email,h.PASSWORD,username);

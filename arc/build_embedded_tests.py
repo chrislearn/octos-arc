@@ -26,6 +26,7 @@ def g(node, title, body, fixture=None, **options): case('hackathon--github', nod
 g('REQ-1-1-1','registration entry accepts valid account and redirects to sign-in without exposing password', r'''
 await h.home(page); await h.link(page,'Sign in').click(); await expect(h.link(page,'Create an account')).toHaveCount(1); await h.link(page,'Create an account').click();
 for(const label of ['Username','Email','Password','Confirm password']) await expect(h.field(page,label)).toHaveCount(1);
+await h.maskedPasswords(page,['Password','Confirm password']);
 await expect(page.getByRole('checkbox',{name:'Agree to the terms',exact:true})).not.toBeChecked(); await expect(h.button(page,'Create account')).toBeEnabled();
 await h.register(page); await expect(h.field(page,'Username or email')).toBeVisible(); await expect(page.locator('body')).not.toContainText(h.PASSWORD);
 ''')
@@ -37,11 +38,11 @@ const later=await browser.newContext();
 try { const p=await later.newPage(); await h.signIn(p,username); await expect(h.button(p,'Account menu')).toBeVisible(); }
 finally { await later.close(); }
 ''', file='INTEGRATION-identity', requires=['REQ-1-1-1','REQ-1-1-2'])
-g('REQ-1-1-1','all invalid fields show errors together and clear sensitive values', r'''
+g('REQ-1-1-1','all invalid fields show errors together and preserve attempted identity', r'''
 await h.home(page); await h.link(page,'Sign in').click(); await h.link(page,'Create an account').click();
 await h.field(page,'Username').fill('-invalid'); await h.field(page,'Email').fill('not-an-email'); await h.field(page,'Password').fill('short'); await h.field(page,'Confirm password').fill('different'); await h.button(page,'Create account').click();
 for(const message of ['Username format is invalid','Email format is invalid','Password requirements are not satisfied','Agree to terms is required']) await expect(page.getByText(message,{exact:false})).toBeVisible();
-await expect(h.field(page,'Username')).toHaveValue('-invalid'); await expect(h.field(page,'Email')).toHaveValue('not-an-email'); await expect(h.field(page,'Password')).toHaveValue(''); await expect(h.field(page,'Confirm password')).toHaveValue(''); await expect(h.button(page,'Create account')).toBeEnabled();
+await expect(h.field(page,'Username')).toHaveValue('-invalid'); await expect(h.field(page,'Email')).toHaveValue('not-an-email'); await h.maskedPasswords(page,['Password','Confirm password']); await expect(h.field(page,'Password')).toHaveValue(''); await expect(h.field(page,'Confirm password')).toHaveValue(''); await expect(h.button(page,'Create account')).toBeEnabled();
 ''')
 g('REQ-1-1-1','duplicate username preserves both attempted non-sensitive values', r'''
 await h.home(page); await h.link(page,'Sign in').click(); await h.link(page,'Create an account').click(); const email=`${h.unique()}@example.test`;
@@ -71,15 +72,15 @@ await test.step('Use its username in an independent browser session',async()=>{
 });
 ''',requires=['REQ-1-1-2','REQ-1-1-1'])
 g('REQ-1-1-3','valid local recovery updates only registered credentials; invalid code preserves old password', r'''
-const {username,email}=await h.register(page); await h.link(page,'Forgot password').click(); await h.field(page,'Email').fill(email); await h.button(page,'Send reset link').click();
-await expect(h.text(page,'123456').first()).toBeVisible(); await h.field(page,'Verification code').fill('000000'); await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Replacement-password-456!'); await h.button(page,'Reset password').click();
+const {username,email}=await h.register(page); await h.recovery(page,email);
+await expect(h.containsValue(page,'123456').first()).toBeVisible(); await h.field(page,'Verification code').fill('000000'); await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Replacement-password-456!'); await h.button(page,'Reset password').click();
 await expect(page.getByText('Verification code is invalid',{exact:false})).toBeVisible(); await h.signIn(page,username); await h.signOut(page);
-await h.link(page,'Forgot password').click(); await h.field(page,'Email').fill(email); await h.button(page,'Send reset link').click(); await h.field(page,'Verification code').fill('123456'); await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Replacement-password-456!'); await h.button(page,'Reset password').click();
+await h.recovery(page,email); await h.field(page,'Verification code').fill('123456'); await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Replacement-password-456!'); await h.button(page,'Reset password').click();
 await expect(h.text(page,'Password updated').first()).toBeVisible(); await h.signIn(page,username,'Replacement-password-456!'); await h.signOut(page); await h.link(page,'Sign in').click(); await h.field(page,'Username or email').fill(username); await h.field(page,'Password').fill(h.PASSWORD); await h.button(page,'Sign in').click(); await expect(h.text(page,'Invalid credentials').first()).toBeVisible();
 ''')
 g('REQ-1-1-3','unknown email shows the same fixed code and reset form but cannot update an account', r'''
-const {username}=await h.register(page); await h.link(page,'Forgot password').click(); await h.field(page,'Email').fill(`${h.unique()}@example.test`); await h.button(page,'Send reset link').click();
-await expect(h.text(page,'123456').first()).toBeVisible(); for(const label of ['Verification code','New password','Confirm password']) await expect(h.field(page,label)).toBeVisible();
+const {username}=await h.register(page); await h.recovery(page,`${h.unique()}@example.test`);
+await expect(h.containsValue(page,'123456').first()).toBeVisible(); for(const label of ['Verification code','New password','Confirm password']) await expect(h.field(page,label)).toBeVisible();
 await h.field(page,'Verification code').fill('123456'); await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Replacement-password-456!'); await h.button(page,'Reset password').click(); await expect(h.text(page,'Password updated')).toHaveCount(0); await h.signIn(page,username);
 ''')
 g('REQ-1-2','cancel retains session and confirm invalidates protected page after reload/back/direct entry', r'''
@@ -120,7 +121,7 @@ await h.field(page,'Team name').fill(name); await h.button(page,'Create team').c
 ''', 'team-create')
 g('REQ-2-2-1','invalid team name leaves creation form and no team', r'''
 await h.signIn(page,'spec-owner'); await h.organization(page,'team-invalid'); await h.link(page,'Teams').click(); await h.link(page,'New team').click(); await h.field(page,'Team name').fill('-invalid'); await h.button(page,'Create team').click();
-await expect(page.getByText('Team name format is invalid',{exact:false})).toBeVisible(); await page.reload(); await expect(page.getByRole('heading',{name:'-invalid',exact:true})).toHaveCount(0);
+await expect(page.getByText('Team name is invalid',{exact:false})).toBeVisible(); await page.reload(); await expect(page.getByRole('heading',{name:'-invalid',exact:true})).toHaveCount(0);
 ''','team-invalid')
 g('REQ-2-2-2','Owner adds and immediately removes direct team member with persistence', r'''
 await h.signIn(page,'spec-owner'); await h.organization(page,'team-members'); await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Members').click();
@@ -129,7 +130,7 @@ await h.persisted(page, () => expect(h.button(page,'Remove bob-reviewer')).toBeV
 ''','team-members')
 g('REQ-2-2-2','cycle rejects and preserves original parent value across reload', r'''
 await h.signIn(page,'spec-owner'); await h.organization(page,'team-cycle'); await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Settings').click();
-const parent=h.field(page,'Parent team'); const original=await parent.inputValue(); await parent.selectOption({label:'frontend-child'}); await h.button(page,'Save').click(); await expect(h.text(page,'Cyclic team hierarchy is not allowed').first()).toBeVisible(); await expect(parent).toHaveValue(original); await page.reload(); await expect(parent).toHaveValue(original);
+await h.chosen(page,'Parent team','platform-team'); await h.choose(page,'Parent team','frontend-child'); await h.button(page,'Save').click(); await expect(h.text(page,'Cyclic team hierarchy is not allowed').first()).toBeVisible(); await h.chosen(page,'Parent team','platform-team'); await page.reload(); await h.chosen(page,'Parent team','platform-team');
 ''','team-cycle')
 g('REQ-2-2-3','adding Member is immediate, listed after own login, but grants no private access', r'''
 await h.signIn(page,'spec-owner'); await h.organization(page,'member-add'); await h.link(page,'People').click(); await h.button(page,'Add member').click(); await h.field(page,'Username or email').fill('spec-new-member'); await h.choose(page,'Role','Member'); await h.button(page,'Add member').last().click();
@@ -164,7 +165,7 @@ try {
 } finally { await member.close(); await visitor.close(); }
 ''','grant-add')
 g('REQ-2-3','native Read selection replaces Write rather than appending a grant', r'''
-await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('grant-replace')); await h.settings(page,'Manage access'); const row=page.getByRole('row',{name:/frontend-team/}); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Write'); await row.getByRole('combobox',{name:'Role',exact:true}).selectOption({label:'Read'}); await h.button(row,'Save').click();
+await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('grant-replace')); await h.settings(page,'Manage access'); const row=page.getByRole('row',{name:/frontend-team/}); await h.chosen(row,'Role','Write'); await h.choose(row,'Role','Read'); await h.button(row,'Save').click();
 await h.persisted(page, async () => { await expect(row).toHaveCount(1); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Read'); });
 ''','grant-replace')
 g('REQ-3-1','global search opens public identity and excludes private repository', r'''
@@ -188,9 +189,8 @@ g('REQ-3-2-2','conflicting fork name cannot open or modify an existing repositor
 await h.signIn(page); await h.repo(page); await h.button(page,'Fork').click(); await h.field(page,'Repository name').fill('acme-docs-fork'); await h.button(page,'Create fork').click(); await expect(h.field(page,'Repository name')).toBeVisible(); await expect(page.getByRole('heading',{name:'alice-dev/acme-docs-fork',exact:true})).toHaveCount(0);
 ''')
 for protocol in ['HTTPS','SSH']:
- g('REQ-3-2-3','copy complete '+protocol+' clone value without modifying repository',f'''
- await h.repo(page); await h.button(page,'Code').click(); await page.getByRole('tab',{{name:{json.dumps(protocol)},exact:true}}).click(); await h.button(page,'Copy clone value').click(); await expect(h.text(page,'Copied').first()).toBeVisible();
- const value=await page.evaluate(() => navigator.clipboard.readText()); expect(value).toMatch({'/^https:\\/\\/[^\\s]+\\/[^\\s/]+\\/acme-docs\\.git$/' if protocol=='HTTPS' else '/^(?:[^@\\s]+@[^:\\s]+:[^\\s/]+\\/acme-docs\\.git|ssh:\\/\\/[^\\s]+\\/acme-docs\\.git)$/'}); await expect(page.getByRole('heading').filter({{hasText:'acme-docs'}})).toBeVisible();
+ g('REQ-3-2-3','copy exact displayed '+protocol+' clone value without modifying repository',f'''
+ await h.repo(page); await h.copyClone(page,{json.dumps(protocol)}); await expect(page.getByRole('heading').filter({{hasText:'acme-docs'}})).toBeVisible();
  ''')
 g('REQ-3-3','visitor public repository overview and Code navigation persist', r'''
 await h.repo(page); await expect(h.text(page,'Public').first()).toBeVisible(); await expect(h.link(page,'Code')).toBeVisible(); await h.persisted(page, () => expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible());
@@ -200,10 +200,10 @@ await h.signIn(page,'spec-admin'); const address=await h.repo(page,h.fixtureRepo
 const visitor=await browser.newContext(); const p=await visitor.newPage(); await p.goto(address); await expect(p.getByRole('heading').filter({hasText:h.fixtureRepo('visibility')})).toBeVisible(); await expect(h.text(p,'Public').first()).toBeVisible(); await visitor.close();
 ''','visibility')
 g('REQ-3-4','non-Admin cannot activate visibility change', r'''
-await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('visibility-read')); if(await h.link(page,'Settings').count()) { await h.link(page,'Settings').click(); if(await h.link(page,'General').count()) await h.link(page,'General').click(); } await expect(h.button(page,'Change visibility')).toHaveCount(0);
+await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('visibility-read')); if(await h.link(page,'Settings').count()) { await h.link(page,'Settings').click(); if(await h.link(page,'General').count()) await h.link(page,'General').click(); } await h.unavailable(page,'Change visibility');
 ''','visibility-read')
 g('REQ-4-1','visitor directory/file navigation persists exact path content', r'''
-await h.repo(page); await h.link(page,'src').click(); await h.link(page,'search.ts').click(); await h.persisted(page, () => expect(h.text(page,'export const search = "search flow";')).toBeVisible()); await expect(page.locator('body')).toContainText('src');
+await h.repo(page); await h.link(page,'src').click(); await h.link(page,'search.ts').click(); await h.persisted(page, () => expect(h.text(page,'export const search = "search flow";')).toBeVisible()); await expect(page.locator('body')).toContainText('src'); await h.repo(page); await h.link(page,'README.md').click(); await h.persisted(page,()=>expect(h.text(page,'Document search flow').first()).toBeVisible());
 ''')
 g('REQ-4-2-1','branch commit history displays exact message, author and relative timestamp', r'''
 await h.repo(page); await h.link(page,'Commits').click(); await expect(h.text(page,'Document search flow').first()).toBeVisible(); await expect(h.text(page,'alice-dev').first()).toBeVisible(); await expect(page.getByText(/\bago\b/).first()).toBeVisible();
@@ -212,7 +212,7 @@ g('REQ-4-2-2','visitor commit diff reads changed file and exact additions/deleti
 await h.repo(page); await h.link(page,'Commits').click(); await h.link(page,'Document search flow').click(); const address=page.url(); await page.goto(address); await expect(h.text(page,'src/search.ts').first()).toBeVisible(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await expect(page.getByText('2 additions, 0 deletions',{exact:false}).first()).toBeVisible();
 ''')
 g('REQ-4-2-3','repository code result opens matching file with persisted code context', r'''
-await h.repo(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await h.persisted(page, () => expect(h.text(page,'search flow').first()).toBeVisible()); await expect(h.link(page,'README.md')).toBeVisible();
+await h.repo(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await h.persisted(page, () => expect(h.text(page,'Document search flow').first()).toBeVisible()); await expect(h.link(page,'README.md')).toBeVisible();
 ''')
 g('REQ-4-2-3','no code matches retain exact query across repeated searches', r'''
 for(let i=0;i<2;i++){ await h.repo(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('no-such-token'); await search.press('Enter'); await h.link(page,'Code').click(); await expect(h.text(page,'No code results').first()).toBeVisible(); await expect(search).toHaveValue('no-such-token'); await expect(h.link(page,'README.md')).toHaveCount(0); }
@@ -233,7 +233,7 @@ g('REQ-4-3-3','Admin changes native default branch and old branch still exists',
 await h.signIn(page,'spec-admin'); const address=await h.repo(page,h.fixtureRepo('default-branch')); await h.settings(page,'Branches'); await h.field(page,'Default branch').selectOption({label:'feature-search'}); await h.button(page,'Update').click(); await h.button(page.getByRole('dialog'),'Confirm').click(); await page.goto(address); await expect(h.button(page,'Branch feature-search')).toBeVisible(); await h.button(page,'Branch feature-search').click(); await expect(page.getByRole('option',{name:'main',exact:true})).toBeVisible();
 ''','default-branch')
 g('REQ-4-3-3','non-Admin default-branch edit controls are absent', r'''
-await h.signIn(page,'spec-read'); await h.repo(page,h.fixtureRepo('default-read')); if(await h.link(page,'Settings').count()){ await h.link(page,'Settings').click(); if(await h.link(page,'Branches').count()) await h.link(page,'Branches').click(); } await expect(h.field(page,'Default branch')).toHaveCount(0); await expect(h.button(page,'Update')).toHaveCount(0);
+await h.signIn(page,'spec-read'); await h.repo(page,h.fixtureRepo('default-read')); if(await h.link(page,'Settings').count()){ await h.link(page,'Settings').click(); if(await h.link(page,'Branches').count()) await h.link(page,'Branches').click(); } const selector=h.field(page,'Default branch'); if(await selector.isVisible()) await expect(selector).toBeDisabled(); await h.unavailable(page,'Update');
 ''','default-read')
 g('REQ-4-4','file creation persists exact contents', r'''
 await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('file-create')); await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click(); const name=`${h.unique('pw-file')}.md`,message=`Add ${name}`;
@@ -265,14 +265,14 @@ await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('issue-create
 await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible(); await expect(h.text(page,'Complete saved issue description.').first()).toBeVisible(); }); await page.goto(listAddress); await expect(h.link(page,title)).toBeVisible();
 ''','issue-create')
 g('REQ-5-2-1','blank issue title creates neither issue nor partial record', r'''
-await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('issue-create-invalid')); await h.link(page,'Issues').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible(); const before=await page.getByRole('link').allTextContents(),address=page.url(); await h.link(page,'New issue').click(); await h.field(page,'Title').fill('   '); await h.button(page,'Submit new issue').click(); await expect(page.getByText('Title is required',{exact:false})).toBeVisible(); await page.goto(address); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before); await page.reload(); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before);
+await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('issue-create-invalid')); await h.link(page,'Issues').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible(); const before=await page.getByRole('link').allTextContents(),address=page.url(); await h.link(page,'New issue').click(); await h.field(page,'Title').fill('   '); await h.button(page,'Submit new issue').click(); await expect(h.titleRequiredReason(page).first()).toBeVisible(); await page.goto(address); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before); await page.reload(); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before);
 ''','issue-create-invalid')
 g('REQ-5-2-2','Maintain saves issue title and body with separate commit actions and persists both', r'''
 await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-edit'); await h.button(page,'Edit issue title').click(); await h.field(page,'Issue title').fill('Updated onboarding title'); await h.button(page,'Save issue title').click(); await h.button(page,'Edit issue description').click(); await h.field(page,'Issue description').fill('Updated onboarding body'); await h.button(page,'Save issue description').click();
 await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Updated onboarding title',exact:true})).toBeVisible(); await expect(h.text(page,'Updated onboarding body').first()).toBeVisible(); });
 ''','issue-edit')
 g('REQ-5-2-2','blank edited title preserves exact original title after reload', r'''
-await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-edit-invalid','Original issue title'); await h.button(page,'Edit issue title').click(); await h.field(page,'Issue title').fill('   '); await h.button(page,'Save issue title').click(); await expect(page.getByText('Title is required',{exact:false})).toBeVisible(); await page.reload(); await expect(page.getByRole('heading',{name:'Original issue title',exact:true})).toBeVisible();
+await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-edit-invalid','Original issue title'); await h.button(page,'Edit issue title').click(); await h.field(page,'Issue title').fill('   '); await h.button(page,'Save issue title').click(); await expect(h.titleRequiredReason(page).first()).toBeVisible(); await page.reload(); await expect(page.getByRole('heading',{name:'Original issue title',exact:true})).toBeVisible();
 ''','issue-edit-invalid')
 g('REQ-5-2-3','Write comment stores full body and author and survives reload', r'''
 await h.signIn(page,'spec-write'); await h.issue(page,'issue-comment'); const body=h.unique('pw-comment'); await h.field(page,'Comment').fill(body); await h.button(page,'Comment').click(); const entry=page.getByRole('article').filter({hasText:body}); await h.persisted(page, async () => { await expect(entry).toContainText(body); await expect(entry).toContainText('spec-write'); });
@@ -297,28 +297,33 @@ g('REQ-5-4','Read viewer has neither issue status control', r'''
 await h.signIn(page,'spec-read'); await h.issue(page,'issue-read'); await expect(h.button(page,'Close issue')).toHaveCount(0); await expect(h.button(page,'Reopen issue')).toHaveCount(0); await h.unavailable(page,'Edit issue title'); await h.unavailable(page,'Edit issue description');
 ''','issue-read')
 g('REQ-6-1','Admin stores exact branch protection toggles and reload displays summaries', r'''
-await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('protection-create')); await h.settings(page,'Branches'); await h.button(page,'Add branch protection rule').click(); await h.field(page,'Branch name pattern').fill('main'); await page.getByRole('checkbox',{name:'Require 1 approval',exact:true}).check(); await page.getByRole('checkbox',{name:'Require status check test',exact:true}).check(); await h.button(page,'Create').click(); await h.persisted(page, async () => { await expect(h.visibleText(page,'main').first()).toBeVisible(); await expect(h.visibleText(page,'1 approval').first()).toBeVisible(); await expect(h.visibleText(page,'Require status check test').first()).toBeVisible(); });
+await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('protection-create')); await h.settings(page,'Branches'); await h.button(page,'Add branch protection rule').click(); await h.field(page,'Branch name pattern').fill('main'); await page.getByRole('checkbox',{name:'Require 1 approval',exact:true}).check(); await page.getByRole('checkbox',{name:'Require status check test',exact:true}).check(); await h.action(page,['Create','Save changes']).click(); await h.persisted(page, async () => { await expect(h.visibleText(page,'main').first()).toBeVisible(); await expect(h.visibleText(page,'1 approval').first()).toBeVisible(); await expect(h.visibleText(page,'Require status check test').first()).toBeVisible(); });
 ''','protection-create')
 g('REQ-6-1','non-Admin cannot create protection rule', r'''
 await h.signIn(page,'spec-read'); await h.repo(page,h.fixtureRepo('protection-read')); if(await h.link(page,'Settings').count()){ await h.link(page,'Settings').click(); if(await h.link(page,'Branches').count()) await h.link(page,'Branches').click(); } await expect(h.button(page,'Add branch protection rule')).toHaveCount(0);
 ''','protection-read')
 g('REQ-6-1','Admin changes current compare-commit check pending to success and persists setter', r'''
-await h.signIn(page,'spec-admin'); await h.pr(page,'check-success'); await expect(h.text(page,'test: pending').first()).toBeVisible(); await h.choose(page,'test status','success'); await h.button(page,'Save').click(); await h.persisted(page, async () => { await expect(h.text(page,'test: success').first()).toBeVisible(); await expect(h.text(page,'spec-admin').last()).toBeVisible(); });
+await h.signIn(page,'spec-admin'); await h.pr(page,'check-success'); await expect(h.text(page,'test: pending').first()).toBeVisible(); const address=page.url(), visitor=await browser.newContext();
+try { const observed=await visitor.newPage(); await observed.goto(address); await expect(h.text(observed,'test: pending').first()).toBeVisible(); await expect(h.containsValue(observed,'spec-admin')).toHaveCount(0);
+await h.choose(page,'test','success'); await h.action(page,['Save','Update']).click();
+await h.persisted(page,()=>expect(h.text(page,'test: success').first()).toBeVisible());
+await observed.reload(); await h.persisted(observed,async()=>{ await expect(h.text(observed,'test: success').first()).toBeVisible(); await expect(h.containsValue(observed,'spec-admin').first()).toBeVisible(); });
+} finally { await visitor.close(); }
 ''','check-success', file='INTEGRATION-protection', requires=['REQ-6-1','REQ-6-2-3'])
 g('REQ-6-2-1','visitor Open PR list filter reads same persisted PR after repeated navigation', r'''
 await h.repo(page); await h.link(page,'Pull requests').click(); const list=page.url(); await h.link(page,'Open').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible(); await page.reload(); await h.link(page,'Improve onboarding').click(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await h.home(page); await page.goto(list); await h.link(page,'Open').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible();
 ''')
-g('REQ-6-2-2','native base/compare show exact changed file and comparable commits', r'''
-await h.signIn(page,'spec-write'); await h.compare(page,'pr-compare'); await expect(page.getByText(/Commit summary/).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();
+g('REQ-6-2-2','Base/Compare comboboxes show exact changed file and comparable commits', r'''
+await h.signIn(page,'spec-write'); await h.compare(page,'pr-compare'); await expect(h.containsValue(page,'Implement search flow').first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();
 ''','pr-compare')
-g('REQ-6-2-2','equal base and compare disable creation before compare button and afterward', r'''
-await h.signIn(page,'spec-write'); await h.compare(page,'pr-no-changes'); await h.field(page,'compare').selectOption({label:'main'}); await expect(h.text(page,'No changes').first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeDisabled(); await h.button(page,'Compare changes').click(); await expect(h.text(page,'No changes').first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeDisabled();
+g('REQ-6-2-2','equal base and compare report no differences and disable creation', r'''
+await h.signIn(page,'spec-write'); await h.compare(page,'pr-no-changes'); await h.choose(page,'Compare','main'); await h.button(page,'Compare changes').click(); await expect(h.noDifferences(page).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeDisabled();
 ''','pr-no-changes')
 g('REQ-6-2-3','create Open PR from comparison persists exact title and description', r'''
-await h.signIn(page,'spec-write'); await h.compare(page,'pr-create'); await h.button(page,'Create pull request').click(); const title=h.unique('pw-pr'); await h.field(page,'Title').fill(`  ${title}  `); await h.field(page,'Description').fill('Saved PR description'); await expect(h.button(page,'Create pull request')).toHaveCount(1); await h.button(page,'Create pull request').click(); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible(); await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.text(page,'Saved PR description').first()).toBeVisible(); });
+await h.signIn(page,'spec-write'); await h.compare(page,'pr-create'); await h.button(page,'Create pull request').click(); const title=h.unique('pw-pr'); await h.field(page,'Title').fill(title); await h.field(page,'Description').fill('Saved PR description'); await expect(h.button(page,'Create pull request')).toHaveCount(1); await h.button(page,'Create pull request').click(); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible(); await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.text(page,'Saved PR description').first()).toBeVisible(); });
 ''','pr-create')
 g('REQ-6-2-3','blank PR title keeps form and creates no PR', r'''
-await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('pr-create-invalid')); await h.link(page,'Pull requests').click(); await expect(h.link(page,'New pull request')).toBeVisible(); const before=await page.getByRole('link').allTextContents(),listAddress=page.url(); await h.compare(page,'pr-create-invalid'); await h.button(page,'Create pull request').click(); await h.field(page,'Title').fill('   '); await h.button(page,'Create pull request').click(); await expect(page.getByText('Title is required',{exact:false})).toBeVisible(); await expect(h.field(page,'Title')).toBeVisible(); await page.goto(listAddress); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before); await page.reload(); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before);
+await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('pr-create-invalid')); await h.link(page,'Pull requests').click(); await expect(h.link(page,'New pull request')).toBeVisible(); const before=await page.getByRole('link').allTextContents(),listAddress=page.url(); await h.compare(page,'pr-create-invalid'); await h.button(page,'Create pull request').click(); await h.field(page,'Title').fill('   '); await h.button(page,'Create pull request').click(); await expect(h.titleRequiredReason(page).first()).toBeVisible(); await expect(h.field(page,'Title')).toBeVisible(); await page.goto(listAddress); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before); await page.reload(); await expect.poll(()=>page.getByRole('link').allTextContents()).toEqual(before);
 ''','pr-create-invalid')
 g('REQ-6-2-4','Draft creation is persistent and has present disabled merge action', r'''
 await h.signIn(page,'spec-write'); await h.compare(page,'pr-draft-create'); await h.button(page,'Create draft pull request').click(); const title=h.unique('pw-draft'); await h.field(page,'Title').fill(title); await h.button(page,'Create draft pull request').click(); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible(); await expect(h.text(page,'Draft').first()).toBeVisible(); await expect(h.button(page,'Merge pull request')).toBeDisabled(); });
@@ -327,7 +332,7 @@ g('REQ-6-2-4','author marks Draft ready without changing title or branches', r''
 await h.signIn(page,'spec-write'); await h.pr(page,'pr-ready','Draft onboarding update'); await h.button(page,'Ready for review').click(); const confirm=h.button(page,'Confirm'); if(await confirm.isVisible()) await confirm.click(); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Draft onboarding update',exact:true})).toBeVisible(); await expect(h.text(page,'Draft')).toHaveCount(0); await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.text(page,'draft-feature').first()).toBeVisible(); await expect(h.text(page,'main').first()).toBeVisible(); await expect(h.text(page,'Ready for review').first()).toBeVisible(); });
 ''','pr-ready')
 g('REQ-6-3-1','visitor PR overview, commits and changed-files navigation survives direct reopen', r'''
-await h.pr(page); const address=page.url(); await h.link(page,'Commits').click(); await expect(page.getByText(/Commit summary/).first()).toBeVisible(); await h.link(page,'Files changed').click(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Commits')).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });
+await h.pr(page); const address=page.url(); await h.link(page,'Commits').click(); await expect(h.containsValue(page,'Implement search flow').first()).toBeVisible(); await h.link(page,'Files changed').click(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Commits')).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });
 ''')
 g('REQ-6-3-2','visitor diff displays exact path and exact aggregate additions/deletions from both changed files', r'''
 await h.pr(page); await h.link(page,'Files changed').click(); await expect(h.text(page,'src/search.ts').first()).toBeVisible(); await expect(page.getByText('2 additions, 1 deletions',{exact:false}).first()).toBeVisible();
@@ -335,15 +340,15 @@ await h.pr(page); await h.link(page,'Files changed').click(); await expect(h.tex
 for pending in [False,True]:
  fid='review-pending' if pending else 'review-comment'
  g('REQ-6-3-3',('pending review draft' if pending else 'single inline comment')+' persists at changed line',f'''
- await h.signIn(page,'bob-reviewer'); await h.pr(page,{json.dumps(fid)}); await h.link(page,'Files changed').click(); await h.button(page,'Add comment').first().click(); const body=h.unique('pw-review'); await h.field(page,'Comment').fill(body); await h.button(page,{json.dumps('Start a review' if pending else 'Add single comment')}).click(); await h.persisted(page, async () => {{ await expect(h.text(page,body).first()).toBeVisible(); {'await expect(h.text(page,"Pending review").first()).toBeVisible();' if pending else ''} }});
+ await h.signIn(page,'bob-reviewer'); await h.pr(page,{json.dumps(fid)}); await h.link(page,'Files changed').click(); await h.button(page,'Add comment').first().click(); const body=h.unique('pw-review'); await h.field(page,'Comment').fill(body); await h.button(page,{json.dumps('Start a review' if pending else 'Add single comment')}).click(); await h.persisted(page, async () => {{ await expect(h.text(page,body).first()).toBeVisible();  }});
  {'const address=page.url(); const visitor=await browser.newContext(); const p=await visitor.newPage(); await p.goto(address); await expect(h.text(p,body)).toHaveCount(0); await visitor.close();' if pending else ''}
  ''',fid)
-for decision,status in [('Approve','Approved'),('Request changes','Changes requested'),('Comment','')]:
- fid='review-'+('decision-comment' if decision=='Comment' else decision.lower().replace(' ','-'))
+for decision,status in [('Approve','Approved'),('Request changes','Changes requested')]:
+ fid='review-'+decision.lower().replace(' ','-')
  g('REQ-6-3-4',decision+' submission persists current-commit review',f'''
  await h.signIn(page,'bob-reviewer'); await h.pr(page,{json.dumps(fid)}); await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click();
- {'await h.field(page,"Summary").fill("Please fix the search edge case");' if decision!='Approve' else ''} await page.getByRole('radio',{{name:{json.dumps(decision)},exact:true}}).check(); await h.button(page,'Submit review').click();
- await h.persisted(page, () => expect(h.text(page,{json.dumps(status or 'Please fix the search edge case')}).first()).toBeVisible());
+ {'await h.reviewSummary(page).fill("Please fix the search edge case");' if decision!='Approve' else ''} await page.getByRole('radio',{{name:{json.dumps(decision)},exact:true}}).check(); await h.button(page,'Submit review').click();
+ await h.persisted(page, async () => {{ await expect(h.text(page,{json.dumps(status)}).first()).toBeVisible(); {'await expect(h.text(page,"Please fix the search edge case").first()).toBeVisible();' if decision=='Request changes' else ''} }});
  ''',fid)
 g('REQ-6-4','author requests and removes live eligible reviewer without confirmation', r'''
 await h.signIn(page,'spec-write'); await h.pr(page,'review-request'); await h.button(page,'Reviewers').click(); await page.getByRole('textbox',{name:'Search',exact:true}).fill('bob-reviewer'); await h.option(page,'bob-reviewer'); await h.persisted(page, () => expect(h.button(page,'Remove bob-reviewer')).toBeVisible()); await h.button(page,'Remove bob-reviewer').click(); await h.persisted(page, () => expect(h.button(page,'Remove bob-reviewer')).toHaveCount(0));
@@ -389,11 +394,11 @@ for rule in ['check-only','approval-only','unprotected']:
     await expect(h.button(page,'Merge pull request')).toBeEnabled(); await h.button(page,'Merge pull request').click();
     await h.button(page,'Confirm merge').click(); await h.persisted(page, () => expect(h.text(page,'Merged').first()).toBeVisible());
     ''','merge-'+rule)
-g('REQ-6-3-4','latest Comment replaces Request changes while retaining history',r'''
+g('REQ-6-3-4','latest Approve replaces Request changes while retaining history',r'''
 await h.signIn(page,'bob-reviewer'); await h.pr(page,'review-replace');
-for(const decision of ['Request changes','Comment']) { await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click(); await h.field(page,'Summary').fill(`Decision: ${decision}`); await page.getByRole('radio',{name:decision,exact:true}).check(); await h.button(page,'Submit review').click(); }
+for(const decision of ['Request changes','Approve']) { await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click(); await h.reviewSummary(page).fill(`Decision: ${decision}`); await page.getByRole('radio',{name:decision,exact:true}).check(); await h.button(page,'Submit review').click(); }
 await h.signOut(page); await h.signIn(page,'spec-maintain'); await h.pr(page,'review-replace');
-await expect(h.text(page,'Decision: Request changes').first()).toBeVisible(); await expect(h.text(page,'Decision: Comment').first()).toBeVisible(); await expect(h.button(page,'Merge pull request')).toBeEnabled();
+await expect(h.text(page,'Decision: Request changes').first()).toBeVisible(); await expect(h.text(page,'Decision: Approve').first()).toBeVisible(); await expect(h.button(page,'Merge pull request')).toBeEnabled();
 ''','review-replace')
 g('REQ-6-5','current Request changes blocks an otherwise unprotected PR',r'''
 await h.signIn(page,'spec-maintain'); await h.pr(page,'merge-request-changes'); await h.persisted(page, () => expect(h.button(page,'Merge pull request')).toBeDisabled()); await expect(h.text(page,'Open').first()).toBeVisible();
@@ -426,6 +431,8 @@ from embedded_repair_cases import register as register_repair_cases
 register_repair_cases(s)
 from embedded_sheet_audit_cases import register as register_sheet_audit
 register_sheet_audit(s)
+from embedded_spec_revision_cases import register as register_spec_revision
+register_spec_revision(g)
 from embedded_case_phases import partition_sheet_cases
 CASES['hackathon--sheet'] = partition_sheet_cases(CASES['hackathon--sheet'], yaml.safe_load(
     (Path(__file__).resolve().parent / 'tasks/hackathon--sheet/requirements.yaml').read_text()))

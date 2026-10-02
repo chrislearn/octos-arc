@@ -18,7 +18,7 @@
       "REQ-1-1-1"
     ],
     "setup_requires": [],
-    "title": "REQ-1-1-1: all invalid fields show errors together and clear sensitive values",
+    "title": "REQ-1-1-1: all invalid fields show errors together and preserve attempted identity",
     "file": "REQ-1-1-1.spec.ts"
   },
   {
@@ -30,6 +30,259 @@
     ],
     "setup_requires": [],
     "title": "REQ-1-1-1: duplicate username preserves both attempted non-sensitive values",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 1: Username; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 2: Username; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 3: Username; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 4: Username; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 5: Username; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 6: Username; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 7: Email; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 8: Email; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 9: Email; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 10: Email; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 11: Email; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 12: Password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 13: Password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 14: Password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 15: Password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 16: Password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 17: Password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 18: Password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: isolated registration rejection 19: Confirm password; correction creates exactly the attempted identity",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: duplicate email retains identity; correcting email does not encounter a partially created username",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: username legal length 1 is accepted",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: username legal length 39 is accepted",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: email legal length 254 is accepted",
     "file": "REQ-1-1-1.spec.ts"
   },
   {
@@ -113,6 +366,30 @@
       "REQ-1-1-1"
     ],
     "title": "REQ-1-1-2: guide: a newly registered identity signs in by email and username across reload and an independent session",
+    "file": "REQ-1-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-2: registration accepts password boundary 12 and trimmed email; email sign-in persists",
+    "file": "REQ-1-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-2: registration accepts password boundary 128 and trimmed email; email sign-in persists",
     "file": "REQ-1-1-2.spec.ts"
   },
   {
@@ -291,6 +568,38 @@
     "file": "REQ-2-2-1.spec.ts"
   },
   {
+    "node_id": "REQ-2-2-1",
+    "fixture": "team-boundaries",
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-2-1-1",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-2-2-1: team legal length 50 is accepted and overlong 51 is refused without creating a team",
+    "file": "REQ-2-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-1",
+    "fixture": "team-duplicate",
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-2-1-1",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-2-2-1: duplicate team in the same organization does not create a second relationship",
+    "file": "REQ-2-2-1.spec.ts"
+  },
+  {
     "node_id": "REQ-2-2-2",
     "fixture": "team-members",
     "phase": "node",
@@ -320,6 +629,22 @@
       "REQ-3-3"
     ],
     "title": "REQ-2-2-2: cycle rejects and preserves original parent value across reload",
+    "file": "REQ-2-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-2",
+    "fixture": "team-parent-valid",
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-2-1-1",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-2-2-2: valid parent change persists independently of the earlier parent relationship",
     "file": "REQ-2-2-2.spec.ts"
   },
   {
@@ -386,6 +711,23 @@
       "REQ-3-3"
     ],
     "title": "REQ-2-2-4: ordinary member has no removal controls",
+    "file": "REQ-2-2-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-4",
+    "fixture": "last-owner",
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-4",
+      "REQ-2-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-2-1-1",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-2-2-4: last Owner removal is rejected and retains organization and direct team membership",
     "file": "REQ-2-2-4.spec.ts"
   },
   {
@@ -523,7 +865,7 @@
       "REQ-3-1",
       "REQ-3-3"
     ],
-    "title": "REQ-3-2-3: copy complete HTTPS clone value without modifying repository",
+    "title": "REQ-3-2-3: copy exact displayed HTTPS clone value without modifying repository",
     "file": "REQ-3-2-3.spec.ts"
   },
   {
@@ -537,7 +879,7 @@
       "REQ-3-1",
       "REQ-3-3"
     ],
-    "title": "REQ-3-2-3: copy complete SSH clone value without modifying repository",
+    "title": "REQ-3-2-3: copy exact displayed SSH clone value without modifying repository",
     "file": "REQ-3-2-3.spec.ts"
   },
   {
@@ -1191,6 +1533,23 @@
     "file": "REQ-5-2-2.spec.ts"
   },
   {
+    "node_id": "REQ-5-2-2",
+    "fixture": "issue-write-edit",
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-5-1-1",
+      "REQ-5-1-2"
+    ],
+    "title": "REQ-5-2-2: Write saves title and description independently without Triage metadata authority",
+    "file": "REQ-5-2-2.spec.ts"
+  },
+  {
     "node_id": "REQ-5-2-3",
     "fixture": "issue-comment",
     "phase": "node",
@@ -1327,6 +1686,24 @@
     "file": "REQ-5-3-2.spec.ts"
   },
   {
+    "node_id": "REQ-5-3-2",
+    "fixture": "issue-triage-label",
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-2",
+      "REQ-5-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-5-1-1",
+      "REQ-5-1-2"
+    ],
+    "title": "REQ-5-3-2: Triage toggles a label without receiving Write content authority",
+    "file": "REQ-5-3-2.spec.ts"
+  },
+  {
     "node_id": "REQ-5-3-3",
     "fixture": "issue-milestone",
     "phase": "node",
@@ -1396,6 +1773,24 @@
       "REQ-3-3"
     ],
     "title": "REQ-5-4: guide: an Issue created by Write keeps comments and assignee across Maintain status changes",
+    "file": "REQ-5-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-4",
+    "fixture": "issue-triage-status",
+    "phase": "node",
+    "requires": [
+      "REQ-5-4",
+      "REQ-5-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-5-1-1",
+      "REQ-5-1-2"
+    ],
+    "title": "REQ-5-4: Triage closes and reopens an issue without receiving Write content authority",
     "file": "REQ-5-4.spec.ts"
   },
   {
@@ -1473,7 +1868,7 @@
       "REQ-3-3",
       "REQ-6-2-1"
     ],
-    "title": "REQ-6-2-2: native base/compare show exact changed file and comparable commits",
+    "title": "REQ-6-2-2: Base/Compare comboboxes show exact changed file and comparable commits",
     "file": "REQ-6-2-2.spec.ts"
   },
   {
@@ -1489,7 +1884,7 @@
       "REQ-3-3",
       "REQ-6-2-1"
     ],
-    "title": "REQ-6-2-2: equal base and compare disable creation before compare button and afterward",
+    "title": "REQ-6-2-2: equal base and compare report no differences and disable creation",
     "file": "REQ-6-2-2.spec.ts"
   },
   {
@@ -1746,23 +2141,6 @@
   },
   {
     "node_id": "REQ-6-3-4",
-    "fixture": "review-decision-comment",
-    "phase": "node",
-    "requires": [
-      "REQ-6-3-4"
-    ],
-    "setup_requires": [
-      "REQ-1-1-2",
-      "REQ-3-1",
-      "REQ-3-3",
-      "REQ-6-2-1",
-      "REQ-6-3-1"
-    ],
-    "title": "REQ-6-3-4: Comment submission persists current-commit review",
-    "file": "REQ-6-3-4.spec.ts"
-  },
-  {
-    "node_id": "REQ-6-3-4",
     "fixture": "review-replace",
     "phase": "node",
     "requires": [
@@ -1776,7 +2154,7 @@
       "REQ-6-2-1",
       "REQ-6-3-1"
     ],
-    "title": "REQ-6-3-4: latest Comment replaces Request changes while retaining history",
+    "title": "REQ-6-3-4: latest Approve replaces Request changes while retaining history",
     "file": "REQ-6-3-4.spec.ts"
   },
   {
@@ -2089,14 +2467,14 @@
     ],
     "origin_node_id": "REQ-6-2-1",
     "origin_file": "INTEGRATION-pr-filters.spec.ts",
-    "origin_title": "INTEGRATION-pr-filters: Open Draft Closed and actual Merged status filters isolate records and retain other PRs",
+    "origin_title": "INTEGRATION-pr-filters: Open filter excludes Draft Closed and a PR after its actual merge",
     "source_fixture": "pr-filter-lifecycle",
     "setup_requires": [
       "REQ-1-1-2",
       "REQ-3-1",
       "REQ-3-3"
     ],
-    "title": "REQ-6-5: context REQ-6-2-1: Open Draft Closed and actual Merged status filters isolate records and retain other PRs",
+    "title": "REQ-6-5: context REQ-6-2-1: Open filter excludes Draft Closed and a PR after its actual merge",
     "file": "REQ-6-5.spec.ts"
   },
   {
@@ -2230,7 +2608,7 @@
       "REQ-3-1",
       "REQ-3-3"
     ],
-    "title": "INTEGRATION-pr-filters: Open Draft Closed and actual Merged status filters isolate records and retain other PRs",
+    "title": "INTEGRATION-pr-filters: Open filter excludes Draft Closed and a PR after its actual merge",
     "file": "INTEGRATION-pr-filters.spec.ts"
   },
   {

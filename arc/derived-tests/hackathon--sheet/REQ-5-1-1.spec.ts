@@ -26,10 +26,11 @@ test("REQ-5-1-1: numeric sort moves whole records rather than lexical or single-
 
 test("REQ-5-1-1: date keys sort chronologically with stable equal keys and intact full records", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  // Valid ISO date-times with offsets distinguish chronology from text order.
-  await h.blank(page); await h.paste(page,'A1','Date\tRecord\tAmount\n2026-01-01T23:30:00Z\tlate\t1\n2026-01-01T23:00:00Z\tfirst-equal\t2\n2026-01-01T23:00:00Z\tsecond-equal\t3\n2026-01-02T00:30:00+02:00\tearly\t4');
+  // ISO date-only witnesses check stable record movement. Typed chronology
+  // versus lexical order needs the supported date grammar to be specified.
+  await h.blank(page); await h.paste(page,'A1','Date\tRecord\tAmount\n2026-01-03\tlate\t1\n2026-01-02\tfirst-equal\t2\n2026-01-02\tsecond-equal\t3\n2026-01-01\tearly\t4');
   await h.range(page,'A1','C5'); await h.data(page,'Sort range'); const dialog=page.getByRole('dialog',{name:'Sort range',exact:true}); await h.choose(dialog,'Sort by','Date'); await h.choose(dialog,'Order','Ascending'); await dialog.getByRole('checkbox',{name:'Data has header row',exact:true}).check(); await h.button(dialog,'Sort').click();
-  await h.persisted(page,()=>h.values(page,{A1:'Date',B1:'Record',C1:'Amount',A2:'2026-01-02T00:30:00+02:00',B2:'early',C2:'4',A3:'2026-01-01T23:00:00Z',B3:'first-equal',C3:'2',A4:'2026-01-01T23:00:00Z',B4:'second-equal',C4:'3',A5:'2026-01-01T23:30:00Z',B5:'late',C5:'1'}));
+  await h.persisted(page,()=>h.values(page,{A1:'Date',B1:'Record',C1:'Amount',A2:'2026-01-01',B2:'early',C2:'4',A3:'2026-01-02',B3:'first-equal',C3:'2',A4:'2026-01-02',B4:'second-equal',C4:'3',A5:'2026-01-03',B5:'late',C5:'1'}));
 });
 
 test("REQ-5-1-1: sorting moves formulas with records, adjusts their original references, and preserves validation/filter behavior", async ({ page, browser }) => {

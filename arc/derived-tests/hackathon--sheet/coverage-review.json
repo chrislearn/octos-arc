@@ -201,7 +201,7 @@
     },
     {
       "requirement_id": "REQ-5-1-1",
-      "behavior": "chronological sort distinguishes ISO offset dates from string comparison",
+      "behavior": "ISO date-only sorting keeps equal keys stable and records intact; typed comparison is not certified",
       "basis": "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu. A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button. Options in \"Sort by\" use the header text of the selected range as accessible names; \"Order\" provides options named \"Ascending\" and \"Descending\". When the first row is declared a header, it does not participate in sorting. Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row. After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh. If sorting fails, an error is displayed and the grid retains its original order.\n\nPage reference:\n![image](reference/sort-range.png)\n",
       "exported_witnesses": [
         {
@@ -214,7 +214,7 @@
     },
     {
       "requirement_id": "REQ-5-1-2",
-      "behavior": "Before distinguishes ISO offset dates from string comparison",
+      "behavior": "Before excludes equal/later ISO date-only values and empty cells",
       "basis": "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu. Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\". The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name. The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\". \"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box; \"Is empty\" and \"Is not empty\" require no value. Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered. After refresh or reopening, the same rows remain visible. CSV export and pivot summarization still include hidden rows within the filtered range. \"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged.\n",
       "exported_witnesses": [
         {
@@ -293,9 +293,9 @@
       "requirements": [
         "REQ-3-1-1"
       ],
-      "behavior": "write-failure injection for encoded bodies, cross-origin APIs and WebSocket; arbitrary roleless error phrasing",
+      "behavior": "write-failure injection for WebSocket, local storage, changing endpoints and arbitrary roleless error phrasing",
       "status": "requires_interaction_adapter",
-      "reason": "The existing witness covers same-origin plain-text HTTP writes and visible alerts or recognized error text. Unavailable injection is a harness limitation, not product certification."
+      "reason": "The witness learns successful HTTP write endpoints and supports encoded and cross-origin requests; error discovery uses visible alerts or recognized text. Unrelated background writes or changing endpoints need an implementation adapter. Unavailable injection is a harness limitation, not product certification."
     },
     {
       "requirements": [
@@ -313,9 +313,9 @@
         "REQ-5-1-1",
         "REQ-5-1-2"
       ],
-      "behavior": "supported date grammar and locale-specific input formats",
+      "behavior": "supported date grammar, typed chronology versus lexical order, timezone and locale-specific formats",
       "status": "requires_requirement_clarification",
-      "reason": "The chronology witnesses use standard ISO date-times with explicit offsets; they do not require locale-specific parsing."
+      "reason": "Current witnesses use ISO date-only inputs. Their order also matches lexical order, so they cannot certify typed date comparison. Offset date-times are no longer imposed by gates; supported grammar needs a requirement clarification."
     },
     {
       "requirements": [

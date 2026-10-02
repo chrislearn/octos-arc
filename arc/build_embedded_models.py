@@ -104,7 +104,7 @@ def build(task):
     write(directory/'app-design.json',model); write(directory/'domain-contracts.json',manifest)
     write(directory/'requirement-contracts.json',contracts); write(directory/'test-obligations.json',obligations)
     write(directory/'business-review.json',{'version':1,'review_status':'reviewed','frozen':True,'official':False,
-          'review_date':'2026-09-30','review_kind':'source_review','runtime_status':'not_run_against_product',
+          'review_date':'2026-10-02','review_kind':'source_review','runtime_status':'not_run_against_product',
           'requirements_sha256':requirements_digest(tree),'node_ids':[n['id'] for n in leaves],
           'files':{name:hashlib.sha256((directory/name).read_bytes()).hexdigest() for name in ['app-design.json','domain-contracts.json','requirement-contracts.json','test-obligations.json']},
           'gaps':[],'scope':'Shared identity/ownership/storage proposal, exact atomic and inherited clauses, command preconditions/effects/rejection/persistence; original sources remain authoritative. URLs and storage schema are implementation choices.'})

@@ -23,6 +23,6 @@ test("REQ-2-3: live team grant admits its member and preserves private denial an
 
 test("REQ-2-3: native Read selection replaces Write rather than appending a grant", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('grant-replace')); await h.settings(page,'Manage access'); const row=page.getByRole('row',{name:/frontend-team/}); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Write'); await row.getByRole('combobox',{name:'Role',exact:true}).selectOption({label:'Read'}); await h.button(row,'Save').click();
+  await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('grant-replace')); await h.settings(page,'Manage access'); const row=page.getByRole('row',{name:/frontend-team/}); await h.chosen(row,'Role','Write'); await h.choose(row,'Role','Read'); await h.button(row,'Save').click();
   await h.persisted(page, async () => { await expect(row).toHaveCount(1); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Read'); });
 });

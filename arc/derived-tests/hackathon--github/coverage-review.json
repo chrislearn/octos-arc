@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "requirements_sha256": "7822c558a0d5fef7c25a162f825471d77ea25e8e4bc9976ad33041781488675f",
+  "requirements_sha256": "3195ce431f728df9b266afd7007f7183f788702fa6f04394f6e41fad8781de56",
   "official": false,
   "review_kind": "source_and_test_infrastructure_review",
   "atomic_gate_coverage_complete": true,
@@ -8,11 +8,11 @@
   "product_runtime_certified": false,
   "nodes": {
     "REQ-1-1-1": {
-      "exported_case_count": 3,
+      "exported_case_count": 26,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-2": {
-      "exported_case_count": 7,
+      "exported_case_count": 9,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-3": {
@@ -36,11 +36,11 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-1": {
-      "exported_case_count": 2,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-2": {
-      "exported_case_count": 2,
+      "exported_case_count": 3,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-3": {
@@ -48,7 +48,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-4": {
-      "exported_case_count": 2,
+      "exported_case_count": 3,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-3": {
@@ -124,7 +124,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-2-2": {
-      "exported_case_count": 4,
+      "exported_case_count": 5,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-2-3": {
@@ -136,7 +136,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-2": {
-      "exported_case_count": 1,
+      "exported_case_count": 2,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-3": {
@@ -144,7 +144,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-4": {
-      "exported_case_count": 3,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-1": {
@@ -180,7 +180,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-4": {
-      "exported_case_count": 9,
+      "exported_case_count": 8,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-4": {
@@ -198,6 +198,241 @@
   },
   "reviewed_behaviors": [
     {
+      "requirement_id": "REQ-1-1-1",
+      "behavior": "legal username and email lengths are accepted",
+      "basis": "The registration page is the form opened by the unique link named “Create an account” from the sign-in page. The form contains exactly one textbox labeled “Username”, one textbox labeled “Email”, one password input labeled “Password”, one password input labeled “Confirm password”, one initially unchecked checkbox named “Agree to the terms”, and one enabled button named “Create account”. The username and email identify the account, while passwords must not be echoed on the page. This product directly marks the email of a successfully registered account as verified and does not provide a subsequent email-verification page. The visitor enters a unique username, email, password, and matching confirmation, checks “Agree to the terms”, and activates “Create account”. The username must consist of 1 to 39 lowercase ASCII letters, digits, or single hyphens (`-`) and must not begin or end with a hyphen; after trimming leading and trailing whitespace, the email must contain exactly one `@`, be no longer than 254 characters, and have at least one dot and non-empty domain labels after the `@`; the password must contain 12 to 128 characters, include at least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric special character, and contain no whitespace characters. The system stores a sign-in-capable account together with its verified-email status and enters the sign-in page; if the username or email conflicts, any field is missing, the email format is invalid, the terms are not accepted, the password is noncompliant, or the confirmation does not match, the system retains the username and email input, displays an itemized message beside the corresponding field, and does not create an account. The corresponding visible field message contains “Username already exists”, “Username format is invalid”, “Email format is invalid”, “Password requirements are not satisfied”, or “Agree to terms is required”, as applicable. Visitors can use this capability on the account-access page. The system validates input rules, displays field errors, and prevents duplicate accounts; on success, it directly creates an available account. Submitting several invalid fields together must show the username, email, password, and missing-terms messages together, rather than revealing only one error per submission; the submit button remains actionable so these messages can be read. For example, a username beginning with a hyphen, email “not-an-email”, password “short”, confirmation “different”, and unchecked terms produce these field errors and preserve the attempted username. A duplicate username paired with a different unused email displays “Username already exists” and retains both attempted values. A successful registration accepts a unique username, its email, and password; the sign-in form is immediately available, accepts that email, and the resulting signed-in username remains visible after reload.\n\nScreenshot reference:\n![image](reference/github-sign-up.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: username legal length 1 is accepted"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: username legal length 39 is accepted"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: email legal length 254 is accepted"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "behavior": "team length boundary and duplicate relationship rejection persist",
+      "basis": "The organization overview exposes a visible “Teams” link. The Teams page exposes a visible “New team” link, which opens a form with a visibly labeled “Team name” field and a “Create team” button. An organization Owner can submit a unique team name containing 1–50 lowercase ASCII letters, digits, or hyphens, with no leading or trailing hyphen. A successful submission opens the new team overview and the team heading remains visible after reload. A malformed team name displays “Team name is invalid” and does not create a team.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: team legal length 50 is accepted and overlong 51 is refused without creating a team"
+        },
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: duplicate team in the same organization does not create a second relationship"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-2-2",
+      "behavior": "Write has independent title/description save authority",
+      "basis": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-2-2.spec.ts",
+          "title": "REQ-5-2-2: Write saves title and description independently without Triage metadata authority"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-3-2",
+      "behavior": "Triage has positive label authority",
+      "basis": "A user with issue-management permission can use the `Labels` button on an issue detail page. Its options are existing labels in the current repository and use their exact label names as accessible names. Selecting an option immediately saves the issue-label relationship without a separate Save action. The selected label is visible in the issue metadata and remains visible after reload.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-3-2.spec.ts",
+          "title": "REQ-5-3-2: Triage toggles a label without receiving Write content authority"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-1-1-1",
+      "behavior": "isolated invalid inputs and duplicate email cannot partially create an account",
+      "basis": "The registration page is the form opened by the unique link named “Create an account” from the sign-in page. The form contains exactly one textbox labeled “Username”, one textbox labeled “Email”, one password input labeled “Password”, one password input labeled “Confirm password”, one initially unchecked checkbox named “Agree to the terms”, and one enabled button named “Create account”. The username and email identify the account, while passwords must not be echoed on the page. This product directly marks the email of a successfully registered account as verified and does not provide a subsequent email-verification page. The visitor enters a unique username, email, password, and matching confirmation, checks “Agree to the terms”, and activates “Create account”. The username must consist of 1 to 39 lowercase ASCII letters, digits, or single hyphens (`-`) and must not begin or end with a hyphen; after trimming leading and trailing whitespace, the email must contain exactly one `@`, be no longer than 254 characters, and have at least one dot and non-empty domain labels after the `@`; the password must contain 12 to 128 characters, include at least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric special character, and contain no whitespace characters. The system stores a sign-in-capable account together with its verified-email status and enters the sign-in page; if the username or email conflicts, any field is missing, the email format is invalid, the terms are not accepted, the password is noncompliant, or the confirmation does not match, the system retains the username and email input, displays an itemized message beside the corresponding field, and does not create an account. The corresponding visible field message contains “Username already exists”, “Username format is invalid”, “Email format is invalid”, “Password requirements are not satisfied”, or “Agree to terms is required”, as applicable. Visitors can use this capability on the account-access page. The system validates input rules, displays field errors, and prevents duplicate accounts; on success, it directly creates an available account. Submitting several invalid fields together must show the username, email, password, and missing-terms messages together, rather than revealing only one error per submission; the submit button remains actionable so these messages can be read. For example, a username beginning with a hyphen, email “not-an-email”, password “short”, confirmation “different”, and unchecked terms produce these field errors and preserve the attempted username. A duplicate username paired with a different unused email displays “Username already exists” and retains both attempted values. A successful registration accepts a unique username, its email, and password; the sign-in form is immediately available, accepts that email, and the resulting signed-in username remains visible after reload.\n\nScreenshot reference:\n![image](reference/github-sign-up.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 1: Username; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 2: Username; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 3: Username; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 4: Username; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 5: Username; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 6: Username; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 7: Email; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 8: Email; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 9: Email; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 10: Email; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 11: Email; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 12: Password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 13: Password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 14: Password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 15: Password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 16: Password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 17: Password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 18: Password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: isolated registration rejection 19: Confirm password; correction creates exactly the attempted identity"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: duplicate email retains identity; correcting email does not encounter a partially created username"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-1-1-2",
+      "behavior": "minimum and maximum compliant passwords and trimmed email produce persistent sign-in",
+      "basis": "This feature builds on the persisted objects. The sign-in page is the form on the account-access page containing “Username or email”, “Password”, and “Sign in”. A “session” is the current-browser login record saved after successful account authentication, represented in the frontend by the upper-right account menu and access to protected pages. The visitor enters a username or email and a password and submits the form. The system looks up the account and validates its credentials and availability status; if authentication fails due to an unknown username/email, incorrect password, or unavailable account, the system displays exactly the same generic failure message “Invalid credentials”, does not disclose whether the account exists or which credential was wrong, and does not create a session. After successful authentication, the system stores a session with a unique session identifier, account identifier, and active status, then redirects to the workspace accessible to that user; the session remains valid after refreshing or reopening the workspace, and subsequent protected organization, repository, and work-item requests must use this session to determine the current user.\n\nScreenshot reference:\n![image](reference/github-sign-in.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-2.spec.ts",
+          "title": "REQ-1-1-2: registration accepts password boundary 12 and trimmed email; email sign-in persists"
+        },
+        {
+          "file": "REQ-1-1-2.spec.ts",
+          "title": "REQ-1-1-2: registration accepts password boundary 128 and trimmed email; email sign-in persists"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "behavior": "valid parent changes persist without altering the original parent team relationship",
+      "basis": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-2-2.spec.ts",
+          "title": "REQ-2-2-2: valid parent change persists independently of the earlier parent relationship"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-2-4",
+      "behavior": "last Owner refusal retains People and team membership",
+      "basis": "The organization overview exposes a “People” link listing member usernames. For an Owner, a member row exposes a button named “Member menu <username>”; the menu contains “Remove from organization”, followed by a confirmation button named “Remove”. Confirmed removal removes the member from People immediately and after reload. A non-Owner can view the member but has no “Member menu <username>” button and no “Remove from organization” menu item.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-2-4.spec.ts",
+          "title": "REQ-2-2-4: last Owner removal is rejected and retains organization and direct team membership"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-4",
+      "behavior": "Triage has positive status authority without Write content authority",
+      "basis": "Only users with Triage, Maintain, or Admin permission may close or reopen an issue from its detail view; Write and Read users may view status but cannot use either transition control. Closing stores Closed status and a closure activity without changing the title, description, comments, labels, assignees, or milestone. An Open issue provides a `Close issue` button; a Closed issue provides a `Reopen issue` button. Each action saves immediately. After reopening and reload, the issue is Open and `Close issue` is available again. Every scenario provides independent seed state and authentication.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-4.spec.ts",
+          "title": "REQ-5-4: Triage closes and reopens an issue without receiving Write content authority"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-6-1",
+      "behavior": "independent visitor proves persisted check setter separately from account menu",
+      "basis": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-6-2-3.spec.ts",
+          "title": "REQ-6-2-3: context REQ-6-1: Admin changes current compare-commit check pending to success and persists setter"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-6-3-4",
+      "behavior": "Request changes persists exact summary and status",
+      "basis": "From Files changed, a non-author reviewer can use `Review changes`\nto open a form with Approve and Request changes radio controls, an optional\nsummary/comment field, and `Submit review`. Approve creates visible Approved\nstatus. Request changes stores and displays the exact summary with Changes\nrequested status, which persists after reload.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-6-3-4.spec.ts",
+          "title": "REQ-6-3-4: Request changes submission persists current-commit review"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
       "requirement_id": "REQ-1-3",
       "behavior": "rejected password preserves old credentials and rejects the candidate",
       "basis": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The security form has uniquely labeled password inputs “Current password”, “New password”, and “Confirm password”, and a button “Update password”; submitting an empty current-password field must display the visible application message “Current password is required”. A failure with an incorrect current password and confirmation “does-not-match” must display the corresponding current-password or confirmation error and leave the old credentials usable. Each password-change scenario starts with its own verified account in the stated credential state and a different compliant candidate password. “Password and authentication” is the security page in account Settings used to change the current account credentials; the change affects only the current account's password record and does not alter any other accounts or resources outside the session. The user must provide the current password, a new password compliant with the REQ-1 password rules, and a character-for-character identical confirmation password; all three fields are required. The system validates the change, prevents unauthorized updates, and applies the new password to subsequent sign-in attempts. If the current password is incorrect, the new password is noncompliant, the confirmation does not match, or any field is missing, the system displays the reason in the corresponding field and does not modify the credentials; the applicable visible message is “Current password is incorrect”, “Password confirmation does not match”, or “Current password is required”. The old password remains valid and the new password must not work for sign-in. After a successful update, the page displays “Password updated”, the new password is immediately used for subsequent password-based sign-ins, and the old password must no longer work for new sign-ins.\n\nSeed password-change values are `New-password-456!` for the successful update and\n`Required-password-789!` for the missing-current-password scenario.\n\nScreenshot reference:\n![image](reference/github-password-settings.png)",
@@ -213,7 +448,7 @@
     {
       "requirement_id": "REQ-2-3",
       "behavior": "private team grant changes access, preserves outsider denial and is idempotent",
-      "basis": "From the repository's “Settings” link, open the “Manage access” link and activate “Add people or teams”. The picker presents a textbox “Search”, a matching selectable team option whose name contains the team name, a combobox “Role” with clickable role options including “Write”, and an “Add” button. While the picker is active, hide the opening Add people or teams button from the active view so the submit action is unambiguous. After saving, the authorization list visibly shows the exact team name and Write role and retains the team after reload. Existing grants appear as rows whose accessible names include the subject name; each row contains a native select labeled “Role” and a “Save” button. Selecting the option labeled “Read” and saving replaces Write; after reload exactly one row for the team remains and contains Read. The creation scenario supplies a repository Admin and an organization team not yet granted access; the replacement scenario supplies a separate repository/team with an existing Write grant. An organization Owner or repository Admin may grant a repository role of Read, Triage, Write, Maintain, or Admin to a current organization member or team. In the access-subject picker, matching member or team options update as the administrator types; pressing Enter or activating a separate search button is not required before selecting an option. A private repository is accessible only to an organization Owner, a member with a direct repository role, or a direct member of a team that has a repository role; an ordinary organization Member has no default private-repository access. For a given subject and repository, only one direct role grant is stored — saving the same role again does not create a second record, and changing the role replaces the original role. An account's effective repository role is the highest among Admin from Owner status and all still-valid direct grants and team grants; team hierarchy does not propagate membership or authorization. The system stores the authorization subject, repository, role, grantor, and timestamp and authorizes operations according to the ROOT role matrix; unauthorized accounts cannot see private repositories. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-2-1-2 (Create an Organization After Authentication) and REQ-2-2-1 (Create an Organization Team); it must reuse that context and keep pages and data consistent after the context changes.",
+      "basis": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
       "exported_witnesses": [
         {
           "file": "REQ-2-3.spec.ts",
@@ -226,7 +461,7 @@
     {
       "requirement_id": "REQ-4-2-1",
       "behavior": "file history excludes unrelated commits; branch order persists",
-      "basis": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-4-1 (Browse Repository Files and Directories); it must reuse that context and keep pages and data consistent after the context changes. Any user with repository-view permission can read branch history on the Commits page, or from a file page read only the history that modified that file; each record references the stored commit identifier, author, time, message, parent commit, and changed files. The repository and file pages each expose one history link named “Commits” (a commit count may accompany the visible label without introducing another matching link). Seed history includes a known commit message and author, displayed in full as distinct readable text values, and a relative timestamp containing “ago”. Opening the branch history directly from the repository must show these values without first selecting a file-specific scope.\n\nScreenshot reference:\n![image](reference/github-commit-history.png)",
+      "basis": "This feature builds on the repository and file browsing context provided by REQ-4-1 (Browse Repository Files and Directories). A user with repository-view permission can open the repository's commit history from its repository page and inspect the records for the readable branch. Each record represents an immutable change and may expose its commit identifier, author, time, parent, and changed files. The repository page exposes a history link named “Commits”; a commit count may accompany the label without creating another matching link. Seed history includes the message `Document search flow`, author `alice-dev`, and a relative timestamp containing “ago”. Opening branch history directly displays these values without requiring file editing or other write actions.\n\nScreenshot reference:\n![image](reference/github-commit-history.png)",
       "exported_witnesses": [
         {
           "file": "REQ-4-2-1.spec.ts",
@@ -239,7 +474,7 @@
     {
       "requirement_id": "REQ-4-4",
       "behavior": "path/message boundaries and unauthorized creation preserve history",
-      "basis": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-4-1 (Browse Repository Files and Directories) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The file editor is the form opened from Edit or Add file on the Code page; the user edits file content at a path on the current branch and submits it. Only Write, Maintain, Admin, or organization Owner may submit; Read and Triage may only view. A single submission stores the file-path and content change, commit message, author, parent commit, and target branch as one indivisible record and moves the target branch to point to that new commit. A new or renamed file path must not be empty, must not begin with `/`, must not contain a `..` path segment, and must not conflict with an existing file or directory on the current branch; the commit message must contain 1–72 non-empty characters after trimming leading and trailing whitespace. If the path conflicts, content validation fails, the commit message is noncompliant, the branch is protected, or persistence fails, the page displays the reason and does not change the file, branch head, or commit history. An invalid path displays “Invalid file path”, and an empty commit message displays “Commit message is required”. From the writable Code page, the unique “Add file” button opens the “Create new file” menuitem. The editor has a field labeled “File name”, a textbox named “File contents”, an initially empty field labeled “Commit message”, and a “Commit changes” button. Creating a unique file such as `pw-file-<unique suffix>.md` with nonempty text and a message such as `Add <file name>` immediately opens a view displaying the exact saved content. Its “Commits” link opens history displaying the exact submitted message. Submitting `../invalid.md` with content `must not be saved` and no commit message reports the invalid path and/or required message and changes neither files nor history. The example content is ordinary text, not a forbidden content value by itself; rejection follows from the invalid path or missing message.\n\nScreenshot reference:\n![image](reference/github-web-file-editor.png)",
+      "basis": "This feature builds on repository browsing and sign-in provided by REQ-4-1 (Browse Repository Files and Directories) and REQ-1-1-2 (Sign In with an Existing Account). From a writable Code page, a contributor can use “Add file” → “Create new file” to add a file on the current branch. Only Write, Maintain, Admin, or organization Owner may submit file changes; Read and Triage may browse but may not write. A successful submission creates one commit containing the path, content, commit message, author, parent commit, and target branch, then advances that branch head. The editor exposes a “File name” field, a “File contents” textbox, a “Commit message” field, and a “Commit changes” button. New file paths cannot be empty, start with `/`, contain a `..` path segment, or conflict with an existing file or directory. Commit messages must contain 1–72 non-empty characters after trimming whitespace. Invalid submissions must leave file data, branch head, and commit history unchanged; an invalid path is reported as “Invalid file path”, while a missing message is reported as “Commit message is required”. Seed data provides public repository `file-management-demo` and Write contributor `file-contributor`. A valid unique file such as `pw-file-<unique suffix>.md`, nonempty content, and message `Add <file name>` produce a file view containing the saved content; the file's “Commits” link exposes the submitted message.\n\nScreenshot reference:\n![image](reference/github-web-file-editor.png)",
       "exported_witnesses": [
         {
           "file": "REQ-4-4.spec.ts",
@@ -272,7 +507,7 @@
     {
       "requirement_id": "REQ-5-2-3",
       "behavior": "blank comment preserves loaded discussion; Read/Triage cannot comment",
-      "basis": "Only a signed-in user with Write, Maintain, or Admin may enter a non-empty comment on the issue detail page of the current repository; all signed-in users who can view the issue may add or remove their own reactions on an existing issue or comment. The system stores the comment identifier, issue identifier, author, body, and creation time, or stores a “subject-target-reaction type” association; for the same user, target, and reaction, only one association is stored, and selecting it a second time removes it. On success, the new comment or reaction is displayed in the discussion and activity timeline; on failure, no local fake comment or partial reaction is displayed. The comment editor is labeled “Comment”, and its submit button is named exactly “Comment”. After submission the complete comment text and author username are visible, and the saved comment remains after reload. Discussion and activity entries use article semantics so an invalid submission cannot add an article; existing entries remain stable across reload. For whitespace-only text the Comment button may either be disabled or remain enabled and display “Comment is required” when activated. Neither path adds a comment or activity. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-5-1-2 (View an Issue and Its Discussion) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
+      "basis": "Only a signed-in user with Write, Maintain, or Admin may enter a non-empty comment on the issue detail page. The editor is labeled `Comment` and the submit button is named exactly `Comment`. On success, the system stores the issue, author, body, and creation time, displays the complete text and author username in a discussion article, and preserves it after reload. Whitespace-only text is rejected or prevented from submission and must not add a comment or timeline entry.",
       "exported_witnesses": [
         {
           "file": "REQ-5-2-3.spec.ts",
@@ -293,7 +528,7 @@
     {
       "requirement_id": "REQ-5-3-3",
       "behavior": "PR milestone add/remove, cross-repository exclusion and role denial",
-      "basis": "On the right side of an issue or pull request, the user clicks the settings icon in the “Milestone” area and selects one item from the current repository's milestone list, or selects “None” to remove the association. The system stores the association between the work item and milestone and updates detail metadata; it does not create a cross-repository milestone. The settings icon is a button named “Milestone”, and selectable items have role option with the exact milestone name as their accessible name. Seed data provides a selectable milestone belonging to the current repository and an issue not yet associated with it. Clicking the option immediately saves the association and closes the picker with no separate confirmation or save action; the exact milestone name remains visible after reload. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-5-1-2 (View an Issue and Its Discussion); it must reuse that context and keep pages and data consistent after the context changes. Only users with Triage, Maintain, or Admin may use this capability on repository planning and issue-management pages; Read and Write users may only view the current milestone. The system validates the role and rejects unauthorized submissions.\n\nScreenshot reference:\n![image](reference/github-milestones.png)",
+      "basis": "A user with issue-management permission can use the `Milestone`\nbutton on an issue or pull-request detail page to select an existing milestone\nfrom the current repository. Options use the exact milestone name as their\naccessible name. Selecting an option immediately stores the relationship without\na separate confirmation or Save action, displays the milestone in metadata, and\npreserves it after reload. The selector does not create a milestone or associate\none from a different repository.\n\nScreenshot reference:\n![image](reference/github-milestones.png)",
       "exported_witnesses": [
         {
           "file": "REQ-6-3-1.spec.ts",
@@ -313,12 +548,12 @@
     },
     {
       "requirement_id": "REQ-6-2-1",
-      "behavior": "Open/Draft/Closed and a real merge-derived Merged filter",
-      "basis": "The Pull requests list page only reads PR records from the current repository; each row displays the number, title, author, status, source branch, and target branch. Any user with repository-view permission may filter by Draft/Open/Closed/Merged status, author, or review status; filtering only affects the current list display and does not modify PRs, branches, or reviews. The public list is directly accessible to a visitor and has an Open link for the status filter; selecting it displays the seeded Open PR as a link whose exact accessible name is its title. Opening that link displays the same title as a heading. After reloading the filtered list, that Open PR remains visible; leaving the page and reopening the list, then selecting Open again, shows the same PR. Seed data includes this public list and a stable, uniquely titled Open PR as well as the Closed PR and author used in the filtering scenario. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-3-3 (View a Public Repository Overview); it must reuse that context and keep pages and data consistent after the context changes.\n\nScreenshot reference:\n![image](reference/github-pull-requests-list.png)",
+      "behavior": "Open excludes Draft/Closed and a PR after a real merge",
+      "basis": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
       "exported_witnesses": [
         {
           "file": "REQ-6-5.spec.ts",
-          "title": "REQ-6-5: context REQ-6-2-1: Open Draft Closed and actual Merged status filters isolate records and retain other PRs"
+          "title": "REQ-6-5: context REQ-6-2-1: Open filter excludes Draft Closed and a PR after its actual merge"
         }
       ],
       "status": "executable_source_reviewed",
@@ -327,7 +562,7 @@
     {
       "requirement_id": "REQ-6-3-4",
       "behavior": "author, Draft, Read and Triage cannot persist review decisions",
-      "basis": "From the Files changed link, the reviewer activates the Review changes button to open one review form with an optional Summary field, radio controls named Comment, Approve, and Request changes, and a Submit review button. Selecting Approve and submitting without a summary is valid and displays Approved. Selecting Request changes with a summary displays Changes requested and that exact summary; the decision remains visible after reload. Seed data supplies a non-author Write reviewer and separate Open PRs for approval and request-changes submission, with no initial effective decision by that reviewer. A user who is not the PR author and has Write, Maintain, or Admin may submit Comment, Approve, or Request changes on an Open PR; the author and Draft PRs cannot submit reviews. The system stores the review decision, reviewer, current compare commit, optional explanation, and time; a new decision by the same reviewer replaces that reviewer's effective decision for the current commit while preserving the old record. Approve is valid only when the reviewer is not the author and the compare commit is still the same; Request changes blocks merging until that reviewer submits a new Comment or Approve for the current compare commit, or the compare branch receives a new commit that makes the old decision stale. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-3-1 (View Pull Request Overview and Commits) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
+      "basis": "From Files changed, a non-author reviewer can use `Review changes`\nto open a form with Approve and Request changes radio controls, an optional\nsummary/comment field, and `Submit review`. Approve creates visible Approved\nstatus. Request changes stores and displays the exact summary with Changes\nrequested status, which persists after reload.",
       "exported_witnesses": [
         {
           "file": "REQ-6-3-4.spec.ts",
@@ -352,7 +587,7 @@
     {
       "requirement_id": "REQ-6-5",
       "behavior": "Write/Read/Triage cannot merge; failed required check blocks an approved PR",
-      "basis": "On an eligible PR, Merge pull request and then Confirm merge are buttons; confirming displays Merged, and that state remains after reload. A blocked PR keeps a visible disabled Merge pull request button and explains its unmet review or protection condition before any click. Seed data supplies a Maintain account and separate Open PRs for success and refusal. The eligible PR targets protected main, has a current non-author approval and test: success, and has no conflicts. The blocked PR targets a protected branch and lacks the required valid approval; its disabled button is accompanied by Review required by branch protection. Each seed state is restored independently before reuse. “Merge” is the only write operation that writes the current compare commit's changes from an Open PR into the base branch; it is not simply marking the PR as complete. Only Maintain, Admin, or organization Owner may merge from the PR detail page using the sole supported “Create a merge commit” method; the merge confirmation area should display satisfied and unsatisfied conditions. Before confirmation, the system rereads the target branch head, current compare commit, merge-conflict state, and protection rules — there must be no valid Request changes; if the target is protected, each enabled rule requirement is enforced independently, requiring 1 valid non-author Approve for the current compare commit when Require 1 approval is enabled and requiring `test` success when Require status check test is enabled. An unprotected target has no additional approval-count or check-success requirement, but merging still requires no merge conflicts and no valid Request changes review. After validation succeeds, the system atomically creates a merge commit whose parents are the target-branch head at merge time and the current compare commit, updates the target-branch head, sets the PR to Merged, and stores the merger, time, and resulting commit identifier. If any condition is unsatisfied or persistence fails, the page explains the applicable reason and neither the target branch nor PR changes; a missing required approval displays “Review required by branch protection”. Merged is terminal. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-3-4 (Submit a Pull Request Review) and REQ-6-1 (Protect Branches with Review and Status-Check Requirements); it must reuse that context and keep pages and data consistent after the context changes.",
+      "basis": "On an eligible PR, Merge pull request and then Confirm merge are buttons; confirming displays Merged, and that state remains after reload. A blocked PR keeps a visible disabled Merge pull request button and explains its unmet review or protection condition before any click. Seed data supplies a Maintain account and separate Open PRs for success and refusal. The eligible PR targets protected main, has a current non-author approval and test: success, and has no conflicts. The blocked PR targets a protected branch and lacks the required valid approval; its disabled button is accompanied by Review required by branch protection. The success and refusal states are separate PR records, so neither test relies on restoring a mutation from the other. “Merge” is the only write operation that writes the current compare commit's changes from an Open PR into the base branch; it is not simply marking the PR as complete. Only Maintain, Admin, or organization Owner may merge from the PR detail page using the sole supported “Create a merge commit” method; the merge confirmation area should display satisfied and unsatisfied conditions. Before confirmation, the system rereads the target branch head, current compare commit, merge-conflict state, and protection rules — there must be no valid Request changes; if the target is protected, each enabled rule requirement is enforced independently, requiring 1 valid non-author Approve for the current compare commit when Require 1 approval is enabled and requiring `test` success when Require status check test is enabled. An unprotected target has no additional approval-count or check-success requirement, but merging still requires no merge conflicts and no valid Request changes review. After validation succeeds, the system atomically creates a merge commit whose parents are the target-branch head at merge time and the current compare commit, updates the target-branch head, sets the PR to Merged, and stores the merger, time, and resulting commit identifier. If any condition is unsatisfied or persistence fails, the page explains the applicable reason and neither the target branch nor PR changes; a missing required approval displays “Review required by branch protection”. Merged is terminal. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-3-4 (Submit a Pull Request Review) and REQ-6-1 (Protect Branches with Review and Status-Check Requirements); it must reuse that context and keep pages and data consistent after the context changes.",
       "exported_witnesses": [
         {
           "file": "REQ-6-5.spec.ts",
@@ -378,19 +613,13 @@
   "remaining_gaps": [
     {
       "requirements": [
-        "REQ-5-2-3"
+        "REQ-1-1-1",
+        "REQ-2-2-1",
+        "REQ-2-2-4"
       ],
-      "behavior": "reaction add/remove, uniqueness and persistence on an existing comment",
-      "status": "requires_interaction_adapter",
-      "reason": "No reaction type, menu/control name, role or count locator is prescribed. Portable gates must not invent them. The atomic comment gate remains enabled."
-    },
-    {
-      "requirements": [
-        "REQ-6-2-1"
-      ],
-      "behavior": "combined author and review-status filters",
-      "status": "requires_interaction_adapter",
-      "reason": "No portable author/review filter entry role or field name is prescribed. Status checks do not certify the other dimensions."
+      "behavior": "remaining empty-input and team legal-length-1 witnesses, same-name teams across organizations, last-Owner direct grants and unrelated-organization/personal-repository preservation",
+      "status": "requires_additional_witnesses",
+      "reason": "Isolated invalid inputs and team/People rollback now have witnesses; they do not certify every legal boundary or every untouched relationship."
     },
     {
       "requirements": [

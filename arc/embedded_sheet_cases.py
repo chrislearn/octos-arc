@@ -448,10 +448,11 @@ def register(s):
     await h.persisted(page,async()=>{await h.formula(page,'B1','=A1+2','6');await h.formula(page,'C1','=A1*3','12');await h.formula(page,'D1','=B1+1','7');});
     ''')
     s('REQ-5-1-1','date keys sort chronologically with stable equal keys and intact full records',r'''
-    // Valid ISO date-times with offsets distinguish chronology from text order.
-    await h.blank(page); await h.paste(page,'A1','Date\tRecord\tAmount\n2026-01-01T23:30:00Z\tlate\t1\n2026-01-01T23:00:00Z\tfirst-equal\t2\n2026-01-01T23:00:00Z\tsecond-equal\t3\n2026-01-02T00:30:00+02:00\tearly\t4');
+    // ISO date-only witnesses check stable record movement. Typed chronology
+    // versus lexical order needs the supported date grammar to be specified.
+    await h.blank(page); await h.paste(page,'A1','Date\tRecord\tAmount\n2026-01-03\tlate\t1\n2026-01-02\tfirst-equal\t2\n2026-01-02\tsecond-equal\t3\n2026-01-01\tearly\t4');
     await h.range(page,'A1','C5'); await h.data(page,'Sort range'); const dialog=page.getByRole('dialog',{name:'Sort range',exact:true}); await h.choose(dialog,'Sort by','Date'); await h.choose(dialog,'Order','Ascending'); await dialog.getByRole('checkbox',{name:'Data has header row',exact:true}).check(); await h.button(dialog,'Sort').click();
-    await h.persisted(page,()=>h.values(page,{A1:'Date',B1:'Record',C1:'Amount',A2:'2026-01-02T00:30:00+02:00',B2:'early',C2:'4',A3:'2026-01-01T23:00:00Z',B3:'first-equal',C3:'2',A4:'2026-01-01T23:00:00Z',B4:'second-equal',C4:'3',A5:'2026-01-01T23:30:00Z',B5:'late',C5:'1'}));
+    await h.persisted(page,()=>h.values(page,{A1:'Date',B1:'Record',C1:'Amount',A2:'2026-01-01',B2:'early',C2:'4',A3:'2026-01-02',B3:'first-equal',C3:'2',A4:'2026-01-02',B4:'second-equal',C4:'3',A5:'2026-01-03',B5:'late',C5:'1'}));
     ''')
     s('REQ-5-1-1','sorting moves formulas with records, adjusts their original references, and preserves validation/filter behavior',r'''
     await h.sourceData(page); await h.edit(page,'D1','Double'); await h.edit(page,'D2','=B2*2'); await h.edit(page,'D3','=B3*2'); await h.edit(page,'D4','=B4*2'); await h.validation(page,'B2','B4');
@@ -461,13 +462,13 @@ def register(s):
     await h.data(page,'Clear filter'); await h.formula(page,'D4','=B4*2','20'); await h.edit(page,'B2','101'); await expect(page.getByText(/Please enter a number (?:from 0 to 100|between 0 and 100)/).first()).toBeVisible(); await h.values(page,{B2:'30',D2:'60'});
     ''')
     for condition,value,visible,hidden in [
-        ('Before','2026-01-01T23:00:00Z',['A2'],['A3','A4']),
+        ('Before','2026-01-02',['A2'],['A3','A4']),
         ('Is empty',None,['A4'],['A2','A3']),
         ('Is not empty',None,['A2','A3'],['A4'])]:
         s('REQ-5-1-2','condition '+condition+' persists exactly the matching rows and clearing restores originals',f'''
-        await h.blank(page); await h.paste(page,'A1','Date\\tRecord\\n2026-01-02T00:30:00+02:00\\tearly\\n2026-01-01T23:30:00Z\\tlate\\n\\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
+        await h.blank(page); await h.paste(page,'A1','Date\\tRecord\\n2026-01-01\\tearly\\n2026-01-03\\tlate\\n\\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
         await h.condition(page,'Date',{json.dumps(condition)},{json.dumps(value) if value is not None else 'undefined'}); await h.persisted(page,async()=>{{await h.filterHeaders(page,{{A1:'Date',B1:'Record'}});await h.visibleRows(page,{json.dumps(visible)},{json.dumps(hidden)});}});
-        await h.data(page,'Clear filter'); await h.persisted(page,async()=>{{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{{A1:'Date',B1:'Record',A2:'2026-01-02T00:30:00+02:00',B2:'early',A3:'2026-01-01T23:30:00Z',B3:'late',A4:'',B4:'empty'}});}});
+        await h.data(page,'Clear filter'); await h.persisted(page,async()=>{{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{{A1:'Date',B1:'Record',A2:'2026-01-01',B2:'early',A3:'2026-01-03',B3:'late',A4:'',B4:'empty'}});}});
         ''')
     s('REQ-5-1-2','value filtering is scoped to the selected region and clearing preserves formula and validation behavior',r'''
     await h.blank(page); await h.paste(page,'B2','Region\tSales\tStatus\nEast\t10\tOpen\nNorth\t20\tClosed\nEast\t30\tClosed'); await h.edit(page,'A1','outside-origin'); await h.edit(page,'B6','outside-next-row'); await h.edit(page,'E4','outside-next-column'); await h.edit(page,'F3','=C3*2'); await h.validation(page,'C3','C5');

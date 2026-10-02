@@ -11,5 +11,5 @@ test("REQ-3-4: Admin makes Private repository Public and fresh visitor reads sav
 
 test("REQ-3-4: non-Admin cannot activate visibility change", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('visibility-read')); if(await h.link(page,'Settings').count()) { await h.link(page,'Settings').click(); if(await h.link(page,'General').count()) await h.link(page,'General').click(); } await expect(h.button(page,'Change visibility')).toHaveCount(0);
+  await h.signIn(page,'spec-write'); await h.repo(page,h.fixtureRepo('visibility-read')); if(await h.link(page,'Settings').count()) { await h.link(page,'Settings').click(); if(await h.link(page,'General').count()) await h.link(page,'General').click(); } await h.unavailable(page,'Change visibility');
 });

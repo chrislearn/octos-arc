@@ -20,25 +20,36 @@ test("REQ-3-1-1: formula bar Escape cancels and grid blur commits without changi
 
 test("REQ-3-1-1: failed cell save restores formula-bar input and keeps persisted cell; retry succeeds", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.blank(page); await h.edit(page,'A1','original'); await h.values(page,{A1:'original'});
+  await h.blank(page);
+  const endpoints=new Set<string>();
+  const endpoint=(request:any)=>{const url=new URL(request.url()); return `${request.method()} ${url.origin}${url.pathname}`;};
+  const discover=(response:any)=>{ if(['PATCH','PUT','POST'].includes(response.request().method()) && response.ok()) endpoints.add(endpoint(response.request())); };
+  page.on('response',discover);
+  try {
+    // Learn transport from an actual successful cell write. No assumed route,
+    // JSON schema, origin, body encoding, or payload substring is necessary.
+    await h.edit(page,'A1','original'); await h.values(page,{A1:'original'});
+    await expect.poll(()=>endpoints.size,{message:'HARNESS_UNSUPPORTED: cell rollback requires an observable successful HTTP write endpoint; provide an adapter for WebSocket/local storage'}).toBeGreaterThan(0);
+  } finally { page.off('response',discover); }
+  await h.persisted(page,()=>h.values(page,{A1:'original'}));
   const feedback=h.saveFailureReason(page); await expect(feedback).toHaveCount(0);
-    let rejectedAttempts=0, retryAttempts=0; const rejected=h.unique(), retried=h.unique(); const origin=new URL(page.url()).origin;
-    // Default HTTP injection supports plain-text same-origin writes. This is
-    // not a portable claim about encoded bodies, WebSocket or storage failures.
-    await page.route('**/*',async route=>{
-      const request=route.request(); const body=request.postData()||'';
-      if(new URL(request.url()).origin===origin && ['PATCH','PUT','POST'].includes(request.method())){
-        if(body.includes(retried)) retryAttempts++;
-        else if(body.includes(rejected)){ rejectedAttempts++; await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'Unable to save cell'})}); return; }
-      }
-      await route.continue();
-    });
-  await h.edit(page,'A1',rejected);
-    await expect.poll(()=>rejectedAttempts,{message:'Failure injection unavailable: requires a supported HTTP write adapter'}).toBeGreaterThan(0);
+  let rejectedAttempts=0, retryAttempts=0, rejecting=true; const rejected=h.unique(), retried=h.unique();
+  const intercept=async(route:any)=>{
+    if(endpoints.has(endpoint(route.request()))) {
+      if(rejecting) { rejectedAttempts++; await route.fulfill({status:500,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({error:'Unable to save cell'})}); return; }
+      retryAttempts++;
+    }
+    await route.continue();
+  };
+  await page.route('**/*',intercept);
+  try {
+    await h.edit(page,'A1',rejected);
+    await expect.poll(()=>rejectedAttempts,{message:'HARNESS_UNSUPPORTED: failed edit did not use the learned HTTP write endpoint'}).toBeGreaterThan(0);
     await expect(feedback.first()).toBeVisible();
     await h.values(page,{A1:'original'}); await expect(h.field(page,'Formula bar')).toHaveValue('original');
-    await page.reload(); await h.values(page,{A1:'original'}); await h.edit(page,'A1',retried);
+    await page.reload(); await h.values(page,{A1:'original'}); rejecting=false; await h.edit(page,'A1',retried);
     await h.persisted(page,()=>h.values(page,{A1:retried})); expect(retryAttempts).toBeGreaterThan(0);
+  } finally { await page.unroute('**/*',intercept); }
 });
 
 test("REQ-3-1-1: context REQ-1-2-2: renaming is scoped to current workbook and updates refreshed home record", async ({ page, browser }) => {

@@ -105,3 +105,57 @@ test('discussion snapshot waits for reload rendering, ignores relative clock cha
   appended=true; await page.reload(); const wrong=await discussionSnapshot(page);
   expect(wrong).not.toEqual(before); expect(wrong).toHaveLength(before.length+1);
 });
+
+test('combobox choices work with native controls and portal options outside a row',async({page})=>{
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  await page.setContent('<div role="row"><select aria-label="Role"><option>Write</option><option>Read</option></select></div>');
+  await h.choose(page.getByRole('row'),'Role','Read'); await h.chosen(page.getByRole('row'),'Role','Read');
+  await page.setContent(`<div role="row"><button role="combobox" aria-label="Role" onclick="document.querySelector('#options').hidden=false">Write</button></div><div id="options" hidden><button role="option" onclick="document.querySelector('[role=combobox]').textContent='Read';document.querySelector('#options').hidden=true">Read</button></div>`);
+  await h.choose(page.getByRole('row'),'Role','Read'); await h.chosen(page.getByRole('row'),'Role','Read');
+  await expect(h.chosen(page.getByRole('row'),'Role','Write')).rejects.toThrow();
+  await page.setContent('<select aria-label="test"><option>pending</option><option>success</option></select>');
+  await h.choose(page,'test status','success'); await h.chosen(page,'test','success');
+});
+
+test('no actionable control accepts absent hidden or disabled controls and refuses enabled controls',async({page})=>{
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  for(const html of ['', '<button hidden>Change visibility</button>', '<button disabled>Change visibility</button>']) {
+    await page.setContent(html); await h.unavailable(page,'Change visibility');
+  }
+  await page.setContent('<button>Change visibility</button>'); await expect(h.unavailable(page,'Change visibility')).rejects.toThrow();
+});
+
+test('review summary aliases and allowed save labels preserve the actual saved text',async({page})=>{
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  for(const label of ['Summary','Comment']) {
+    await page.setContent(`<textarea aria-label="${label}"></textarea><button onclick="document.querySelector('output').textContent=document.querySelector('textarea').value">Update</button><output></output>`);
+    await h.reviewSummary(page).fill('Exact summary 中文'); await h.action(page,['Save','Update']).click();
+    await expect(text(page,'Exact summary 中文')).toBeVisible();
+  }
+});
+
+test('password controls must mask values instead of merely excluding input text from body text',async({page})=>{
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  await page.setContent('<input aria-label="Password" type="password" value="secret">'); await h.maskedPasswords(page,['Password']);
+  await page.setContent('<input aria-label="Password" type="text" value="secret">'); await expect(h.maskedPasswords(page,['Password'])).rejects.toThrow();
+});
+
+test('clone copy accepts a descriptive button and checks the displayed value, including no-op rejection',async({page,context})=>{
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  await context.grantPermissions(['clipboard-read','clipboard-write']);
+  for(const display of ['input','span']) for(const broken of [false,true]) {
+    await page.route('https://github-oracle.test/**',route=>route.fulfill({contentType:'text/html',body:`<button>Code</button><button role="tab">HTTPS</button>${display==='input'?'<input readonly value="https://host.test/alice-dev/acme-docs">':'<span>https://host.test/alice-dev/acme-docs</span>'}<button onclick="${broken?'':"navigator.clipboard.writeText((document.querySelector('input')?.value||document.querySelector('span').textContent));"}document.querySelector('output').textContent='Copied'">Copy HTTPS address</button><output></output>`}));
+    await page.goto('https://github-oracle.test/');
+    if(broken) await expect(h.copyClone(page,'HTTPS')).rejects.toThrow();
+    else expect(await h.copyClone(page,'HTTPS')).toBe('https://host.test/alice-dev/acme-docs');
+    await page.unroute('https://github-oracle.test/**');
+  }
+});
+
+test('recovery supports both a displayed one-step form and email-triggered form without a fixed code text-node requirement',async({page})=>{
+  const h=await import('../../derived-tests/hackathon--github/helpers');
+  for(const oneStep of [false,true]) {
+    await page.setContent(`<a href="#" onclick="document.querySelector('main').hidden=false">Forgot password</a><main hidden><input aria-label="Email"><button onclick="document.querySelector('section').hidden=false">${oneStep?'Reset password':'Send reset link'}</button><section ${oneStep?'':'hidden'}><p>Your verification code is 123456</p><input aria-label="Verification code"><input aria-label="New password" type="password"><input aria-label="Confirm password" type="password"></section></main>`);
+    await h.recovery(page,'alice.dev@example.test'); await expect(page.getByLabel('Email')).toHaveValue('alice.dev@example.test');
+  }
+});

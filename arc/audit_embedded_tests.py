@@ -14,8 +14,8 @@ from embedded_suites import requirements_digest
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
 REVIEWED_RELEASES = {
-    'hackathon--github': ('2026-10-02', 7),
-    'hackathon--sheet': ('2026-10-02', 7),
+    'hackathon--github': ('2026-10-02', 8),
+    'hackathon--sheet': ('2026-10-02', 8),
 }
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -49,10 +49,11 @@ def fixtures(task,plan):
         orgs.append(org)
         repo={'name':'spec-'+fid,'owner':organization,'visibility':'Private' if profile in {'member-add','member-remove','visibility','guide-team-access','grant-add','grant-replace'} else 'Public',
               'direct_grants':dict(roles),'team_grants':{},'default_branch':'main',
-              'branches':{'main':{'files':{'README.md':'search flow','src/search.ts':'export const search = "search flow";'},'commit_message':'Document search flow','author':'alice-dev','committed_at':'2026-09-01T12:00:00Z','parent_revision':{'files':{},'commit_message':'Initialize empty repository','author':'alice-dev','committed_at':'2026-08-31T12:00:00Z'}},
-                          'feature-search':{'base':'main','files':{'README.md':'search flow','src/search.ts':'export const search = "merged search flow";','main-only.md':'feature-only content'},'commit_message':'Implement search flow','author':'spec-write'},
+              'branches':{'main':{'files':{'README.md':'Document search flow','src/search.ts':'export const search = "search flow";'},'commit_message':'Document search flow','author':'alice-dev','committed_at':'2026-09-01T12:00:00Z','parent_revision':{'files':{},'commit_message':'Initialize empty repository','author':'alice-dev','committed_at':'2026-08-31T12:00:00Z'}},
+                          'feature-search':{'base':'main','files':{'README.md':'Document search flow','src/search.ts':'export const search = "merged search flow";','main-only.md':'feature-only content'},'commit_message':'Implement search flow','author':'spec-write'},
                           'draft-feature':{'base':'main','files':{'README.md':'draft changes','src/search.ts':'export const search = "search flow";'},'commit_message':'Draft update','author':'spec-write'}},
               'labels':['bug'],'milestones':['v1.0'],'issues':[], 'pull_requests':[], 'branch_protection':{}}
+        if profile=='last-owner': org['teams'][0]['direct_members']=['spec-owner']
         if profile=='member-add': repo['direct_grants'].pop('spec-new-member',None)
         if profile in {'grant-add','grant-replace'}:
             repo['direct_grants'].pop('bob-reviewer')
@@ -107,8 +108,8 @@ def fixtures(task,plan):
     # Immutable public discovery records. Same repository name in two owners is
     # legitimate; the helper scopes ambiguous results by owner/name metadata.
     template={'name':'acme-docs','owner':'alice-dev','visibility':'Public','default_branch':'main','direct_grants':roles,
-              'branches':{'main':{'files':{'README.md':'search flow','src/search.ts':'export const search = "search flow";'},'commit_message':'Document search flow','author':'alice-dev','committed_at':'2026-09-01T12:00:00Z','parent_revision':{'files':{},'commit_message':'Initialize empty repository','author':'alice-dev','committed_at':'2026-08-31T12:00:00Z'}},
-                          'feature-search':{'base':'main','files':{'README.md':'search flow','src/search.ts':'export const search = "merged search flow";','main-only.md':'feature-only content'},'commit_message':'Implement search flow','author':'alice-dev'}},
+              'branches':{'main':{'files':{'README.md':'Document search flow','src/search.ts':'export const search = "search flow";'},'commit_message':'Document search flow','author':'alice-dev','committed_at':'2026-09-01T12:00:00Z','parent_revision':{'files':{},'commit_message':'Initialize empty repository','author':'alice-dev','committed_at':'2026-08-31T12:00:00Z'}},
+                          'feature-search':{'base':'main','files':{'README.md':'Document search flow','src/search.ts':'export const search = "merged search flow";','main-only.md':'feature-only content'},'commit_message':'Implement search flow','author':'alice-dev'}},
               'issues':[{'number':1,'title':'Improve onboarding','description':'Describe the onboarding improvement.','status':'Open','author':'alice-dev','activity':['Created issue']},
                         {'number':2,'title':'Legacy welcome text','description':'Previous welcome wording','status':'Closed','author':'alice-dev'}],
               'pull_requests':[{'number':1,'title':'Improve onboarding','description':'Describe the onboarding improvement.','status':'Open','author':'alice-dev','base':'main','compare':'feature-search','discussion':[{'author':'bob-reviewer','body':'Review discussion'}]},
@@ -206,8 +207,10 @@ def audit(freeze=False,task_filter=None):
             build_model(task)
             (directory/'requirements.yaml').write_bytes(source.read_bytes())
             task_readme = README
+            if task == 'hackathon--github':
+                task_readme += '\nRevision 8 is grounded in the full hackathon--github requirements folder supplied on 2026-10-02. Source recipes and frozen gates were reviewed together: isolated registration rejections and legal boundaries, duplicate email, team parent changes and duplicate names, last-Owner membership refusal, positive Write/Triage authority, exact review summaries and an independent public check-setter witness. Native selects remain mandatory only where prescribed; permitted action labels and hidden/disabled unavailable controls are accepted. Optional Comment review decisions and non-Open PR filter dimensions are no longer mandatory. coverage-review.json records remaining semantic and harness gaps; product execution is not certified by this source review.\n'
             if task == 'hackathon--sheet':
-                task_readme += '\nFor Sheet, coverage-review.json records concrete behavior witnesses and remaining gaps; node-gate coverage does not certify complete semantic coverage. Cell-value assertions preserve significant whitespace and data inside ordinary controls, removing only named dropdown/filter decorations. Date witnesses use ISO date-times with offsets to distinguish chronological comparison from string order; the supported date grammar still needs a product contract. The cell-save failure witness requires an adapter for supported HTTP writes, while lifecycle/storage/process failure coverage remains incomplete.\n'
+                task_readme += '\nFor Sheet, coverage-review.json records concrete behavior witnesses and remaining gaps; node-gate coverage does not certify complete semantic coverage. Cell-value assertions preserve significant whitespace and data inside ordinary controls, reading live input/textarea values and removing named dropdown/filter decorations and hidden controls. Date witnesses use ISO date-only inputs; typed chronological comparison versus lexical order, timezone and locale grammar remain unverified and are not imposed by the gates. The cell-save failure witness learns HTTP write endpoints from the successful baseline edit and requires an adapter for other transports, while lifecycle/storage/process failure coverage remains incomplete.\n'
             (directory/'README.md').write_text(task_readme)
             write(directory/'fixtures.json',fixtures(task,plan))
             if task=='hackathon--github':

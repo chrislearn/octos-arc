@@ -159,7 +159,7 @@ test("REQ-4-4: context REQ-2-3: guide: direct team grant changes effective permi
     });
     await test.step('Replacing the team Write grant with Read revokes writes in an already-open session',async()=>{
       await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('guide-team-access-node')); await h.settings(page,'Manage access');
-      const row=page.getByRole('row',{name:/frontend-team/}); await row.getByRole('combobox',{name:'Role',exact:true}).selectOption({label:'Read'}); await h.button(row,'Save').click();
+      const row=page.getByRole('row',{name:/frontend-team/}); await h.choose(row,'Role','Read'); await h.button(row,'Save').click();
       await h.persisted(page,()=>expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Read'));
       await bob.reload(); await expect(bob.getByRole('heading').filter({hasText:h.fixtureRepo('guide-team-access-node')})).toBeVisible(); await expect(h.button(bob,'Add file')).toHaveCount(0);
     });

@@ -10,7 +10,7 @@ test("REQ-4-3-3: Admin changes native default branch and old branch still exists
 
 test("REQ-4-3-3: non-Admin default-branch edit controls are absent", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,'spec-read'); await h.repo(page,h.fixtureRepo('default-read')); if(await h.link(page,'Settings').count()){ await h.link(page,'Settings').click(); if(await h.link(page,'Branches').count()) await h.link(page,'Branches').click(); } await expect(h.field(page,'Default branch')).toHaveCount(0); await expect(h.button(page,'Update')).toHaveCount(0);
+  await h.signIn(page,'spec-read'); await h.repo(page,h.fixtureRepo('default-read')); if(await h.link(page,'Settings').count()){ await h.link(page,'Settings').click(); if(await h.link(page,'Branches').count()) await h.link(page,'Branches').click(); } const selector=h.field(page,'Default branch'); if(await selector.isVisible()) await expect(selector).toBeDisabled(); await h.unavailable(page,'Update');
 });
 
 test("REQ-4-3-3: guide: required release branch is persisted as default without changing main", async ({ page, browser }) => {

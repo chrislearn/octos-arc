@@ -26,6 +26,25 @@ export const fileValidationReason = (p: Page) => p.getByText(/Invalid file path|
   .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
 export const passwordValidationReason = (p: Page) => p.getByText(/Current password is incorrect|Password confirmation does not match/)
   .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
+export const titleRequiredReason = (p: Page) => p.getByText(/title[^\n]*(?:required|empty)|(?:required|empty)[^\n]*title/i)
+  .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
+export const noDifferences = (p: Page) => p.getByText(/no (?:changes|differences)|identical/i)
+  .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
+export async function copyClone(p: Page, protocol: string) {
+  await button(p, 'Code').click(); await p.getByRole('tab', { name: protocol, exact: true }).click();
+  const before = await p.locator('body').innerText();
+  const inputs = await p.locator('input, textarea').filter({ visible: true }).evaluateAll(els => els.map(el => (el as HTMLInputElement).value));
+  const displayed = await p.locator('body *').filter({ visible: true }).evaluateAll(els => els.flatMap(el =>
+    [...el.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent?.trim() ?? '')));
+  // Compare to the value displayed before clicking, rather than inventing a
+  // clone hostname, .git suffix, external protocol implementation or button label.
+  await p.evaluate(value => navigator.clipboard.writeText(value), unique('clipboard-sentinel'));
+  await p.getByRole('button', { name: /copy/i }).filter({ visible: true }).click();
+  const copied = await p.evaluate(() => navigator.clipboard.readText());
+  expect(copied).not.toBe(''); expect(inputs.includes(copied) || displayed.includes(copied) || before.split(/\r?\n/).some(line => line.trim() === copied)).toBe(true);
+  await expect(text(p, 'Copied').first()).toBeVisible();
+  return copied;
+}
 export async function accessPicker(p: Page) {
   const search = p.getByRole('textbox', { name: 'Search', exact: true });
   await expect(search).toBeVisible();
@@ -48,6 +67,7 @@ export async function historyLinks(p: Page) {
 export async function home(p: Page) { await p.goto('/'); }
 export async function signIn(p: Page, username = 'alice-dev', password = PASSWORD, expectedUsername?: string) {
   await home(p); await link(p, 'Sign in').click();
+  await maskedPasswords(p, ['Password']);
   await field(p, 'Username or email').fill(username); await field(p, 'Password').fill(password);
   await button(p, 'Sign in').click(); await expect(button(p, 'Account menu')).toBeVisible();
   const account = expectedUsername ?? (username.includes('@')
@@ -66,6 +86,7 @@ export async function signOut(p: Page) {
 export async function register(p: Page) {
   const username = unique('pw-user'), email = `${username}@example.test`;
   await home(p); await link(p, 'Sign in').click(); await link(p, 'Create an account').click();
+  await maskedPasswords(p, ['Password', 'Confirm password']);
   await field(p, 'Username').fill(username); await field(p, 'Email').fill(email);
   await field(p, 'Password').fill(PASSWORD); await field(p, 'Confirm password').fill(PASSWORD);
   await p.getByRole('checkbox', { name: 'Agree to the terms', exact: true }).check();
@@ -109,7 +130,7 @@ export async function pr(p: Page, caseId?: string, title = 'Improve onboarding')
 }
 export async function compare(p: Page, caseId: string) {
   await repo(p, fixtureRepo(caseId)); await link(p, 'Pull requests').click(); await link(p, 'New pull request').click();
-  await field(p, 'base').selectOption({ label: 'main' }); await field(p, 'compare').selectOption({ label: 'feature-search' });
+  await choose(p, 'Base', 'main'); await choose(p, 'Compare', 'feature-search');
   await button(p, 'Compare changes').click(); await expect(text(p, 'src/search.ts')).toBeVisible();
 }
 export async function persisted(p: Page, assertion: () => Promise<void>) { await assertion(); await p.reload(); await assertion(); }
@@ -124,9 +145,29 @@ export async function attemptSubmission(p: Page, submit: Locator) {
 }
 export async function option(p: Page, name: string) { await p.getByRole('option', { name, exact: true }).click(); }
 export async function choose(p: Page | Locator, name: string, value: string) {
-  const control = p.getByRole('combobox', { name, exact: true });
+  const aliases = name === 'Base' ? ['Base', 'base'] : name === 'Compare' ? ['Compare', 'compare']
+    : ['test', 'test status'].includes(name) ? ['test', 'test status'] : [name];
+  const control = p.getByRole('combobox', { name: new RegExp(`^(?:${aliases.join('|')})$`) }).filter({ visible: true });
   if (await control.evaluate(el => el.tagName === 'SELECT')) await control.selectOption({ label: value });
-  else { await control.click(); await p.getByRole('option', { name: value, exact: true }).click(); }
+  else { await control.click(); const root = 'keyboard' in p ? p : p.page(); await root.getByRole('option', { name: value, exact: true }).click(); }
+}
+export async function chosen(p: Page | Locator, name: string, value: string) {
+  const control = p.getByRole('combobox', { name, exact: true });
+  if (await control.evaluate(el => el.tagName === 'SELECT')) await expect(control.locator('option:checked')).toHaveText(value);
+  else if (await control.evaluate(el => el.tagName === 'INPUT')) await expect(control).toHaveValue(value);
+  else await expect(control).toContainText(value);
+}
+export const reviewSummary = (p: Page) => field(p, 'Summary').or(field(p, 'Comment')).filter({ visible: true });
+export const action = (p: Page, names: string[]) => names.map(name => button(p, name)).reduce((a, b) => a.or(b)).filter({ visible: true });
+export async function recovery(p: Page, email: string) {
+  await link(p, 'Forgot password').click(); await field(p, 'Email').fill(email);
+  if (!(await containsValue(p, '123456').first().isVisible())) await action(p, ['Send reset link', 'Reset password']).click();
+  await expect(containsValue(p, '123456').first()).toBeVisible();
+  for (const name of ['Verification code', 'New password', 'Confirm password']) await expect(field(p, name)).toBeVisible();
+  await maskedPasswords(p, ['New password', 'Confirm password']);
+}
+export async function maskedPasswords(p: Page, names: string[]) {
+  for (const name of names) await expect(field(p, name)).toHaveAttribute('type', 'password');
 }
 export async function filterStatus(p: Page, status: string) {
   // Open is a source-prescribed link. The other status filters have no
@@ -163,6 +204,7 @@ export async function discussionSnapshot(p: Page) {
   }));
 }
 export async function unavailable(p: Page, name: string) {
-  const control=button(p,name); if(await control.count()) await expect(control).toBeDisabled();
-  else await expect(control).toHaveCount(0);
+  const controls=button(p,name); for (const control of await controls.all()) {
+    if (await control.isVisible()) await expect(control).toBeDisabled();
+  }
 }

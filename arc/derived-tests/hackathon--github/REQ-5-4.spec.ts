@@ -45,3 +45,13 @@ test("REQ-5-4: guide: an Issue created by Write keeps comments and assignee acro
     });
   } finally { await maintain.close(); await reader.close(); }
 });
+
+test("REQ-5-4: Triage closes and reopens an issue without receiving Write content authority", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-triage'); await h.issue(page,'issue-triage-status');
+  await h.button(page,'Close issue').click(); await expect(h.button(page,'Reopen issue')).toBeVisible();
+  await h.persisted(page,()=>expect(h.button(page,'Reopen issue')).toBeVisible());
+  await h.button(page,'Reopen issue').click(); await h.persisted(page,()=>expect(h.button(page,'Close issue')).toBeVisible());
+  await h.unavailable(page,'Edit issue title'); await h.unavailable(page,'Edit issue description');
+  await expect(h.text(page,'Describe the onboarding improvement.')).toBeVisible();
+});

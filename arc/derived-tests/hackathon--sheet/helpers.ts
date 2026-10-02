@@ -29,6 +29,15 @@ export async function values(p: Page, expected: Record<string, string>) {
     // containing data. Preserve spaces and embedded newlines in ordinary text.
     await expect.poll(() => cell(p, at).evaluate((el, { at, value }) => {
       const content = el.cloneNode(true) as HTMLElement;
+      // cloneNode copies markup defaults, not live input/textarea values.
+      const inputs = [...el.querySelectorAll('input, textarea')];
+      const inputCopies = [...content.querySelectorAll('input, textarea')];
+      inputs.forEach((control, i) => {
+        const style = getComputedStyle(control);
+        const hidden = control.closest('[hidden], [aria-hidden="true"]') || style.display === 'none' || style.visibility === 'hidden'
+          || (control instanceof HTMLInputElement && control.type === 'hidden');
+        inputCopies[i].replaceWith(document.createTextNode(hidden ? '' : (control as HTMLInputElement | HTMLTextAreaElement).value));
+      });
       const originals = [...el.querySelectorAll('button, [role="button"]')];
       const copies = [...content.querySelectorAll('button, [role="button"]')];
       originals.forEach((control, i) => {

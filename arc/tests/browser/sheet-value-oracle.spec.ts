@@ -32,3 +32,12 @@ test('decoration exclusion still rejects incorrect or extra cell values', async 
   await expect(values(page, { A1: 'Closed' })).rejects.toThrow();
   await expect(values(page, { B1: 'Closed' })).rejects.toThrow();
 });
+
+test('cell oracle reads live controls rather than stale markup and rejects an empty-value false positive', async ({page})=>{
+  await page.setContent('<div role="grid" aria-label="Worksheet grid"><div role="gridcell" aria-label="A1"><input value="stale"></div><div role="gridcell" aria-label="B1"><textarea>old</textarea></div><div role="gridcell" aria-label="C1"><input type="hidden" value="secret"><textarea hidden>hidden</textarea></div></div>');
+  await page.locator('input').first().fill('  live 中文  '); await page.locator('textarea').first().fill('new\nline');
+  await values(page,{A1:'  live 中文  ',B1:'new\nline',C1:''});
+  await expect(values(page,{A1:'stale'})).rejects.toThrow();
+  await expect(values(page,{A1:''})).rejects.toThrow();
+  await expect(values(page,{B1:'old'})).rejects.toThrow();
+});

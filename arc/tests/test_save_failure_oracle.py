@@ -1,10 +1,12 @@
 """Calibrate save-failure witness across API architectures and broken rollback."""
 import json
+import base64
 import os
 from pathlib import Path
 import tempfile
 import threading
 import unittest
+from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from acceptance import AcceptanceRunner
 from embedded_repair_cases import register
@@ -31,7 +33,8 @@ if(location.pathname==='/') {
   try {
    let response;
    for(let i=0;i<(mode.includes('retry')?3:1);i++){
-    response=await fetch(whole?'/save-record':'/cell-write',{method:whole?'PUT':'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const endpoint=new URL(whole?'/save-record':'/cell-write',location.href); if(mode.includes('cross')) {endpoint.hostname='localhost';endpoint.searchParams.set('oracle',mode);}
+    response=await fetch(endpoint,{method:whole?'PUT':'PATCH',headers:{'Content-Type':'application/json'},body:mode.includes('encoded')?btoa(JSON.stringify(body)):JSON.stringify(body)});
     if(response.ok)break;
    }
    const result=await response.json();if(!response.ok)throw Error(result.error);
@@ -50,16 +53,19 @@ class SaveFailureOracleTests(unittest.TestCase):
         values={}
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
-            def identity(self):return self.headers.get('Cookie','').split('oracle=')[-1].split(';')[0]
+            def identity(self):return parse_qs(urlparse(self.path).query).get('oracle',[self.headers.get('Cookie','').split('oracle=')[-1].split(';')[0]])[0]
             def send(self,data,mime='application/json'):
                 body=data if isinstance(data,bytes) else json.dumps(data).encode()
-                self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+                self.send_response(200);self.send_header('Access-Control-Allow-Origin','*');self.send_header('Access-Control-Allow-Methods','GET, POST, PUT, PATCH, OPTIONS');self.send_header('Access-Control-Allow-Headers','Content-Type');self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
             def do_GET(self):
                 if self.path=='/data':self.send({'value':values.get(self.identity(),'')})
                 else:self.send(HTML.encode(),'text/html')
+            def do_OPTIONS(self):self.send({})
             def do_POST(self):values[self.identity()]='';self.send({})
             def write(self):
-                body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                payload=self.rfile.read(int(self.headers['Content-Length']))
+                if 'encoded' in self.identity():payload=base64.b64decode(payload)
+                body=json.loads(payload)
                 cells=body.get('cells') or body['worksheets'][0]['cells']
                 values[self.identity()]=cells['A1'];self.send({})
             do_PATCH=write
@@ -77,7 +83,7 @@ class SaveFailureOracleTests(unittest.TestCase):
                 source="import {test,expect} from './helpers'; import * as h from './helpers';\n"
                 address=f'http://127.0.0.1:{server.server_port}'
                 modes=('cells-good','workbook-good','cells-retry-good','workbook-retry-good',
-                       'cells-generic-good','workbook-generic-good','cells-plain-good','workbook-plain-generic-good','cells-bad','workbook-bad')
+                       'cells-generic-good','workbook-generic-good','cells-plain-good','workbook-plain-generic-good','cells-cross-good','workbook-cross-encoded-good','cells-cross-bad','workbook-cross-encoded-bad','cells-encoded-good','workbook-encoded-good','cells-encoded-bad','workbook-encoded-bad','cells-bad','workbook-bad')
                 for mode in modes:
                     source+=f"test('{mode}',async({{page,context,browser}})=>{{ await context.addCookies([{{name:'oracle',value:'{mode}',url:'{address}'}}]);\n"+bodies[0]+"\n});\n"
                 (suite/'oracle.spec.ts').write_text(source)

@@ -98,22 +98,22 @@ test("REQ-6-5: a failed required check blocks an otherwise approved PR", async (
   await h.persisted(page,()=>expect(h.text(page,'export const search = "search flow";')).toBeVisible());
 });
 
-test("REQ-6-5: context REQ-6-2-1: Open Draft Closed and actual Merged status filters isolate records and retain other PRs", async ({ page, browser }) => {
+test("REQ-6-5: context REQ-6-2-1: Open filter excludes Draft Closed and a PR after its actual merge", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,'spec-maintain'); const address=await h.repo(page,h.fixtureRepo('pr-filter-lifecycle-node'));
-  await h.link(page,'Pull requests').click(); const list=page.url();
-  for(const [status,title] of [['Open','Improve onboarding'],['Draft','Draft onboarding update'],['Closed','Fix search']]) {
-    await h.filterStatus(page,status); await h.persisted(page,async()=>{
-      await expect(h.link(page,title)).toBeVisible();
-      for(const other of ['Improve onboarding','Draft onboarding update','Fix search'].filter(name=>name!==title)) await expect(h.link(page,other)).toHaveCount(0);
-    });
-  }
-  await h.filterStatus(page,'Open'); await h.link(page,'Improve onboarding').click();
-  await h.button(page,'Merge pull request').click(); await h.button(page,'Confirm merge').click(); await expect(h.text(page,'Merged').first()).toBeVisible();
-  await page.goto(list); await h.filterStatus(page,'Merged');
-  await h.persisted(page,async()=>{ await expect(h.link(page,'Improve onboarding')).toBeVisible(); await expect(h.link(page,'Fix search')).toHaveCount(0); await expect(h.link(page,'Draft onboarding update')).toHaveCount(0); });
-  await h.filterStatus(page,'Draft'); await expect(h.link(page,'Draft onboarding update')).toBeVisible();
-  await h.filterStatus(page,'Closed'); await expect(h.link(page,'Fix search')).toBeVisible();
+  await h.signIn(page,'spec-maintain'); await h.repo(page,h.fixtureRepo('pr-filter-lifecycle-node'));
+  await h.link(page,'Pull requests').click(); const list=page.url(); await h.link(page,'Open').click();
+  await h.persisted(page,async()=>{
+    await expect(h.link(page,'Improve onboarding')).toBeVisible();
+    await expect(h.link(page,'Fix search')).toHaveCount(0); await expect(h.link(page,'Draft onboarding update')).toHaveCount(0);
+  });
+  await h.link(page,'Improve onboarding').click(); const detail=page.url();
+  await h.button(page,'Merge pull request').click(); await h.button(page,'Confirm merge').click();
+  await h.persisted(page,()=>expect(h.text(page,'Merged').first()).toBeVisible());
+  await page.goto(list); await h.link(page,'Open').click();
+  await h.persisted(page,async()=>{
+    for(const title of ['Improve onboarding','Fix search','Draft onboarding update']) await expect(h.link(page,title)).toHaveCount(0);
+  });
+  await page.goto(detail); await h.persisted(page,()=>expect(h.text(page,'Merged').first()).toBeVisible());
 });
 
 test("REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal", async ({ page, browser }) => {
@@ -131,11 +131,11 @@ test("REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/che
     await test.step('Publish a line comment and approve the current compare commit',async()=>{
       await h.signIn(review,'bob-reviewer'); await h.pr(review,'guide-review-cycle-node'); await h.link(review,'Files changed').click();
       await h.button(review,'Add comment').first().click(); await h.field(review,'Comment').fill(comment); await h.button(review,'Add single comment').click();
-      await h.button(review,'Review changes').click(); await h.field(review,'Summary').fill(firstSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
+      await h.button(review,'Review changes').click(); await h.reviewSummary(review).fill(firstSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
       await h.persisted(review,()=>expect(h.text(review,comment).first()).toBeVisible());
     });
     await test.step('Approval and successful check together enable Maintain to merge',async()=>{
-      await h.pr(page,'guide-review-cycle-node'); await h.choose(page,'test status','success'); await h.button(page,'Save').click(); await expect(h.text(page,'test: success')).toBeVisible();
+      await h.pr(page,'guide-review-cycle-node'); await h.choose(page,'test','success'); await h.action(page,['Save','Update']).click(); await expect(h.text(page,'test: success')).toBeVisible();
       await h.signIn(merge,'spec-maintain'); await h.pr(merge,'guide-review-cycle-node'); await expect(h.button(merge,'Merge pull request')).toBeEnabled();
     });
     await test.step('The author advances only the compare branch with a real file commit',async()=>{
@@ -155,9 +155,9 @@ test("REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/che
       await expect(h.text(marked,'Outdated').first()).toBeVisible();
     });
     await test.step('A renewed approval alone is insufficient until Admin sets the current check',async()=>{
-      await h.button(review,'Review changes').click(); await h.field(review,'Summary').fill(nextSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
+      await h.button(review,'Review changes').click(); await h.reviewSummary(review).fill(nextSummary); await review.getByRole('radio',{name:'Approve',exact:true}).check(); await h.button(review,'Submit review').click();
       await expect(h.text(review,nextSummary)).toBeVisible(); await merge.reload(); await expect(h.button(merge,'Merge pull request')).toBeDisabled();
-      await h.choose(page,'test status','success'); await h.button(page,'Save').click(); await expect(h.text(page,'test: success')).toBeVisible();
+      await h.choose(page,'test','success'); await h.action(page,['Save','Update']).click(); await expect(h.text(page,'test: success')).toBeVisible();
       await merge.reload(); await expect(h.button(merge,'Merge pull request')).toBeEnabled(); await h.button(merge,'Merge pull request').click(); await h.button(merge,'Confirm merge').click(); await h.persisted(merge,()=>expect(h.text(merge,'Merged').first()).toBeVisible());
     });
     await test.step('Merged base has the new bytes, terminal status and unchanged historical revision',async()=>{

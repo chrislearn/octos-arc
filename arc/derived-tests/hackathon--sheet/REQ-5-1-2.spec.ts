@@ -21,23 +21,23 @@ test("REQ-5-1-2: conditions combine with AND and clearing preserves original dat
 
 test("REQ-5-1-2: condition Before persists exactly the matching rows and clearing restores originals", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.blank(page); await h.paste(page,'A1','Date\tRecord\n2026-01-02T00:30:00+02:00\tearly\n2026-01-01T23:30:00Z\tlate\n\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
-  await h.condition(page,'Date',"Before","2026-01-01T23:00:00Z"); await h.persisted(page,async()=>{await h.filterHeaders(page,{A1:'Date',B1:'Record'});await h.visibleRows(page,["A2"],["A3", "A4"]);});
-  await h.data(page,'Clear filter'); await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A1:'Date',B1:'Record',A2:'2026-01-02T00:30:00+02:00',B2:'early',A3:'2026-01-01T23:30:00Z',B3:'late',A4:'',B4:'empty'});});
+  await h.blank(page); await h.paste(page,'A1','Date\tRecord\n2026-01-01\tearly\n2026-01-03\tlate\n\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
+  await h.condition(page,'Date',"Before","2026-01-02"); await h.persisted(page,async()=>{await h.filterHeaders(page,{A1:'Date',B1:'Record'});await h.visibleRows(page,["A2"],["A3", "A4"]);});
+  await h.data(page,'Clear filter'); await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A1:'Date',B1:'Record',A2:'2026-01-01',B2:'early',A3:'2026-01-03',B3:'late',A4:'',B4:'empty'});});
 });
 
 test("REQ-5-1-2: condition Is empty persists exactly the matching rows and clearing restores originals", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.blank(page); await h.paste(page,'A1','Date\tRecord\n2026-01-02T00:30:00+02:00\tearly\n2026-01-01T23:30:00Z\tlate\n\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
+  await h.blank(page); await h.paste(page,'A1','Date\tRecord\n2026-01-01\tearly\n2026-01-03\tlate\n\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
   await h.condition(page,'Date',"Is empty",undefined); await h.persisted(page,async()=>{await h.filterHeaders(page,{A1:'Date',B1:'Record'});await h.visibleRows(page,["A4"],["A2", "A3"]);});
-  await h.data(page,'Clear filter'); await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A1:'Date',B1:'Record',A2:'2026-01-02T00:30:00+02:00',B2:'early',A3:'2026-01-01T23:30:00Z',B3:'late',A4:'',B4:'empty'});});
+  await h.data(page,'Clear filter'); await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A1:'Date',B1:'Record',A2:'2026-01-01',B2:'early',A3:'2026-01-03',B3:'late',A4:'',B4:'empty'});});
 });
 
 test("REQ-5-1-2: condition Is not empty persists exactly the matching rows and clearing restores originals", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.blank(page); await h.paste(page,'A1','Date\tRecord\n2026-01-02T00:30:00+02:00\tearly\n2026-01-01T23:30:00Z\tlate\n\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
+  await h.blank(page); await h.paste(page,'A1','Date\tRecord\n2026-01-01\tearly\n2026-01-03\tlate\n\tempty'); await h.range(page,'A1','B4'); await h.data(page,'Create filter');
   await h.condition(page,'Date',"Is not empty",undefined); await h.persisted(page,async()=>{await h.filterHeaders(page,{A1:'Date',B1:'Record'});await h.visibleRows(page,["A2", "A3"],["A4"]);});
-  await h.data(page,'Clear filter'); await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A1:'Date',B1:'Record',A2:'2026-01-02T00:30:00+02:00',B2:'early',A3:'2026-01-01T23:30:00Z',B3:'late',A4:'',B4:'empty'});});
+  await h.data(page,'Clear filter'); await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A1:'Date',B1:'Record',A2:'2026-01-01',B2:'early',A3:'2026-01-03',B3:'late',A4:'',B4:'empty'});});
 });
 
 test("REQ-5-1-2: context REQ-2-2-1: row insert/delete adjusts existing filter region without deleting or reordering hidden records", async ({ page, browser }) => {

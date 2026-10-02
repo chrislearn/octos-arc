@@ -13,13 +13,24 @@ def coverage_review(tree, plan):
 
     visit(tree)
     checks = [
+        ('REQ-1-1-1', 'legal username and email lengths are accepted', ['username legal length', 'email legal length']),
+        ('REQ-2-2-1', 'team length boundary and duplicate relationship rejection persist', ['team legal length', 'duplicate team']),
+        ('REQ-5-2-2', 'Write has independent title/description save authority', ['Write saves title']),
+        ('REQ-5-3-2', 'Triage has positive label authority', ['Triage toggles']),
+        ('REQ-1-1-1', 'isolated invalid inputs and duplicate email cannot partially create an account', ['isolated registration rejection', 'duplicate email retains']),
+        ('REQ-1-1-2', 'minimum and maximum compliant passwords and trimmed email produce persistent sign-in', ['registration accepts password boundary']),
+        ('REQ-2-2-2', 'valid parent changes persist without altering the original parent team relationship', ['valid parent change persists']),
+        ('REQ-2-2-4', 'last Owner refusal retains People and team membership', ['last Owner removal']),
+        ('REQ-5-4', 'Triage has positive status authority without Write content authority', ['Triage closes and reopens']),
+        ('REQ-6-1', 'independent visitor proves persisted check setter separately from account menu', ['persists setter']),
+        ('REQ-6-3-4', 'Request changes persists exact summary and status', ['Request changes submission']),
         ('REQ-1-3', 'rejected password preserves old credentials and rejects the candidate', ['missing current password and mismatch']),
         ('REQ-2-3', 'private team grant changes access, preserves outsider denial and is idempotent', ['live team grant admits its member']),
         ('REQ-4-2-1', 'file history excludes unrelated commits; branch order persists', ['branch history keeps newest-first']),
         ('REQ-4-4', 'path/message boundaries and unauthorized creation preserve history', ['file path is rejected', 'overlong trimmed', 'cannot commit files']),
         ('REQ-5-2-3', 'blank comment preserves loaded discussion; Read/Triage cannot comment', ['blank comment adds no article', 'cannot publish a comment']),
         ('REQ-5-3-3', 'PR milestone add/remove, cross-repository exclusion and role denial', ['PR milestone toggles', 'cannot change a PR milestone']),
-        ('REQ-6-2-1', 'Open/Draft/Closed and a real merge-derived Merged filter', ['Open Draft Closed and actual Merged']),
+        ('REQ-6-2-1', 'Open excludes Draft/Closed and a PR after a real merge', ['Open filter excludes Draft Closed']),
         ('REQ-6-3-4', 'author, Draft, Read and Triage cannot persist review decisions', ['cannot persist a review decision']),
         ('REQ-6-5', 'Write/Read/Triage cannot merge; failed required check blocks an approved PR', ['cannot merge or change the base branch', 'failed required check']),
     ]
@@ -33,12 +44,7 @@ def coverage_review(tree, plan):
                          'basis': nodes[node_id]['description'], 'exported_witnesses': witnesses,
                          'status': 'executable_source_reviewed', 'product_certification': False})
     gaps = [
-        {'requirements': ['REQ-5-2-3'], 'behavior': 'reaction add/remove, uniqueness and persistence on an existing comment',
-         'status': 'requires_interaction_adapter',
-         'reason': 'No reaction type, menu/control name, role or count locator is prescribed. Portable gates must not invent them. The atomic comment gate remains enabled.'},
-        {'requirements': ['REQ-6-2-1'], 'behavior': 'combined author and review-status filters',
-         'status': 'requires_interaction_adapter',
-         'reason': 'No portable author/review filter entry role or field name is prescribed. Status checks do not certify the other dimensions.'},
+        {'requirements': ['REQ-1-1-1','REQ-2-2-1','REQ-2-2-4'], 'behavior': 'remaining empty-input and team legal-length-1 witnesses, same-name teams across organizations, last-Owner direct grants and unrelated-organization/personal-repository preservation', 'status': 'requires_additional_witnesses', 'reason': 'Isolated invalid inputs and team/People rollback now have witnesses; they do not certify every legal boundary or every untouched relationship.'},
         {'requirements': ['ROOT', 'REQ-4-4', 'REQ-6-5'], 'behavior': 'server authorization independent of hidden UI; real storage failure, restart and rollback',
          'status': 'requires_implementation_harness',
          'reason': 'Needs legitimate request construction and target process/storage control. No private API or filesystem schema is imposed.'},

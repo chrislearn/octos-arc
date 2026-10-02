@@ -13,5 +13,17 @@ test("REQ-2-2-2: Owner adds and immediately removes direct team member with pers
 test("REQ-2-2-2: cycle rejects and preserves original parent value across reload", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'spec-owner'); await h.organization(page,'team-cycle'); await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Settings').click();
-  const parent=h.field(page,'Parent team'); const original=await parent.inputValue(); await parent.selectOption({label:'frontend-child'}); await h.button(page,'Save').click(); await expect(h.text(page,'Cyclic team hierarchy is not allowed').first()).toBeVisible(); await expect(parent).toHaveValue(original); await page.reload(); await expect(parent).toHaveValue(original);
+  await h.chosen(page,'Parent team','platform-team'); await h.choose(page,'Parent team','frontend-child'); await h.button(page,'Save').click(); await expect(h.text(page,'Cyclic team hierarchy is not allowed').first()).toBeVisible(); await h.chosen(page,'Parent team','platform-team'); await page.reload(); await h.chosen(page,'Parent team','platform-team');
+});
+
+test("REQ-2-2-2: valid parent change persists independently of the earlier parent relationship", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-owner'); await h.organization(page,'team-parent-valid'); await h.link(page,'Teams').click();
+  await h.link(page,'frontend-child').click(); await h.link(page,'Settings').click();
+  await h.choose(page,'Parent team','platform-team'); await h.button(page,'Save').click();
+  await h.persisted(page,()=>h.chosen(page,'Parent team','platform-team'));
+  await h.choose(page,'Parent team','frontend-team'); await h.button(page,'Save').click();
+  await h.persisted(page,()=>h.chosen(page,'Parent team','frontend-team'));
+  await h.organization(page,'team-parent-valid'); await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Settings').click();
+  await h.persisted(page,()=>h.chosen(page,'Parent team','platform-team'));
 });

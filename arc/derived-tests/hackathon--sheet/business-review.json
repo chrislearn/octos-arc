@@ -3,7 +3,7 @@
   "review_status": "reviewed",
   "frozen": true,
   "official": false,
-  "review_date": "2026-09-30",
+  "review_date": "2026-10-02",
   "review_kind": "source_review",
   "runtime_status": "not_run_against_product",
   "requirements_sha256": "0cd43ed5e40610fee702ca65f4cc8acf876a146f494ec8edd69b296964ef5b99",
