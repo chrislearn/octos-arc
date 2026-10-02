@@ -17,6 +17,10 @@ GITHUB_HELPER_CAPABILITIES = {
     'repo': {'REQ-3-1', 'REQ-3-3'}, 'organization': {'REQ-2-1-1'},
     'issue': {'REQ-5-1-1', 'REQ-5-1-2'},
     'pr': {'REQ-6-2-1', 'REQ-6-3-1'}, 'compare': {'REQ-6-2-1', 'REQ-6-2-2'},
+    'canonicalOrganization': {'REQ-2-1-1'},
+    'canonicalRepo': {'REQ-2-1-1', 'REQ-3-3'},
+    'scenarioIssue': {'REQ-5-1-1', 'REQ-5-1-2'},
+    'scenarioPr': {'REQ-6-2-1', 'REQ-6-3-1'},
 }
 
 
@@ -28,6 +32,10 @@ def github_setup_features(body: str, helpers: str) -> set[str]:
                  for i, match in enumerate(starts)}
     todo = re.findall(r'\bh\.(\w+)\s*\(', body)
     seen, result = set(), set()
+    # The registration scenario explicitly ends by signing in with the new
+    # email; its inline interaction has the same setup as the public helper.
+    if re.search(r"h\.button\(\w+\s*,\s*['\"]Sign in['\"]\)\.click", body):
+        result.add('REQ-1-1-2')
     while todo:
         name = todo.pop()
         if name in seen:

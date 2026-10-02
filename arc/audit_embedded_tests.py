@@ -14,7 +14,7 @@ from embedded_suites import requirements_digest
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
 REVIEWED_RELEASES = {
-    'hackathon--github': ('2026-10-02', 9),
+    'hackathon--github': ('2026-10-02', 10),
     'hackathon--sheet': ('2026-10-02', 9),
 }
 
@@ -25,6 +25,8 @@ def leaves(node):
     for child in node.get('children',[]): yield from leaves(child)
 
 def fixtures(task,plan):
+    if task=='hackathon--github':
+        return json.loads((ROOT/'github_requirement_fixtures.json').read_text())
     if task=='hackathon--sheet':
         return {'schema_version':1,'task':task,'isolation':'Mutations create their own workbook through visible UI, except the exclusive row-node and column-node seeds. Q3 Sales is read-only. Fresh server data is required for each suite invocation.',
                 'workbooks':[{'name':'Q3 Sales','worksheets':[{'name':'Sheet1','cells':{'A1':'Region'}}]},
@@ -185,9 +187,9 @@ def audit(freeze=False,task_filter=None):
             from frozen_setup import github_setup_features, frozen_setup_dependencies, setup_generation_order
             from build_embedded_tests import CASES
             helpers=(directory/'helpers.ts').read_text()
-            recipes={r['title']:r for rows in CASES[task].values() for r in rows}
+            recipes={(r['node_id'],r['title']):r for rows in CASES[task].values() for r in rows}
             for row in plan:
-                recipe=recipes.get(row['title'].split(': ',1)[1])
+                recipe=recipes.get((row['node_id'],row['title'].split(': ',1)[1]))
                 # Node witness titles include provenance; match the generated recipe title.
                 assert recipe is not None,('missing source recipe',row['title'])
                 expected=github_setup_features(recipe['body'],helpers)-{row['node_id']}
@@ -208,7 +210,7 @@ def audit(freeze=False,task_filter=None):
             (directory/'requirements.yaml').write_bytes(source.read_bytes())
             task_readme = README
             if task == 'hackathon--github':
-                task_readme += '\nRevision 9 additionally corrects review-field scoping, permits existing pending-check setters and commit-count comparison summaries, and verifies that PR commit lists exclude base ancestors. Revision 9 is grounded in the full hackathon--github requirements folder supplied on 2026-10-02. Source recipes and frozen gates were reviewed together: isolated registration rejections and legal boundaries, duplicate email, team parent changes and duplicate names, last-Owner membership refusal, positive Write/Triage authority, exact review summaries and an independent public check-setter witness. Native selects remain mandatory only where prescribed; permitted action labels and hidden/disabled unavailable controls are accepted. Optional Comment review decisions and non-Open PR filter dimensions are no longer mandatory. coverage-review.json records remaining semantic and harness gaps; product execution is not certified by this source review.\n'
+                task_readme += '\nRevision 10 aligns all 100 original scenarios with the supplied canonical accounts and named records, while retaining the original 172 additional source-reviewed cases in their existing phases. Regression fixtures use a regression- prefix and actual role accounts. The earlier Revision 9 additionally corrects review-field scoping, permits existing pending-check setters and commit-count comparison summaries, and verifies that PR commit lists exclude base ancestors. Revision 9 is grounded in the full hackathon--github requirements folder supplied on 2026-10-02. Source recipes and frozen gates were reviewed together: isolated registration rejections and legal boundaries, duplicate email, team parent changes and duplicate names, last-Owner membership refusal, positive Write/Triage authority, exact review summaries and an independent public check-setter witness. Native selects remain mandatory only where prescribed; permitted action labels and hidden/disabled unavailable controls are accepted. Optional Comment review decisions and non-Open PR filter dimensions are no longer mandatory. coverage-review.json records remaining semantic and harness gaps; product execution is not certified by this source review.\n'
             if task == 'hackathon--sheet':
                 task_readme += '\nFor Sheet, coverage-review.json records concrete behavior witnesses and remaining gaps; node-gate coverage does not certify complete semantic coverage. Cell-value assertions preserve significant whitespace and data inside ordinary controls, reading live input/textarea values and removing named dropdown/filter decorations and hidden controls. Date witnesses use ISO date-only inputs; typed chronological comparison versus lexical order, timezone and locale grammar remain unverified and are not imposed by the gates. The cell-save failure witness learns HTTP write endpoints from the successful baseline edit and requires an adapter for other transports, while lifecycle/storage/process failure coverage remains incomplete.\n'
             (directory/'README.md').write_text(task_readme)

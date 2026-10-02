@@ -78,7 +78,7 @@ class FixtureDeliveryTests(unittest.TestCase):
         text=fixture_context(flow,(directory/'REQ-4-4.spec.ts').read_text(),['REQ-4-4'])
         selected=json.loads(text[text.index('\n{')+1:])
         plan=json.loads((directory/'case-plan.json').read_text())
-        expected={'spec-'+row['fixture'] for row in plan if row['node_id']=='REQ-4-4' and row.get('fixture') and row['phase']=='node'}
+        expected={'regression-'+row['fixture'] for row in plan if row['node_id']=='REQ-4-4' and row.get('fixture') and row['phase']=='node'}
         self.assertTrue(expected <= {r['name'] for r in selected['repositories']})
 
     def test_new_guidance_is_node_attached_and_uses_exclusive_mutation_fixtures(self):
@@ -92,10 +92,10 @@ class FixtureDeliveryTests(unittest.TestCase):
         mutations=[r['fixture'] for r in new if r.get('fixture')]
         self.assertEqual(len(mutations),len(set(mutations)))
         document=fixtures('hackathon--github',new)
-        release=next(r for r in document['repositories'] if r['name']=='spec-guide-default-release')
+        release=next(r for r in document['repositories'] if r['name']=='regression-guide-default-release')
         self.assertIn('release',release['branches'])
-        review=next(r for r in document['repositories'] if r['name']=='spec-guide-review-publication')
-        self.assertEqual(review['pull_requests'][0]['author'],'spec-write')
+        review=next(r for r in document['repositories'] if r['name']=='regression-guide-review-publication')
+        self.assertEqual(review['pull_requests'][0]['author'],'file-contributor')
         self.assertEqual(review['pull_requests'][0]['reviews'],[])
 
     def test_generation_prompt_keeps_computed_prerequisites_and_refuses_hard_overflow(self):

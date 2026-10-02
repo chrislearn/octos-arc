@@ -8,191 +8,191 @@
   "product_runtime_certified": false,
   "nodes": {
     "REQ-1-1-1": {
-      "exported_case_count": 26,
+      "exported_case_count": 29,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-2": {
-      "exported_case_count": 9,
+      "exported_case_count": 13,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-3": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-1-2": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-1-3": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-2-1-1": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-2-1-2": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-2-2-1": {
-      "exported_case_count": 4,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-2-2-2": {
-      "exported_case_count": 3,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-2-2-3": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-2-2-4": {
-      "exported_case_count": 3,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-2-3": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-3-1": {
-      "exported_case_count": 3,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-3-2-1": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-3-2-2": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-3-2-3": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-3-3": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-3-4": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-1": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-2-1": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-2-2": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-2-3": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-3-1": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-3-2": {
-      "exported_case_count": 4,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-3-3": {
-      "exported_case_count": 3,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-4-4": {
-      "exported_case_count": 13,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-5-1-1": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-5-1-2": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-5-2-1": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-5-2-2": {
       "exported_case_count": 5,
       "complete_clause_coverage_claimed": false
     },
-    "REQ-5-2-3": {
+    "REQ-1-2": {
       "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-1-3": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-2-1-1": {
+      "exported_case_count": 3,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-2-1-2": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-2-2-1": {
+      "exported_case_count": 6,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-2-2-2": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-2-2-3": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-2-2-4": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-2-3": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-3-1": {
+      "exported_case_count": 7,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-3-2-1": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-3-2-2": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-3-2-3": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-3-3": {
+      "exported_case_count": 2,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-3-4": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-1": {
+      "exported_case_count": 2,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-2-1": {
+      "exported_case_count": 3,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-2-2": {
+      "exported_case_count": 2,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-2-3": {
+      "exported_case_count": 6,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-3-1": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-3-2": {
+      "exported_case_count": 6,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-3-3": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-4-4": {
+      "exported_case_count": 15,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-5-1-1": {
+      "exported_case_count": 3,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-5-1-2": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-5-2-1": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-5-2-2": {
+      "exported_case_count": 7,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-5-2-3": {
+      "exported_case_count": 6,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-1": {
-      "exported_case_count": 3,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-2": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-5-3-3": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-5-4": {
-      "exported_case_count": 4,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-6-1": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-6-2-1": {
-      "exported_case_count": 1,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-6-2-2": {
-      "exported_case_count": 2,
-      "complete_clause_coverage_claimed": false
-    },
-    "REQ-6-2-3": {
       "exported_case_count": 3,
       "complete_clause_coverage_claimed": false
     },
-    "REQ-6-2-4": {
+    "REQ-5-3-3": {
       "exported_case_count": 2,
       "complete_clause_coverage_claimed": false
     },
-    "REQ-6-3-1": {
+    "REQ-5-4": {
+      "exported_case_count": 6,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-6-1": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-6-2-1": {
       "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
+    "REQ-6-2-2": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-6-2-3": {
+      "exported_case_count": 5,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-6-2-4": {
+      "exported_case_count": 4,
+      "complete_clause_coverage_claimed": false
+    },
+    "REQ-6-3-1": {
+      "exported_case_count": 7,
+      "complete_clause_coverage_claimed": false
+    },
     "REQ-6-3-2": {
-      "exported_case_count": 1,
+      "exported_case_count": 2,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-3": {
-      "exported_case_count": 2,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-4": {
-      "exported_case_count": 8,
+      "exported_case_count": 10,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-4": {
-      "exported_case_count": 1,
+      "exported_case_count": 2,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-5": {
-      "exported_case_count": 13,
+      "exported_case_count": 15,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-6": {
-      "exported_case_count": 2,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     }
   },
@@ -478,11 +478,11 @@
       "exported_witnesses": [
         {
           "file": "REQ-4-4.spec.ts",
-          "title": "REQ-4-4: spec-read cannot commit files on a readable repository"
+          "title": "REQ-4-4: issue-viewer cannot commit files on a readable repository"
         },
         {
           "file": "REQ-4-4.spec.ts",
-          "title": "REQ-4-4: spec-triage cannot commit files on a readable repository"
+          "title": "REQ-4-4: triage-collaborator cannot commit files on a readable repository"
         },
         {
           "file": "REQ-4-4.spec.ts",
@@ -515,11 +515,11 @@
         },
         {
           "file": "REQ-5-2-3.spec.ts",
-          "title": "REQ-5-2-3: spec-read can read discussion but cannot publish a comment"
+          "title": "REQ-5-2-3: issue-viewer can read discussion but cannot publish a comment"
         },
         {
           "file": "REQ-5-2-3.spec.ts",
-          "title": "REQ-5-2-3: spec-triage can read discussion but cannot publish a comment"
+          "title": "REQ-5-2-3: triage-collaborator can read discussion but cannot publish a comment"
         }
       ],
       "status": "executable_source_reviewed",
@@ -536,11 +536,11 @@
         },
         {
           "file": "REQ-6-3-1.spec.ts",
-          "title": "REQ-6-3-1: context REQ-5-3-3: spec-read cannot change a PR milestone"
+          "title": "REQ-6-3-1: context REQ-5-3-3: issue-viewer cannot change a PR milestone"
         },
         {
           "file": "REQ-6-3-1.spec.ts",
-          "title": "REQ-6-3-1: context REQ-5-3-3: spec-write cannot change a PR milestone"
+          "title": "REQ-6-3-1: context REQ-5-3-3: file-contributor cannot change a PR milestone"
         }
       ],
       "status": "executable_source_reviewed",

@@ -15,13 +15,15 @@ CASES = {}
 def case(task, node, title, body, *, fixture=None, file=None, requires=None):
     file = file or node
     phase = 'integration' if file.startswith('INTEGRATION-') else 'node'
-    CASES.setdefault(task, {}).setdefault(file, []).append({
+    recipe = {
         'node_id': node, 'title': title, 'body': textwrap.dedent(body).strip(),
         'fixture': fixture, 'phase': phase, 'requires': requires or [node],
-    })
+    }
+    CASES.setdefault(task, {}).setdefault(file, []).append(recipe)
+    return recipe
 
 def s(node, title, body, **options): case('hackathon--sheet', node, title, body, **options)
-def g(node, title, body, fixture=None, **options): case('hackathon--github', node, title, body, fixture=fixture, **options)
+def g(node, title, body, fixture=None, **options): return case('hackathon--github', node, title, body, fixture=fixture, **options)
 
 g('REQ-1-1-1','registration entry accepts valid account and redirects to sign-in without exposing password', r'''
 await h.home(page); await h.link(page,'Sign in').click(); await expect(h.link(page,'Create an account')).toHaveCount(1); await h.link(page,'Create an account').click();
@@ -450,6 +452,13 @@ for _task in CASES:
         (Path(__file__).resolve().parent / 'tasks' / _task / 'requirements.yaml').read_text()))
 
 from frozen_setup import annotate_github_setup
+CASES['hackathon--github'] = annotate_github_setup(CASES['hackathon--github'],
+    (ROOT / 'hackathon--github/helpers.ts').read_text())
+
+# Supplied canonical scenarios plus every retained source-reviewed boundary case.
+CASES['hackathon--github'] = {}
+from embedded_github_requirement_cases import suite_cases
+suite_cases(g)
 CASES['hackathon--github'] = annotate_github_setup(CASES['hackathon--github'],
     (ROOT / 'hackathon--github/helpers.ts').read_text())
 

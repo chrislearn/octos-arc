@@ -72,6 +72,37 @@ export async function historyLinks(p: Page) {
   return p.getByRole('link').allTextContents();
 }
 export async function home(p: Page) { await p.goto('/'); }
+export async function canonicalOrganization(p: Page) {
+  await home(p); await link(p, 'Acme Demo').click();
+  await expect(link(p, 'Repositories')).toBeVisible();
+}
+export async function canonicalRepo(p: Page) {
+  await canonicalOrganization(p); await link(p, 'Repositories').click();
+  await field(p, 'Find a repository').fill('acme-docs'); await link(p, 'acme-docs').click();
+  await expect(p.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
+  return p.url();
+}
+export async function openRepositoryResult(p: Page, name: string, owner: string) {
+  const matches=link(p,name); await expect(matches.first()).toBeVisible();
+  const index=await matches.evaluateAll((elements, metadata)=>elements.findIndex(el=>{
+    for(let parent=el.parentElement; parent; parent=parent.parentElement) {
+      if(Array.from(parent.querySelectorAll('a')).filter(a=>a.textContent?.trim()===metadata.name).length>1) return false;
+      if(parent.textContent?.includes(`${metadata.owner}/${metadata.name}`)) return true;
+    }
+    return false;
+  }),{name,owner});
+  expect(index,'repository result must identify its owner').toBeGreaterThanOrEqual(0);
+  await matches.nth(index).click();
+}
+export async function scenarioIssue(p: Page, title: string) {
+  await canonicalRepo(p); await link(p, 'Issues').click(); await link(p, title).click();
+  await expect(p.getByRole('heading',{name:title,exact:true})).toBeVisible();
+}
+export async function scenarioPr(p: Page, title: string, name = 'acme-docs') {
+  if(name==='acme-docs') await canonicalRepo(p); else await repo(p,name);
+  await link(p, 'Pull requests').click(); await link(p, title).click();
+  await expect(p.getByRole('heading',{name:title,exact:true})).toBeVisible();
+}
 export async function signIn(p: Page, username = 'alice-dev', password = PASSWORD, expectedUsername?: string) {
   await home(p); await link(p, 'Sign in').click();
   await maskedPasswords(p, ['Password']);
@@ -102,11 +133,14 @@ export async function register(p: Page) {
 }
 export async function repo(p: Page, name = 'acme-docs') {
   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });
-  await search.fill(name); await search.press('Enter'); const matches = link(p, name); await expect(matches.first()).toBeVisible();
+  await search.fill(name); await search.press('Enter');
+  const escaped=name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matches = link(p, name).or(p.getByRole('link', {name:new RegExp(`^[^/]+/${escaped}$`)}));
+  await expect(matches.first()).toBeVisible();
   if (name === 'acme-docs' && await matches.count() > 1) {
     const index = await matches.evaluateAll(els => els.findIndex(el => {
       for (let parent = el.parentElement; parent; parent = parent.parentElement) {
-        const same = Array.from(parent.querySelectorAll('a')).filter(a => a.textContent?.trim() === 'acme-docs');
+        const same = Array.from(parent.querySelectorAll('a')).filter(a => a.textContent?.trim() === 'acme-docs' || a.textContent?.trim().endsWith('/acme-docs'));
         if (same.length > 1) return false;
         if (parent.textContent?.includes('alice-dev/acme-docs')) return true;
       }
@@ -117,16 +151,17 @@ export async function repo(p: Page, name = 'acme-docs') {
   await expect(p.getByRole('heading').filter({ hasText: name })).toBeVisible();
   return p.url();
 }
-export const orgName = (caseId: string) => `spec-org-${caseId}`;
+export const orgName = (caseId: string) => `regression-org-${caseId}`;
 export async function organization(p: Page, caseId?: string) {
   const name = caseId ? orgName(caseId) : 'Acme Demo';
   await repo(p, caseId ? fixtureRepo(caseId) : 'acme-docs-org'); await link(p, name).click();
-  await expect(p.getByRole('heading').filter({ hasText: name })).toBeVisible();
+  await expect(link(p, 'Repositories')).toBeVisible();
+  await expect(containsValue(p, name).first()).toBeVisible();
 }
 export async function settings(p: Page, section: string) { await link(p, 'Settings').click(); await link(p, section).click(); }
 // Each mutable scenario has its own seeded repository. This avoids a reset API,
 // serial dependencies and reuse of a mutable record by a sibling test.
-export const fixtureRepo = (caseId: string) => `spec-${caseId.toLowerCase().replaceAll('_', '-')}`;
+export const fixtureRepo = (caseId: string) => `regression-${caseId.toLowerCase().replaceAll('_', '-')}`;
 export async function issue(p: Page, caseId?: string, title = 'Improve onboarding') {
   await repo(p, caseId ? fixtureRepo(caseId) : 'acme-docs'); await link(p, 'Issues').click();
   await link(p, title).click(); await expect(p.getByRole('heading', { name: title, exact: true })).toBeVisible();
@@ -189,6 +224,7 @@ export async function maskedPasswords(p: Page, names: string[]) {
   for (const name of names) await expect(field(p, name)).toHaveAttribute('type', 'password');
 }
 export async function filterStatus(p: Page, status: string) {
+  await expect(link(p, 'Open')).toBeVisible();
   // Open is a source-prescribed link. The other status filters have no
   // prescribed role or field label: discover their displayed enum choices.
   const direct = link(p, status).or(button(p, status)).or(p.getByRole('tab', { name: status, exact: true }));

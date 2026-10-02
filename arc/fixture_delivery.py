@@ -33,18 +33,25 @@ def referenced_names(document: dict, evidence: str, plan: list[dict],
     names = set()
     if document.get('task') != 'hackathon--github':
         return names
+    # Canonical helpers refer to the requirements' real objects, without
+    # repeating their names at every call site.
+    if re.search(r'\bh\.(?:canonicalRepo|canonicalOrganization|scenarioIssue|scenarioPr)\(', evidence):
+        names.update(('acme-docs', 'acme demo'))
+    for match in re.finditer(r"\bh\.scenarioPr\(\s*\w+\s*,\s*(['\"])[^'\"]+\1\s*,\s*(['\"])([\w-]+)\2", evidence):
+        names.add(match[3])
     # These literals are the public contract of the frozen GitHub helper,
     # not inferred application routes or private seed APIs.
     for match in re.finditer(r"\bh\.fixtureRepo\(\s*(['\"])([\w-]+)\1\s*\)", evidence):
-        names.add('spec-' + match[2].lower().replace('_', '-'))
+        fid = match[2].lower().replace('_', '-')
+        names.update(prefix + fid for prefix in ('spec-', 'regression-'))
     for match in re.finditer(r"\bh\.(?:pr|issue|organization|compare)\(\s*\w+\s*,\s*(['\"])([\w-]+)\1(?:\s*[,)]|\s*$)", evidence):
         fid = match[2].lower().replace('_', '-')
-        names.update(('spec-' + fid, 'spec-org-' + fid))
+        names.update(prefix + fid for prefix in ('spec-', 'spec-org-', 'regression-', 'regression-org-'))
     for row in plan:
         # Metadata also resolves computed expressions such as
         # fixtureRepo('issue-edit-' + role), without executing test code.
         if row.get('node_id') in node_ids and row.get('fixture'):
-            names.update(('spec-' + row['fixture'], 'spec-org-' + row['fixture']))
+            names.update(prefix + row['fixture'] for prefix in ('spec-', 'spec-org-', 'regression-', 'regression-org-'))
     return names
 
 

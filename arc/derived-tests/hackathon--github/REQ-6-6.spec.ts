@@ -3,12 +3,22 @@ import * as h from './helpers';
 
 // Source-reviewed internal derived suite; requirements.yaml remains authoritative.
 
+test("REQ-6-6: requirement scenario 1", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,"pr-author"); await h.scenarioPr(page,"Closable onboarding PR","acme-docs"); await h.button(page,'Close pull request').click(); await expect(h.text(page,'Closed').first()).toBeVisible(); await h.button(page,'Reopen pull request').click(); await h.persisted(page,()=>expect(h.button(page,'Close pull request')).toBeVisible());
+});
+
+test("REQ-6-6: requirement scenario 2", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,"pr-viewer"); await h.scenarioPr(page,"Protected onboarding PR","acme-docs"); await expect(h.button(page,'Close pull request')).toHaveCount(0); await expect(h.button(page,'Reopen pull request')).toHaveCount(0);
+});
+
 test("REQ-6-6: author closes and reopens PR while discussion and branches persist", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,'spec-write'); await h.pr(page,'pr-close'); await h.button(page,'Close pull request').click(); await expect(h.button(page,'Reopen pull request')).toBeVisible(); await h.button(page,'Reopen pull request').click(); await h.persisted(page, async () => { await expect(h.button(page,'Close pull request')).toBeVisible(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });
+  await h.signIn(page,'file-contributor'); await h.pr(page,'pr-close'); await h.button(page,'Close pull request').click(); await expect(h.button(page,'Reopen pull request')).toBeVisible(); await h.button(page,'Reopen pull request').click(); await h.persisted(page, async () => { await expect(h.button(page,'Close pull request')).toBeVisible(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.link(page,'Files changed')).toBeVisible(); });
 });
 
 test("REQ-6-6: Read viewer has no close or reopen action", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,'spec-read'); await h.pr(page,'pr-close-read'); await expect(h.button(page,'Close pull request')).toHaveCount(0); await expect(h.button(page,'Reopen pull request')).toHaveCount(0);
+  await h.signIn(page,'issue-viewer'); await h.pr(page,'pr-close-read'); await expect(h.button(page,'Close pull request')).toHaveCount(0); await expect(h.button(page,'Reopen pull request')).toHaveCount(0);
 });
