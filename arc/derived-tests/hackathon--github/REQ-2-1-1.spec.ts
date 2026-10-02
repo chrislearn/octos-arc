@@ -26,6 +26,15 @@ test("REQ-2-1-1: public organization retains navigation while exposing only publ
   await expect(page.getByRole('heading').filter({hasText:/Acme Demo|acme-demo/}).first()).toBeVisible();
 });
 
+test("REQ-2-1-1: navigation readiness retains organization navigation while repository data loads", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Acme Demo').click();
+  expect(await h.link(page,'Repositories').isVisible(),'organization navigation must not wait for repository data').toBe(true);
+  for (const label of ['People','Teams']) await expect(h.link(page,label)).toBeVisible();
+  await h.link(page,'Repositories').click(); await h.link(page,'acme-docs').click();
+  await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
+});
+
 test("REQ-2-1-1: organization live repository filter exposes public result and hides private result", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.organization(page); await h.link(page,'Repositories').click(); await h.field(page,'Find a repository').fill('acme-docs'); await expect(h.link(page,'acme-docs')).toBeVisible();

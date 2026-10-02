@@ -13,6 +13,12 @@ def coverage_review(tree, plan):
 
     visit(tree)
     checks = [
+        ('REQ-1-1-3', 'recovery fields are ready after following the visible entry', ['navigation readiness exposes recovery']),
+        ('REQ-1-3', 'same-session navigation does not hide password settings', ['navigation readiness keeps password settings']),
+        ('REQ-2-1-2', 'organization creation remains available during list loading', ['navigation readiness keeps New organization']),
+        ('REQ-2-1-1', 'public navigation remains available during repository loading', ['navigation readiness retains organization']),
+        ('REQ-1-1-2', 'account menu appears in the upper-right area and exposes the prescribed links', ['account menu occupies']),
+        ('REQ-2-2-3', 'roles are checked within the corresponding member when multiple members share a role', ['member roles are associated']),
         ('REQ-1-1-3', 'recovery fields and fixed code are available together and success permits immediate new-credential login', ['selftest recovery']),
         ('REQ-1-2', 'Sign in link persists on sign-in and protected organization reentry', ['selftest Sign in']),
         ('REQ-1-3', 'keyboard account navigation reaches the password form without hidden login reloads', ['selftest account menu keyboard']),

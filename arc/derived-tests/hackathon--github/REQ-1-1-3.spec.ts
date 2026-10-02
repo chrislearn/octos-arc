@@ -67,6 +67,16 @@ test("REQ-1-1-3: selftest recovery has one success message and new credentials s
   await page.reload(); await expect(h.text(page,username)).toBeVisible();
 });
 
+test("REQ-1-1-3: navigation readiness exposes recovery fields when the entry click completes", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Sign in').click(); await h.link(page,'Forgot password').click();
+  expect(await h.field(page,'Email').isVisible(),'the recovery destination must be committed after clicking its entry').toBe(true);
+  for (const label of ['Verification code','New password','Confirm password']) await expect(h.field(page,label)).toBeVisible();
+  await expect(h.text(page,'123456')).toBeVisible();
+  await h.field(page,'Email').fill('recovery-visibility@example.test');
+  await expect(h.field(page,'Email')).toHaveValue('recovery-visibility@example.test');
+});
+
 test("REQ-1-1-3: valid local recovery updates only registered credentials; invalid code preserves old password", async ({ page, browser }) => {
   test.setTimeout(60_000);
   const {username,email}=await h.register(page); await h.recovery(page,email);

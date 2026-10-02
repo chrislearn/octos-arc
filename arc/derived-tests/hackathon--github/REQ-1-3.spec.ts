@@ -30,6 +30,15 @@ test("REQ-1-3: selftest account menu keyboard navigation reaches password settin
   await expect(h.button(page,'Account menu')).toHaveCount(1);
 });
 
+test("REQ-1-3: navigation readiness keeps password settings available across same-session navigation", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'password-change-invalid'); await h.button(page,'Account menu').click(); await h.link(page,'Settings').click();
+  expect(await h.link(page,'Password and authentication').isVisible(),'same-session refresh must not hide the settings navigation').toBe(true);
+  await h.link(page,'Password and authentication').click();
+  await expect(h.field(page,'Current password')).toBeVisible();
+  await expect(h.button(page,'Account menu')).toBeVisible();
+});
+
 test("REQ-1-3: password change uses current account and old password no longer signs in", async ({ page, browser }) => {
   test.setTimeout(60_000);
   const { username } = await h.register(page); await h.signIn(page, username); await h.button(page, 'Account menu').click(); await h.link(page, 'Settings').click(); await h.link(page, 'Password and authentication').click();

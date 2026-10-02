@@ -118,6 +118,8 @@ def suite_cases(g):
     register_stage1_gaps(g)
     from embedded_github_selftest_cases import register as register_selftest
     register_selftest(g)
+    from embedded_github_navigation_readiness_cases import register as register_navigation_readiness
+    register_navigation_readiness(g)
     regressions=json.loads((Path(__file__).parent/'github_regression_recipes.json').read_text())
     for file,recipes in regressions.items():
         for row in recipes:

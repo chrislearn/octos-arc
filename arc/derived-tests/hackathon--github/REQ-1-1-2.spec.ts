@@ -37,6 +37,16 @@ test("REQ-1-1-2: rejected login clears password retains identifier and allows a 
   await h.button(page,'Account menu').click(); await expect(h.containsValue(page,'alice-dev').first()).toBeVisible();
 });
 
+test("REQ-1-1-2: account menu occupies the upper-right area and exposes readable links", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({width:1280,height:720}); await h.signIn(page,'alice-dev');
+  const menu=h.button(page,'Account menu'); const bounds=await menu.boundingBox();
+  expect(bounds).not.toBeNull(); expect(bounds.x+bounds.width/2).toBeGreaterThan(640);
+  expect(bounds.y+bounds.height/2).toBeLessThan(360);
+  await menu.click(); await expect(h.link(page,'Your organizations')).toBeVisible();
+  await expect(h.link(page,'Settings')).toBeVisible(); await expect(h.link(page,'Sign out')).toBeVisible();
+});
+
 test("REQ-1-1-2: existing alice-dev creates persistent session", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,"alice-dev"); await h.persisted(page, () => expect(h.button(page,'Account menu')).toBeVisible());

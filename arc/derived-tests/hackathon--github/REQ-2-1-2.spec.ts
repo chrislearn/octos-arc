@@ -45,6 +45,14 @@ test("REQ-2-1-2: account menu organization entry preserves organization identity
   });
 });
 
+test("REQ-2-1-2: navigation readiness keeps New organization available after the account menu entry", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  expect(await h.link(page,'New organization').isVisible(),'organization creation must remain available during the list refresh').toBe(true);
+  await h.link(page,'New organization').click();
+  for (const label of ['Organization name','Display name']) await expect(h.field(page,label)).toBeVisible();
+});
+
 test("REQ-2-1-2: create organization persists identifier and creator Owner relationship", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click(); await h.link(page,'New organization').click(); const name=h.unique('pw-org');

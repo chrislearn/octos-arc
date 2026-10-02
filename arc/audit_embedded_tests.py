@@ -14,7 +14,7 @@ from embedded_suites import requirements_digest
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
 REVIEWED_RELEASES = {
-    'hackathon--github': ('2026-10-02', 13),
+    'hackathon--github': ('2026-10-02', 14),
     'hackathon--sheet': ('2026-10-02', 11),
 }
 
@@ -210,6 +210,7 @@ def audit(freeze=False,task_filter=None):
             (directory/'requirements.yaml').write_bytes(source.read_bytes())
             task_readme = README
             if task == 'hackathon--github':
+                task_readme += '\nRevision 14 preserves all 297 prior cases and adds six regressions: four navigation-readiness compatibility checks, upper-right account-menu placement, and member-scoped role checks with multiple Member rows. Immediate visibility checks explicitly supplement business requirements to detect deferred route commits and same-session loading flicker. They are not copies of the unavailable official navigation helper. A global exact Member text locator is intentionally not required: distinct member rows may legitimately share that role. Original requirements and fixtures remain unchanged.\n'
                 task_readme += '\nRevision 13 corrects the public-navigation and heading assertions, checks the literal saved Parent team value and unique recovery feedback, and removes implicit login reloads. Nine self-test regressions cover immediate recovery fields, Sign in link availability, keyboard account-menu navigation, repository access entry, pointer/keyboard member role selection, and isolated member removal/readdition/duplicates. These are reconstructed requirement checks, not official self-test source; the exact cause of the eleven remote homepage navigation failures remains unverified. All other prior cases and phases remain.\n'
                 task_readme += '\nRevision 12 adds nine Stage 1 regressions: direct homepage Sign up, registration/login/recovery password clearing, both organization identities, prescribed account-menu organization entry, and visitor/nonmember People and Teams boundaries with positive member reads. All 279 prior cases and phases remain. Server privacy is checked in the example implementation harness; browser source review alone does not certify backend authorization.\n'
                 task_readme += '\nRevision 11 adds seven regressions for exact search link names and owner metadata, shared repository identity across search/files/issues/PRs, slash branch browsing and web writes, exact Base/Compare accessible names, optional Request changes summaries, and independent organization identifier/display-name validation. Helpers no longer accept owner/name links or lowercase comparison labels. All 272 prior cases and their phases remain. The contradictory Stage1 Acme Demo identifier scenario is interpreted according to its atomic validation prose; requirements.yaml remains unchanged.\n'

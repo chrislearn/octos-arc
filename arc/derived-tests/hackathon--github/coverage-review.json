@@ -12,11 +12,11 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-2": {
-      "exported_case_count": 14,
+      "exported_case_count": 15,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-3": {
-      "exported_case_count": 9,
+      "exported_case_count": 10,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-2": {
@@ -24,15 +24,15 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-3": {
-      "exported_case_count": 6,
+      "exported_case_count": 7,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-1-1": {
-      "exported_case_count": 4,
+      "exported_case_count": 5,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-1-2": {
-      "exported_case_count": 7,
+      "exported_case_count": 8,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-1": {
@@ -44,7 +44,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-3": {
-      "exported_case_count": 8,
+      "exported_case_count": 9,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-4": {
@@ -197,6 +197,84 @@
     }
   },
   "reviewed_behaviors": [
+    {
+      "requirement_id": "REQ-1-1-3",
+      "behavior": "recovery fields are ready after following the visible entry",
+      "basis": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-3.spec.ts",
+          "title": "REQ-1-1-3: navigation readiness exposes recovery fields when the entry click completes"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-1-3",
+      "behavior": "same-session navigation does not hide password settings",
+      "basis": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The security form has uniquely labeled password inputs “Current password”, “New password”, and “Confirm password”, and a button “Update password”; submitting an empty current-password field must display the visible application message “Current password is required”. A failure with an incorrect current password and confirmation “does-not-match” must display the corresponding current-password or confirmation error and leave the old credentials usable. Each password-change scenario starts with its own verified account in the stated credential state and a different compliant candidate password. “Password and authentication” is the security page in account Settings used to change the current account credentials; the change affects only the current account's password record and does not alter any other accounts or resources outside the session. The user must provide the current password, a new password compliant with the REQ-1 password rules, and a character-for-character identical confirmation password; all three fields are required. The system validates the change, prevents unauthorized updates, and applies the new password to subsequent sign-in attempts. If the current password is incorrect, the new password is noncompliant, the confirmation does not match, or any field is missing, the system displays the reason in the corresponding field and does not modify the credentials; the applicable visible message is “Current password is incorrect”, “Password confirmation does not match”, or “Current password is required”. The old password remains valid and the new password must not work for sign-in. After a successful update, the page displays “Password updated”, the new password is immediately used for subsequent password-based sign-ins, and the old password must no longer work for new sign-ins.\n\nSeed password-change values are `New-password-456!` for the successful update and\n`Required-password-789!` for the missing-current-password scenario.\n\nScreenshot reference:\n![image](reference/github-password-settings.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-3.spec.ts",
+          "title": "REQ-1-3: navigation readiness keeps password settings available across same-session navigation"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "behavior": "organization creation remains available during list loading",
+      "basis": "The authenticated account menu exposes a visible “Your organizations” link, whose page exposes a visible “New organization” link. The organization creation page displays visibly labeled “Organization name” and “Display name” fields and a button named “Create organization”. A signed-in verified account can submit a unique organization identifier and display name; successful creation opens the new organization overview and persists it across reload. Organization identifiers must be 1–39 lowercase ASCII characters and globally unique. The display name must contain 1–100 non-whitespace characters after trimming. A duplicate identifier displays “Organization name already exists” without opening the existing organization. An invalid identifier displays “Organization name format is invalid”, and a whitespace-only display name displays “Display name is required”; rejected submissions do not create an organization.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-1-2.spec.ts",
+          "title": "REQ-2-1-2: navigation readiness keeps New organization available after the account menu entry"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "behavior": "public navigation remains available during repository loading",
+      "basis": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-1-1.spec.ts",
+          "title": "REQ-2-1-1: navigation readiness retains organization navigation while repository data loads"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-1-1-2",
+      "behavior": "account menu appears in the upper-right area and exposes the prescribed links",
+      "basis": "This feature builds on the persisted objects. The sign-in page is the form on the account-access page containing “Username or email”, “Password”, and “Sign in”. A “session” is the current-browser login record saved after successful account authentication, represented in the frontend by the upper-right account menu and access to protected pages. The visitor enters a username or email and a password and submits the form. The system looks up the account and validates its credentials and availability status; if authentication fails due to an unknown username/email, incorrect password, or unavailable account, the system displays exactly the same generic failure message “Invalid credentials”, does not disclose whether the account exists or which credential was wrong, and does not create a session. After successful authentication, the system stores a session with a unique session identifier, account identifier, and active status, then redirects to the workspace accessible to that user; the session remains valid after refreshing or reopening the workspace, and subsequent protected organization, repository, and work-item requests must use this session to determine the current user.\n\nScreenshot reference:\n![image](reference/github-sign-in.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-2.spec.ts",
+          "title": "REQ-1-1-2: account menu occupies the upper-right area and exposes readable links"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-2-3",
+      "behavior": "roles are checked within the corresponding member when multiple members share a role",
+      "basis": "An organization Owner can open the organization’s “People” page and click “Add member”. The form displays a visibly labeled “Username or email” field, a “Role” combobox with a “Member” option, and an “Add member” button. Adding a registered non-member directly creates the organization membership with Member role, displays the account in People without a pending-invitation state, and persists after reload. After the member signs in, the organization appears in “Your organizations”, but membership alone does not grant access to an otherwise unauthorized private repository. Adding an existing member displays “Account is already a member” without duplicating the relationship; an unknown username displays “Account not found”.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-2-3.spec.ts",
+          "title": "REQ-2-2-3: member roles are associated with each account when multiple members share Member role"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
     {
       "requirement_id": "REQ-1-1-3",
       "behavior": "recovery fields and fixed code are available together and success permits immediate new-credential login",
