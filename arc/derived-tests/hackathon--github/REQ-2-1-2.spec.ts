@@ -18,6 +18,24 @@ test("REQ-2-1-2: requirement scenario 3", async ({ page, browser }) => {
   await h.signIn(page,"org-owner"); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click(); await h.link(page,'New organization').click(); await h.field(page,'Organization name').fill('-invalid-organization'); await h.field(page,'Display name').fill('   '); await h.button(page,'Create organization').click(); await expect(h.text(page,'Organization name format is invalid')).toBeVisible(); await expect(h.text(page,'Display name is required')).toBeVisible();
 });
 
+test("REQ-2-1-2: display names cannot replace identifiers and independent validation errors persist", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.button(page,'Account menu').click();
+  await h.link(page,'Your organizations').click(); await h.link(page,'New organization').click();
+  await h.field(page,'Organization name').fill('Acme Demo'); await h.button(page,'Create organization').click();
+  await expect(h.text(page,'Organization name format is invalid')).toBeVisible();
+  await expect(h.text(page,'Display name is required')).toBeVisible();
+  await expect(h.text(page,'Organization name already exists')).toHaveCount(0);
+  await expect(h.field(page,'Organization name')).toHaveValue('Acme Demo');
+  await h.field(page,'Organization name').fill('acme-demo'); await h.button(page,'Create organization').click();
+  await expect(h.text(page,'Organization name already exists')).toBeVisible();
+  await expect(h.text(page,'Display name is required')).toBeVisible();
+  await page.reload(); await h.field(page,'Organization name').fill(h.unique('pw-org'));
+  await h.field(page,'Display name').fill('   '); await h.button(page,'Create organization').click();
+  await expect(h.text(page,'Display name is required')).toBeVisible();
+  await expect(h.button(page,'Create organization')).toBeVisible();
+});
+
 test("REQ-2-1-2: create organization persists identifier and creator Owner relationship", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click(); await h.link(page,'New organization').click(); const name=h.unique('pw-org');

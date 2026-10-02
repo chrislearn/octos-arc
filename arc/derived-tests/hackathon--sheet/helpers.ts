@@ -206,3 +206,29 @@ export async function tabOrder(p: Page, names: string[]) {
   const tabs = p.getByRole('tab'); await expect(tabs).toHaveCount(names.length);
   for (let i = 0; i < names.length; i++) await expect(tabs.nth(i)).toHaveAccessibleName(names[i]);
 }
+
+// Failure/race adapters learn a successful HTTP write through the UI. They do
+// not assume private routes or JSON keys and never construct product writes.
+// Other transports require an equivalent harness adapter rather than a skip.
+export async function learnWrite(p: Page, action: () => Promise<unknown>) {
+  await p.waitForLoadState('networkidle');
+  const observed = p.waitForResponse(response => ['POST','PUT','PATCH','DELETE'].includes(response.request().method()) && response.ok());
+  await action();
+  const request = (await observed).request(), url = new URL(request.url());
+  return {method:request.method(), endpoint:url.origin+url.pathname, body:request.postData()};
+}
+export function matchesWrite(request: any, write: {method:string, endpoint:string}) {
+  const url = new URL(request.url());
+  return request.method() === write.method && url.origin+url.pathname === write.endpoint;
+}
+export async function rejectWrites(p: Page, write: {method:string, endpoint:string}) {
+  let attempts = 0;
+  const intercept = async (route: any) => {
+    if (matchesWrite(route.request(),write)) {
+      attempts++;
+      await route.fulfill({status:500, contentType:'application/json',body:JSON.stringify({error:'Unable to save changes'})});
+    } else await route.continue();
+  };
+  await p.route('**/*',intercept);
+  return {attempts:()=>attempts,remove:()=>p.unroute('**/*',intercept)};
+}

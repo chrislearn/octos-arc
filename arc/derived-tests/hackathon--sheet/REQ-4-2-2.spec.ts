@@ -70,3 +70,31 @@ test("REQ-4-2-2: a dependent formula preserves a malformed source error and reco
     await h.persisted(page,()=>h.values(page,{A1:'4',B1:'5'}));
   });
 });
+
+test("REQ-4-2-2: audit regression: =A0 displays a stable #REF! and repairing it restores dependents", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.edit(page,'A1','6'); await h.edit(page,'B1',"=A0"); await h.edit(page,'C1','=B1+1');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=A0","#REF!");await h.values(page,{A1:'6',C1:"#REF!"});});
+  await h.edit(page,'B1','=A1+1'); await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8'}));
+});
+
+test("REQ-4-2-2: audit regression: =SUM(A0:A2) displays a stable #REF! and repairing it restores dependents", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.edit(page,'A1','6'); await h.edit(page,'B1',"=SUM(A0:A2)"); await h.edit(page,'C1','=B1+1');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=SUM(A0:A2)","#REF!");await h.values(page,{A1:'6',C1:"#REF!"});});
+  await h.edit(page,'B1','=A1+1'); await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8'}));
+});
+
+test("REQ-4-2-2: audit regression: =1.2.3 displays a stable #ERROR! and repairing it restores dependents", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.edit(page,'A1','6'); await h.edit(page,'B1',"=1.2.3"); await h.edit(page,'C1','=B1+1');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=1.2.3","#ERROR!");await h.values(page,{A1:'6',C1:"#ERROR!"});});
+  await h.edit(page,'B1','=A1+1'); await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8'}));
+});
+
+test("REQ-4-2-2: audit regression: =. displays a stable #ERROR! and repairing it restores dependents", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.edit(page,'A1','6'); await h.edit(page,'B1',"=."); await h.edit(page,'C1','=B1+1');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=.","#ERROR!");await h.values(page,{A1:'6',C1:"#ERROR!"});});
+  await h.edit(page,'B1','=A1+1'); await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8'}));
+});

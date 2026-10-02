@@ -16,21 +16,21 @@ class GitHubDerivedAuditTests(unittest.TestCase):
     def setUp(self):
         self.plan = json.loads((SUITE / 'case-plan.json').read_text())
         self.seed = fixtures('hackathon--github', self.plan)
-        self.repos = {r['name']: r for r in self.seed['repositories'] if r['name'].startswith('spec-')}
+        self.repos = {r['name']: r for r in self.seed['repositories'] if r['name'].startswith('regression-')}
 
     def test_team_grant_starts_private_and_denied_then_changes_only_a_direct_team_member(self):
-        repo = self.repos['spec-grant-add']
+        repo = self.repos['regression-grant-add']
         org = next(o for o in self.seed['organizations'] if o['identifier'] == repo['owner'])
         team = next(t for t in org['teams'] if t['name'] == 'frontend-team')
         self.assertEqual(repo['visibility'], 'Private')
-        self.assertEqual(repo['direct_grants']['spec-admin'], 'Admin')
+        self.assertEqual(repo['direct_grants']['repo-admin'], 'Admin')
         self.assertNotIn('bob-reviewer', repo['direct_grants'])
-        self.assertNotIn('spec-new-member', repo['direct_grants'])
+        self.assertNotIn('new-member', repo['direct_grants'])
         self.assertEqual(repo['team_grants'], {})
         self.assertIn('bob-reviewer', org['members'])
         self.assertIn('bob-reviewer', team['direct_members'])
-        self.assertNotIn('spec-new-member', team['direct_members'])
-        replacement = self.repos['spec-grant-replace']
+        self.assertNotIn('new-member', team['direct_members'])
+        replacement = self.repos['regression-grant-replace']
         self.assertEqual(replacement['visibility'], 'Private')
         self.assertNotIn('bob-reviewer', replacement['direct_grants'])
         self.assertEqual(replacement['team_grants'], {'frontend-team': 'Write'})
@@ -40,20 +40,20 @@ class GitHubDerivedAuditTests(unittest.TestCase):
         for recipes in CASES['hackathon--github'].values():
             for recipe in recipes:
                 for case_id in re.findall(r"h\.pr\(\w+,\s*['\"]([^'\"]+)['\"]", recipe['body']):
-                    repo = all_repos['spec-' + case_id]
+                    repo = all_repos['regression-' + case_id]
                     self.assertTrue(repo['pull_requests'], case_id)
                     numbers = [pr['number'] for pr in repo['pull_requests']]
                     self.assertEqual(len(numbers), len(set(numbers)), case_id)
 
     def test_denied_review_seeds_isolate_the_author_draft_and_repository_roles(self):
         for suffix in ['author', 'draft', 'read', 'triage']:
-            pr = self.repos['spec-review-denied-' + suffix]['pull_requests'][0]
-            self.assertEqual(pr['author'], 'spec-write')
+            pr = self.repos['regression-review-denied-' + suffix]['pull_requests'][0]
+            self.assertEqual(pr['author'], 'file-contributor')
             self.assertEqual(pr['status'], 'Draft' if suffix == 'draft' else 'Open')
             self.assertEqual(pr['title'], 'Improve onboarding')
             self.assertEqual(pr['reviews'], [])
         for suffix in ['write', 'read', 'triage']:
-            repo = self.repos['spec-merge-denied-' + suffix]
+            repo = self.repos['regression-merge-denied-' + suffix]
             pr = repo['pull_requests'][0]
             self.assertEqual(pr['status'], 'Open')
             self.assertEqual(pr['check_test'], 'success')
@@ -61,7 +61,7 @@ class GitHubDerivedAuditTests(unittest.TestCase):
             self.assertNotEqual(pr['reviews'][0]['reviewer'], pr['author'])
 
     def test_pr_milestone_target_has_no_foreign_milestone_but_foreign_record_exists(self):
-        target = self.repos['spec-pr-milestone']
+        target = self.repos['regression-pr-milestone']
         foreign = next(r for r in self.seed['repositories'] if r['name'] == 'foreign-milestone-repo')
         self.assertIn('v1.0', target['milestones'])
         self.assertNotIn('foreign-milestone', target['milestones'])

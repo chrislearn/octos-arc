@@ -3759,6 +3759,39 @@
           "parent": null
         }
       ]
+    },
+    {
+      "identifier": "regression-org-review-optional-summary",
+      "display_name": "regression-org-review-optional-summary",
+      "owners": [
+        "org-owner"
+      ],
+      "members": [
+        "org-owner",
+        "repo-admin",
+        "file-contributor",
+        "pr-maintainer",
+        "triage-collaborator",
+        "issue-viewer",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
     }
   ],
   "repositories": [
@@ -11247,7 +11280,7 @@
       "branch_protection": {}
     },
     {
-      "name": "acme-docs",
+      "name": "acme-docs-personal",
       "owner": "alice-dev",
       "visibility": "Public",
       "default_branch": "main",
@@ -11646,7 +11679,7 @@
       "branches": {
         "main": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"search flow\";",
             "src/README.md": "Document search flow"
           },
@@ -11655,7 +11688,7 @@
         },
         "feature-search": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11675,7 +11708,7 @@
         },
         "onboarding-1": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11685,7 +11718,7 @@
         },
         "onboarding-2": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11695,7 +11728,7 @@
         },
         "onboarding-4": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11705,7 +11738,7 @@
         },
         "onboarding-5": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11715,7 +11748,7 @@
         },
         "onboarding-6": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11725,7 +11758,7 @@
         },
         "onboarding-7": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11735,7 +11768,7 @@
         },
         "onboarding-8": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11745,7 +11778,7 @@
         },
         "onboarding-9": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11755,7 +11788,7 @@
         },
         "onboarding-10": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11765,7 +11798,7 @@
         },
         "onboarding-11": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -11775,7 +11808,7 @@
         },
         "draft-create-feature": {
           "files": {
-            "README.md": "search flow",
+            "README.md": "Document search flow",
             "src/search.ts": "export const search = \"merged search flow\";",
             "main-only.md": "feature-only content",
             "src/README.md": "Document search flow"
@@ -12241,7 +12274,7 @@
     {
       "name": "acme-docs",
       "owner": "repo-owner",
-      "visibility": "Public",
+      "visibility": "Private",
       "default_branch": "main",
       "direct_grants": {},
       "team_grants": {},
@@ -12372,6 +12405,86 @@
           "require_status_check_test": true
         }
       }
+    },
+    {
+      "name": "regression-review-optional-summary",
+      "owner": "regression-org-review-optional-summary",
+      "visibility": "Public",
+      "direct_grants": {
+        "repo-admin": "Admin",
+        "file-contributor": "Write",
+        "pr-maintainer": "Maintain",
+        "triage-collaborator": "Triage",
+        "issue-viewer": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "Document search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "Document search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "file-contributor"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "file-contributor"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "file-contributor",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "file-contributor",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
     }
   ],
   "isolation": "Fresh data per suite invocation; canonical requirement objects are shared only by non-destructive or reversible scenarios. Protected merge cases use merge-onboarding-demo. Regression records have a regression- prefix and are supplementary.",

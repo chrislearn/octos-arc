@@ -22,3 +22,13 @@ test("REQ-1-3-1: unclosed CSV quote leaves no partial workbook", async ({ page, 
   await expect.poll(async()=> (await page.getByRole('link').allTextContents()).sort()).toEqual(before); await page.reload();
   await expect(page.getByRole('link', { name, exact: true })).toHaveCount(0);
 });
+
+test("REQ-1-3-1: audit regression: complete import exposes AA columns and rows beyond the initial viewport", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/'); await h.button(page,'Import CSV').click(); const name=h.unique();
+  const dialog=page.getByRole('dialog',{name:'Import CSV',exact:true});
+  const rows=Array.from({length:52},(_,r)=>Array.from({length:28},(_,c)=>`r${r+1}c${c+1}`).join(','));
+  await h.field(dialog,'CSV file').setInputFiles({name:`${name}.csv`,mimeType:'text/csv',buffer:Buffer.from(rows.join('\n'))});
+  await h.button(dialog,'Confirm import').click(); await expect(h.text(page,name).first()).toBeVisible();
+  await h.persisted(page,()=>h.values(page,{A1:'r1c1',Z1:'r1c26',AA1:'r1c27',AB1:'r1c28',A51:'r51c1',AA52:'r52c27',AB52:'r52c28'}));
+});

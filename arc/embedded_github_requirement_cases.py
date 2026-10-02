@@ -60,9 +60,9 @@ def register(g):
     history=repo+"await h.link(page,'Commits').click(); "
     add('REQ-4-2-1',history+"await expect(h.link(page,'Document search flow')).toBeVisible(); await expect(h.containsValue(page,'alice-dev').first()).toBeVisible(); await expect(page.getByText(/ago/).first()).toBeVisible();")
     add('REQ-4-2-2',history+"await h.link(page,'Document search flow').click(); await expect(h.text(page,'src/search.ts')).toBeVisible(); await expect(page.getByText(/Changed files/)).toBeVisible(); await expect(page.getByText(/\\d+ additions/)).toBeVisible(); await expect(page.getByText(/\\d+ deletions/)).toBeVisible();")
-    codesearch="const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await expect(h.text(page,'search flow')).toBeVisible(); "
+    codesearch="const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await expect(h.renderedSubstring(page,'search flow').first()).toBeVisible(); "
     emptysearch="const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('no-such-token'); await search.press('Enter'); await h.link(page,'Code').click(); await expect(page.getByText(/No code results/)).toBeVisible(); await expect(search).toHaveValue('no-such-token'); "
-    add('REQ-4-2-3',repo+codesearch,repo+emptysearch,repo+codesearch+"await page.reload(); await expect(h.text(page,'search flow')).toBeVisible(); await expect(h.link(page,'README.md')).toBeVisible();",repo+"const address=page.url(); "+emptysearch+"await page.goto(address); await search.fill('no-such-token'); await search.press('Enter'); await h.link(page,'Code').click(); await expect(page.getByText(/No code results/)).toBeVisible();")
+    add('REQ-4-2-3',repo+codesearch,repo+emptysearch,repo+codesearch+"await page.reload(); await expect(h.renderedSubstring(page,'search flow').first()).toBeVisible(); await expect(h.link(page,'README.md')).toBeVisible();",repo+"const address=page.url(); "+emptysearch+"await page.goto(address); await search.fill('no-such-token'); await search.press('Enter'); await h.link(page,'Code').click(); await expect(page.getByText(/No code results/)).toBeVisible();")
     branch="await h.repo(page,'branch-switch-demo'); await h.button(page,'Branch main').click(); "
     add('REQ-4-3-1',branch+"await h.field(page,'Find branch').fill('feature-search'); await h.option(page,'feature-search'); await expect(h.button(page,'Branch feature-search')).toBeVisible(); await expect(h.link(page,'main-only.md')).toBeVisible();",branch+"await h.field(page,'Find branch').fill('missing-branch'); await expect(page.getByRole('option')).toHaveCount(0); await page.keyboard.press('Escape'); await h.persisted(page,()=>expect(h.button(page,'Branch main')).toBeVisible());")
     add('REQ-4-3-2',login('branch-contributor')+branch+"const name=h.unique('pw-branch'); await h.field(page,'Find branch').fill(name); await h.option(page,`Create branch: ${name}`); await h.persisted(page,()=>expect(h.button(page,`Branch ${name}`)).toBeVisible());",login('branch-contributor')+branch+"await h.field(page,'Find branch').fill('invalid..branch'); await expect(h.text(page,'Invalid branch')).toBeVisible(); await expect(page.getByRole('option',{name:'Create branch: invalid..branch',exact:true})).toHaveCount(0);")
@@ -111,6 +111,8 @@ def register(g):
 
 def suite_cases(g):
     register(g)
+    from embedded_github_contract_gap_cases import register as register_contract_gaps
+    register_contract_gaps(g)
     regressions=json.loads((Path(__file__).parent/'github_regression_recipes.json').read_text())
     for file,recipes in regressions.items():
         for row in recipes:

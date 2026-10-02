@@ -32,7 +32,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-1-2": {
-      "exported_case_count": 5,
+      "exported_case_count": 6,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-1": {
@@ -56,7 +56,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-1": {
-      "exported_case_count": 7,
+      "exported_case_count": 8,
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-2-1": {
@@ -100,7 +100,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-3-2": {
-      "exported_case_count": 6,
+      "exported_case_count": 7,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-3-3": {
@@ -108,7 +108,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-4": {
-      "exported_case_count": 15,
+      "exported_case_count": 16,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-1": {
@@ -156,7 +156,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-2-2": {
-      "exported_case_count": 4,
+      "exported_case_count": 5,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-2-3": {
@@ -168,7 +168,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-1": {
-      "exported_case_count": 7,
+      "exported_case_count": 8,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-2": {
@@ -180,7 +180,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-4": {
-      "exported_case_count": 10,
+      "exported_case_count": 11,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-4": {
@@ -197,6 +197,97 @@
     }
   },
   "reviewed_behaviors": [
+    {
+      "requirement_id": "REQ-3-1",
+      "behavior": "personal search links use exact names separately from visible owner metadata",
+      "basis": "The top global search control has searchbox role and accessible name “Search”; entering a repository name and pressing Enter displays repository results directly, without requiring an additional type-filter click. Each repository result has a link whose accessible name is exactly its repository name, while the result also displays its owner/name metadata. Clicking it opens a heading containing the repository name; reloading preserves that overview. A query with no matching repository displays “No results”, including when the visitor returns home and repeats the same query. Seed data provides a named public repository and a private repository inaccessible to visitors; searching the private name exposes no result link for it. Visitors or signed-in users can search repositories they are authorized to view. The system accepts a search query, applies repository-oriented filters or scope constraints, and displays matching repositories with sufficient metadata for the user to open the target repository.\n\nScreenshot reference:\n![image](reference/github-repository-search-results.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-3-1.spec.ts",
+          "title": "REQ-3-1: personal repository results expose exact names separately from owner metadata"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "behavior": "display names are rejected as identifiers and field errors remain independent",
+      "basis": "The authenticated account menu exposes a visible “Your organizations” link, whose page exposes a visible “New organization” link. The organization creation page displays visibly labeled “Organization name” and “Display name” fields and a button named “Create organization”. A signed-in verified account can submit a unique organization identifier and display name; successful creation opens the new organization overview and persists it across reload. Organization identifiers must be 1–39 lowercase ASCII characters and globally unique. The display name must contain 1–100 non-whitespace characters after trimming. A duplicate identifier displays “Organization name already exists” without opening the existing organization. An invalid identifier displays “Organization name format is invalid”, and a whitespace-only display name displays “Display name is required”; rejected submissions do not create an organization.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-1-2.spec.ts",
+          "title": "REQ-2-1-2: display names cannot replace identifiers and independent validation errors persist"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-3-2",
+      "behavior": "legal slash branches retain selection and nested file context after reload",
+      "basis": "A signed-in user with Write, Maintain, Admin, or organization Owner permission can create a named branch from the current branch head through the branch selector. As the user types, a valid unused name exposes an option named “Create branch: <name>”; selecting it creates the reference and switches the browsing context to the new branch without a second mandatory confirmation. The new branch points to the selected base commit and does not copy files or rewrite the base branch history. Read and Triage users may browse but cannot create branches. Branch names are 1–255 characters and may contain ASCII letters, digits, `-`, `_`, `.`, and `/`; names ending in `/` or `.`, containing `..` or `//`, duplicating an existing name, or submitted by an unauthorized user must be rejected. The selector and `Find branch` textbox use the controls defined by REQ-4-3-1. Reloading a successfully created branch preserves it as the selected branch.\n\nScreenshot reference:\n![image](reference/github-create-branch.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-3-2.spec.ts",
+          "title": "REQ-4-3-2: legal slash branch survives creation reload switching and nested file browsing"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-4",
+      "behavior": "slash branch writes edits and commit history preserve main",
+      "basis": "This feature builds on repository browsing and sign-in provided by REQ-4-1 (Browse Repository Files and Directories) and REQ-1-1-2 (Sign In with an Existing Account). From a writable Code page, a contributor can use “Add file” → “Create new file” to add a file on the current branch. Only Write, Maintain, Admin, or organization Owner may submit file changes; Read and Triage may browse but may not write. A successful submission creates one commit containing the path, content, commit message, author, parent commit, and target branch, then advances that branch head. The editor exposes a “File name” field, a “File contents” textbox, a “Commit message” field, and a “Commit changes” button. New file paths cannot be empty, start with `/`, contain a `..` path segment, or conflict with an existing file or directory. Commit messages must contain 1–72 non-empty characters after trimming whitespace. Invalid submissions must leave file data, branch head, and commit history unchanged; an invalid path is reported as “Invalid file path”, while a missing message is reported as “Commit message is required”. Seed data provides public repository `file-management-demo` and Write contributor `file-contributor`. A valid unique file such as `pw-file-<unique suffix>.md`, nonempty content, and message `Add <file name>` produce a file view containing the saved content; the file's “Commits” link exposes the submitted message.\n\nScreenshot reference:\n![image](reference/github-web-file-editor.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-4.spec.ts",
+          "title": "REQ-4-4: slash branch web writes edits and history remain isolated from main"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-6-2-2",
+      "behavior": "comparison controls have exact Base and Compare accessible names",
+      "basis": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-6-2-2.spec.ts",
+          "title": "REQ-6-2-2: comparison controls have the exact Base and Compare accessible names"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-6-3-4",
+      "behavior": "Request changes accepts an omitted optional summary and persists the decision",
+      "basis": "From Files changed, a non-author reviewer can use `Review changes`\nto open a form with Approve and Request changes radio controls, an optional\nsummary/comment field, and `Submit review`. Approve creates visible Approved\nstatus. Request changes stores and displays the exact summary with Changes\nrequested status, which persists after reload.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-6-3-4.spec.ts",
+          "title": "REQ-6-3-4: Request changes accepts an omitted optional summary and persists the decision"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-6-3-1",
+      "behavior": "global search and downstream files issues and PRs use the same organization repository",
+      "basis": "The public PR detail view displays the exact persisted title as a heading. `Commits` and `Files changed` are links that show commit information and a changed-files summary for the same PR. The overview remains available after reload or reopening it from the home page; viewing does not mutate PR data.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-6-3-1.spec.ts",
+          "title": "REQ-6-3-1: global search file issue and PR navigation share the prescribed organization repository"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
     {
       "requirement_id": "REQ-1-1-1",
       "behavior": "legal username and email lengths are accepted",

@@ -673,6 +673,7 @@
       "REQ-2-1-1"
     ],
     "setup_requires": [
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-2-1-1: requirement scenario 1",
@@ -740,6 +741,19 @@
       "REQ-1-1-2"
     ],
     "title": "REQ-2-1-2: requirement scenario 3",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-1-2: display names cannot replace identifiers and independent validation errors persist",
     "file": "REQ-2-1-2.spec.ts"
   },
   {
@@ -1084,7 +1098,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-2-3: requirement scenario 1",
@@ -1099,7 +1113,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-2-3: requirement scenario 2",
@@ -1177,6 +1191,17 @@
     ],
     "setup_requires": [],
     "title": "REQ-3-1: requirement scenario 4",
+    "file": "REQ-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-3-1: personal repository results expose exact names separately from owner metadata",
     "file": "REQ-3-1.spec.ts"
   },
   {
@@ -1291,7 +1316,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-3-2-2: requirement scenario 1",
@@ -1306,7 +1331,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-3-2-2: requirement scenario 2",
@@ -1350,7 +1375,7 @@
       "REQ-3-2-3"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-3-2-3: requirement scenario 1",
@@ -1364,7 +1389,7 @@
       "REQ-3-2-3"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-3-2-3: requirement scenario 2",
@@ -1406,7 +1431,7 @@
       "REQ-3-3"
     ],
     "setup_requires": [
-      "REQ-2-1-1"
+      "REQ-3-1"
     ],
     "title": "REQ-3-3: requirement scenario 1",
     "file": "REQ-3-3.spec.ts"
@@ -1492,7 +1517,7 @@
       "REQ-4-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-4-1: requirement scenario 1",
@@ -1520,7 +1545,7 @@
       "REQ-4-2-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-4-2-1: requirement scenario 1",
@@ -1562,7 +1587,7 @@
       "REQ-4-2-2"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-4-2-2: requirement scenario 1",
@@ -1590,7 +1615,7 @@
       "REQ-4-2-3"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-4-2-3: requirement scenario 1",
@@ -1604,7 +1629,7 @@
       "REQ-4-2-3"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-4-2-3: requirement scenario 2",
@@ -1618,7 +1643,7 @@
       "REQ-4-2-3"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-4-2-3: requirement scenario 3",
@@ -1632,7 +1657,7 @@
       "REQ-4-2-3"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-4-2-3: requirement scenario 4",
@@ -1750,6 +1775,23 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-3-2: requirement scenario 2",
+    "file": "REQ-4-3-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-3-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-3-2",
+      "REQ-4-3-1",
+      "REQ-4-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-3-2: legal slash branch survives creation reload switching and nested file browsing",
     "file": "REQ-4-3-2.spec.ts"
   },
   {
@@ -1918,6 +1960,25 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-4: requirement scenario 2",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-3-2",
+      "REQ-4-3-1",
+      "REQ-4-1",
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: slash branch web writes edits and history remain isolated from main",
     "file": "REQ-4-4.spec.ts"
   },
   {
@@ -2155,7 +2216,7 @@
       "REQ-5-1-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-5-1-1: requirement scenario 1",
@@ -2169,7 +2230,7 @@
       "REQ-5-1-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-5-1-1: requirement scenario 2",
@@ -2197,7 +2258,7 @@
       "REQ-5-1-2"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1"
     ],
@@ -2212,7 +2273,7 @@
       "REQ-5-1-2"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1"
     ],
@@ -2227,7 +2288,7 @@
       "REQ-5-1-2"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1"
     ],
@@ -2258,7 +2319,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-5-2-1: requirement scenario 1",
@@ -2273,7 +2334,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-5-2-1: requirement scenario 2",
@@ -2318,7 +2379,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2335,7 +2396,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2437,7 +2498,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2454,7 +2515,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2539,7 +2600,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2607,7 +2668,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2659,7 +2720,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2693,7 +2754,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2710,7 +2771,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3",
       "REQ-5-1-1",
       "REQ-5-1-2"
@@ -2830,7 +2891,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -2877,7 +2937,7 @@
       "REQ-6-2-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-1: requirement scenario 1",
@@ -2891,7 +2951,7 @@
       "REQ-6-2-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-1: requirement scenario 2",
@@ -2905,7 +2965,7 @@
       "REQ-6-2-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-1: requirement scenario 3",
@@ -2934,7 +2994,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-2: requirement scenario 1",
@@ -2949,10 +3009,25 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-2: requirement scenario 2",
+    "file": "REQ-6-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-6-2-2: comparison controls have the exact Base and Compare accessible names",
     "file": "REQ-6-2-2.spec.ts"
   },
   {
@@ -2996,7 +3071,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-3: requirement scenario 1",
@@ -3011,7 +3086,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-3: requirement scenario 2",
@@ -3082,7 +3157,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
+      "REQ-3-1",
       "REQ-3-3"
     ],
     "title": "REQ-6-2-4: requirement scenario 1",
@@ -3097,7 +3172,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3148,7 +3222,6 @@
       "REQ-6-3-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1"
@@ -3164,7 +3237,6 @@
       "REQ-6-3-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1"
@@ -3180,12 +3252,29 @@
       "REQ-6-3-1"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1"
     ],
     "title": "REQ-6-3-1: requirement scenario 3",
+    "file": "REQ-6-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-1",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-4-1",
+      "REQ-5-1-2"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-6-3-1: global search file issue and PR navigation share the prescribed organization repository",
     "file": "REQ-6-3-1.spec.ts"
   },
   {
@@ -3274,7 +3363,6 @@
       "REQ-6-3-2"
     ],
     "setup_requires": [
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3308,7 +3396,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3326,7 +3413,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3378,7 +3464,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3396,13 +3481,29 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
       "REQ-6-3-1"
     ],
     "title": "REQ-6-3-4: requirement scenario 2",
+    "file": "REQ-6-3-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-4",
+    "fixture": "review-optional-summary",
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-3-4: Request changes accepts an omitted optional summary and persists the decision",
     "file": "REQ-6-3-4.spec.ts"
   },
   {
@@ -3556,7 +3657,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3591,7 +3691,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3609,7 +3708,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3868,7 +3966,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",
@@ -3886,7 +3983,6 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1",
       "REQ-3-1",
       "REQ-3-3",
       "REQ-6-2-1",

@@ -18,6 +18,23 @@ test("REQ-6-3-1: requirement scenario 3", async ({ page, browser }) => {
   await h.scenarioPr(page,"Overview onboarding PR","acme-docs"); await h.scenarioPr(page,"Overview onboarding PR","acme-docs"); await h.link(page,'Files changed').click(); await expect(page.getByRole('heading',{name:'Overview onboarding PR',exact:true})).toBeVisible(); await expect(h.text(page,'src/search.ts')).toBeVisible();
 });
 
+test("REQ-6-3-1: global search file issue and PR navigation share the prescribed organization repository", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const address=await h.repo(page);
+  await expect(page.getByRole('heading').filter({hasText:'Acme Demo'}).filter({hasText:'acme-docs'})).toBeVisible();
+  await h.link(page,'src').click(); await h.link(page,'README.md').click();
+  await h.persisted(page,()=>expect(h.text(page,'Document search flow')).toBeVisible());
+  await page.goto(address); await h.link(page,'Issues').click(); await h.link(page,'Improve onboarding').click();
+  await h.persisted(page,()=>expect(h.text(page,'Describe the onboarding improvement.')).toBeVisible());
+  await page.goto(address); await h.link(page,'Pull requests').click(); await h.link(page,'Overview onboarding PR').click();
+  await h.link(page,'Commits').click(); await expect(h.renderedSubstring(page,'Implement search flow').first()).toBeVisible();
+  await h.link(page,'Files changed').click();
+  await h.persisted(page,async()=>{
+    await expect(page.getByRole('heading',{name:'Overview onboarding PR',exact:true})).toBeVisible();
+    await expect(h.text(page,'src/search.ts')).toBeVisible();
+  });
+});
+
 test("REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.pr(page); const address=page.url(); await h.link(page,'Commits').click();

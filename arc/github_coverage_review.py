@@ -13,6 +13,13 @@ def coverage_review(tree, plan):
 
     visit(tree)
     checks = [
+        ('REQ-3-1', 'personal search links use exact names separately from visible owner metadata', ['personal repository results expose exact names']),
+        ('REQ-2-1-2', 'display names are rejected as identifiers and field errors remain independent', ['display names cannot replace identifiers']),
+        ('REQ-4-3-2', 'legal slash branches retain selection and nested file context after reload', ['legal slash branch survives']),
+        ('REQ-4-4', 'slash branch writes edits and commit history preserve main', ['slash branch web writes']),
+        ('REQ-6-2-2', 'comparison controls have exact Base and Compare accessible names', ['comparison controls have the exact']),
+        ('REQ-6-3-4', 'Request changes accepts an omitted optional summary and persists the decision', ['Request changes accepts an omitted']),
+        ('REQ-6-3-1', 'global search and downstream files issues and PRs use the same organization repository', ['global search file issue and PR navigation']),
         ('REQ-1-1-1', 'legal username and email lengths are accepted', ['username legal length', 'email legal length']),
         ('REQ-2-2-1', 'team length boundary and duplicate relationship rejection persist', ['team legal length', 'duplicate team']),
         ('REQ-5-2-2', 'Write has independent title/description save authority', ['Write saves title']),

@@ -13,6 +13,19 @@ test("REQ-6-3-4: requirement scenario 2", async ({ page, browser }) => {
   await h.signIn(page,"pr-reviewer"); await h.scenarioPr(page,"Change request onboarding PR","acme-docs"); await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click(); const summary=h.unique('pw-summary'); await (await h.reviewSummary(page)).fill(summary); await page.getByRole('radio',{name:'Request changes',exact:true}).check(); await h.button(page,'Submit review').click(); await h.persisted(page,async()=>{await expect(h.text(page,'Changes requested').first()).toBeVisible(); await expect(h.text(page,summary)).toBeVisible();});
 });
 
+test("REQ-6-3-4: Request changes accepts an omitted optional summary and persists the decision", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'bob-reviewer'); await h.pr(page,'review-optional-summary');
+  await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click();
+  await expect(await h.reviewSummary(page)).toHaveValue('');
+  await page.getByRole('radio',{name:'Request changes',exact:true}).check(); await h.button(page,'Submit review').click();
+  await h.persisted(page,async()=>{
+    await expect(h.text(page,'Changes requested').first()).toBeVisible();
+    await expect(h.text(page,'Summary is required for Request changes')).toHaveCount(0);
+    await expect(h.button(page,'Merge pull request')).toBeDisabled();
+  });
+});
+
 test("REQ-6-3-4: Approve submission persists current-commit review", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'bob-reviewer'); await h.pr(page,"review-approve"); await h.link(page,'Files changed').click(); await h.button(page,'Review changes').click();

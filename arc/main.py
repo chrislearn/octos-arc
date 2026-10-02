@@ -4517,11 +4517,12 @@ class Flow:
         original_tree = self.original_requirement_tree
         node_ids = [str(node["id"]) for node in ordered]
         self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
-        from embedded_suites import materialize, prefer_embedded
+        from embedded_suites import materialize, prefer_embedded, requested_name
         self.frozen_suite = None
         self.test_specs_trusted = False
         suite_name = getattr(self, 'test_suite_name', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
-        if suite_name or not self.tests_dir or prefer_embedded(self.args):
+        if (requested_name(original_tree, suite_name) == 'hackathon--github'
+                or suite_name or not self.tests_dir or prefer_embedded(self.args)):
             embedded = materialize(find_octos(), original_tree, self.output_dir, suite_name, log,
                                    requirements_path=self.req_dir / 'requirements.yaml')
             if embedded:

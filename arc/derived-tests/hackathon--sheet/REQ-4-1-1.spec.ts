@@ -126,3 +126,9 @@ test("REQ-4-1-1: context REQ-3-2-2: undo and redo a range cut restore both recta
   await h.values(page,{A1:'2',A2:'3',C3:'old-1',D3:'old-2',C4:'old-3',D4:'old-4',F6:'outside'}); await h.formula(page,'B1','=2+3','5'); await h.formula(page,'B2','=6/2','3');
   await h.button(page,'Redo').click(); await h.persisted(page,async()=>{await h.values(page,{A1:'',B1:'',A2:'',B2:'',C3:'2',C4:'3',F6:'outside'}); await h.formula(page,'D3','=2+3','5'); await h.formula(page,'D4','=6/2','3');});
 });
+
+test("REQ-4-1-1: audit regression: zero arithmetic and a dependent result remain visible and persisted", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.edit(page,'A1','=1-1'); await h.edit(page,'B1','=A1+1');
+  await h.persisted(page,async()=>{await h.formula(page,'A1','=1-1','0');await h.formula(page,'B1','=A1+1','1');});
+});

@@ -156,6 +156,56 @@ class EmbeddedSuiteTests(unittest.TestCase):
         changed={**self.tree,'description':'different'}
         with self.assertRaises(ValueError): verify_directory(self.directory,changed,'hackathon--sheet')
 
+    def test_github_task_names_and_explicit_aliases_select_the_existing_suite(self):
+        for task in ['github', 'GitHub', 'GITHUB', 'hackathon--GitHub', 'arc-bench-web--GITHUB',
+                     'GitHub Collaboration Platform Core Requirements', 'github_sheet', 'myGithubTask']:
+            with self.subTest(task=task):
+                self.assertEqual(requested_name({'name':task}), 'hackathon--github')
+                self.assertEqual(requested_name({'id':task}), 'hackathon--github')
+                self.assertEqual(requested_name(self.tree,task), 'hackathon--github')
+        self.assertEqual(requested_name(self.tree), 'hackathon--sheet')
+        self.assertEqual(requested_name({'name':'Collaboration Platform','id':'GITHUB'}), 'hackathon--github')
+        self.assertIsNone(requested_name({'name':'another task'}))
+        self.assertEqual(requested_name({'name':'github'},'unknown'), 'unknown')
+
+    def test_github_prefers_embedded_generation_even_when_acceptance_specs_exist(self):
+        flow=Flow(argparse.Namespace(web_port=3000),self.root,self.root/'requirements')
+        tree=yaml.safe_load((ROOT/'tasks/hackathon--github/requirements.yaml').read_text())
+        flow.original_requirement_tree={**tree,'name':'arc-bench-web--GITHUB','description':'another GitHub task'}
+        directory=ROOT/'derived-tests/hackathon--github'
+        manifest=verify_directory(directory,flow.original_requirement_tree,'hackathon--github')
+        flow.metric=Mock()
+        with patch('main.locate_acceptance_tests',return_value=self.directory), \
+                patch('main.find_octos',return_value='octos'), \
+                patch('embedded_suites.materialize',return_value=(directory,manifest)) as generate, \
+                patch('layered_tests.LayeredTests',side_effect=AssertionError('No spec generation')):
+            flow.prepare_test_spec_source(flow.original_requirement_tree,[])
+        generate.assert_called_once()
+        self.assertTrue(flow.test_specs_trusted)
+        self.assertEqual(flow.frozen_suite['name'],'hackathon--github')
+        self.assertIsNone(flow.layered)
+
+    def test_github_materialization_reuses_source_suite_for_different_requirements(self):
+        from export_node_tests import export
+        from embedded_suites import project_destination
+        tree={'name':'GITHUB_variant','description':'different requirements'}
+        source=ROOT/'derived-tests/hackathon--github'
+        def generate(command,**kwargs):
+            self.assertIn('For task "hackathon--github"',command[command.index('--prompt')+1])
+            destination=Path(command[command.index('--output-dir')+1])
+            manifest=export(source,destination)
+            receipt={**manifest,'directory':str(destination),
+                     'manifest_sha256':hashlib.sha256((destination/'suite-origin.json').read_bytes()).hexdigest()}
+            return Mock(returncode=0,stdout=json.dumps(receipt))
+        with patch('embedded_suites.subprocess.run',side_effect=generate):
+            directory,manifest=materialize('octos',tree,self.root)
+        self.assertEqual(manifest['name'],'hackathon--github')
+        self.assertNotEqual(manifest['requirements_sha256'],requirements_digest(tree))
+        self.assertEqual(verify_directory(directory,tree,'hackathon--github',manifest),manifest)
+        self.assertEqual(project_destination(self.root,tree,'hackathon--github'),directory)
+        (directory/'helpers.ts').write_text('modified')
+        with self.assertRaises(ValueError): verify_directory(directory,tree,'hackathon--github',manifest)
+
     def test_changed_helper_missing_spec_and_extra_file_are_rejected(self):
         helper=self.directory/'helpers.ts'; original=helper.read_bytes(); helper.write_text('changed')
         with self.assertRaises(ValueError): verify_directory(self.directory,self.tree,'hackathon--sheet')

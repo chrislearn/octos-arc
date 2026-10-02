@@ -1105,7 +1105,7 @@
       ],
       "title": "duplicate and empty repository names retain form and create no repository",
       "file": "REQ-3-2-1.spec.ts",
-      "body": "await h.signIn(page); await h.link(page,'New repository').click(); await h.field(page,'Repository name').fill('acme-docs'); await h.button(page,'Create repository').click(); await expect(h.field(page,'Repository name')).toBeVisible(); await expect(page.getByRole('heading',{name:'alice-dev/acme-docs',exact:true})).toHaveCount(0); await h.field(page,'Repository name').fill(''); await h.button(page,'Create repository').click(); await expect(h.field(page,'Repository name')).toBeVisible();"
+      "body": "await h.signIn(page); await h.link(page,'New repository').click();\nawait h.field(page,'Repository name').fill('acme-docs-personal'); await h.button(page,'Create repository').click();\nawait expect(page.getByText(/Repository name already exists/)).toBeVisible();\nawait expect(h.field(page,'Repository name')).toHaveValue('acme-docs-personal');\nawait expect(page.getByRole('heading').filter({hasText:'acme-docs-personal'})).toHaveCount(0);\nawait h.field(page,'Repository name').fill(''); await h.button(page,'Create repository').click();\nawait expect(h.text(page,'Repository name is required')).toBeVisible();\nawait expect(h.field(page,'Repository name')).toBeVisible();"
     }
   ],
   "REQ-3-2-2": [
@@ -1287,7 +1287,7 @@
       ],
       "title": "visitor commit diff reads changed file and exact additions/deletions from the parent snapshot",
       "file": "REQ-4-2-2.spec.ts",
-      "body": "await h.repo(page); await h.link(page,'Commits').click(); await h.link(page,'Document search flow').click(); const address=page.url(); await page.goto(address); await expect(h.text(page,'src/search.ts').first()).toBeVisible(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await expect(page.getByText('2 additions, 0 deletions',{exact:false}).first()).toBeVisible();"
+      "body": "await h.repo(page); await h.link(page,'Commits').click(); await h.link(page,'Document search flow').click(); const address=page.url(); await page.goto(address); await expect(h.text(page,'src/search.ts').first()).toBeVisible(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await expect(page.getByText('3 additions, 0 deletions',{exact:false}).first()).toBeVisible();"
     }
   ],
   "REQ-4-2-3": [

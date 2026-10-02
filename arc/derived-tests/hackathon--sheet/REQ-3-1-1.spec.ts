@@ -86,3 +86,15 @@ test("REQ-3-1-1: context REQ-1-1-1: edited workbook state is shared by saved add
   try { const p=await later.newPage(); await p.goto(address); await h.values(p,{F8:'unique-workbook-state'}); await h.edit(p,'F8','later-session-edit'); await h.values(p,{F8:'later-session-edit'}); await page.reload(); await h.values(page,{F8:'later-session-edit'}); }
   finally { await later.close(); }
 });
+
+test("REQ-3-1-1: audit regression: failed grid Enter keeps both the original cell and formula bar before retry", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);const write=await h.learnWrite(page,async()=>{await h.edit(page,'A1','original');await h.values(page,{A1:'original'});});
+  await page.reload();await h.cell(page,'A1').dblclick();await h.field(page,'Edit A1').fill('rejected');
+  const fault=await h.rejectWrites(page,write);
+  try {await h.field(page,'Edit A1').press('Enter');await expect.poll(()=>fault.attempts()).toBeGreaterThan(0);
+    await expect(h.saveFailureReason(page).first()).toBeVisible();await h.values(page,{A1:'original'});
+    await expect(h.cell(page,'A1')).toHaveAttribute('aria-selected','true');await expect(h.field(page,'Formula bar')).toHaveValue('original');
+  } finally {await fault.remove();}
+  await h.edit(page,'A1','retried',true);await h.persisted(page,()=>h.values(page,{A1:'retried'}));
+});

@@ -440,6 +440,8 @@ from embedded_repair_cases import register as register_repair_cases
 register_repair_cases(s)
 from embedded_sheet_audit_cases import register as register_sheet_audit
 register_sheet_audit(s)
+from embedded_sheet_contract_gap_cases import register as register_sheet_contract_gaps
+register_sheet_contract_gaps(s)
 from embedded_spec_revision_cases import register as register_spec_revision
 register_spec_revision(g)
 from embedded_case_phases import partition_sheet_cases

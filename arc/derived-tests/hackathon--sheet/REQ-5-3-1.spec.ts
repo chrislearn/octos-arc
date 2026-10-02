@@ -226,3 +226,30 @@ test("REQ-5-3-1: context REQ-5-3-1: guide: validation, atomic paste, undo, filte
     finally { await later.close(); }
   });
 });
+
+test("REQ-5-3-1: audit regression: SUM refresh with no numeric values preserves results and source before zero-value retry", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.pivot(page,"SUM");await h.values(page,{B2:"40",B4:"60"});
+  await h.tab(page,'Sheet1').click();await h.paste(page,'B2','bad\ntext\ninvalid');await h.values(page,{B2:'bad',B3:'text',B4:'invalid'});await h.tab(page,'Pivot1').click();
+  await h.button(page,'Refresh pivot table').click();await expect(h.text(page,'Value field requires numeric values').first()).toBeVisible();
+  await h.persisted(page,()=>h.values(page,{B2:"40",B4:"60"}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{B2:'bad',B3:'text',B4:'invalid'});await h.paste(page,'B2','0\n0\n0');await h.values(page,{B2:'0',B3:'0',B4:'0'});
+  await h.tab(page,'Pivot1').click();await h.button(page,'Refresh pivot table').click();await h.persisted(page,()=>h.values(page,{B1:"SUM of Sales",B2:'0',B3:'0',B4:'0'}));
+});
+
+test("REQ-5-3-1: audit regression: AVERAGE refresh with no numeric values preserves results and source before zero-value retry", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.pivot(page,"AVERAGE");await h.values(page,{B2:"20",B4:"20"});
+  await h.tab(page,'Sheet1').click();await h.paste(page,'B2','bad\ntext\ninvalid');await h.values(page,{B2:'bad',B3:'text',B4:'invalid'});await h.tab(page,'Pivot1').click();
+  await h.button(page,'Refresh pivot table').click();await expect(h.text(page,'Value field requires numeric values').first()).toBeVisible();
+  await h.persisted(page,()=>h.values(page,{B2:"20",B4:"20"}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{B2:'bad',B3:'text',B4:'invalid'});await h.paste(page,'B2','0\n0\n0');await h.values(page,{B2:'0',B3:'0',B4:'0'});
+  await h.tab(page,'Pivot1').click();await h.button(page,'Refresh pivot table').click();await h.persisted(page,()=>h.values(page,{B1:"AVERAGE of Sales",B2:'0',B3:'0',B4:'0'}));
+});
+
+test("REQ-5-3-1: audit regression: AVERAGE includes formula zero as a numeric record in group and grand totals", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.edit(page,'B2','=1-1');await h.edit(page,'B3','2');await h.edit(page,'B4','=1-1');await h.values(page,{B2:'0',B3:'2',B4:'0'});await h.pivot(page,'AVERAGE');
+  await h.persisted(page,async()=>{await h.values(page,{A2:'East',B2:'0',A3:'North',B3:'2',A4:'Grand Total'});expect(Number(await h.cell(page,'B4').innerText())).toBeCloseTo(2/3,10);});
+  await h.tab(page,'Sheet1').click();await h.formula(page,'B2','=1-1','0');await h.formula(page,'B4','=1-1','0');
+});

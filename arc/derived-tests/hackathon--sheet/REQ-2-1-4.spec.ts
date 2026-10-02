@@ -43,3 +43,13 @@ test("REQ-2-1-4: context REQ-5-3-1: pivot naming reuses the first unused PivotN 
   await h.persisted(page,async()=>{await h.tabOrder(page,['Sheet1','Pivot2','Pivot1']);await expect(h.tab(page,'Pivot1')).toHaveAttribute('aria-selected','true');await h.values(page,{B1:'AVERAGE of Sales',B2:'20',B3:'20',B4:'20'});});
   await h.tab(page,'Pivot2').click(); await h.values(page,{B1:'COUNT of Sales',B2:'2',B3:'1',B4:'3'});
 });
+
+test("REQ-2-1-4: audit regression: deleting the third of four sheets selects an actual adjacent survivor", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);
+  for(let i=2;i<=4;i++){await h.button(page,'Add worksheet').click();await expect(h.tab(page,`Sheet${i}`)).toHaveAttribute('aria-selected','true');}
+  await h.tab(page,'Sheet3').click(); await h.sheetMenu(page,'Sheet3','Delete');
+  await h.button(page.getByRole('dialog',{name:'Delete worksheet',exact:true}),'Delete worksheet').click();
+  await h.persisted(page,async()=>{await h.tabOrder(page,['Sheet1','Sheet2','Sheet4']);
+    await expect(page.getByRole('tab',{selected:true})).toHaveAccessibleName(/^Sheet(?:2|4)$/);});
+});

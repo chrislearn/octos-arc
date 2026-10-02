@@ -2914,5 +2914,316 @@
     ],
     "title": "INTEGRATION-data-workflow: guide: validation, atomic paste, undo, filtered export and explicit pivot refresh preserve consistent state",
     "file": "INTEGRATION-data-workflow.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-3-1"
+    ],
+    "title": "REQ-1-3-1: audit regression: complete import exposes AA columns and rows beyond the initial viewport",
+    "file": "REQ-1-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-4",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2"
+    ],
+    "title": "REQ-2-1-4: audit regression: deleting the third of four sheets selects an actual adjacent survivor",
+    "file": "REQ-2-1-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1",
+      "REQ-4-2-1"
+    ],
+    "title": "REQ-4-2-2: audit regression: =A0 displays a stable #REF! and repairing it restores dependents",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1",
+      "REQ-4-2-1"
+    ],
+    "title": "REQ-4-2-2: audit regression: =SUM(A0:A2) displays a stable #REF! and repairing it restores dependents",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1",
+      "REQ-4-2-1"
+    ],
+    "title": "REQ-4-2-2: audit regression: =1.2.3 displays a stable #ERROR! and repairing it restores dependents",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-4-1-1",
+      "REQ-4-2-1"
+    ],
+    "title": "REQ-4-2-2: audit regression: =. displays a stable #ERROR! and repairing it restores dependents",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1"
+    ],
+    "title": "REQ-4-1-1: audit regression: zero arithmetic and a dependent result remain visible and persisted",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-3",
+      "REQ-1-2-1"
+    ],
+    "title": "REQ-3-1-3: audit regression: one pointer move commits and persists the entire drag rectangle",
+    "file": "REQ-3-1-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-1-1: audit regression: Ascending uses chronological order for unambiguous non-ISO dates",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-1-1: audit regression: Descending uses chronological order for unambiguous non-ISO dates",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-1",
+      "REQ-1-2-1"
+    ],
+    "title": "REQ-3-1-1: audit regression: failed grid Enter keeps both the original cell and formula bar before retry",
+    "file": "REQ-3-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1-3",
+      "REQ-1-2-1",
+      "REQ-3-1-1"
+    ],
+    "title": "REQ-3-1-3: audit regression: late selection response cannot replace a subsequent successful cell edit",
+    "file": "REQ-3-1-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-2-1: audit regression: single-cell number error uses between while persisted B3 multi-cell boundary uses from",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-2-1: audit regression: failed rule modify retains the dialog and previous constraint until a successful retry",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-2-1: audit regression: failed rule delete retains the dialog and previous constraint until a successful retry",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-2-1: audit regression: modified inclusive number bounds become effective immediately without changing existing values",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-4-2-1"
+    ],
+    "title": "REQ-5-3-1: audit regression: SUM refresh with no numeric values preserves results and source before zero-value retry",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1",
+      "REQ-4-2-1"
+    ],
+    "title": "REQ-5-3-1: audit regression: AVERAGE refresh with no numeric values preserves results and source before zero-value retry",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1"
+    ],
+    "title": "REQ-5-2-1: audit regression: failed first rule save reports an error without closing or installing the rule",
+    "file": "REQ-5-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-1-1: audit regression: failed sort keeps its dialog and original order before retry",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-1-2: audit regression: failed filter apply preserves the saved predicate and supports retry",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1"
+    ],
+    "title": "REQ-5-1-1: audit regression: numeric formula results sort with complete records and retain their original expressions",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3",
+      "REQ-4-1-1"
+    ],
+    "title": "REQ-5-3-1: audit regression: AVERAGE includes formula zero as a numeric record in group and grand totals",
+    "file": "REQ-5-3-1.spec.ts"
   }
 ]

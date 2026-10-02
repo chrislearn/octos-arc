@@ -20,7 +20,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-3-1": {
-      "exported_case_count": 2,
+      "exported_case_count": 3,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-3-2": {
@@ -40,7 +40,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-1-4": {
-      "exported_case_count": 5,
+      "exported_case_count": 6,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-1": {
@@ -52,7 +52,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-1-1": {
-      "exported_case_count": 7,
+      "exported_case_count": 8,
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-1-2": {
@@ -60,7 +60,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-1-3": {
-      "exported_case_count": 1,
+      "exported_case_count": 3,
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-2-1": {
@@ -72,7 +72,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-1": {
-      "exported_case_count": 18,
+      "exported_case_count": 19,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-2": {
@@ -84,23 +84,23 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-2-2": {
-      "exported_case_count": 9,
+      "exported_case_count": 13,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-1": {
-      "exported_case_count": 6,
+      "exported_case_count": 10,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-2": {
-      "exported_case_count": 7,
+      "exported_case_count": 8,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-2-1": {
-      "exported_case_count": 26,
+      "exported_case_count": 31,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-1": {
-      "exported_case_count": 25,
+      "exported_case_count": 28,
       "complete_clause_coverage_claimed": false
     }
   },
@@ -262,6 +262,215 @@
       ],
       "status": "executable_source_reviewed",
       "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "behavior": "complete CSV import preserves multi-letter columns and rows beyond the initial viewport",
+      "basis": "Users start an import by clicking the \"Import CSV\" button on the workbook home page. A dialog named \"Import CSV\" provides a file control labeled \"CSV file\" and a \"Confirm import\" button. The system parses data in the original row and column order, preserves empty fields, supports UTF-8 Chinese text, English text, and numeric text, and correctly handles commas enclosed in double quotes, escaped pairs of double quotes, and line breaks within fields; a field that begins with a double quote but has no closing double quote is invalid CSV and must be rejected with \"Invalid CSV file format. Import failed.\" After a successful import, a new workbook is created whose name is the file name with its final .csv extension removed, and Sheet1 opens with the complete CSV rows, columns, and original text; the first row remains ordinary data. After refresh or reopening, grid content and row/column order remain unchanged. If parsing or import fails, no workbook link with that name may appear on the home page, and no partial import result may be displayed or retained.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-3-1.spec.ts",
+          "title": "REQ-1-3-1: audit regression: complete import exposes AA columns and rows beyond the initial viewport"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "behavior": "four-sheet deletion activates a genuinely adjacent survivor",
+      "basis": "Users delete a worksheet through the \"Delete\" command in the worksheet tab menu. When deletion is allowed, the system displays a dialog named \"Delete worksheet\" describing the target worksheet, whose visible text includes \"<target worksheet name>\", and providing a \"Delete worksheet\" confirmation button. After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh. After a pivot-result worksheet is deleted, its corresponding source worksheet is no longer constrained by that pivot table. If the target is still a pivot table source worksheet, confirmation is rejected with \"Please delete or rebuild dependent pivot tables first\"; the dialog closes and both source data and pivot results remain unchanged. If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\". Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-1-4.spec.ts",
+          "title": "REQ-2-1-4: audit regression: deleting the third of four sheets selects an actual adjacent survivor"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "behavior": "failed inline Enter retains both last successful grid value and formula bar before retry",
+      "basis": "After selecting a cell in the current active worksheet, users can modify its content directly in the grid or formula bar. Cells support text, numbers, boolean-like values, date text, and formulas beginning with an equals sign. Pressing Enter or clicking another cell commits the change; pressing Escape cancels an uncommitted change. Ordinary cells show the same input in the grid and formula bar; formula cells show the calculated result in the grid and the original submitted formula in the formula bar. After a source value is committed, directly and indirectly dependent formulas update their results. Values, original formulas, and results persist after refresh. If a commit fails, an error is displayed, the grid and formula bar continue to show the last successful value or formula, and dependent results remain unchanged.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-3-1-1.spec.ts",
+          "title": "REQ-3-1-1: audit regression: failed grid Enter keeps both the original cell and formula bar before retry"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-3-1-3",
+      "behavior": "one pointer move persists a full rectangle and delayed responses retain newer successful edits",
+      "basis": "Users can click to select a single cell or drag from one corner of a rectangular region to the diagonally opposite cell to select a contiguous rectangle. The active worksheet must visibly indicate the complete selection; the grid exposes aria-multiselectable=\"true\"; every gridcell inside the rectangle exposes aria-selected=\"true\", while every gridcell outside it exposes aria-selected=\"false\". Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent existing data. Selecting another cell or range replaces the previous selection and updates the ARIA state accordingly. Each worksheet must persist the complete rectangle from its most recent successful selection, not just its top-left corner: after refreshing or reopening the workbook and returning to that active worksheet, aria-selected states inside and outside the rectangle must exactly match the saved state; switching to another worksheet must not overwrite the original worksheet’s selection.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-3-1-3.spec.ts",
+          "title": "REQ-3-1-3: audit regression: one pointer move commits and persists the entire drag rectangle"
+        },
+        {
+          "file": "REQ-3-1-3.spec.ts",
+          "title": "REQ-3-1-3: audit regression: late selection response cannot replace a subsequent successful cell edit"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-2-2",
+      "behavior": "row-zero references and malformed decimal tokens preserve stable errors and recover dependents",
+      "basis": "Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays #ERROR!, and a direct or indirect circular reference displays #REF!. When an error cell is selected, the formula bar displays the original formula submitted by the user; after refresh, both the error value and original formula persist. An error cell does not block viewing, editing, or recalculating other cells. After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: audit regression: =A0 displays a stable #REF! and repairing it restores dependents"
+        },
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: audit regression: =SUM(A0:A2) displays a stable #REF! and repairing it restores dependents"
+        },
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: audit regression: =1.2.3 displays a stable #ERROR! and repairing it restores dependents"
+        },
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: audit regression: =. displays a stable #ERROR! and repairing it restores dependents"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "behavior": "zero arithmetic remains a visible numeric value with correct dependent results",
+      "basis": "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1. Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required. The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh. Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero.\nPage reference:\n![image](reference/basic-formulas.png)\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-1-1.spec.ts",
+          "title": "REQ-4-1-1: audit regression: zero arithmetic and a dependent result remain visible and persisted"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "behavior": "non-ISO parseable dates sort chronologically; formula keys retain expressions and full records",
+      "basis": "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu. A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button. Options in \"Sort by\" use the header text of the selected range as accessible names; \"Order\" provides options named \"Ascending\" and \"Descending\". When the first row is declared a header, it does not participate in sorting. Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row. After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh. If sorting fails, an error is displayed and the grid retains its original order.\n\nPage reference:\n![image](reference/sort-range.png)\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-1-1.spec.ts",
+          "title": "REQ-5-1-1: audit regression: Ascending uses chronological order for unambiguous non-ISO dates"
+        },
+        {
+          "file": "REQ-5-1-1.spec.ts",
+          "title": "REQ-5-1-1: audit regression: Descending uses chronological order for unambiguous non-ISO dates"
+        },
+        {
+          "file": "REQ-5-1-1.spec.ts",
+          "title": "REQ-5-1-1: audit regression: numeric formula results sort with complete records and retain their original expressions"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "behavior": "failed sorting preserves order and reports failure before successful retry",
+      "basis": "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu. A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button. Options in \"Sort by\" use the header text of the selected range as accessible names; \"Order\" provides options named \"Ascending\" and \"Descending\". When the first row is declared a header, it does not participate in sorting. Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row. After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh. If sorting fails, an error is displayed and the grid retains its original order.\n\nPage reference:\n![image](reference/sort-range.png)\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-1-1.spec.ts",
+          "title": "REQ-5-1-1: audit regression: failed sort keeps its dialog and original order before retry"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "behavior": "failed filter application retains the saved predicate before retry",
+      "basis": "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu. Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\". The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name. The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\". \"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box; \"Is empty\" and \"Is not empty\" require no value. Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered. After refresh or reopening, the same rows remain visible. CSV export and pivot summarization still include hidden rows within the filtered range. \"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-1-2.spec.ts",
+          "title": "REQ-5-1-2: audit regression: failed filter apply preserves the saved predicate and supports retry"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "behavior": "exact context-sensitive number messages and immediate modified bounds",
+      "basis": "Users select a target range and click \"Data validation\" in the \"Data\" menu. A dialog named \"Data validation\" provides a combo box labeled \"Rule type\"; \"Dropdown\" uses a text box labeled \"Allowed values\", where comma-separated items are trimmed of leading and trailing spaces; \"Number range\" uses text boxes labeled \"Minimum\" and \"Maximum\"; the \"Save\" button applies an inclusive rule. After a valid save succeeds, the dialog closes. A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name. If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\". In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\". If any target in a bulk operation is invalid, all targets retain their original values. Rules remain active after refresh. When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-2-1.spec.ts",
+          "title": "REQ-5-2-1: audit regression: single-cell number error uses between while persisted B3 multi-cell boundary uses from"
+        },
+        {
+          "file": "REQ-5-2-1.spec.ts",
+          "title": "REQ-5-2-1: audit regression: modified inclusive number bounds become effective immediately without changing existing values"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "behavior": "failed first save, rule modification and deletion retain prior saved constraints before retry",
+      "basis": "Users select a target range and click \"Data validation\" in the \"Data\" menu. A dialog named \"Data validation\" provides a combo box labeled \"Rule type\"; \"Dropdown\" uses a text box labeled \"Allowed values\", where comma-separated items are trimmed of leading and trailing spaces; \"Number range\" uses text boxes labeled \"Minimum\" and \"Maximum\"; the \"Save\" button applies an inclusive rule. After a valid save succeeds, the dialog closes. A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name. If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\". In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\". If any target in a bulk operation is invalid, all targets retain their original values. Rules remain active after refresh. When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-2-1.spec.ts",
+          "title": "REQ-5-2-1: audit regression: failed rule modify retains the dialog and previous constraint until a successful retry"
+        },
+        {
+          "file": "REQ-5-2-1.spec.ts",
+          "title": "REQ-5-2-1: audit regression: failed rule delete retains the dialog and previous constraint until a successful retry"
+        },
+        {
+          "file": "REQ-5-2-1.spec.ts",
+          "title": "REQ-5-2-1: audit regression: failed first rule save reports an error without closing or installing the rule"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "behavior": "SUM/AVERAGE Refresh rejects sources without numbers atomically and accepts a numeric-zero retry",
+      "basis": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu. A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created. A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button. Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names; \"Summarize by\" provides options named SUM, COUNT, and AVERAGE. The configuration supports one row field, one optional column field, and one value field. SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.\nWhen no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records. When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row. COUNT displays 0 when a row/column combination has no record with a non-empty value field.\nAfter a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results. The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range. If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available. Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets. When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: audit regression: SUM refresh with no numeric values preserves results and source before zero-value retry"
+        },
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: audit regression: AVERAGE refresh with no numeric values preserves results and source before zero-value retry"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "behavior": "AVERAGE includes formula zero as a numeric record",
+      "basis": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu. A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created. A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button. Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names; \"Summarize by\" provides options named SUM, COUNT, and AVERAGE. The configuration supports one row field, one optional column field, and one value field. SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.\nWhen no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records. When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row. COUNT displays 0 when a row/column combination has no record with a non-empty value field.\nAfter a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results. The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range. If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available. Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets. When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: audit regression: AVERAGE includes formula zero as a numeric record in group and grand totals"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
     }
   ],
   "remaining_gaps": [
@@ -286,7 +495,7 @@
         "REQ-5-1-1",
         "REQ-5-2-1"
       ],
-      "behavior": "storage-failure rollback of structure, paste, move, sorting and rule modifications",
+      "behavior": "real storage-failure rollback of structure, paste, move, sorting and rule modifications; HTTP rejection for sorting and rules is covered",
       "status": "requires_implementation_harness"
     },
     {
@@ -313,9 +522,9 @@
         "REQ-5-1-1",
         "REQ-5-1-2"
       ],
-      "behavior": "supported date grammar, typed chronology versus lexical order, timezone and locale-specific formats",
+      "behavior": "remaining date grammar, timezone and locale-specific formats",
       "status": "requires_requirement_clarification",
-      "reason": "Current witnesses use ISO date-only inputs. Their order also matches lexical order, so they cannot certify typed date comparison. Offset date-times are no longer imposed by gates; supported grammar needs a requirement clarification."
+      "reason": "Non-ISO English month witnesses now distinguish chronological from lexical order in both directions. Remaining date grammars and timezone/locale choices are unspecified; offset date-times are not imposed by gates."
     },
     {
       "requirements": [

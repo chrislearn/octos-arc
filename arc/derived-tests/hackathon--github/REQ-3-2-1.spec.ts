@@ -26,5 +26,12 @@ test("REQ-3-2-1: default personal namespace creates initialized Private reposito
 
 test("REQ-3-2-1: duplicate and empty repository names retain form and create no repository", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page); await h.link(page,'New repository').click(); await h.field(page,'Repository name').fill('acme-docs'); await h.button(page,'Create repository').click(); await expect(h.field(page,'Repository name')).toBeVisible(); await expect(page.getByRole('heading',{name:'alice-dev/acme-docs',exact:true})).toHaveCount(0); await h.field(page,'Repository name').fill(''); await h.button(page,'Create repository').click(); await expect(h.field(page,'Repository name')).toBeVisible();
+  await h.signIn(page); await h.link(page,'New repository').click();
+  await h.field(page,'Repository name').fill('acme-docs-personal'); await h.button(page,'Create repository').click();
+  await expect(page.getByText(/Repository name already exists/)).toBeVisible();
+  await expect(h.field(page,'Repository name')).toHaveValue('acme-docs-personal');
+  await expect(page.getByRole('heading').filter({hasText:'acme-docs-personal'})).toHaveCount(0);
+  await h.field(page,'Repository name').fill(''); await h.button(page,'Create repository').click();
+  await expect(h.text(page,'Repository name is required')).toBeVisible();
+  await expect(h.field(page,'Repository name')).toBeVisible();
 });

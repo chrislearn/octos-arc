@@ -5,7 +5,7 @@ import * as h from './helpers';
 
 test("REQ-4-2-3: requirement scenario 1", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.canonicalRepo(page);const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await expect(h.text(page,'search flow')).toBeVisible();
+  await h.canonicalRepo(page);const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await expect(h.renderedSubstring(page,'search flow').first()).toBeVisible();
 });
 
 test("REQ-4-2-3: requirement scenario 2", async ({ page, browser }) => {
@@ -15,7 +15,7 @@ test("REQ-4-2-3: requirement scenario 2", async ({ page, browser }) => {
 
 test("REQ-4-2-3: requirement scenario 3", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.canonicalRepo(page);const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await expect(h.text(page,'search flow')).toBeVisible(); await page.reload(); await expect(h.text(page,'search flow')).toBeVisible(); await expect(h.link(page,'README.md')).toBeVisible();
+  await h.canonicalRepo(page);const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('search flow'); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,'README.md').click(); await expect(h.renderedSubstring(page,'search flow').first()).toBeVisible(); await page.reload(); await expect(h.renderedSubstring(page,'search flow').first()).toBeVisible(); await expect(h.link(page,'README.md')).toBeVisible();
 });
 
 test("REQ-4-2-3: requirement scenario 4", async ({ page, browser }) => {

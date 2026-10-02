@@ -51,3 +51,43 @@ test("REQ-5-1-1: context REQ-3-1-3: reverse-direction drag replaces a saved rect
   await h.persisted(page,()=>h.values(page,{B2:'Region',C2:'Sales',B3:'North',C3:'10',B4:'East',C4:'20',A1:'outside-a',B1:'outside-b',C1:'outside-c',D1:'outside-d',A2:'outside-e',D2:'outside-f',A3:'outside-g',D3:'outside-h',A4:'outside-i',D4:'outside-j'}));
   await h.range(page,'D5','E6'); await h.persisted(page,()=>h.selection(page,['D5','E5','D6','E6'],['B2','C2','B3','C3','C5','F6']));
 });
+
+test("REQ-5-1-1: audit regression: Ascending uses chronological order for unambiguous non-ISO dates", async ({ page }) => {
+  test.setTimeout(60_000);
+  // Both dates are unambiguous and parseable; their lexical and chronological orders differ.
+  expect(Number.isFinite(Date.parse('1 October 2026'))).toBe(true);expect(Number.isFinite(Date.parse('2 February 2026'))).toBe(true);
+  await h.blank(page);await h.paste(page,'A1','Date\tRecord\n1 October 2026\tlate\n2 February 2026\tearly-first\n2 February 2026\tearly-second');
+  await h.range(page,'A1','B4');await h.data(page,'Sort range');const dialog=page.getByRole('dialog',{name:'Sort range',exact:true});
+  await h.choose(dialog,'Sort by','Date');await h.choose(dialog,'Order',"Ascending");await h.button(dialog,'Sort').click();
+  await h.persisted(page,()=>h.values(page,{"A1": "Date", "B1": "Record", "A2": "2 February 2026", "B2": "early-first", "A3": "2 February 2026", "B3": "early-second", "A4": "1 October 2026", "B4": "late"}));
+});
+
+test("REQ-5-1-1: audit regression: Descending uses chronological order for unambiguous non-ISO dates", async ({ page }) => {
+  test.setTimeout(60_000);
+  // Both dates are unambiguous and parseable; their lexical and chronological orders differ.
+  expect(Number.isFinite(Date.parse('1 October 2026'))).toBe(true);expect(Number.isFinite(Date.parse('2 February 2026'))).toBe(true);
+  await h.blank(page);await h.paste(page,'A1','Date\tRecord\n1 October 2026\tlate\n2 February 2026\tearly-first\n2 February 2026\tearly-second');
+  await h.range(page,'A1','B4');await h.data(page,'Sort range');const dialog=page.getByRole('dialog',{name:'Sort range',exact:true});
+  await h.choose(dialog,'Sort by','Date');await h.choose(dialog,'Order',"Descending");await h.button(dialog,'Sort').click();
+  await h.persisted(page,()=>h.values(page,{"A1": "Date", "B1": "Record", "A2": "1 October 2026", "B2": "late", "A3": "2 February 2026", "B3": "early-first", "A4": "2 February 2026", "B4": "early-second"}));
+});
+
+test("REQ-5-1-1: audit regression: failed sort keeps its dialog and original order before retry", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.range(page,'A1','C4');await h.data(page,'Sort range');const dialog=page.getByRole('dialog',{name:'Sort range',exact:true});
+  await h.choose(dialog,'Sort by','Sales');await h.choose(dialog,'Order','Descending');const write=await h.learnWrite(page,async()=>{await h.button(dialog,'Sort').click();await h.values(page,{B2:'30',B3:'20',B4:'10'});});
+  await h.range(page,'A1','C4');await h.data(page,'Sort range');await h.choose(dialog,'Sort by','Sales');await h.choose(dialog,'Order','Ascending');const fault=await h.rejectWrites(page,write);
+  try{await h.button(dialog,'Sort').click();await expect.poll(()=>fault.attempts()).toBeGreaterThan(0);await expect(dialog).toBeVisible();await expect(dialog.getByRole('alert')).toBeVisible();await h.chosen(dialog,'Sort by','Sales');await h.chosen(dialog,'Order','Ascending');}
+  finally{await fault.remove();}
+  // A modal legitimately hides the background from the accessibility tree.
+  await h.button(dialog,'Cancel').click();await h.persisted(page,()=>h.values(page,{A2:'East',B2:'30',A3:'North',B3:'20',A4:'East',B4:'10'}));
+  await h.range(page,'A1','C4');await h.data(page,'Sort range');await h.choose(dialog,'Sort by','Sales');await h.choose(dialog,'Order','Ascending');
+  await h.button(dialog,'Sort').click();await expect(dialog).toBeHidden();await h.persisted(page,()=>h.values(page,{A2:'East',B2:'10',A3:'North',B3:'20',A4:'East',B4:'30'}));
+});
+
+test("REQ-5-1-1: audit regression: numeric formula results sort with complete records and retain their original expressions", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.paste(page,'A1','Record\tKey\nten\t=10\ntwo\t=2\nthree\t=3');await h.values(page,{B2:'10',B3:'2',B4:'3'});
+  await h.range(page,'A1','B4');await h.data(page,'Sort range');const dialog=page.getByRole('dialog',{name:'Sort range',exact:true});await h.choose(dialog,'Sort by','Key');await h.choose(dialog,'Order','Ascending');await h.button(dialog,'Sort').click();
+  await h.persisted(page,async()=>{await h.values(page,{A1:'Record',B1:'Key',A2:'two',A3:'three',A4:'ten'});await h.formula(page,'B2','=2','2');await h.formula(page,'B3','=3','3');await h.formula(page,'B4','=10','10');});
+});

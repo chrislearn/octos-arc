@@ -77,10 +77,7 @@ export async function canonicalOrganization(p: Page) {
   await expect(link(p, 'Repositories')).toBeVisible();
 }
 export async function canonicalRepo(p: Page) {
-  await canonicalOrganization(p); await link(p, 'Repositories').click();
-  await field(p, 'Find a repository').fill('acme-docs'); await link(p, 'acme-docs').click();
-  await expect(p.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
-  return p.url();
+  return repo(p, 'acme-docs');
 }
 export async function openRepositoryResult(p: Page, name: string, owner: string) {
   const matches=link(p,name); await expect(matches.first()).toBeVisible();
@@ -134,20 +131,10 @@ export async function register(p: Page) {
 export async function repo(p: Page, name = 'acme-docs') {
   await home(p); const search = p.getByRole('searchbox', { name: 'Search', exact: true });
   await search.fill(name); await search.press('Enter');
-  const escaped=name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const matches = link(p, name).or(p.getByRole('link', {name:new RegExp(`^[^/]+/${escaped}$`)}));
-  await expect(matches.first()).toBeVisible();
-  if (name === 'acme-docs' && await matches.count() > 1) {
-    const index = await matches.evaluateAll(els => els.findIndex(el => {
-      for (let parent = el.parentElement; parent; parent = parent.parentElement) {
-        const same = Array.from(parent.querySelectorAll('a')).filter(a => a.textContent?.trim() === 'acme-docs' || a.textContent?.trim().endsWith('/acme-docs'));
-        if (same.length > 1) return false;
-        if (parent.textContent?.includes('alice-dev/acme-docs')) return true;
-      }
-      return false;
-    }));
-    expect(index, 'repository result must expose its owner/name metadata').toBeGreaterThanOrEqual(0); await matches.nth(index).click();
-  } else await matches.click();
+  // The prescribed collaboration repository is owned by Acme Demo. Discover
+  // it through the same public search and exact link names used by scenarios.
+  if (name === 'acme-docs') await openRepositoryResult(p, name, 'Acme Demo');
+  else await link(p, name).click();
   await expect(p.getByRole('heading').filter({ hasText: name })).toBeVisible();
   return p.url();
 }
@@ -187,8 +174,7 @@ export async function attemptSubmission(p: Page, submit: Locator) {
 }
 export async function option(p: Page, name: string) { await p.getByRole('option', { name, exact: true }).click(); }
 export async function choose(p: Page | Locator, name: string, value: string) {
-  const aliases = name === 'Base' ? ['Base', 'base'] : name === 'Compare' ? ['Compare', 'compare']
-    : ['test', 'test status'].includes(name) ? ['test', 'test status'] : [name];
+  const aliases = ['test', 'test status'].includes(name) ? ['test', 'test status'] : [name];
   const control = p.getByRole('combobox', { name: new RegExp(`^(?:${aliases.join('|')})$`) }).filter({ visible: true });
   if (await control.evaluate(el => el.tagName === 'SELECT')) await control.selectOption({ label: value });
   else { await control.click(); const root = 'keyboard' in p ? p : p.page(); await root.getByRole('option', { name: value, exact: true }).click(); }
@@ -200,6 +186,8 @@ export async function chosen(p: Page | Locator, name: string, value: string) {
   else await expect(control).toContainText(value);
 }
 export async function reviewSummary(p: Page) {
+  // Opening the review form schedules a render; wait before inspecting labels.
+  await expect(button(p,'Submit review')).toBeVisible();
   const summary=p.getByRole('textbox',{name:'Summary',exact:true}).filter({visible:true});
   if(await summary.count()) return summary;
   // A diff comment editor may remain mounted beside the review form. Discover

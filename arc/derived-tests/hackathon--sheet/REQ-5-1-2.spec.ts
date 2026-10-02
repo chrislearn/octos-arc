@@ -54,3 +54,16 @@ test("REQ-5-1-2: context REQ-2-2-2: column insertion/deletion moves filter heade
   await h.persisted(page,()=>h.visibleRows(page,['A3','A4'],['A2'])); await expect(h.button(page,'Filter Sales')).toBeVisible(); await h.structure(page,'column','B','Delete column');
   await h.persisted(page,()=>h.visibleRows(page,['A3','A4'],['A2'])); await h.data(page,'Clear filter'); await h.values(page,{B1:'Sales',B2:'10',B3:'20',B4:'30',C1:'Status',C2:'Open'});
 });
+
+test("REQ-5-1-2: audit regression: failed filter apply preserves the saved predicate and supports retry", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.range(page,'A1','C4');await h.data(page,'Create filter');await h.filterValues(page,'Region',['East']);await h.visibleRows(page,['A2','A4'],['A3']);
+  const write=await h.learnWrite(page,async()=>{await h.filterValues(page,'Region',['North']);await h.visibleRows(page,['A3'],['A2','A4']);});
+  await h.button(page,'Filter Region').click();const dialog=page.getByRole('dialog',{name:'Filter Region',exact:true});await h.button(dialog,'Clear selection').click();await dialog.getByRole('checkbox',{name:'East',exact:true}).check();
+  const fault=await h.rejectWrites(page,write);
+  try{await h.button(dialog,'Apply').click();await expect.poll(()=>fault.attempts()).toBeGreaterThan(0);await expect(dialog).toBeVisible();await expect(dialog.getByRole('alert')).toBeVisible();await expect(dialog.getByRole('checkbox',{name:'East',exact:true})).toBeChecked();}
+  finally{await fault.remove();}
+  await h.button(dialog,'Cancel').click();await h.persisted(page,()=>h.visibleRows(page,['A3'],['A2','A4']));
+  await h.button(page,'Filter Region').click();await h.button(dialog,'Clear selection').click();await dialog.getByRole('checkbox',{name:'East',exact:true}).check();
+  await h.button(dialog,'Apply').click();await expect(dialog).toBeHidden();await h.persisted(page,()=>h.visibleRows(page,['A2','A4'],['A3']));
+});
