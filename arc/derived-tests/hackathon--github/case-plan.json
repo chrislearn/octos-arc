@@ -42,6 +42,28 @@
       "REQ-1-1-1"
     ],
     "setup_requires": [],
+    "title": "REQ-1-1-1: homepage Sign up enters registration directly and survives reload",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-1-1-1: rejected registration retains nonsensitive inputs and clears both passwords",
+    "file": "REQ-1-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1"
+    ],
+    "setup_requires": [],
     "title": "REQ-1-1-1: registration entry accepts valid account and redirects to sign-in without exposing password",
     "file": "REQ-1-1-1.spec.ts"
   },
@@ -372,6 +394,17 @@
       "REQ-1-1-2"
     ],
     "setup_requires": [],
+    "title": "REQ-1-1-2: rejected login clears password retains identifier and allows a valid retry",
+    "file": "REQ-1-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2"
+    ],
+    "setup_requires": [],
     "title": "REQ-1-1-2: existing alice-dev creates persistent session",
     "file": "REQ-1-1-2.spec.ts"
   },
@@ -509,6 +542,32 @@
       "REQ-1-1-2"
     ],
     "title": "REQ-1-1-3: requirement scenario 3",
+    "file": "REQ-1-1-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-1-1-3: rejected recovery clears both passwords and retains verification code: Verification code is invalid",
+    "file": "REQ-1-1-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-1-1-3: rejected recovery clears both passwords and retains verification code: Passwords do not match",
     "file": "REQ-1-1-3.spec.ts"
   },
   {
@@ -697,6 +756,17 @@
     "requires": [
       "REQ-2-1-1"
     ],
+    "setup_requires": [],
+    "title": "REQ-2-1-1: public organization shows both identities and only repository navigation",
+    "file": "REQ-2-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-1"
+    ],
     "setup_requires": [
       "REQ-3-1",
       "REQ-3-3"
@@ -766,6 +836,19 @@
     "setup_requires": [
       "REQ-1-1-2"
     ],
+    "title": "REQ-2-1-2: account menu organization entry preserves display name identifier and member navigation",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
     "title": "REQ-2-1-2: create organization persists identifier and creator Owner relationship",
     "file": "REQ-2-1-2.spec.ts"
   },
@@ -791,7 +874,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-1: requirement scenario 1",
     "file": "REQ-2-2-1.spec.ts"
@@ -805,9 +888,25 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-1: requirement scenario 2",
+    "file": "REQ-2-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-1-2",
+      "REQ-2-1-2"
+    ],
+    "title": "REQ-2-2-1: Teams list and detail deny visitors and nonmembers but retain member access",
     "file": "REQ-2-2-1.spec.ts"
   },
   {
@@ -883,7 +982,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-2: requirement scenario 1",
     "file": "REQ-2-2-2.spec.ts"
@@ -897,7 +996,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-2: requirement scenario 2",
     "file": "REQ-2-2-2.spec.ts"
@@ -959,7 +1058,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-3: requirement scenario 1",
     "file": "REQ-2-2-3.spec.ts"
@@ -973,9 +1072,25 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-3: requirement scenario 2",
+    "file": "REQ-2-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-3",
+      "REQ-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-1-2",
+      "REQ-2-1-2"
+    ],
+    "title": "REQ-2-2-3: People denies visitors and nonmembers while an ordinary member can view members",
     "file": "REQ-2-2-3.spec.ts"
   },
   {
@@ -1020,7 +1135,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-4: requirement scenario 1",
     "file": "REQ-2-2-4.spec.ts"
@@ -1034,7 +1149,7 @@
     ],
     "setup_requires": [
       "REQ-1-1-2",
-      "REQ-2-1-1"
+      "REQ-2-1-2"
     ],
     "title": "REQ-2-2-4: requirement scenario 2",
     "file": "REQ-2-2-4.spec.ts"

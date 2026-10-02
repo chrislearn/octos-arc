@@ -8,15 +8,15 @@
   "product_runtime_certified": false,
   "nodes": {
     "REQ-1-1-1": {
-      "exported_case_count": 29,
+      "exported_case_count": 31,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-2": {
-      "exported_case_count": 13,
+      "exported_case_count": 14,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-1-3": {
-      "exported_case_count": 5,
+      "exported_case_count": 7,
       "complete_clause_coverage_claimed": false
     },
     "REQ-1-2": {
@@ -28,15 +28,15 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-1-1": {
-      "exported_case_count": 3,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-1-2": {
-      "exported_case_count": 6,
+      "exported_case_count": 7,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-1": {
-      "exported_case_count": 6,
+      "exported_case_count": 7,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-2": {
@@ -44,7 +44,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-3": {
-      "exported_case_count": 4,
+      "exported_case_count": 5,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-4": {
@@ -197,6 +197,105 @@
     }
   },
   "reviewed_behaviors": [
+    {
+      "requirement_id": "REQ-1-1-1",
+      "behavior": "homepage provides direct Sign up and rejected registration clears passwords",
+      "basis": "The registration page is the form opened by the unique link named “Create an account” from the sign-in page. The form contains exactly one textbox labeled “Username”, one textbox labeled “Email”, one password input labeled “Password”, one password input labeled “Confirm password”, one initially unchecked checkbox named “Agree to the terms”, and one enabled button named “Create account”. The username and email identify the account, while passwords must not be echoed on the page. This product directly marks the email of a successfully registered account as verified and does not provide a subsequent email-verification page. The visitor enters a unique username, email, password, and matching confirmation, checks “Agree to the terms”, and activates “Create account”. The username must consist of 1 to 39 lowercase ASCII letters, digits, or single hyphens (`-`) and must not begin or end with a hyphen; after trimming leading and trailing whitespace, the email must contain exactly one `@`, be no longer than 254 characters, and have at least one dot and non-empty domain labels after the `@`; the password must contain 12 to 128 characters, include at least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric special character, and contain no whitespace characters. The system stores a sign-in-capable account together with its verified-email status and enters the sign-in page; if the username or email conflicts, any field is missing, the email format is invalid, the terms are not accepted, the password is noncompliant, or the confirmation does not match, the system retains the username and email input, displays an itemized message beside the corresponding field, and does not create an account. The corresponding visible field message contains “Username already exists”, “Username format is invalid”, “Email format is invalid”, “Password requirements are not satisfied”, or “Agree to terms is required”, as applicable. Visitors can use this capability on the account-access page. The system validates input rules, displays field errors, and prevents duplicate accounts; on success, it directly creates an available account. Submitting several invalid fields together must show the username, email, password, and missing-terms messages together, rather than revealing only one error per submission; the submit button remains actionable so these messages can be read. For example, a username beginning with a hyphen, email “not-an-email”, password “short”, confirmation “different”, and unchecked terms produce these field errors and preserve the attempted username. A duplicate username paired with a different unused email displays “Username already exists” and retains both attempted values. A successful registration accepts a unique username, its email, and password; the sign-in form is immediately available, accepts that email, and the resulting signed-in username remains visible after reload.\n\nScreenshot reference:\n![image](reference/github-sign-up.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: homepage Sign up enters registration directly and survives reload"
+        },
+        {
+          "file": "REQ-1-1-1.spec.ts",
+          "title": "REQ-1-1-1: rejected registration retains nonsensitive inputs and clears both passwords"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-1-1-2",
+      "behavior": "failed login retains identifier clears password and permits a valid retry",
+      "basis": "This feature builds on the persisted objects. The sign-in page is the form on the account-access page containing “Username or email”, “Password”, and “Sign in”. A “session” is the current-browser login record saved after successful account authentication, represented in the frontend by the upper-right account menu and access to protected pages. The visitor enters a username or email and a password and submits the form. The system looks up the account and validates its credentials and availability status; if authentication fails due to an unknown username/email, incorrect password, or unavailable account, the system displays exactly the same generic failure message “Invalid credentials”, does not disclose whether the account exists or which credential was wrong, and does not create a session. After successful authentication, the system stores a session with a unique session identifier, account identifier, and active status, then redirects to the workspace accessible to that user; the session remains valid after refreshing or reopening the workspace, and subsequent protected organization, repository, and work-item requests must use this session to determine the current user.\n\nScreenshot reference:\n![image](reference/github-sign-in.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-2.spec.ts",
+          "title": "REQ-1-1-2: rejected login clears password retains identifier and allows a valid retry"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-1-1-3",
+      "behavior": "invalid recovery code or confirmation clears both passwords without changing credentials",
+      "basis": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-1-1-3.spec.ts",
+          "title": "REQ-1-1-3: rejected recovery clears both passwords and retains verification code: Verification code is invalid"
+        },
+        {
+          "file": "REQ-1-1-3.spec.ts",
+          "title": "REQ-1-1-3: rejected recovery clears both passwords and retains verification code: Passwords do not match"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "behavior": "public organization identity and repository-only navigation survive reload",
+      "basis": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-1-1.spec.ts",
+          "title": "REQ-2-1-1: public organization shows both identities and only repository navigation"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "behavior": "prescribed account-menu organization entry shows both identities and member navigation",
+      "basis": "The authenticated account menu exposes a visible “Your organizations” link, whose page exposes a visible “New organization” link. The organization creation page displays visibly labeled “Organization name” and “Display name” fields and a button named “Create organization”. A signed-in verified account can submit a unique organization identifier and display name; successful creation opens the new organization overview and persists it across reload. Organization identifiers must be 1–39 lowercase ASCII characters and globally unique. The display name must contain 1–100 non-whitespace characters after trimming. A duplicate identifier displays “Organization name already exists” without opening the existing organization. An invalid identifier displays “Organization name format is invalid”, and a whitespace-only display name displays “Display name is required”; rejected submissions do not create an organization.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-1-2.spec.ts",
+          "title": "REQ-2-1-2: account menu organization entry preserves display name identifier and member navigation"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-2-3",
+      "behavior": "People refuses visitors and nonmembers while preserving ordinary member reads",
+      "basis": "An organization Owner can open the organization’s “People” page and click “Add member”. The form displays a visibly labeled “Username or email” field, a “Role” combobox with a “Member” option, and an “Add member” button. Adding a registered non-member directly creates the organization membership with Member role, displays the account in People without a pending-invitation state, and persists after reload. After the member signs in, the organization appears in “Your organizations”, but membership alone does not grant access to an otherwise unauthorized private repository. Adding an existing member displays “Account is already a member” without duplicating the relationship; an unknown username displays “Account not found”.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-2-3.spec.ts",
+          "title": "REQ-2-2-3: People denies visitors and nonmembers while an ordinary member can view members"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "behavior": "Teams list and detail refuse visitors and nonmembers while preserving member reads",
+      "basis": "The organization overview exposes a visible “Teams” link. The Teams page exposes a visible “New team” link, which opens a form with a visibly labeled “Team name” field and a “Create team” button. An organization Owner can submit a unique team name containing 1–50 lowercase ASCII letters, digits, or hyphens, with no leading or trailing hyphen. A successful submission opens the new team overview and the team heading remains visible after reload. A malformed team name displays “Team name is invalid” and does not create a team.",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-2-1.spec.ts",
+          "title": "REQ-2-2-1: Teams list and detail deny visitors and nonmembers but retain member access"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
     {
       "requirement_id": "REQ-3-1",
       "behavior": "personal search links use exact names separately from visible owner metadata",

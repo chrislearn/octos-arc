@@ -5,12 +5,12 @@ import * as h from './helpers';
 
 test("REQ-2-2-4: requirement scenario 1", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,"org-owner"); await h.canonicalOrganization(page);await h.link(page,'People').click(); await expect(h.text(page,'existing-member')).toBeVisible(); await h.button(page,'Member menu existing-member').click(); await page.getByRole('menuitem',{name:'Remove from organization',exact:true}).click(); await h.button(page,'Remove').click(); await h.persisted(page,()=>expect(h.text(page,'existing-member')).toHaveCount(0));
+  await h.signIn(page,"org-owner"); await h.memberOrganization(page);await h.link(page,'People').click(); await expect(h.text(page,'existing-member')).toBeVisible(); await h.button(page,'Member menu existing-member').click(); await page.getByRole('menuitem',{name:'Remove from organization',exact:true}).click(); await h.button(page,'Remove').click(); await h.persisted(page,()=>expect(h.text(page,'existing-member')).toHaveCount(0));
 });
 
 test("REQ-2-2-4: requirement scenario 2", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,"org-member"); await h.canonicalOrganization(page);await h.link(page,'People').click(); await expect(h.text(page,'protected-member')).toBeVisible(); await expect(h.button(page,'Member menu protected-member')).toHaveCount(0); await expect(page.getByRole('menuitem',{name:'Remove from organization',exact:true})).toHaveCount(0);
+  await h.signIn(page,"org-member"); await h.memberOrganization(page);await h.link(page,'People').click(); await expect(h.text(page,'protected-member')).toBeVisible(); await expect(h.button(page,'Member menu protected-member')).toHaveCount(0); await expect(page.getByRole('menuitem',{name:'Remove from organization',exact:true})).toHaveCount(0);
 });
 
 test("REQ-2-2-4: Owner removes membership and associated access without deleting account", async ({ page, browser }) => {

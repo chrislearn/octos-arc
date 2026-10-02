@@ -18,6 +18,7 @@ GITHUB_HELPER_CAPABILITIES = {
     'issue': {'REQ-5-1-1', 'REQ-5-1-2'},
     'pr': {'REQ-6-2-1', 'REQ-6-3-1'}, 'compare': {'REQ-6-2-1', 'REQ-6-2-2'},
     'canonicalOrganization': {'REQ-2-1-1'},
+    'memberOrganization': {'REQ-2-1-2'},
     'canonicalRepo': {'REQ-3-1', 'REQ-3-3'},
     'scenarioIssue': {'REQ-5-1-1', 'REQ-5-1-2'},
     'scenarioPr': {'REQ-6-2-1', 'REQ-6-3-1'},

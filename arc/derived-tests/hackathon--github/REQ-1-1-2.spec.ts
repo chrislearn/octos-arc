@@ -23,6 +23,20 @@ test("REQ-1-1-2: requirement scenario 4", async ({ page, browser }) => {
   await h.home(page); await h.link(page,'Sign in').click(); await h.field(page,'Username or email').fill("unknown@example.test"); await h.field(page,'Password').fill("Valid-password-123!"); await h.button(page,'Sign in').click(); await expect(h.text(page,'Invalid credentials')).toBeVisible(); await expect(h.button(page,'Account menu')).toHaveCount(0); await h.home(page); await h.link(page,'Sign in').click(); await h.field(page,'Username or email').fill("alice-dev"); await h.field(page,'Password').fill("Valid-password-123!-wrong"); await h.button(page,'Sign in').click(); await expect(h.text(page,'Invalid credentials')).toBeVisible(); await expect(h.button(page,'Account menu')).toHaveCount(0);
 });
 
+test("REQ-1-1-2: rejected login clears password retains identifier and allows a valid retry", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Sign in').click();
+  for (const identifier of ['unknown@example.test','alice.dev@example.test']) {
+    await h.field(page,'Username or email').fill(identifier); await h.field(page,'Password').fill(h.PASSWORD+'-wrong');
+    await h.button(page,'Sign in').click(); await expect(h.text(page,'Invalid credentials')).toBeVisible();
+    await expect(h.field(page,'Password')).toHaveValue(''); await expect(h.field(page,'Username or email')).toHaveValue(identifier);
+    await expect(h.button(page,'Account menu')).toHaveCount(0);
+  }
+  await h.field(page,'Password').fill(h.PASSWORD); await h.button(page,'Sign in').click();
+  await h.persisted(page,()=>expect(h.button(page,'Account menu')).toBeVisible());
+  await h.button(page,'Account menu').click(); await expect(h.containsValue(page,'alice-dev').first()).toBeVisible();
+});
+
 test("REQ-1-1-2: existing alice-dev creates persistent session", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,"alice-dev"); await h.persisted(page, () => expect(h.button(page,'Account menu')).toBeVisible());

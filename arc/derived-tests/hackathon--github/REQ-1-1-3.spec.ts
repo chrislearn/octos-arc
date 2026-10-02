@@ -18,6 +18,30 @@ test("REQ-1-1-3: requirement scenario 3", async ({ page, browser }) => {
   await h.home(page); await h.link(page,'Sign in').click(); await h.recovery(page,'recovery-success@example.test'); await h.field(page,'Verification code').fill('123456'); await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Replacement-password-456!'); await h.button(page,'Reset password').click(); await expect(h.text(page,'Password updated').first()).toBeVisible(); await h.signIn(page,'recovery-success@example.test','Replacement-password-456!');
 });
 
+test("REQ-1-1-3: rejected recovery clears both passwords and retains verification code: Verification code is invalid", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Forgot password').click();
+  await h.field(page,'Email').fill('recovery-invalid-code@example.test'); await h.button(page,'Send reset link').click();
+  await h.field(page,'Verification code').fill('000000');
+  await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Replacement-password-456!');
+  await h.button(page,'Reset password').click(); await expect(h.text(page,'Verification code is invalid')).toBeVisible();
+  await expect(h.field(page,'Verification code')).toHaveValue('000000');
+  await expect(h.field(page,'New password')).toHaveValue(''); await expect(h.field(page,'Confirm password')).toHaveValue('');
+  await h.signIn(page,'recovery-invalid-code@example.test');
+});
+
+test("REQ-1-1-3: rejected recovery clears both passwords and retains verification code: Passwords do not match", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Forgot password').click();
+  await h.field(page,'Email').fill('recovery-invalid-code@example.test'); await h.button(page,'Send reset link').click();
+  await h.field(page,'Verification code').fill('123456');
+  await h.field(page,'New password').fill('Replacement-password-456!'); await h.field(page,'Confirm password').fill('Different-password-789!');
+  await h.button(page,'Reset password').click(); await expect(h.text(page,'Passwords do not match')).toBeVisible();
+  await expect(h.field(page,'Verification code')).toHaveValue('123456');
+  await expect(h.field(page,'New password')).toHaveValue(''); await expect(h.field(page,'Confirm password')).toHaveValue('');
+  await h.signIn(page,'recovery-invalid-code@example.test');
+});
+
 test("REQ-1-1-3: valid local recovery updates only registered credentials; invalid code preserves old password", async ({ page, browser }) => {
   test.setTimeout(60_000);
   const {username,email}=await h.register(page); await h.recovery(page,email);

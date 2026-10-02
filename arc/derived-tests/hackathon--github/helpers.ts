@@ -76,6 +76,10 @@ export async function canonicalOrganization(p: Page) {
   await home(p); await link(p, 'Acme Demo').click();
   await expect(link(p, 'Repositories')).toBeVisible();
 }
+export async function memberOrganization(p: Page) {
+  await button(p, 'Account menu').click(); await link(p, 'Your organizations').click();
+  await link(p, 'Acme Demo').click(); await expect(link(p, 'Repositories')).toBeVisible();
+}
 export async function canonicalRepo(p: Page) {
   return repo(p, 'acme-docs');
 }

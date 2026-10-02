@@ -36,6 +36,16 @@ test("REQ-2-1-2: display names cannot replace identifiers and independent valida
   await expect(h.button(page,'Create organization')).toBeVisible();
 });
 
+test("REQ-2-1-2: account menu organization entry preserves display name identifier and member navigation", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.memberOrganization(page);
+  await h.persisted(page,async()=>{
+    await expect(page.getByRole('heading',{name:'Acme Demo',exact:true})).toBeVisible();
+    await expect(page.getByRole('heading',{name:'acme-demo',exact:true})).toBeVisible();
+    for (const name of ['Repositories','People','Teams']) await expect(h.link(page,name)).toBeVisible();
+  });
+});
+
 test("REQ-2-1-2: create organization persists identifier and creator Owner relationship", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click(); await h.link(page,'New organization').click(); const name=h.unique('pw-org');

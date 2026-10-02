@@ -18,6 +18,30 @@ test("REQ-1-1-1: requirement scenario 3", async ({ page, browser }) => {
   await h.home(page); await h.link(page,'Sign in').click(); await h.link(page,'Create an account').click(); await h.field(page,'Username').fill('invalid-email-demo'); await h.field(page,'Email').fill('not-an-email'); await h.field(page,'Password').fill(h.PASSWORD); await h.field(page,'Confirm password').fill(h.PASSWORD); await page.getByRole('checkbox',{name:'Agree to the terms',exact:true}).check(); await h.button(page,'Create account').click(); await expect(h.text(page,'Email format is invalid')).toBeVisible(); await expect(h.field(page,'Email')).toHaveValue('not-an-email'); await expect(h.field(page,'Username')).toHaveValue('invalid-email-demo'); await expect(h.field(page,'Username or email')).toHaveCount(0);
 });
 
+test("REQ-1-1-1: homepage Sign up enters registration directly and survives reload", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page);
+  for (const name of ['Sign up','Sign in','Forgot password']) await expect(h.link(page,name)).toBeVisible();
+  await h.link(page,'Sign up').click();
+  await h.persisted(page,async()=>{
+    for (const name of ['Username','Email','Password','Confirm password']) await expect(h.field(page,name)).toBeVisible();
+    await expect(h.button(page,'Create account')).toBeVisible();
+  });
+});
+
+test("REQ-1-1-1: rejected registration retains nonsensitive inputs and clears both passwords", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Sign up').click();
+  const email=h.unique('stage1')+'@example.test';
+  await h.field(page,'Username').fill('-invalid-user'); await h.field(page,'Email').fill(email);
+  await h.field(page,'Password').fill(h.PASSWORD); await h.field(page,'Confirm password').fill(h.PASSWORD);
+  await page.getByRole('checkbox',{name:'Agree to the terms',exact:true}).check();
+  await h.button(page,'Create account').click(); await expect(h.text(page,'Username format is invalid')).toBeVisible();
+  await expect(h.field(page,'Username')).toHaveValue('-invalid-user'); await expect(h.field(page,'Email')).toHaveValue(email);
+  await expect(h.field(page,'Password')).toHaveValue(''); await expect(h.field(page,'Confirm password')).toHaveValue('');
+  await expect(h.button(page,'Account menu')).toHaveCount(0);
+});
+
 test("REQ-1-1-1: registration entry accepts valid account and redirects to sign-in without exposing password", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.home(page); await h.link(page,'Sign in').click(); await expect(h.link(page,'Create an account')).toHaveCount(1); await h.link(page,'Create an account').click();
