@@ -373,6 +373,72 @@
       ]
     },
     {
+      "identifier": "spec-org-file-denied-spec-read",
+      "display_name": "spec-org-file-denied-spec-read",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-file-denied-spec-triage",
+      "display_name": "spec-org-file-denied-spec-triage",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
       "identifier": "spec-org-file-history",
       "display_name": "spec-org-file-history",
       "owners": [
@@ -571,6 +637,138 @@
       ]
     },
     {
+      "identifier": "spec-org-file-message-too-long",
+      "display_name": "spec-org-file-message-too-long",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-file-path-absolute",
+      "display_name": "spec-org-file-path-absolute",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-file-path-directory",
+      "display_name": "spec-org-file-path-directory",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-file-path-existing-file",
+      "display_name": "spec-org-file-path-existing-file",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
       "identifier": "spec-org-grant-add",
       "display_name": "spec-org-grant-add",
       "owners": [
@@ -588,7 +786,9 @@
       "teams": [
         {
           "name": "frontend-team",
-          "direct_members": [],
+          "direct_members": [
+            "bob-reviewer"
+          ],
           "parent": "platform-team"
         },
         {
@@ -621,7 +821,9 @@
       "teams": [
         {
           "name": "frontend-team",
-          "direct_members": [],
+          "direct_members": [
+            "bob-reviewer"
+          ],
           "parent": "platform-team"
         },
         {
@@ -977,6 +1179,72 @@
     {
       "identifier": "spec-org-issue-comment",
       "display_name": "spec-org-issue-comment",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-issue-comment-denied-spec-read",
+      "display_name": "spec-org-issue-comment-denied-spec-read",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-issue-comment-denied-spec-triage",
+      "display_name": "spec-org-issue-comment-denied-spec-triage",
       "owners": [
         "spec-owner"
       ],
@@ -1602,8 +1870,140 @@
       ]
     },
     {
+      "identifier": "spec-org-merge-check-failure",
+      "display_name": "spec-org-merge-check-failure",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
       "identifier": "spec-org-merge-check-only",
       "display_name": "spec-org-merge-check-only",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-merge-denied-read",
+      "display_name": "spec-org-merge-denied-read",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-merge-denied-triage",
+      "display_name": "spec-org-merge-denied-triage",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-merge-denied-write",
+      "display_name": "spec-org-merge-denied-write",
       "owners": [
         "spec-owner"
       ],
@@ -1965,6 +2365,270 @@
       ]
     },
     {
+      "identifier": "spec-org-pr-filter-lifecycle",
+      "display_name": "spec-org-pr-filter-lifecycle",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-pr-filter-lifecycle-node",
+      "display_name": "spec-org-pr-filter-lifecycle-node",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-pr-milestone",
+      "display_name": "spec-org-pr-milestone",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-pr-milestone-denied-spec-read",
+      "display_name": "spec-org-pr-milestone-denied-spec-read",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-pr-milestone-denied-spec-read-node",
+      "display_name": "spec-org-pr-milestone-denied-spec-read-node",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-pr-milestone-denied-spec-write",
+      "display_name": "spec-org-pr-milestone-denied-spec-write",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-pr-milestone-denied-spec-write-node",
+      "display_name": "spec-org-pr-milestone-denied-spec-write-node",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-pr-milestone-node",
+      "display_name": "spec-org-pr-milestone-node",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
       "identifier": "spec-org-pr-no-changes",
       "display_name": "spec-org-pr-no-changes",
       "owners": [
@@ -2165,6 +2829,138 @@
     {
       "identifier": "spec-org-review-decision-comment",
       "display_name": "spec-org-review-decision-comment",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-review-denied-author",
+      "display_name": "spec-org-review-denied-author",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-review-denied-draft",
+      "display_name": "spec-org-review-denied-draft",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-review-denied-read",
+      "display_name": "spec-org-review-denied-read",
+      "owners": [
+        "spec-owner"
+      ],
+      "members": [
+        "spec-owner",
+        "spec-admin",
+        "spec-write",
+        "spec-maintain",
+        "spec-triage",
+        "spec-read",
+        "bob-reviewer"
+      ],
+      "teams": [
+        {
+          "name": "frontend-team",
+          "direct_members": [],
+          "parent": "platform-team"
+        },
+        {
+          "name": "frontend-child",
+          "direct_members": [],
+          "parent": "frontend-team"
+        },
+        {
+          "name": "platform-team",
+          "direct_members": [],
+          "parent": null
+        }
+      ]
+    },
+    {
+      "identifier": "spec-org-review-denied-triage",
+      "display_name": "spec-org-review-denied-triage",
       "owners": [
         "spec-owner"
       ],
@@ -3141,6 +3937,126 @@
       "branch_protection": {}
     },
     {
+      "name": "spec-file-denied-spec-read",
+      "owner": "spec-org-file-denied-spec-read",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-file-denied-spec-triage",
+      "owner": "spec-org-file-denied-spec-triage",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
       "name": "spec-file-history",
       "owner": "spec-org-file-history",
       "visibility": "Public",
@@ -3501,8 +4417,8 @@
       "branch_protection": {}
     },
     {
-      "name": "spec-grant-add",
-      "owner": "spec-org-grant-add",
+      "name": "spec-file-message-too-long",
+      "owner": "spec-org-file-message-too-long",
       "visibility": "Public",
       "direct_grants": {
         "spec-admin": "Admin",
@@ -3561,8 +4477,8 @@
       "branch_protection": {}
     },
     {
-      "name": "spec-grant-replace",
-      "owner": "spec-org-grant-replace",
+      "name": "spec-file-path-absolute",
+      "owner": "spec-org-file-path-absolute",
       "visibility": "Public",
       "direct_grants": {
         "spec-admin": "Admin",
@@ -3571,6 +4487,244 @@
         "spec-triage": "Triage",
         "spec-read": "Read",
         "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-file-path-directory",
+      "owner": "spec-org-file-path-directory",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-file-path-existing-file",
+      "owner": "spec-org-file-path-existing-file",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-grant-add",
+      "owner": "spec-org-grant-add",
+      "visibility": "Private",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-grant-replace",
+      "owner": "spec-org-grant-replace",
+      "visibility": "Private",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read"
       },
       "team_grants": {
         "frontend-team": "Write"
@@ -4336,6 +5490,156 @@
     {
       "name": "spec-issue-comment",
       "owner": "spec-org-issue-comment",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "assignees": [],
+          "labels": [],
+          "milestone": null,
+          "comments": [],
+          "activity": [
+            "Created issue"
+          ]
+        }
+      ],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-issue-comment-denied-spec-read",
+      "owner": "spec-org-issue-comment-denied-spec-read",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "assignees": [],
+          "labels": [],
+          "milestone": null,
+          "comments": [],
+          "activity": [
+            "Created issue"
+          ]
+        }
+      ],
+      "pull_requests": [],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-issue-comment-denied-spec-triage",
+      "owner": "spec-org-issue-comment-denied-spec-triage",
       "visibility": "Public",
       "direct_grants": {
         "spec-admin": "Admin",
@@ -5725,6 +7029,97 @@
       }
     },
     {
+      "name": "spec-merge-check-failure",
+      "owner": "spec-org-merge-check-failure",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [
+            {
+              "reviewer": "bob-reviewer",
+              "decision": "Approve",
+              "commit": "current_compare"
+            }
+          ],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "failure",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {
+        "main": {
+          "require_1_approval": true,
+          "require_status_check_test": true
+        }
+      }
+    },
+    {
       "name": "spec-merge-check-only",
       "owner": "spec-org-merge-check-only",
       "visibility": "Public",
@@ -5805,6 +7200,279 @@
       "branch_protection": {
         "main": {
           "require_1_approval": false,
+          "require_status_check_test": true
+        }
+      }
+    },
+    {
+      "name": "spec-merge-denied-read",
+      "owner": "spec-org-merge-denied-read",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [
+            {
+              "reviewer": "bob-reviewer",
+              "decision": "Approve",
+              "commit": "current_compare"
+            }
+          ],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "success",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {
+        "main": {
+          "require_1_approval": true,
+          "require_status_check_test": true
+        }
+      }
+    },
+    {
+      "name": "spec-merge-denied-triage",
+      "owner": "spec-org-merge-denied-triage",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [
+            {
+              "reviewer": "bob-reviewer",
+              "decision": "Approve",
+              "commit": "current_compare"
+            }
+          ],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "success",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {
+        "main": {
+          "require_1_approval": true,
+          "require_status_check_test": true
+        }
+      }
+    },
+    {
+      "name": "spec-merge-denied-write",
+      "owner": "spec-org-merge-denied-write",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [
+            {
+              "reviewer": "bob-reviewer",
+              "decision": "Approve",
+              "commit": "current_compare"
+            }
+          ],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "success",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {
+        "main": {
+          "require_1_approval": true,
           "require_status_check_test": true
         }
       }
@@ -6562,6 +8230,722 @@
       "branch_protection": {}
     },
     {
+      "name": "spec-pr-filter-lifecycle",
+      "owner": "spec-org-pr-filter-lifecycle",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        },
+        {
+          "number": 2,
+          "title": "Fix search",
+          "description": "Describe the onboarding improvement.",
+          "status": "Closed",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        },
+        {
+          "number": 3,
+          "title": "Draft onboarding update",
+          "description": "Describe the onboarding improvement.",
+          "status": "Draft",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "draft-feature",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-pr-filter-lifecycle-node",
+      "owner": "spec-org-pr-filter-lifecycle-node",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        },
+        {
+          "number": 2,
+          "title": "Fix search",
+          "description": "Describe the onboarding improvement.",
+          "status": "Closed",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        },
+        {
+          "number": 3,
+          "title": "Draft onboarding update",
+          "description": "Describe the onboarding improvement.",
+          "status": "Draft",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "draft-feature",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-pr-milestone",
+      "owner": "spec-org-pr-milestone",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-pr-milestone-denied-spec-read",
+      "owner": "spec-org-pr-milestone-denied-spec-read",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-pr-milestone-denied-spec-read-node",
+      "owner": "spec-org-pr-milestone-denied-spec-read-node",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-pr-milestone-denied-spec-write",
+      "owner": "spec-org-pr-milestone-denied-spec-write",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-pr-milestone-denied-spec-write-node",
+      "owner": "spec-org-pr-milestone-denied-spec-write-node",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-pr-milestone-node",
+      "owner": "spec-org-pr-milestone-node",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
       "name": "spec-pr-no-changes",
       "owner": "spec-org-pr-no-changes",
       "visibility": "Public",
@@ -6984,6 +9368,326 @@
     {
       "name": "spec-review-decision-comment",
       "owner": "spec-org-review-decision-comment",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-review-denied-author",
+      "owner": "spec-org-review-denied-author",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-review-denied-draft",
+      "owner": "spec-org-review-denied-draft",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Draft",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "draft-feature",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-review-denied-read",
+      "owner": "spec-org-review-denied-read",
+      "visibility": "Public",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "team_grants": {},
+      "default_branch": "main",
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "spec-write"
+        },
+        "draft-feature": {
+          "base": "main",
+          "files": {
+            "README.md": "draft changes",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Draft update",
+          "author": "spec-write"
+        }
+      },
+      "labels": [
+        "bug"
+      ],
+      "milestones": [
+        "v1.0"
+      ],
+      "issues": [],
+      "pull_requests": [
+        {
+          "number": 1,
+          "title": "Improve onboarding",
+          "description": "Describe the onboarding improvement.",
+          "status": "Open",
+          "author": "spec-write",
+          "base": "main",
+          "compare": "feature-search",
+          "reviews": [],
+          "reviewers": [],
+          "inline_comments": [],
+          "check_test": "pending",
+          "discussion": [
+            {
+              "author": "spec-write",
+              "body": "Please review this update."
+            }
+          ]
+        }
+      ],
+      "branch_protection": {}
+    },
+    {
+      "name": "spec-review-denied-triage",
+      "owner": "spec-org-review-denied-triage",
       "visibility": "Public",
       "direct_grants": {
         "spec-admin": "Admin",
@@ -8111,6 +10815,52 @@
         }
       ],
       "source_repository": "alice-dev/acme-docs"
+    },
+    {
+      "name": "foreign-milestone-repo",
+      "owner": "alice-dev",
+      "visibility": "Public",
+      "default_branch": "main",
+      "direct_grants": {
+        "spec-admin": "Admin",
+        "spec-write": "Write",
+        "spec-maintain": "Maintain",
+        "spec-triage": "Triage",
+        "spec-read": "Read",
+        "bob-reviewer": "Write"
+      },
+      "branches": {
+        "main": {
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"search flow\";"
+          },
+          "commit_message": "Document search flow",
+          "author": "alice-dev",
+          "committed_at": "2026-09-01T12:00:00Z",
+          "parent_revision": {
+            "files": {},
+            "commit_message": "Initialize empty repository",
+            "author": "alice-dev",
+            "committed_at": "2026-08-31T12:00:00Z"
+          }
+        },
+        "feature-search": {
+          "base": "main",
+          "files": {
+            "README.md": "search flow",
+            "src/search.ts": "export const search = \"merged search flow\";",
+            "main-only.md": "feature-only content"
+          },
+          "commit_message": "Implement search flow",
+          "author": "alice-dev"
+        }
+      },
+      "issues": [],
+      "pull_requests": [],
+      "milestones": [
+        "foreign-milestone"
+      ]
     }
   ],
   "isolation": "Each caseId owns a separate mutable repository/organization. Fresh server data is required for a new suite invocation; restore these seeds before repeated runs. Each test owns its browser session.",

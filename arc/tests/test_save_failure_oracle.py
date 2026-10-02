@@ -37,7 +37,7 @@ if(location.pathname==='/') {
    const result=await response.json();if(!response.ok)throw Error(result.error);
    saved=value;cell.textContent=value;formula.value=value;errors.innerHTML='';
   } catch(error) {
-   errors.innerHTML='';const alert=document.createElement('p');alert.setAttribute('role','alert');alert.textContent=mode.includes('generic')?'Could not store changes':error.message;errors.append(alert);
+   errors.innerHTML='';const alert=document.createElement('p');if(!mode.includes('plain'))alert.setAttribute('role','alert');alert.textContent=mode.includes('generic')?'Could not store changes':error.message;errors.append(alert);
    if(!mode.endsWith('bad')){cell.textContent=saved;formula.value=saved;}
   }
  };
@@ -77,7 +77,7 @@ class SaveFailureOracleTests(unittest.TestCase):
                 source="import {test,expect} from './helpers'; import * as h from './helpers';\n"
                 address=f'http://127.0.0.1:{server.server_port}'
                 modes=('cells-good','workbook-good','cells-retry-good','workbook-retry-good',
-                       'cells-generic-good','workbook-generic-good','cells-bad','workbook-bad')
+                       'cells-generic-good','workbook-generic-good','cells-plain-good','workbook-plain-generic-good','cells-bad','workbook-bad')
                 for mode in modes:
                     source+=f"test('{mode}',async({{page,context,browser}})=>{{ await context.addCookies([{{name:'oracle',value:'{mode}',url:'{address}'}}]);\n"+bodies[0]+"\n});\n"
                 (suite/'oracle.spec.ts').write_text(source)
@@ -89,6 +89,9 @@ class SaveFailureOracleTests(unittest.TestCase):
                                  {r.title:r.message for r in summary.results if not r.ok})
                 for row in summary.results:
                     if row.title.endswith('bad'):self.assertIn('original',row.message)
+                if proof:=os.environ.get('OCTOS_SHEET_SAVE_PROOF'):
+                    path=Path(proof);path.parent.mkdir(parents=True,exist_ok=True)
+                    path.write_text(json.dumps([{'title':r.title,'ok':r.ok,'message':r.message} for r in summary.results],ensure_ascii=False,indent=2)+'\n')
         finally:server.shutdown();server.server_close();thread.join()
 
 if __name__=='__main__':unittest.main()

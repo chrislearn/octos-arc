@@ -1,0 +1,1156 @@
+t turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.update_environment_variables",
+        "title": "update_environment_variables",
+        "description": "Update production runtime environment variables for a site. Only listed keys change; all others remain unchanged. Store runtime values in Sites, not .openai/hosting.json. Deploy a saved version after any change to apply the new environment revision.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "set_values": {
+              "description": "Environment entries to create or replace. Keys are case-sensitive and must match the application. Do not repeat keys or include a key also listed in remove. Mark sensitive values as secrets.",
+              "items": {
+                "properties": {
+                  "key": {
+                    "description": "Required non-empty, case-sensitive environment variable name.",
+                    "title": "Key",
+                    "type": "string"
+                  },
+                  "value": {
+                    "title": "Value",
+                    "type": "string"
+                  },
+                  "is_secret": {
+                    "default": false,
+                    "description": "Set true for sensitive values so they are not returned in plaintext.",
+                    "title": "Is Secret",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "const": "envvar",
+                    "default": "envvar",
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "value"
+                ],
+                "title": "UpdateAppgardenEnvironmentEnvVarEntryRequest",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Set Values",
+              "type": "array"
+            },
+            "remove": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Case-sensitive environment keys to remove. Do not repeat keys or include a key also present in set_values. Omit or pass an empty list to preserve other keys.",
+              "title": "Remove"
+            }
+          },
+          "required": [
+            "project_id",
+            "set_values"
+          ],
+          "title": "AppgardenUpdateEnvironmentVariablesRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "entries": {
+              "items": {
+                "properties": {
+                  "key": {
+                    "title": "Key",
+                    "type": "string"
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Value"
+                  },
+                  "is_secret": {
+                    "default": false,
+                    "title": "Is Secret",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "const": "envvar",
+                    "default": "envvar",
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "value"
+                ],
+                "title": "AppgardenEnvironmentEnvVarEntryResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Entries",
+              "type": "array"
+            },
+            "revision": {
+              "title": "Revision",
+              "type": "integer"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated At"
+            },
+            "instructions": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Runtime configuration instructions for this project, when applicable.",
+              "title": "Instructions"
+            }
+          },
+          "required": [
+            "project_id",
+            "entries",
+            "revision",
+            "updated_at"
+          ],
+          "title": "AppgardenEnvironmentResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "sites.update_environment_variables",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/update_environment_variables",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_update_site_access",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.update_site_access",
+        "title": "update_site_access",
+        "description": "Update who can visit a site only when the user asks to change access. Set access_mode only when the user explicitly requests a different audience; omit it for collaborator-only updates. Never change the audience to deploy a site. The owner always remains allowed. For workspace sites, call list_available_access_groups before adding groups and use only the IDs the user selects. To add or remove workspace viewers, pass their account user IDs in viewer_changes. For external visitors or full allowlist replacement, pass the complete allowed_user_emails list; do not also pass viewer_changes. Before adding an external viewer, call get_site and confirm external_visitor_invites_enabled is true. This does not restrict removing existing external viewers. Omit allowed_user_emails to preserve existing users and external visitors. Adding an external visitor may send an invitation email.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "access_mode": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "workspace_all",
+                    "custom"
+                  ],
+                  "title": "AppProjectSettableAccessMode",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Set only when the user explicitly requests a new site audience: public grants anyone with the URL; workspace_all grants all active workspace users; custom uses the user and group allowlists. Omit to preserve the current audience."
+            },
+            "allowed_user_emails": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Complete user email allowlist, including workspace users and external visitors. Omit to preserve all existing users; pass an empty list to remove every non-owner user and external visitor. Adding an external visitor may send an invitation email.",
+              "title": "Allowed User Emails"
+            },
+            "allowed_workspace_group_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Workspace group ID allowlist. IDs must come from list_available_access_groups and belong to the site workspace. Omit to preserve the existing allowlist; pass an empty list to clear it.",
+              "title": "Allowed Workspace Group Ids"
+            },
+            "allowed_tenant_group_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Tenant group ID allowlist. IDs must come from list_available_access_groups and belong to the tenant linked to the site workspace. Omit to preserve the existing allowlist; pass an empty list to clear it.",
+              "title": "Allowed Tenant Group Ids"
+            },
+            "editor_changes": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "add_editor_account_user_ids": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": "Add Editor Account User Ids",
+                      "type": "array"
+                    },
+                    "remove_editor_account_user_ids": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": "Remove Editor Account User Ids",
+                      "type": "array"
+                    },
+                    "add_editor_group_ids": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": "Add Editor Group Ids",
+                      "type": "array"
+                    },
+                    "remove_editor_group_ids": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": "Remove Editor Group Ids",
+                      "type": "array"
+                    }
+                  },
+                  "title": "AppgardenProjectEditorChanges",
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Same-workspace editors to add or remove from the Site."
+            },
+            "viewer_changes": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "add_viewer_account_user_ids": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": "Add Viewer Account User Ids",
+                      "type": "array"
+                    },
+                    "remove_viewer_account_user_ids": {
+                      "items": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "title": "Remove Viewer Account User Ids",
+                      "type": "array"
+                    }
+                  },
+                  "title": "AppgardenProjectViewerChanges",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Same-workspace viewers to add or remove without replacing existing access."
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "title": "AppgardenUpdateSiteAccessRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Appgen project ID",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "access_mode": {
+              "description": "Access mode for the app.",
+              "enum": [
+                "public",
+                "admins_only",
+                "workspace_all",
+                "custom"
+              ],
+              "title": "AppProjectAccessMode",
+              "type": "string"
+            },
+            "allowed_account_user_ids": {
+              "description": "Account user ID allowlist for the app.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowed Account User Ids",
+              "type": "array"
+            },
+            "external_visitor_count": {
+              "default": 0,
+              "description": "Number of email-bound external visitors allowed to view the site.",
+              "title": "External Visitor Count",
+              "type": "integer"
+            },
+            "allowed_users": {
+              "description": "Allowed workspace users and email-bound external visitors. External visitors use their grant ID as account_user_id and set is_external.",
+              "items": {
+                "properties": {
+                  "account_user_id": {
+                    "description": "Stable row identifier. This is an account user ID for a workspace user and an external visitor grant ID when is_external is true.",
+                    "title": "Account User Id",
+                    "type": "string"
+                  },
+                  "email": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Email address for the allowed user, when available.",
+                    "title": "Email"
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Display name for the allowed user, when available.",
+                    "title": "Name"
+                  },
+                  "avatar_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Avatar Url"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "owner",
+                          "editor",
+                          "viewer"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Project sharing role when supplied by the current access response.",
+                    "title": "Role"
+                  },
+                  "is_external": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "True when this email is authorized as an external visitor rather than through workspace membership.",
+                    "title": "Is External"
+                  }
+                },
+                "required": [
+                  "account_user_id"
+                ],
+                "title": "AppGardenAccessUserResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Allowed Users",
+              "type": "array"
+            },
+            "allowed_groups": {
+              "description": "Group details resolved from allowed workspace and tenant group IDs.",
+              "items": {
+                "properties": {
+                  "id": {
+                    "description": "Group ID to use in an Appgen access policy.",
+                    "title": "Id",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Group display name.",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "size": {
+                    "description": "Total number of members in the group.",
+                    "title": "Size",
+                    "type": "integer"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "viewer",
+                          "editor"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Site sharing role when supplied by the current access response.",
+                    "title": "Role"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "size"
+                ],
+                "title": "AppGardenAccessGroupResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Allowed Groups",
+              "type": "array"
+            },
+            "allowed_workspace_group_ids": {
+              "description": "Workspace group ID allowlist for the app.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowed Workspace Group Ids",
+              "type": "array"
+            },
+            "allowed_tenant_group_ids": {
+              "description": "Tenant group ID allowlist for the app.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Allowed Tenant Group Ids",
+              "type": "array"
+            },
+            "revision": {
+              "description": "Monotonic access policy revision.",
+              "title": "Revision",
+              "type": "integer"
+            },
+            "updated_at": {
+              "description": "Access policy update timestamp.",
+              "title": "Updated At",
+              "type": "string"
+            },
+            "allowed_editors": {
+              "description": "Accepted project editors in the current workspace.",
+              "items": {
+                "properties": {
+                  "account_user_id": {
+                    "description": "Stable row identifier. This is an account user ID for a workspace user and an external visitor grant ID when is_external is true.",
+                    "title": "Account User Id",
+                    "type": "string"
+                  },
+                  "email": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Email address for the allowed user, when available.",
+                    "title": "Email"
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Display name for the allowed user, when available.",
+                    "title": "Name"
+                  },
+                  "avatar_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Avatar Url"
+                  },
+                  "role": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "owner",
+                          "editor",
+                          "viewer"
+                        ],
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "Project sharing role when supplied by the current access response.",
+                    "title": "Role"
+                  },
+                  "is_external": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "description": "True when this email is authorized as an external visitor rather than through workspace membership.",
+                    "title": "Is External"
+                  }
+                },
+                "required": [
+                  "account_user_id"
+                ],
+                "title": "AppGardenAccessUserResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Allowed Editors",
+              "type": "array"
+            }
+          },
+          "required": [
+            "project_id",
+            "access_mode",
+            "allowed_account_user_ids",
+            "allowed_users",
+            "allowed_groups",
+            "allowed_workspace_group_ids",
+            "allowed_tenant_group_ids",
+            "revision",
+            "updated_at"
+          ],
+          "title": "AppGardenAccessPolicyResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": true
+        },
+        "_meta": {
+          "_codex_apps": {
+            "accepted_mcp_request_meta_keys": [
+              "openai/codex_client_type"
+            ],
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/update_site_access",
+            "contains_mcp_source": false
+          },
+          "resource_name": "sites.update_site_access",
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_update_site_metadata",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.update_site_metadata",
+        "title": "update_site_metadata",
+        "description": "Update a site's display title. This does not change the site's public URL.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "title": {
+              "description": "New user-facing site title.",
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id",
+            "title"
+          ],
+          "title": "AppgardenUpdateSiteMetadataRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "description": "Opaque site project ID. Pass this exact value as project_id.",
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "slug": {
+              "title": "Slug",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "suspended",
+                "deleting"
+              ],
+              "title": "AppProjectStatus",
+              "type": "string"
+            },
+            "auth_client_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Client Id"
+            },
+            "latest_version_number": {
+              "title": "Latest Version Number",
+              "type": "integer"
+            },
+            "current_preview_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Current Preview Url"
+            },
+            "current_live_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Current Live Url"
+            },
+            "screenshot_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Screenshot Url"
+            },
+            "disabled_by": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "workspace_admin",
+                    "openai"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Disabled By"
+            },
+            "created_at": {
+              "title": "Created At",
+              "type": "string"
+            },
+            "updated_at": {
+              "title": "Updated At",
+              "type": "string"
+            },
+            "latest_edit_context": {
+              "anyOf": [
+                {
+                  "description": "The authenticated user's last Site edit; never another editor's context.",
+                  "properties": {
+                    "chatgpt_conversation_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Chatgpt Conversation Id"
+                    },
+                    "codex_thread_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Codex Thread Id"
+                    }
+                  },
+                  "title": "SitesLatestEditContext",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "slug",
+            "status",
+            "auth_client_id",
+            "latest_version_number",
+            "current_preview_url",
+            "current_live_url",
+            "screenshot_url",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "AppgardenProjectResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "sites.update_site_metadata",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/update_site_metadata",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_validate_suggested_schedule",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.validate_suggested_schedule",
+        "title": "validate_suggested_schedule",
+        "description": "Validate a model-proposed cloud schedule for a published Site and return it for the user to set up. Read get_site first and skip Sites with existing automations. Supply a concise recurring task and its sources; include timing only when the user specified it. Checks Site ownership, publication, and existing schedules; it does not generate the proposal or validate whether the task can execute. Returns no suggestion when a schedule is already attached. Never creates or enables a task. For an explicit user request for recurring Site work, use Sites create_schedule after publication. Confirm scheduling only from the real task creation result.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "schedule_suggestion": {
+              "properties": {
+                "title": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "title": "Title",
+                  "type": "string"
+                },
+                "prompt": {
+                  "maxLength": 8000,
+                  "minLength": 1,
+                  "title": "Prompt",
+                  "type": "string"
+                },
+                "schedule": {
+                  "anyOf": [
+                    {
+                      "maxLength": 1000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "An RRULE only when the user specified timing; otherwise omit it for setup.",
+                  "title": "Schedule"
+                }
+              },
+              "required": [
+                "title",
+                "prompt"
+              ],
+              "title": "SitesScheduleSuggestion",
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "project_id",
+            "schedule_suggestion"
+          ],
+          "title": "SitesSuggestScheduleRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "current_live_url": {
+              "title": "Current Live Url",
+              "type": "string"
+            },
+            "schedule_suggestion": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "title": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "prompt": {
+                      "maxLength": 8000,
+                      "minLength": 1,
+                      "title": "Prompt",
+                      "type": "string"
+                    },
+                    "schedule": {
+                      "anyOf": [
+                        {
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "An RRULE only when the user specified timing; otherwise omit it for setup.",
+                      "title": "Schedule"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "prompt"
+                  ],
+                  "title": "SitesScheduleSuggestion",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "project_id",
+            "title",
+            "current_live_url",
+            "schedule_suggestion"
+          ],
+          "title": "SitesSuggestScheduleResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "app"
+            ]
+          },
+          "resource_name": "sites.validate_suggested_schedule",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/validate_suggested_schedule",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_execute_document_command",
+      "tool_namespace": "codex_apps__codex_document_control",
+      "namespace_description": "Use Codex Document Control to find connected document sessions, inspect the tools supported by a selected session, and execute one supported tool against that session. Call `list_document_sessions` first to choose the intended connected session, call `get_document_tool_schemas` before constructing tool arguments, then call `execute_document_command` with a caller-stable `idempotency_key`. Use this only for connected Codex document control; do not use it for general spreadsheet, presentation, or document tasks without a connected document session.",
+      "tool": {
+        "name": "codex_document_control.execute_document_command",
+        "title": "execute_document_command",
+        "description": "Execute one supported surface-specific tool against a connected Codex document session. First call `list_document_sessions` to choose the intended `executor_session_id` and `supported_tools[].name`, then call `get_document_tool_schemas` for the selected `surface`, that `supported_tools[].name` as `tool_name`, and `version` before constructing `args`. `idempotency_key` must be a caller-stable key that you reuse verbatim only when retrying the same logical document-control command; use a new key for a different command.",
+        "inputSchema": {
+          "properties": {
+            "executor_session_id": {
+              "description": "Exact `executor_session_id` copied from the selected Codex document session returned by `list_document_sessions`.",
+              "title": "Executor Session Id",
+              "type": "string"
+            },
+            "idempotency_key": {
+              "description": "Caller-stable idempotency key for this logical document-control command. Reuse the exact same key only for retries of the same command.",
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Idempotency Key",
+              "type": "string"
+            },
+            "tool_name": {
+              "description": "Exact selected session `supported_tools[].name` copied from `list_document_sessions`.",
+              "title": "Tool Name",
+              "type": "string"
+            },
+            "args": {
+              "additionalProperties": {},
+              "description": "JSON object of arguments matching the selected tool's `input_schema` from `get_document_tool_schemas`.",
+              "title": "Args",
+              "type": "object"
+            }
+          },
+          "required": [
+            "executor_session_id",
+            "idempotency_key",
+            "tool_name",
+            "args"
+          ],
+          "title": "execute_document_command_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "codex_document_control.execute_document_command",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_codex_document_control/implicit_link::connector_openai_codex_document_control/execute_document_command",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_codex_document_control",
+          "connector_name": "Codex Document Control",
+          "connector_description": "Use Codex Document Control to find connected document sessions, inspect the tools supported by a selected session, and execute one supported tool against that session. Call `list_document_sessions` first to choose the intended connected session, call `get_document_tool_schemas` before constructing tool arguments, then call `execute_document_command` with a caller-stable `idempotency_key`. Use this only for connected Codex document control; do not use it for general spreadsheet, presentation, or document tasks without a connected document session.",
+          "link_id": "implicit_link::connector_openai_codex_document_control"
+        }
+      },
+      "connector_id": "connector_openai_codex_document_control",
+      "connector_name": "Codex Document Control",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_document_tool_schemas",
+      "tool_namespace": "codex_apps__codex_document_control",
+      "namespace_description": "Use Codex Document Control to find connected document sessions, inspect the tools supported by a selected session, and execute one supported tool against that session. Call `list_document_sessions` first to choose the intended connected session, call `get_document_tool_schemas` before constructing tool arguments, then call `execute_document_command` with a caller-stable `idempotency_key`. Use this only for connected Codex document control; do not use it for general spreadsheet, presentation, or document tasks without a connected document session.",
+      "tool": {
+        "name": "codex_document_control.get_document_tool_schemas",
+        "title": "get_document_tool_schemas",
+        "description": "Fetch the concrete input schemas for tools supported by a selected Codex document session before constructing `execute_document_command.args`. First call `list_document_sessions`, then pass the exact `surface`, selected `supported_tools[].name` as `tool_name`, and `version` values from that session's `supported_tools` records.",
+        "inputSchema": {
+          "properties": {
+            "items": {
+              "description": "Exact tool schema lookup keys from Codex document session discovery, keyed by `surface`, `supported_tools[].name` passed as `tool_name`, and `version`.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "surface": {
+                    "description": "Document surface. Use `excel` for Excel workbooks, `powerpoint` for PowerPoint presentations, `word` for Word documents, or `sheets` for Google Sheets spreadsheets.",
+                    "enum": [
+                      "excel",
+                      "powerpoint",
+                      "sheets",
+                      "word"
+                    ],
+                    "title": "Surface",
+                    "type": "string"
+                  },
+                  "tool_name": {
+                    "description": "Exact `suppo

@@ -1,0 +1,112 @@
+Listing tests:
+  REQ-1-1-1.spec.ts:6:5 › REQ-1-1-1: registration entry accepts valid account and redirects to sign-in without exposing password
+  REQ-1-1-1.spec.ts:14:5 › REQ-1-1-1: all invalid fields show errors together and clear sensitive values
+  REQ-1-1-1.spec.ts:22:5 › REQ-1-1-1: duplicate username preserves both attempted non-sensitive values
+  REQ-1-1-2.spec.ts:6:5 › REQ-1-1-2: existing alice-dev creates persistent session
+  REQ-1-1-2.spec.ts:11:5 › REQ-1-1-2: existing alice.dev@example.test creates persistent session
+  REQ-1-1-2.spec.ts:16:5 › REQ-1-1-2: generic credential rejection for unknown-reviewer / account state
+  REQ-1-1-2.spec.ts:22:5 › REQ-1-1-2: generic credential rejection for alice-dev / wrong password
+  REQ-1-1-2.spec.ts:28:5 › REQ-1-1-2: generic credential rejection for spec-unavailable / account state
+  REQ-1-1-2.spec.ts:34:5 › REQ-1-1-2: guide: a newly registered identity signs in by email and username across reload and an independent session
+  REQ-1-1-2.spec.ts:49:5 › REQ-1-1-2: context REQ-1-1-1: registered credentials work by email and survive a later browser session
+  REQ-1-1-3.spec.ts:6:5 › REQ-1-1-3: valid local recovery updates only registered credentials; invalid code preserves old password
+  REQ-1-1-3.spec.ts:15:5 › REQ-1-1-3: unknown email shows the same fixed code and reset form but cannot update an account
+  REQ-1-2.spec.ts:6:5 › REQ-1-2: cancel retains session and confirm invalidates protected page after reload/back/direct entry
+  REQ-1-2.spec.ts:14:5 › REQ-1-2: sign-out invalidates only this browser session and preserves another session
+  REQ-1-3.spec.ts:6:5 › REQ-1-3: password change uses current account and old password no longer signs in
+  REQ-1-3.spec.ts:13:5 › REQ-1-3: missing current password and mismatch leave original credentials usable
+  REQ-2-1-1.spec.ts:6:5 › REQ-2-1-1: organization live repository filter exposes public result and hides private result
+  REQ-2-1-2.spec.ts:6:5 › REQ-2-1-2: create organization persists identifier and creator Owner relationship
+  REQ-2-1-2.spec.ts:13:5 › REQ-2-1-2: duplicate organization and malformed input remain retryable without creating organization
+  REQ-2-2-1.spec.ts:6:5 › REQ-2-2-1: Owner creates unique team without optional description or parent
+  REQ-2-2-1.spec.ts:12:5 › REQ-2-2-1: invalid team name leaves creation form and no team
+  REQ-2-2-2.spec.ts:6:5 › REQ-2-2-2: Owner adds and immediately removes direct team member with persistence
+  REQ-2-2-2.spec.ts:13:5 › REQ-2-2-2: cycle rejects and preserves original parent value across reload
+  REQ-2-2-3.spec.ts:6:5 › REQ-2-2-3: adding Member is immediate, listed after own login, but grants no private access
+  REQ-2-2-3.spec.ts:13:5 › REQ-2-2-3: unknown and duplicate member keep form open and do not duplicate membership
+  REQ-2-2-4.spec.ts:6:5 › REQ-2-2-4: Owner removes membership and associated access without deleting account
+  REQ-2-2-4.spec.ts:12:5 › REQ-2-2-4: ordinary member has no removal controls
+  REQ-2-3.spec.ts:6:5 › REQ-2-3: live team search creates one Write grant and reload retains it
+  REQ-2-3.spec.ts:12:5 › REQ-2-3: native Read selection replaces Write rather than appending a grant
+  REQ-3-1.spec.ts:6:5 › REQ-3-1: global search opens public identity and excludes private repository
+  REQ-3-1.spec.ts:11:5 › REQ-3-1: empty repository search is repeatable without stale results
+  REQ-3-1.spec.ts:16:5 › REQ-3-1: guide: public scenario prerequisites are searchable before downstream operations
+  REQ-3-2-1.spec.ts:6:5 › REQ-3-2-1: default personal namespace creates initialized Private repository and saved README
+  REQ-3-2-1.spec.ts:12:5 › REQ-3-2-1: duplicate and empty repository names retain form and create no repository
+  REQ-3-2-2.spec.ts:6:5 › REQ-3-2-2: fork records source relationship and independent readable history
+  REQ-3-2-2.spec.ts:12:5 › REQ-3-2-2: conflicting fork name cannot open or modify an existing repository
+  REQ-3-2-3.spec.ts:6:5 › REQ-3-2-3: copy complete HTTPS clone value without modifying repository
+  REQ-3-2-3.spec.ts:12:5 › REQ-3-2-3: copy complete SSH clone value without modifying repository
+  REQ-3-3.spec.ts:6:5 › REQ-3-3: visitor public repository overview and Code navigation persist
+  REQ-3-4.spec.ts:6:5 › REQ-3-4: Admin makes Private repository Public and fresh visitor reads saved identity
+  REQ-3-4.spec.ts:12:5 › REQ-3-4: non-Admin cannot activate visibility change
+  REQ-4-1.spec.ts:6:5 › REQ-4-1: visitor directory/file navigation persists exact path content
+  REQ-4-2-1.spec.ts:6:5 › REQ-4-2-1: branch commit history displays exact message, author and relative timestamp
+  REQ-4-2-2.spec.ts:6:5 › REQ-4-2-2: visitor commit diff reads changed file and exact additions/deletions from the parent snapshot
+  REQ-4-2-3.spec.ts:6:5 › REQ-4-2-3: repository code result opens matching file with persisted code context
+  REQ-4-2-3.spec.ts:11:5 › REQ-4-2-3: no code matches retain exact query across repeated searches
+  REQ-4-3-1.spec.ts:6:5 › REQ-4-3-1: branch live selector switches file snapshot and persists current page branch
+  REQ-4-3-1.spec.ts:11:5 › REQ-4-3-1: unknown branch leaves original branch intact after Escape and refresh
+  REQ-4-3-2.spec.ts:6:5 › REQ-4-3-2: Write branch creation defaults to current head and switches immediately
+  REQ-4-3-2.spec.ts:11:5 › REQ-4-3-2: invalid branch is rejected live and never created
+  REQ-4-3-2.spec.ts:16:5 › REQ-4-3-2: spec-read cannot create branch reference
+  REQ-4-3-2.spec.ts:25:5 › REQ-4-3-2: spec-triage cannot create branch reference
+  REQ-4-3-3.spec.ts:6:5 › REQ-4-3-3: Admin changes native default branch and old branch still exists
+  REQ-4-3-3.spec.ts:11:5 › REQ-4-3-3: non-Admin default-branch edit controls are absent
+  REQ-4-3-3.spec.ts:16:5 › REQ-4-3-3: guide: required release branch is persisted as default without changing main
+  REQ-4-4.spec.ts:6:5 › REQ-4-4: file creation persists exact contents
+  REQ-4-4.spec.ts:12:5 › REQ-4-4: invalid path rejects even with a valid commit message
+  REQ-4-4.spec.ts:19:5 › REQ-4-4: empty commit message rejects even with a valid file path
+  REQ-4-4.spec.ts:26:5 › REQ-4-4: guide: editing creates a real commit and an old revision retains its original bytes
+  REQ-4-4.spec.ts:49:5 › REQ-4-4: context REQ-4-4: invalid path and empty message cannot change files or history
+  REQ-4-4.spec.ts:55:5 › REQ-4-4: context REQ-4-4: successful file write adds a commit while an earlier revision keeps its original bytes
+  REQ-4-4.spec.ts:64:5 › REQ-4-4: context REQ-2-3: guide: direct team grant changes effective permissions without hierarchy inheritance or account deletion
+  REQ-5-1-1.spec.ts:6:5 › REQ-5-1-1: Open/Closed live issue filters combine with keyword and survive refresh
+  REQ-5-1-2.spec.ts:6:5 › REQ-5-1-2: visitor issue detail shows complete title, description and readable timeline
+  REQ-5-2-1.spec.ts:6:5 › REQ-5-2-1: Write creates issue with exact title/body and list reads same persisted record
+  REQ-5-2-1.spec.ts:12:5 › REQ-5-2-1: blank issue title creates neither issue nor partial record
+  REQ-5-2-2.spec.ts:6:5 › REQ-5-2-2: Maintain saves issue title and body with separate commit actions and persists both
+  REQ-5-2-2.spec.ts:12:5 › REQ-5-2-2: blank edited title preserves exact original title after reload
+  REQ-5-2-2.spec.ts:17:5 › REQ-5-2-2: spec-read cannot edit issue content
+  REQ-5-2-2.spec.ts:24:5 › REQ-5-2-2: spec-triage cannot edit issue content
+  REQ-5-2-3.spec.ts:6:5 › REQ-5-2-3: Write comment stores full body and author and survives reload
+  REQ-5-2-3.spec.ts:11:5 › REQ-5-2-3: blank comment adds no article or activity through either allowed UI behavior
+  REQ-5-3-1.spec.ts:6:5 › REQ-5-3-1: eligible assignee is saved live and removed without erasing timeline
+  REQ-5-3-1.spec.ts:11:5 › REQ-5-3-1: spec-read does not acquire metadata authority from role name
+  REQ-5-3-1.spec.ts:18:5 › REQ-5-3-1: spec-write does not acquire metadata authority from role name
+  REQ-5-3-2.spec.ts:6:5 › REQ-5-3-2: existing label toggle immediately saves and removes association
+  REQ-5-3-3.spec.ts:6:5 › REQ-5-3-3: milestone selection saves immediately and None removes only association
+  REQ-5-4.spec.ts:6:5 › REQ-5-4: Maintain closes and reopens issue preserving title, body and state
+  REQ-5-4.spec.ts:11:5 › REQ-5-4: Read viewer has neither issue status control
+  REQ-5-4.spec.ts:16:5 › REQ-5-4: guide: an Issue created by Write keeps comments and assignee across Maintain status changes
+  REQ-6-1.spec.ts:6:5 › REQ-6-1: Admin stores exact branch protection toggles and reload displays summaries
+  REQ-6-1.spec.ts:11:5 › REQ-6-1: non-Admin cannot create protection rule
+  REQ-6-2-1.spec.ts:6:5 › REQ-6-2-1: visitor Open PR list filter reads same persisted PR after repeated navigation
+  REQ-6-2-2.spec.ts:6:5 › REQ-6-2-2: native base/compare show exact changed file and comparable commits
+  REQ-6-2-2.spec.ts:11:5 › REQ-6-2-2: equal base and compare disable creation before compare button and afterward
+  REQ-6-2-3.spec.ts:6:5 › REQ-6-2-3: create Open PR from comparison persists exact title and description
+  REQ-6-2-3.spec.ts:11:5 › REQ-6-2-3: blank PR title keeps form and creates no PR
+  REQ-6-2-3.spec.ts:16:5 › REQ-6-2-3: context REQ-6-1: Admin changes current compare-commit check pending to success and persists setter
+  REQ-6-2-4.spec.ts:6:5 › REQ-6-2-4: Draft creation is persistent and has present disabled merge action
+  REQ-6-2-4.spec.ts:11:5 › REQ-6-2-4: author marks Draft ready without changing title or branches
+  REQ-6-3-1.spec.ts:6:5 › REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen
+  REQ-6-3-2.spec.ts:6:5 › REQ-6-3-2: visitor diff displays exact path and exact aggregate additions/deletions from both changed files
+  REQ-6-3-3.spec.ts:6:5 › REQ-6-3-3: single inline comment persists at changed line
+  REQ-6-3-3.spec.ts:11:5 › REQ-6-3-3: pending review draft persists at changed line
+  REQ-6-3-4.spec.ts:6:5 › REQ-6-3-4: Approve submission persists current-commit review
+  REQ-6-3-4.spec.ts:13:5 › REQ-6-3-4: Request changes submission persists current-commit review
+  REQ-6-3-4.spec.ts:20:5 › REQ-6-3-4: Comment submission persists current-commit review
+  REQ-6-3-4.spec.ts:27:5 › REQ-6-3-4: latest Comment replaces Request changes while retaining history
+  REQ-6-3-4.spec.ts:35:5 › REQ-6-3-4: guide: submitting one review publishes only that reviewers drafts
+  REQ-6-4.spec.ts:6:5 › REQ-6-4: author requests and removes live eligible reviewer without confirmation
+  REQ-6-5.spec.ts:6:5 › REQ-6-5: Maintain merge commits actual changes to base branch and persists terminal status
+  REQ-6-5.spec.ts:12:5 › REQ-6-5: missing required approval blocks merge before click and retains PR and branch
+  REQ-6-5.spec.ts:17:5 › REQ-6-5: check-only enforces only its configured merge prerequisites
+  REQ-6-5.spec.ts:24:5 › REQ-6-5: approval-only enforces only its configured merge prerequisites
+  REQ-6-5.spec.ts:31:5 › REQ-6-5: unprotected enforces only its configured merge prerequisites
+  REQ-6-5.spec.ts:38:5 › REQ-6-5: current Request changes blocks an otherwise unprotected PR
+  REQ-6-5.spec.ts:43:5 › REQ-6-5: old-commit approval cannot satisfy a protected current-commit PR
+  REQ-6-5.spec.ts:48:5 › REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal
+  REQ-6-6.spec.ts:6:5 › REQ-6-6: author closes and reopens PR while discussion and branches persist
+  REQ-6-6.spec.ts:11:5 › REQ-6-6: Read viewer has no close or reopen action
+Total: 110 tests in 47 files

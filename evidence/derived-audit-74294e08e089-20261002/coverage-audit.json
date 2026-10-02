@@ -1,0 +1,817 @@
+[
+  {
+    "requirement_id": "REQ-1-1-1",
+    "name": "Register a New GitHub Account",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 60,
+    "description_line": 64,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-1-1-1.spec.ts",
+    "case_count": 3,
+    "existing_coverage": "成功注册、多字段错误、重复用户名；后续登录用例验证新账号可用",
+    "gaps_or_defects": "重复邮箱、单独确认不匹配、缺失字段、用户名和邮箱及密码边界未覆盖；字段角色和错误所属字段验证不足",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-1-1-1: registration entry accepts valid account and redirects to sign-in without exposing password",
+      "REQ-1-1-1: all invalid fields show errors together and clear sensitive values",
+      "REQ-1-1-1: duplicate username preserves both attempted non-sensitive values"
+    ]
+  },
+  {
+    "requirement_id": "REQ-1-1-2",
+    "name": "Sign In with an Existing Account",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 146,
+    "description_line": 151,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-1-1-2.spec.ts",
+    "case_count": 7,
+    "existing_coverage": "用户名及邮箱登录、未知账号、错误密码、不可用账号、刷新及独立会话",
+    "gaps_or_defects": "失败保留标识并清空密码、受保护请求使用真实会话、重复登录不新增账号未验证；共享登录 helper 过度要求用户名为独立文本",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-1-1-2: existing alice-dev creates persistent session",
+      "REQ-1-1-2: existing alice.dev@example.test creates persistent session",
+      "REQ-1-1-2: generic credential rejection for unknown-reviewer / account state",
+      "REQ-1-1-2: generic credential rejection for alice-dev / wrong password",
+      "REQ-1-1-2: generic credential rejection for spec-unavailable / account state",
+      "REQ-1-1-2: guide: a newly registered identity signs in by email and username across reload and an independent session",
+      "REQ-1-1-2: context REQ-1-1-1: registered credentials work by email and survive a later browser session"
+    ]
+  },
+  {
+    "requirement_id": "REQ-1-1-3",
+    "name": "Recover Account Access Through a Verified Email",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 252,
+    "description_line": 257,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-1-1-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "正确和错误验证码、未知邮箱进入相同下一步、更新后旧密码失效",
+    "gaps_or_defects": "新密码规则、确认不匹配、缺失字段、未知邮箱的字段错误、失败后密码清空、其他账号不变未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-1-1-3: valid local recovery updates only registered credentials; invalid code preserves old password",
+      "REQ-1-1-3: unknown email shows the same fixed code and reset form but cannot update an account"
+    ]
+  },
+  {
+    "requirement_id": "REQ-1-2",
+    "name": "Sign Out and End the Current Web Session",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 341,
+    "description_line": 346,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-1-2.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "Cancel 保留页面、确认退出、刷新及返回及直接进入、其他会话保留",
+    "gaps_or_defects": "关闭对话框等价于取消、对话框说明、仓库和组织受保护入口、服务器端会话撤销未充分验证",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-1-2: cancel retains session and confirm invalidates protected page after reload/back/direct entry",
+      "REQ-1-2: sign-out invalidates only this browser session and preserves another session"
+    ]
+  },
+  {
+    "requirement_id": "REQ-1-3",
+    "name": "Change Account Password",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 398,
+    "description_line": 403,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-1-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "成功换密、旧密码失效、缺当前密码、错误当前密码并确认不匹配",
+    "gaps_or_defects": "不合规新密码、单独缺失新密码或确认、失败后候选密码也不能登录、其他账号不变未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-1-3: password change uses current account and old password no longer signs in",
+      "REQ-1-3: missing current password and mismatch leave original credentials usable"
+    ]
+  },
+  {
+    "requirement_id": "REQ-2-1-1",
+    "name": "Browse Organization Repositories",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 521,
+    "description_line": 525,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-2-1-1.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "访客实时查公共仓库、返回、隐藏私有仓库",
+    "gaps_or_defects": "Public 或 Private 筛选、授权用户的私有仓库、完整 owner/name 与描述及更新时间未充分验证",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-2-1-1: organization live repository filter exposes public result and hides private result"
+    ]
+  },
+  {
+    "requirement_id": "REQ-2-1-2",
+    "name": "Create an Organization After Authentication",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 583,
+    "description_line": 588,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-2-1-2.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "成功创建及 Owner 关系、重复名称、非法名称和空白显示名",
+    "gaps_or_defects": "成功后 Your organizations 列表、名称及显示名边界、权限后续生效、创建失败的原子性未覆盖",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-2-1-2: create organization persists identifier and creator Owner relationship",
+      "REQ-2-1-2: duplicate organization and malformed input remain retryable without creating organization"
+    ]
+  },
+  {
+    "requirement_id": "REQ-2-2-1",
+    "name": "Create an Organization Team",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 720,
+    "description_line": 725,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-2-2-1.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "Owner 创建无描述无父级团队、非法名称拒绝",
+    "gaps_or_defects": "同组织重复名称、缺失或过长名称、正常父级、外组织父级、非 Owner 创建拒绝未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-2-2-1: Owner creates unique team without optional description or parent",
+      "REQ-2-2-1: invalid team name leaves creation form and no team"
+    ]
+  },
+  {
+    "requirement_id": "REQ-2-2-2",
+    "name": "Manage Organization Team Members and Hierarchy",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 796,
+    "description_line": 801,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-2-2-2.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "直接成员增加和删除持久化、选择后代造成环被拒绝；REQ-4-4 有部分授权联动",
+    "gaps_or_defects": "正常换父级、同组织约束、非 Owner、非组织成员、重复加入、完整无隐式继承矩阵未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-2-2-2: Owner adds and immediately removes direct team member with persistence",
+      "REQ-2-2-2: cycle rejects and preserves original parent value across reload"
+    ]
+  },
+  {
+    "requirement_id": "REQ-2-2-3",
+    "name": "Directly Add a User as an Organization Member",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 878,
+    "description_line": 883,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-2-2-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "立即加入 Member、个人组织列表可见但无私有仓库权限、未知及重复成员",
+    "gaps_or_defects": "按邮箱加入、Owner 加入与 Admin 效果、默认 Member、非法角色、非 Owner 提交未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-2-2-3: adding Member is immediate, listed after own login, but grants no private access",
+      "REQ-2-2-3: unknown and duplicate member keep form open and do not duplicate membership"
+    ]
+  },
+  {
+    "requirement_id": "REQ-2-2-4",
+    "name": "Remove a Member from an Organization",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 968,
+    "description_line": 973,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-2-2-4.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "Owner 删除成员后拒绝仓库访问、账号仍可登录、普通成员没有删除控件",
+    "gaps_or_defects": "最后 Owner 不可删除、所有团队成员关系及所有直接 grants 清理、team grants 和其他组织及个人仓库保留未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-2-2-4: Owner removes membership and associated access without deleting account",
+      "REQ-2-2-4: ordinary member has no removal controls"
+    ]
+  },
+  {
+    "requirement_id": "REQ-2-3",
+    "name": "Grant Repository Access to People and Teams",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1042,
+    "description_line": 1048,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-2-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "团队 Write 新增及改为 Read；REQ-4-4 有实时权限及移除团队成员联动",
+    "gaps_or_defects": "人员授权、所有五种角色、同角色重复保存、直接与团队 grants 叠加取最高角色、非 Admin 服务端拒绝未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-2-3: live team search creates one Write grant and reload retains it",
+      "REQ-2-3: native Read selection replaces Write rather than appending a grant"
+    ]
+  },
+  {
+    "requirement_id": "REQ-3-1",
+    "name": "Search for and Locate Repositories",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1146,
+    "description_line": 1150,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-3-1.spec.ts",
+    "case_count": 3,
+    "existing_coverage": "公共仓库可搜索及刷新、访客私有仓库不显示、空结果重复搜索、前置种子可发现",
+    "gaps_or_defects": "授权后私有仓库搜索及撤权后列表同步、多个 owner 的同名仓库身份验证不够全面；负断言可能过早完成",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-3-1: global search opens public identity and excludes private repository",
+      "REQ-3-1: empty repository search is repeatable without stale results",
+      "REQ-3-1: guide: public scenario prerequisites are searchable before downstream operations"
+    ]
+  },
+  {
+    "requirement_id": "REQ-3-2-1",
+    "name": "Create a Repository with Owner, Visibility, and Initialization Options",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1271,
+    "description_line": 1276,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-3-2-1.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "个人 Private 加 README 及描述、空名称及重复名称",
+    "gaps_or_defects": "组织 owner 权限、Public 和不初始化路径、初始 commit 与 branch、初始化失败无部分记录未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-3-2-1: default personal namespace creates initialized Private repository and saved README",
+      "REQ-3-2-1: duplicate and empty repository names retain form and create no repository"
+    ]
+  },
+  {
+    "requirement_id": "REQ-3-2-2",
+    "name": "Fork a Repository into Another Namespace",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1362,
+    "description_line": 1368,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-3-2-2.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "公共仓库 fork、源关系文字、历史消息、名称冲突",
+    "gaps_or_defects": "源链接真实性、私有源保持 Private、源和目标权限、fork 修改不回写源、复制历史完整性未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-3-2-2: fork records source relationship and independent readable history",
+      "REQ-3-2-2: conflicting fork name cannot open or modify an existing repository"
+    ]
+  },
+  {
+    "requirement_id": "REQ-3-2-3",
+    "name": "Copy a Repository Clone Value",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1428,
+    "description_line": 1433,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-3-2-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "HTTPS 和 SSH 复制及 Copied 反馈",
+    "gaps_or_defects": "只匹配仓库名和协议，错误 owner 也通过；未比较显示值与剪贴板或验证读取不改变仓库",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-3-2-3: copy complete HTTPS clone value without modifying repository",
+      "REQ-3-2-3: copy complete SSH clone value without modifying repository"
+    ]
+  },
+  {
+    "requirement_id": "REQ-3-3",
+    "name": "View a Public Repository Overview",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1490,
+    "description_line": 1494,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-3-3.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "访客读 Public 和 Code 链接、刷新仓库标题",
+    "gaps_or_defects": "owner/name 身份、描述和主要元数据、默认分支及内容入口验证不足",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-3-3: visitor public repository overview and Code navigation persist"
+    ]
+  },
+  {
+    "requirement_id": "REQ-3-4",
+    "name": "Change Repository Visibility with Permission Checks",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1526,
+    "description_line": 1532,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-3-4.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "Private 转 Public 后新访客读取、Write 看不到改可见性按钮",
+    "gaps_or_defects": "Public 转 Private 后所有列表及搜索及直接入口同步、其他非 Admin 角色、服务端权限检查未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-3-4: Admin makes Private repository Public and fresh visitor reads saved identity",
+      "REQ-3-4: non-Admin cannot activate visibility change"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-1",
+    "name": "Browse Repository Files and Directories",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1620,
+    "description_line": 1625,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-1.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "目录到文件导航、完整文本及刷新",
+    "gaps_or_defects": "分支和路径及文件身份一起保留、最近 commit、切分支同路径内容、只读不改变状态未充分验证",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-1: visitor directory/file navigation persists exact path content"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-2-1",
+    "name": "View Repository Commit History",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1672,
+    "description_line": 1677,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-2-1.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "已知 commit 消息、页面上作者和相对时间",
+    "gaps_or_defects": "文件专属历史、逆序与 commit 关联、作者及时间属于同一记录未验证；跨节点编辑用例只覆盖部分历史不变量",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-2-1: branch commit history displays exact message, author and relative timestamp"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-2-2",
+    "name": "Inspect Commit and Revision Differences",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1710,
+    "description_line": 1715,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-2-2.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "已知路径与 Changed files 和固定数量摘要、直接重开 commit",
+    "gaps_or_defects": "实际新增及删除行、任意两可读 revision 的方向和内容差异、读取不改状态未充分验证",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-2-2: visitor commit diff reads changed file and exact additions/deletions from the parent snapshot"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-2-3",
+    "name": "Search Code Within a Repository",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1748,
+    "description_line": 1753,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-2-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "命中 README 后保存上下文、无结果和重复查询",
+    "gaps_or_defects": "跨仓库及不可读内容泄露、分支及 revision 范围、结果 snippet 与路径验证不足；path 和 language 本身是可选过滤",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-2-3: repository code result opens matching file with persisted code context",
+      "REQ-4-2-3: no code matches retain exact query across repeated searches"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-3-1",
+    "name": "List and Switch Repository Branches",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1874,
+    "description_line": 1879,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-3-1.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "实时 branch 筛选、目标独有文件、刷新目标 branch、未知项后 Escape 保留",
+    "gaps_or_defects": "原 branch 字节与上下文、同路径内容切换、纯读取不写用户设置未充分验证",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-3-1: branch live selector switches file snapshot and persists current page branch",
+      "REQ-4-3-1: unknown branch leaves original branch intact after Escape and refresh"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-3-2",
+    "name": "Create a Branch from an Existing Revision",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1931,
+    "description_line": 1937,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-3-2.spec.ts",
+    "case_count": 4,
+    "existing_coverage": "Write 创建且刷新保留、invalid..branch、Read 和 Triage 拒绝",
+    "gaps_or_defects": "255 字符边界和全部格式、重复名、真正指向当前 head、Maintain 及 Admin 和 Owner 正向未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-3-2: Write branch creation defaults to current head and switches immediately",
+      "REQ-4-3-2: invalid branch is rejected live and never created",
+      "REQ-4-3-2: spec-read cannot create branch reference",
+      "REQ-4-3-2: spec-triage cannot create branch reference"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-3-3",
+    "name": "Change the Repository Default Branch",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 1996,
+    "description_line": 2002,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-3-3.spec.ts",
+    "case_count": 3,
+    "existing_coverage": "切 feature-search 和 release、旧 main 仍存在且保留内容、非 Admin 无编辑控件",
+    "gaps_or_defects": "已开放 PR 的 base/compare 不变、取消确认、其他非 Admin 角色、服务端拒绝未覆盖",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-3-3: Admin changes native default branch and old branch still exists",
+      "REQ-4-3-3: non-Admin default-branch edit controls are absent",
+      "REQ-4-3-3: guide: required release branch is persisted as default without changing main"
+    ]
+  },
+  {
+    "requirement_id": "REQ-4-4",
+    "name": "Manage Repository Files Through the Web Interface",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2055,
+    "description_line": 2061,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-4-4.spec.ts",
+    "case_count": 7,
+    "existing_coverage": "创建及编辑文件、独立非法路径和空 message、历史不变、旧 revision 字节保留、团队 grants 联动",
+    "gaps_or_defects": "protected branch 直接写拒绝、Read/Triage 写拒绝、路径冲突及 message 长度、branch head 与 commit 原子性未覆盖；一例额外要求 alert role",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-4-4: file creation persists exact contents",
+      "REQ-4-4: invalid path rejects even with a valid commit message",
+      "REQ-4-4: empty commit message rejects even with a valid file path",
+      "REQ-4-4: guide: editing creates a real commit and an old revision retains its original bytes",
+      "REQ-4-4: context REQ-4-4: invalid path and empty message cannot change files or history",
+      "REQ-4-4: context REQ-4-4: successful file write adds a commit while an earlier revision keeps its original bytes",
+      "REQ-4-4: context REQ-2-3: guide: direct team grant changes effective permissions without hierarchy inheritance or account deletion"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-1-1",
+    "name": "List and Filter Repository Issues",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2182,
+    "description_line": 2187,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-1-1.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "Open 加开放标题及 Closed 加关闭标题、部分刷新",
+    "gaps_or_defects": "状态和关键词未独立变化，忽略状态也通过；body 和 label 搜索、Closed 刷新保留、只读不改数据未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-1-1: Open/Closed live issue filters combine with keyword and survive refresh"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-1-2",
+    "name": "View an Issue and Its Discussion",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2242,
+    "description_line": 2247,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-1-2.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "直接重开、标题及描述及 Open、Comment 或 Activity 文字",
+    "gaps_or_defects": "Issue 编号、右侧 metadata、真实讨论及活动记录、不同角色控件资格验证不足",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-1-2: visitor issue detail shows complete title, description and readable timeline"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-2-1",
+    "name": "Create a Repository Issue",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2355,
+    "description_line": 2361,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-2-1.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "Write 创建 title/body、回列表可见、空白 title 后链接快照不变",
+    "gaps_or_defects": "编号唯一递增及失败不占号、长度上限、Read/Triage 拒绝、author 与状态及 creation activity 未充分验证",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-2-1: Write creates issue with exact title/body and list reads same persisted record",
+      "REQ-5-2-1: blank issue title creates neither issue nor partial record"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-2-2",
+    "name": "Edit an Issue Title and Description",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2421,
+    "description_line": 2426,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-2-2.spec.ts",
+    "case_count": 4,
+    "existing_coverage": "Maintain 分别改标题和描述、空标题保留原值、Read/Triage 控件不可用",
+    "gaps_or_defects": "title/body 长度、列表同步和编辑 activity、其他字段保持、服务器拒绝低权限提交未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-2-2: Maintain saves issue title and body with separate commit actions and persists both",
+      "REQ-5-2-2: blank edited title preserves exact original title after reload",
+      "REQ-5-2-2: spec-read cannot edit issue content",
+      "REQ-5-2-2: spec-triage cannot edit issue content"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-2-3",
+    "name": "Comment on an Issue Discussion",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2494,
+    "description_line": 2500,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-2-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "评论 body 和 author 持久化、空白不加 article",
+    "gaps_or_defects": "reaction 完全未测；长度上限和评论角色拒绝未覆盖；全量 article 文本即时比较易受异步加载和相对时间影响",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-2-3: Write comment stores full body and author and survives reload",
+      "REQ-5-2-3: blank comment adds no article or activity through either allowed UI behavior"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-3-1",
+    "name": "Assign or Unassign Issue Participants",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2589,
+    "description_line": 2594,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-3-1.spec.ts",
+    "case_count": 3,
+    "existing_coverage": "Maintain 实时添加及移除 eligible assignee、Read/Write 无 metadata 权限",
+    "gaps_or_defects": "不合格候选不出现、活动历史保留、账号和 grant 不改变未验证；sidebar helper 限制未规定的 DOM 包装",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-3-1: eligible assignee is saved live and removed without erasing timeline",
+      "REQ-5-3-1: spec-read does not acquire metadata authority from role name",
+      "REQ-5-3-1: spec-write does not acquire metadata authority from role name"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-3-2",
+    "name": "Apply Labels to an Issue",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2648,
+    "description_line": 2653,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-3-2.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "Maintain 为 Issue 添加及移除已有 label；其他文件有 Read/Write 控件限制",
+    "gaps_or_defects": "外仓库 label 不出现及无法关联、不创建新 label、activity 保留、服务器权限未覆盖；同受 sidebar helper 影响",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-3-2: existing label toggle immediately saves and removes association"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-3-3",
+    "name": "Assign Issues and Pull Requests to a Milestone",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2696,
+    "description_line": 2701,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-3-3.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "Issue 上 milestone 与 None 持久化；其他文件有 Read/Write 控件限制",
+    "gaps_or_defects": "PR milestone 路径完全未测、外仓库 milestone 拒绝、同一项唯一关联和 activity 保留未覆盖；同受 sidebar helper 影响",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-3-3: milestone selection saves immediately and None removes only association"
+    ]
+  },
+  {
+    "requirement_id": "REQ-5-4",
+    "name": "Close or Reopen an Issue",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2736,
+    "description_line": 2741,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-5-4.spec.ts",
+    "case_count": 3,
+    "existing_coverage": "Maintain close/reopen、Read 无按钮、跨角色新 Issue 保留 body/comment/assignee 和活动",
+    "gaps_or_defects": "Closed 状态单独重载、label 和 milestone 保留、Triage 正向、Write 服务器拒绝未充分验证",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-5-4: Maintain closes and reopens issue preserving title, body and state",
+      "REQ-5-4: Read viewer has neither issue status control",
+      "REQ-5-4: guide: an Issue created by Write keeps comments and assignee across Maintain status changes"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-1",
+    "name": "Protect Branches with Review and Status-Check Requirements",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2848,
+    "description_line": 2854,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-1.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "创建保护开关和摘要、非 Admin 无创建按钮；REQ-6-2-3 测 pending 改 success；REQ-6-5 测部分保护生效",
+    "gaps_or_defects": "已存在规则修改、protected branch 直接写拒绝、non-Admin 设置 check 拒绝、failure 状态及 setter 时间未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-1: Admin stores exact branch protection toggles and reload displays summaries",
+      "REQ-6-1: non-Admin cannot create protection rule"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-2-1",
+    "name": "List and Filter Repository Pull Requests",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 2956,
+    "description_line": 2961,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-2-1.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "访客 Open 列表、刷新及重开相同 PR",
+    "gaps_or_defects": "Closed、Draft、Merged、author 和 review 状态过滤未测试；原场景的 Closed 与 author 过滤缺少可执行见证",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-2-1: visitor Open PR list filter reads same persisted PR after repeated navigation"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-2-2",
+    "name": "Compare Branches Before Opening a Pull Request",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3043,
+    "description_line": 3049,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-2-2.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "base/compare Native select、已知路径与 Commit summary、同 branch 禁创建",
+    "gaps_or_defects": "不同 branch 但相同内容或不可比较、真实 commit 数和 diff、Read/Triage 无创建比较流、读取无修改未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-2-2: native base/compare show exact changed file and comparable commits",
+      "REQ-6-2-2: equal base and compare disable creation before compare button and afterward"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-2-3",
+    "name": "Create a Pull Request from Comparison Results",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3107,
+    "description_line": 3112,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-2-3.spec.ts",
+    "case_count": 3,
+    "existing_coverage": "Open 创建且 title 修剪和 description 保留、空 title 无 PR、附带 check setter 用例",
+    "gaps_or_defects": "相同 source/target 已有 Open 或 Draft 拒绝、长度及 role 拒绝、branch/commit 身份和编号未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-2-3: create Open PR from comparison persists exact title and description",
+      "REQ-6-2-3: blank PR title keeps form and creates no PR",
+      "REQ-6-2-3: context REQ-6-1: Admin changes current compare-commit check pending to success and persists setter"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-2-4",
+    "name": "Create a Draft Pull Request",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3192,
+    "description_line": 3197,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-2-4.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "Draft 创建且 Merge disabled、作者 Ready 后 Open 和 title/branches 保留",
+    "gaps_or_defects": "Draft 不能提交 review、其他 Write 无 Ready 权限、Draft 输入规则和编号及 commit 保留未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-2-4: Draft creation is persistent and has present disabled merge action",
+      "REQ-6-2-4: author marks Draft ready without changing title or branches"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-3-1",
+    "name": "View Pull Request Overview and Commits",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3289,
+    "description_line": 3294,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-3-1.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "访客 title、Commits 和 Files changed 摘要、直接重开及刷新",
+    "gaps_or_defects": "Conversation 的描述和讨论、真实 comparable commit 列表和 count、同一 PR/revision 一致性未充分验证",
+    "proposed_priority": "P2",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-3-2",
+    "name": "Inspect Changed Files and Aggregate Diff",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3390,
+    "description_line": 3395,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-3-2.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "src/search.ts 与固定 additions/deletions 文字",
+    "gaps_or_defects": "只有摘要且完全没有真实 diff 行也能通过；新增文件、实际内容、changed file count 与方向未验证",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-3-2: visitor diff displays exact path and exact aggregate additions/deletions from both changed files"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-3-3",
+    "name": "Add Review Comments to Changed Code Lines",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3438,
+    "description_line": 3444,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-3-3.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "single comment 持久化、pending draft 作者可见且访客不可见；REQ-6-5 有 Outdated 联动",
+    "gaps_or_defects": "实际 file/line/commit 锚定、author 或低权限拒绝、不同位置相同 body、失败不发布未充分验证",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-3-3: single inline comment persists at changed line",
+      "REQ-6-3-3: pending review draft persists at changed line"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-3-4",
+    "name": "Submit a Pull Request Review",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3517,
+    "description_line": 3523,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-3-4.spec.ts",
+    "case_count": 5,
+    "existing_coverage": "三种 decision、latest Comment 替换 Request changes、提交只发布自己草稿；REQ-6-5 有新 head stale",
+    "gaps_or_defects": "作者和 Draft 及 Read/Triage review 拒绝未测试；Request changes 的 Summary 未断言；反向 decision 替换矩阵未完整覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-3-4: Approve submission persists current-commit review",
+      "REQ-6-3-4: Request changes submission persists current-commit review",
+      "REQ-6-3-4: Comment submission persists current-commit review",
+      "REQ-6-3-4: latest Comment replaces Request changes while retaining history",
+      "REQ-6-3-4: guide: submitting one review publishes only that reviewers drafts"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-4",
+    "name": "Request or Remove Pull Request Reviewers",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3592,
+    "description_line": 3598,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-4.spec.ts",
+    "case_count": 1,
+    "existing_coverage": "作者请求及删除 eligible reviewer 并持久化",
+    "gaps_or_defects": "Read/Triage 和作者不可作为候选、其他 Write 无请求权限、移除请求保留已有 review/comment/effective decision 未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-4: author requests and removes live eligible reviewer without confirmation"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-5",
+    "name": "Merge an Eligible Pull Request",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3652,
+    "description_line": 3658,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-5.spec.ts",
+    "case_count": 8,
+    "existing_coverage": "实际 main 文件变化、Merged 终态、缺 approval、独立保护开关、Request changes 和 stale approval、新 head 重做 review/check",
+    "gaps_or_defects": "Read/Triage/Write 合并拒绝、conflict、check failure、Confirm 前 head 或规则变化、真实双 parent merge commit、整分支原子性未覆盖",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-5: Maintain merge commits actual changes to base branch and persists terminal status",
+      "REQ-6-5: missing required approval blocks merge before click and retains PR and branch",
+      "REQ-6-5: check-only enforces only its configured merge prerequisites",
+      "REQ-6-5: approval-only enforces only its configured merge prerequisites",
+      "REQ-6-5: unprotected enforces only its configured merge prerequisites",
+      "REQ-6-5: current Request changes blocks an otherwise unprotected PR",
+      "REQ-6-5: old-commit approval cannot satisfy a protected current-commit PR",
+      "REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal"
+    ]
+  },
+  {
+    "requirement_id": "REQ-6-6",
+    "name": "Close or Reopen a Pull Request Without Merging",
+    "requirement_source": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/requirements/requirements.yaml",
+    "line": 3747,
+    "description_line": 3753,
+    "spec": "/home/chris/Works/octos-arc/evidence/derived-audit-74294e08e089-20261002/template/derived-tests/REQ-6-6.spec.ts",
+    "case_count": 2,
+    "existing_coverage": "作者 close/reopen、Read 无控件；REQ-6-5 有 Merged 不渲染状态按钮",
+    "gaps_or_defects": "Closed/Open 状态文字与 Closed 重载、Draft close、branch 字节和 reviews/discussion 保留、服务端拒绝非法终态未充分验证",
+    "proposed_priority": "P1",
+    "semantic_coverage_status": "partial; no numeric coverage rate claimed",
+    "titles": [
+      "REQ-6-6: author closes and reopens PR while discussion and branches persist",
+      "REQ-6-6: Read viewer has no close or reopen action"
+    ]
+  }
+]

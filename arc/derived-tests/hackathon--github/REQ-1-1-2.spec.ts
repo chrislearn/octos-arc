@@ -36,8 +36,8 @@ test("REQ-1-1-2: guide: a newly registered identity signs in by email and userna
   let identity: {username: string, email: string};
   await test.step('Create an account through the earlier registration capability',async()=>{ identity=await h.register(page); });
   await test.step('Use its email and retain the authenticated session after reload',async()=>{
-    await h.signIn(page,identity.email); await h.persisted(page,()=>expect(h.button(page,'Account menu')).toBeVisible());
-    await h.button(page,'Account menu').click(); await expect(h.text(page,identity.username).first()).toBeVisible();
+    await h.signIn(page,identity.email,h.PASSWORD,identity.username); await h.persisted(page,()=>expect(h.button(page,'Account menu')).toBeVisible());
+    await h.button(page,'Account menu').click(); await expect(h.containsValue(page,identity.username).first()).toBeVisible();
   });
   await test.step('Use its username in an independent browser session',async()=>{
     const later=await browser.newContext({baseURL:new URL(page.url()).origin});
@@ -48,9 +48,9 @@ test("REQ-1-1-2: guide: a newly registered identity signs in by email and userna
 
 test("REQ-1-1-2: context REQ-1-1-1: registered credentials work by email and survive a later browser session", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  const {username,email}=await h.register(page); await h.signIn(page,email);
+  const {username,email}=await h.register(page); await h.signIn(page,email,h.PASSWORD,username);
   await h.persisted(page, () => expect(h.button(page,'Account menu')).toBeVisible());
-  await h.button(page,'Account menu').click(); await expect(h.text(page,username).first()).toBeVisible();
+  await h.button(page,'Account menu').click(); await expect(h.containsValue(page,username).first()).toBeVisible();
   const later=await browser.newContext();
   try { const p=await later.newPage(); await h.signIn(p,username); await expect(h.button(p,'Account menu')).toBeVisible(); }
   finally { await later.close(); }

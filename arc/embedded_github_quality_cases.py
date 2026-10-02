@@ -70,7 +70,7 @@ def register(g):
       await test.step('Maintain resolves an eligible account, closes and reopens the same Issue',async()=>{
         await h.signIn(manager,'spec-maintain'); await manager.goto(address); await h.button(manager,'Assignees').click();
         await h.field(manager,'Search assignees').fill('spec-triage'); await h.option(manager,'spec-triage');
-        await expect(h.sidebar(manager,'Assignees')).toContainText('spec-triage');
+        await expect(h.metadataValue(manager,'Assignees','spec-triage').first()).toBeVisible();
         await h.button(manager,'Close issue').click(); await expect(h.text(manager,'Closed issue').first()).toBeVisible();
         await h.button(manager,'Reopen issue').click(); await h.persisted(manager,()=>expect(h.button(manager,'Close issue')).toBeVisible());
       });

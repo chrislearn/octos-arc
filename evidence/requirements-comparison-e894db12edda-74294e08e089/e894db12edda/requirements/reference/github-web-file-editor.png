@@ -1,0 +1,1420 @@
+                     "minItems": 1,
+                      "type": "array"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "ParentalControlUpdateResult",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "_codex_apps": {
+            "returns_pre_shaped_mcp_result": true,
+            "resource_uri": "/connector_openai_safety_settings/implicit_link::connector_openai_safety_settings/update_parental_control",
+            "contains_mcp_source": false
+          },
+          "resource_name": "safety_settings.update_parental_control",
+          "connector_id": "connector_openai_safety_settings",
+          "connector_name": "Safety Settings",
+          "connector_description": "For ChatGPT Parental Controls (your child or teen's settings, features, Study Mode, quiet hours, family setup) and Trusted Contact (setup, status, privacy). Read account state first. Before updates, read the child's controls; prepare only can_update_in_chat=true and submit the exact change for explicit user approval.",
+          "link_id": "implicit_link::connector_openai_safety_settings"
+        }
+      },
+      "connector_id": "connector_openai_safety_settings",
+      "connector_name": "Safety Settings",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_artifact_execution_status",
+      "tool_namespace": "codex_apps__chatgpt_space",
+      "namespace_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+      "tool": {
+        "name": "chatgpt_space.get_artifact_execution_status",
+        "title": "get_artifact_execution_status",
+        "description": "Check whether an earlier execute_artifact_code request committed its changes. Use the original page_id and idempotency_key after acceptance, a timeout, or a lost response. This checks the whole execution request. It does not report live progress or recover the callback's return value. Unknown means no commit is confirmed. It does not make rerunning the code with a new idempotency_key safe.",
+        "inputSchema": {
+          "$defs": {
+            "PageCreationIdempotencyKey": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Identify a callback to execute or an earlier callback whose outcome needs checking.",
+          "properties": {
+            "page_id": {
+              "description": "Page ID of the target artifact, not the parent Page ID, and never a Space ID. For a URL, use only the ID in /space/{page_id}, without query parameters.",
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Page Id",
+              "type": "string"
+            },
+            "idempotency_key": {
+              "$ref": "#/$defs/PageCreationIdempotencyKey",
+              "description": "Required idempotency key. Use a new key for each edit within this task. After an uncertain response, reuse the same key and edit arguments for a retry; use that key for status lookup."
+            }
+          },
+          "required": [
+            "page_id",
+            "idempotency_key"
+          ],
+          "title": "ArtifactExecutionArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object",
+          "anyOf": [
+            {
+              "description": "Describe edit receipts with the caller's recovery key.",
+              "properties": {
+                "page_id": {
+                  "title": "Page Id",
+                  "type": "string"
+                },
+                "status": {
+                  "description": "committed confirms a saved edit. accepted means the realtime service accepted the edit for persistence, but it is not yet confirmed saved. no_changes means no delta was produced. rejected means the edit was not saved. unknown means the outcome is uncertain. not_found means no operation was recorded for this request ID.",
+                  "enum": [
+                    "committed",
+                    "accepted",
+                    "no_changes",
+                    "rejected",
+                    "unknown",
+                    "not_found"
+                  ],
+                  "title": "ArtifactOperationStatus",
+                  "type": "string"
+                },
+                "observed_sequence": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Canonical sequence of the snapshot supplied to the callback.",
+                  "title": "Observed Sequence"
+                },
+                "committed_sequence": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Canonical sequence where this operation's delta was saved.",
+                  "title": "Committed Sequence"
+                },
+                "result": {
+                  "default": null,
+                  "description": "Callback return value, limited to 16 KiB of serialized JSON. Not stored in the commit receipt."
+                },
+                "result_omitted": {
+                  "default": false,
+                  "description": "True when oversized callback JSON was omitted. Does not indicate whether an edit committed.",
+                  "title": "Result Omitted",
+                  "type": "boolean"
+                },
+                "result_message": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Explains omitted callback data separately from the commit outcome.",
+                  "title": "Result Message"
+                },
+                "rendered_images": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "Bounded, byte-free metadata for an image returned only to this tool call.",
+                        "properties": {
+                          "file_name": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "title": "File Name",
+                            "type": "string"
+                          },
+                          "mime_type": {
+                            "pattern": "^image/png$",
+                            "title": "Mime Type",
+                            "type": "string"
+                          },
+                          "sha256": {
+                            "pattern": "^[0-9a-f]{64}$",
+                            "title": "Sha256",
+                            "type": "string"
+                          },
+                          "byte_length": {
+                            "maximum": 4194304,
+                            "minimum": 1,
+                            "title": "Byte Length",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "file_name",
+                          "mime_type",
+                          "sha256",
+                          "byte_length"
+                        ],
+                        "title": "ArtifactRenderMetadata",
+                        "type": "object"
+                      },
+                      "maxItems": 4,
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Metadata for PNG QA renders returned as image content in this response. The images are transient: they are not uploaded, saved, or available from status lookup.",
+                  "title": "Rendered Images"
+                },
+                "error_code": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Machine-readable failure or uncertainty code.",
+                  "title": "Error Code"
+                },
+                "error_message": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Safe explanation of the failure and any available recovery steps.",
+                  "title": "Error Message"
+                },
+                "retryable": {
+                  "default": false,
+                  "description": "True only for a definitive transient rejection before a write was attempted. For an edit, retry with a new idempotency_key as error_message directs; an unknown outcome instead requires status lookup.",
+                  "title": "Retryable",
+                  "type": "boolean"
+                },
+                "error_details": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "description": "Bounded callback error details for its caller, not server diagnostics.",
+                      "properties": {
+                        "name": {
+                          "maxLength": 128,
+                          "title": "Name",
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 2048,
+                          "title": "Message",
+                          "type": "string"
+                        },
+                        "stack": {
+                          "items": {
+                            "maxLength": 128,
+                            "type": "string"
+                          },
+                          "maxItems": 8,
+                          "title": "Stack",
+                          "type": "array"
+                        },
+                        "truncated": {
+                          "title": "Truncated",
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "message",
+                        "stack",
+                        "truncated"
+                      ],
+                      "title": "ArtifactCallbackDiagnostic",
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Callback error name, message and callback-only stack locations. Available for code errors, not infrastructure failures. No edit was saved."
+                },
+                "idempotency_key": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9._:-]+$",
+                  "type": "string",
+                  "description": "Original edit key. Reuse it for status lookup or retries in the same task."
+                },
+                "request_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "deprecated": true,
+                  "description": "Legacy backend operation ID, when returned. Use idempotency_key for recovery.",
+                  "title": "Request Id"
+                },
+                "document_type": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Page document type, when known by the backend.",
+                  "title": "Document Type"
+                }
+              },
+              "required": [
+                "page_id",
+                "status",
+                "idempotency_key"
+              ],
+              "title": "ArtifactExecutionResponse",
+              "type": "object"
+            },
+            {
+              "description": "Connector error returned instead of an execution result.",
+              "properties": {
+                "error": {
+                  "description": "Connector failure envelope, distinct from a completed backend execution.",
+                  "properties": {
+                    "message": {
+                      "title": "Message",
+                      "type": "string"
+                    },
+                    "code": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Code"
+                    },
+                    "commit_status": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Commit Status"
+                    },
+                    "retryable": {
+                      "anyOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Retryable"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ],
+                  "title": "ArtifactToolError",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "title": "ArtifactToolErrorResponse",
+              "type": "object"
+            }
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "chatgpt_space.get_artifact_execution_status",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_pages/implicit_link::connector_openai_pages/get_artifact_execution_status",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_openai_pages",
+          "connector_name": "ChatGPT Space",
+          "connector_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+          "link_id": "implicit_link::connector_openai_pages"
+        }
+      },
+      "connector_id": "connector_openai_pages",
+      "connector_name": "ChatGPT Space",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_list_spaces",
+      "tool_namespace": "codex_apps__chatgpt_space",
+      "namespace_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+      "tool": {
+        "name": "chatgpt_space.list_spaces",
+        "title": "list_spaces",
+        "description": "List Drive-backed Spaces available to your authenticated ChatGPT account. Follow next_cursor while it is non-null, even when a page has no items.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "anyOf": [
+                {
+                  "maxLength": 30000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Cursor"
+            },
+            "limit": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          "title": "_ListSpacesArguments",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "chatgpt_space.list_spaces",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_pages/implicit_link::connector_openai_pages/list_spaces",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_openai_pages",
+          "connector_name": "ChatGPT Space",
+          "connector_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+          "link_id": "implicit_link::connector_openai_pages"
+        }
+      },
+      "connector_id": "connector_openai_pages",
+      "connector_name": "ChatGPT Space",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_space",
+      "tool_namespace": "codex_apps__chatgpt_space",
+      "namespace_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+      "tool": {
+        "name": "chatgpt_space.get_space",
+        "title": "get_space",
+        "description": "Read an accessible Drive-backed Space and its canonical metadata. The returned id identifies the Space; root_page_id identifies its root Page. Pass root_page_id, not id, to read_page.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "space_id": {
+              "description": "ID of the Space, not a Page ID; for example, a Space ID returned by list_spaces. To read its root Page, use the returned root_page_id with read_page.",
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Space Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "space_id"
+          ],
+          "title": "_GetSpaceArguments",
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "chatgpt_space.get_space",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_pages/implicit_link::connector_openai_pages/get_space",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_openai_pages",
+          "connector_name": "ChatGPT Space",
+          "connector_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+          "link_id": "implicit_link::connector_openai_pages"
+        }
+      },
+      "connector_id": "connector_openai_pages",
+      "connector_name": "ChatGPT Space",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_trash_page",
+      "tool_namespace": "codex_apps__chatgpt_space",
+      "namespace_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+      "tool": {
+        "name": "chatgpt_space.trash_page",
+        "title": "trash_page",
+        "description": "Move a Page and its nested Pages to Trash.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "page_id": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Page Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "page_id"
+          ],
+          "title": "_TrashPageArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "page_id": {
+              "type": "string"
+            },
+            "trashed": {
+              "type": "boolean",
+              "const": true
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "retryable": {
+                  "type": "boolean"
+                },
+                "limit_reason": {
+                  "type": "string"
+                },
+                "details": {
+                  "description": "Optional upstream error details."
+                },
+                "commit_status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "page_id": {
+                  "type": "string"
+                },
+                "trashed": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "page_id",
+                "trashed"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "limit_reason": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "description": "Optional upstream error details."
+                    },
+                    "commit_status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                }
+              },
+              "required": [
+                "error"
+              ]
+            }
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "chatgpt_space.trash_page",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_pages/implicit_link::connector_openai_pages/trash_page",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_openai_pages",
+          "connector_name": "ChatGPT Space",
+          "connector_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+          "link_id": "implicit_link::connector_openai_pages"
+        }
+      },
+      "connector_id": "connector_openai_pages",
+      "connector_name": "ChatGPT Space",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_search_sharing_recipients",
+      "tool_namespace": "codex_apps__chatgpt_space",
+      "namespace_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+      "tool": {
+        "name": "chatgpt_space.search_sharing_recipients",
+        "title": "search_sharing_recipients",
+        "description": "Search eligible recipients in the authenticated workspace for an accessible Page or Space, including eligible workspace users and groups. Provide exactly one page_id or space_id. Verify the intended recipient among the results and use its exact ID when changing sharing; never guess IDs from names.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "page_id": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Page Id"
+            },
+            "space_id": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Space Id"
+            },
+            "query": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Query",
+              "type": "string"
+            },
+            "limit": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "_SearchSharingRecipientsArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "user",
+                      "workspace_group"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "id",
+                  "display_name"
+                ]
+              }
+            },
+            "has_more": {
+              "type": "boolean"
+            },
+            "unavailable_types": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "workspace_group"
+                ]
+              },
+              "description": "Recipient types unavailable for this search; includes workspace_group for Drive Spaces."
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "retryable": {
+                  "type": "boolean"
+                },
+                "limit_reason": {
+                  "type": "string"
+                },
+                "details": {
+                  "description": "Optional upstream error details."
+                },
+                "commit_status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "required": [
+                "items",
+                "has_more"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "limit_reason": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "description": "Optional upstream error details."
+                    },
+                    "commit_status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                }
+              },
+              "required": [
+                "error"
+              ]
+            }
+          ]
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "chatgpt_space.search_sharing_recipients",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_pages/implicit_link::connector_openai_pages/search_sharing_recipients",
+            "contains_mcp_source": true
+          },
+          "connector_id": "connector_openai_pages",
+          "connector_name": "ChatGPT Space",
+          "connector_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+          "link_id": "implicit_link::connector_openai_pages"
+        }
+      },
+      "connector_id": "connector_openai_pages",
+      "connector_name": "ChatGPT Space",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_page_sharing",
+      "tool_namespace": "codex_apps__chatgpt_space",
+      "namespace_description": "Read, search, create, and edit pages and spaces in ChatGPT Space, within your current account.",
+      "tool": {
+        "name": "chatgpt_space.get_page_sharing",
+        "title": "get_page_sharing",
+        "description": "Read a Page's sharing policy and your permissions. Drive sharing returns direct and read-only inherited grants and visible sources; complete=false never means no access. A Space-root Page returns its Space sharing snapshot and space_id; use get_space_sharing and update_space_sharing for changes. Library child Pages return canonical Library shares and workspace_id for workspace sharing, even before a workspace grant exists. They have no revision precondition.",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "page_id": {
+              "description": "Exact Page ID, including any prefix. For a Space's home Page, use its root_page_id. For a page_space_ Space ID, use get_space_sharing with space_id instead.",
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Page Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "page_id"
+          ],
+          "title": "_GetPageSharingArguments",
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "inherited_access": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "complete": {
+                      "type": "boolean",
+                      "description": "False means some inherited sources could not be read, not that no inherited access exists."
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "recipient": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "recipient_type": {
+                                    "type": "string",
+                                    "const": "principal"
+                                  },
+                                  "principal_type": {
+                                    "type": "string",
+                                    "enum": [
+                                      "user",
+                                      "group",
+                                      "workspace"
+                                    ]
+                                  },
+                                  "principal_id": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "recipient_type",
+                                  "principal_type",
+                                  "principal_id"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "viewer",
+                              "commenter",
+                              "editor"
+                            ]
+                          },
+                          "source": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "page",
+                                      "space"
+                                    ]
+                                  },
+                                  "id": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "id"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "recipient_display_name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "recipient",
+                          "role",
+                          "source",
+                          "recipient_display_name"
+                        ],
+                        "description": "A read-only ancestor grant. Hidden recipients and source identifiers are redacted; edit access at the visible source, not through this child."
+                      }
+                    }
+                  },
+                  "required": [
+                    "complete",
+                    "sources"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional inherited grant information. Unavailable information does not block edits to direct grants."
+            },
+            "mutation": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "resource": {
+                      "type": "object",
+                      "properties": {
+                        "resource_type": {
+                          "type": "string",
+                          "const": "library_folder"
+                        },
+                        "resource_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "resource_type",
+                        "resource_id"
+                      ]
+                    },
+                    "share_id": {
+                      "type": "string",
+                      "description": "Canonical Library invitation ID."
+                    },
+                    "recipient": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "recipient_type": {
+                              "type": "string",
+                              "const": "principal"
+                            },
+                            "principal_type": {
+                              "type": "string",
+                              "enum": [
+                                "user",
+                                "group",
+                                "workspace"
+                              ]
+                            },
+                            "principal_id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "recipient_type",
+                            "principal_type",
+                            "principal_id"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "recipient_type": {
+                              "type": "string",
+                              "const": "email"
+                            },
+                            "email": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "recipient_type",
+                            "email"
+                          ]
+                        }
+                      ]
+                    },
+                    "recipient_display_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "recipient_email": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "recipient_avatar_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "role_id": {
+                      "type": "string",
+                      "description": "Current Library folder role ID."
+                    },
+                    "inviter": {
+                      "type": "object",
+                      "properties": {
+                        "principal_type": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "group",
+                            "workspace"
+                          ]
+                        },
+                        "principal_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "principal_type",
+                        "principal_id"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "active"
+                      ]
+                    },
+                    "expires_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "share_id",
+                    "resource",
+                    "recipient",
+                    "role_id",
+                    "inviter",
+                    "status"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "share_id": {
+                      "type": "string",
+                      "description": "Canonical Library invitation ID."
+                    },
+                    "recipient": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "recipient_type": {
+                              "type": "string",
+                              "const": "principal"
+                            },
+                            "principal_type": {
+                              "type": "string",
+                              "enum": [
+                                "user",
+                                "group",
+                                "workspace"
+                              ]
+                            },
+                            "principal_id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "recipient_type",
+                            "principal_type",
+                            "principal_id"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "recipient_type": {
+                              "type": "string",
+                              "const": "email"
+                            },
+                            "email": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "recipient_type",
+                            "email"
+                          ]
+                        }
+                      ]
+                    },
+                    "recipient_display_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "recipient_email": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "recipient_avatar_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "role_id": {
+                      "type": "string",
+                      "description": "Current Library folder role ID."
+                    },
+                    "inviter": {
+                      "type": "object",
+                      "properties": {
+                        "principal_type": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "group",
+                            "workspace"
+                          ]
+                        },
+                        "principal_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "principal_type",
+                        "principal_id"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "active"
+                      ]
+                    },
+                    "expires_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "share_id",
+                    "recipient",
+                    "role_id",
+                    "inviter",
+                    "status"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "deleted"
+                  ]
+                }
+              ],
+              "description": "The successful Drive sharing response, retained when the roster refresh is unavailable. Do not replay this write; this response describes only the direct grant, not all effective access."
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Canonical owning workspace for Library sharing, or null for a personal account."
+            },
+            "page_id": {
+              "type": "string"
+            },
+            "space_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "page_and_backing_library_folder",
+                "space_and_backing_library_folder"
+              ],
+              "description": "Space-root reads return Space scope and space_id; use the Space sharing tools for changes."
+            },
+            "backing_type": {
+              "type": "string",
+              "const": "drive"
+            },
+            "sharing_available": {
+              "type": "boolean"
+            },
+            "concurrency": {
+              "type": "string",
+              "const": "no_revision_precondition"
+            },
+            "owner": {
+              "type": "object",
+              "properties": {
+                "principal_type": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "group",
+                    "workspace"
+                  ]
+                },
+                "principal_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "principal_type",
+                "principal_id"
+              ]
+            },
+            "caller_permissions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "shares": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "share_id": {
+                    "type": "string",
+                    "description": "Canonical Library invitation ID."
+                  },
+                  "recipient": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "recipient_type": {
+                            "type": "string",
+                            "const": "principal"
+                          },
+                          "principal_type": {
+                            "type": "string",
+                            "enum": [
+                              "user",
+                              "group",
+                              "workspace"
+                            ]
+                          },
+                          "principal_id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "recipient_type",
+                          "principal_type",
+                          "principal_id"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "recipient_type": {
+                            "type": "string",
+                            "const": "email"
+                          },
+                          "email": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "recipient_type",
+                          "email"
+                        ]
+                      }
+                    ]
+                  },
+                  "recipient_display_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "recipient_email": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "recipient_avatar_url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "role_id": {
+                    "type": "string",
+                    "description": "Current Library folder role ID."
+                  },
+                  "inviter": {
+                    "type": "object",
+                    "properties": {
+                      "principal_type": {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "group",
+                          "workspace"
+                        ]
+                      },
+                      "principal_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "principal_type",
+                      "principal_id"
+                    ]
+                  },

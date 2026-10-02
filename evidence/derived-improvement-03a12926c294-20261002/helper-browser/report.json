@@ -1,0 +1,337 @@
+{
+  "config": {
+    "argv": [
+      "/home/chris/.nvm/versions/node/v22.23.2/bin/node",
+      "/home/chris/Works/octos-arc/arc/local-grader/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "arc/tests/browser/playwright.config.cjs",
+      "sheet-value-oracle.spec.ts",
+      "sheet-audit-oracle.spec.ts"
+    ],
+    "configFile": "/home/chris/Works/octos-arc/arc/tests/browser/playwright.config.cjs",
+    "rootDir": "/home/chris/Works/octos-arc/arc/tests/browser",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/home/chris/Works/octos-arc/arc/tests/browser",
+        "testIgnore": [],
+        "testMatch": [
+          "*-oracle.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "line",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/report.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "sheet-audit-oracle.spec.ts",
+      "file": "sheet-audit-oracle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "save error locator permits ordinary messages and arbitrary visible alerts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 305,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:51:10.952Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/test-results/sheet-audit-oracle-save-er-dcbc1-nd-arbitrary-visible-alerts/trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fd097cc3a6fadba5428e-6fd6fc252aef909718f3",
+          "file": "sheet-audit-oracle.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "selection oracle catches an extra selected coordinate outside its explicit sample",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2180,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:51:11.356Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/test-results/sheet-audit-oracle-selecti-9c59d-outside-its-explicit-sample/trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fd097cc3a6fadba5428e-ea9290c4c2acc0b368bb",
+          "file": "sheet-audit-oracle.spec.ts",
+          "line": 13,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "sheet-value-oracle.spec.ts",
+      "file": "sheet-value-oracle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "cell values exclude dropdown and filter decoration while preserving visible data",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 167,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:51:13.555Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/test-results/sheet-value-oracle-cell-va-5e3fd-ile-preserving-visible-data/trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "41f4643947935c035bac-81146b1d33cf7b2e611d",
+          "file": "sheet-value-oracle.spec.ts",
+          "line": 3,
+          "column": 5
+        },
+        {
+          "title": "cell oracle preserves newlines spaces and data inside an ordinary button",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1037,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:51:13.743Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/test-results/sheet-value-oracle-cell-or-7bf0a-a-inside-an-ordinary-button/trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "41f4643947935c035bac-72891b5c3cbd7ee10549",
+          "file": "sheet-value-oracle.spec.ts",
+          "line": 15,
+          "column": 5
+        },
+        {
+          "title": "cell oracle keeps unknown button text and removes only named controls including labelledby",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 988,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:51:14.832Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/test-results/sheet-value-oracle-cell-or-928fd-ntrols-including-labelledby/trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "41f4643947935c035bac-cefe68bb232f83d4ecdb",
+          "file": "sheet-value-oracle.spec.ts",
+          "line": 21,
+          "column": 5
+        },
+        {
+          "title": "decoration exclusion still rejects incorrect or extra cell values",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1916,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:51:15.835Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/home/chris/Works/octos-arc/evidence/derived-improvement-03a12926c294-20261002/helper-browser/test-results/sheet-value-oracle-decorat-2ac85-orrect-or-extra-cell-values/trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "41f4643947935c035bac-e92c10756b6b513378dd",
+          "file": "sheet-value-oracle.spec.ts",
+          "line": 27,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-02T04:51:10.511Z",
+    "duration": 7483.335,
+    "expected": 6,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

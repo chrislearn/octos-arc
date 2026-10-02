@@ -1,0 +1,617 @@
+ skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_generate_siwc_bypass_token",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.generate_siwc_bypass_token",
+        "title": "generate_siwc_bypass_token",
+        "description": "Generate a bearer token for identity-less API requests that bypasses a site's Sign in with ChatGPT gate. Call this explicit token tool only when the user asks for a bypass token. Calling this tool creates a token if none exists, or rotates and immediately invalidates the existing token. Pass the returned token as OAI-Sites-Authorization: Bearer {siwc_bypass_bearer_token}.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "title": "AppgardenProjectRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "siwc_bypass_bearer_token": {
+              "description": "Bearer token accepted by Sites dispatch in the OAI-Sites-Authorization header.",
+              "title": "Siwc Bypass Bearer Token",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id",
+            "siwc_bypass_bearer_token"
+          ],
+          "title": "AppgardenSiwcBypassTokenResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "sites.generate_siwc_bypass_token",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/generate_siwc_bypass_token",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_database_overview",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_database_overview",
+        "title": "get_database_overview",
+        "description": "Inspect D1 bindings and tables for the Sites Settings database viewer.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "binding_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional D1 binding name. Defaults to the first binding by name.",
+              "title": "Binding Name"
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "title": "get_database_overview_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "app"
+            ]
+          },
+          "resource_name": "sites.get_database_overview",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/get_database_overview",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_database_table_rows",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_database_table_rows",
+        "title": "get_database_table_rows",
+        "description": "Read one page of database rows for the Sites Settings database viewer.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "table_name": {
+              "description": "Exact user table name returned by get_database_overview.",
+              "title": "Table Name",
+              "type": "string"
+            },
+            "binding_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional D1 binding name returned by get_database_overview.",
+              "title": "Binding Name"
+            },
+            "limit": {
+              "default": 25,
+              "description": "Maximum rows to return.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Zero-based row offset.",
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "project_id",
+            "table_name"
+          ],
+          "title": "get_database_table_rows_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "app"
+            ]
+          },
+          "resource_name": "sites.get_database_table_rows",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/get_database_table_rows",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_deployment_status",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_deployment_status",
+        "title": "get_deployment_status",
+        "description": "Get the current status of a production deployment. Only poll when a deployment ID is available; the deployment owns its saved version, so do not supply version_id. Continue polling a non-terminal deployment when progress is requested, unless the user asks to stop. On success, report the production URL. On failure, report the failure message and the site, version, and deployment IDs.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "deployment_id": {
+              "description": "Exact opaque deployment ID returned by a deployment call for this project_id. Copy it verbatim; never substitute a project or version ID.",
+              "title": "Deployment Id",
+              "type": "string"
+            },
+            "version_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "deprecated": true,
+              "description": "Deprecated compatibility input from older deployment-status calls. The deployment ID now identifies its saved version.",
+              "title": "Version Id"
+            }
+          },
+          "required": [
+            "project_id",
+            "deployment_id"
+          ],
+          "title": "AppgardenDeploymentRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "description": "Opaque deployment ID. Pass this exact value as deployment_id.",
+              "title": "Id",
+              "type": "string"
+            },
+            "project_id": {
+              "description": "Opaque site project ID. Pass this exact value as project_id.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "version_id": {
+              "description": "Opaque saved version ID. Pass this exact value as version_id.",
+              "title": "Version Id",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "preview",
+                "publish"
+              ],
+              "title": "AppDeploymentKind",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "building",
+                "publishing",
+                "succeeded",
+                "failed"
+              ],
+              "title": "AppDeploymentStatus",
+              "type": "string"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Url"
+            },
+            "has_mcp": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Has Mcp"
+            },
+            "screenshot_asset_pointer": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Screenshot Asset Pointer"
+            },
+            "provider_deployment_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider Deployment Id"
+            },
+            "failure_message": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Failure Message"
+            },
+            "env_set_revision": {
+              "title": "Env Set Revision",
+              "type": "integer"
+            },
+            "updated_at": {
+              "title": "Updated At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "project_id",
+            "title",
+            "version_id",
+            "type",
+            "status",
+            "url",
+            "provider_deployment_id",
+            "failure_message",
+            "env_set_revision",
+            "updated_at"
+          ],
+          "title": "AppGardenDeploymentResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "_codex_apps": {
+            "accepted_mcp_request_meta_keys": [
+              "openai/codex_client_type",
+              "x-codex-turn-metadata"
+            ],
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/get_deployment_status",
+            "contains_mcp_source": false
+          },
+          "resource_name": "sites.get_deployment_status",
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_environment",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_environment",
+        "title": "get_environment",
+        "description": "Deprecated legacy Codex app alias. Use get_environment_variables instead.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Site project ID",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "title": "get_environment_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "app"
+            ]
+          },
+          "resource_name": "sites.get_environment",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/get_environment",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_environment_variables",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_environment_variables",
+        "title": "get_environment_variables",
+        "description": "Get the production runtime environment variables for a site. These values are separate from local .env files and .openai/hosting.json.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "title": "AppgardenProjectRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "entries": {
+              "items": {
+                "properties": {
+                  "key": {
+                    "title": "Key",
+                    "type": "string"
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Value"
+                  },
+                  "is_secret": {
+                    "default": false,
+                    "title": "Is Secret",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "const": "envvar",
+                    "default": "envvar",
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "value"
+                ],
+                "title": "AppgardenEnvironmentEnvVarEntryResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Entries",
+              "type": "array"
+            },
+            "revision": {
+              "title": "Revision",
+              "type": "integer"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated At"
+            },
+            "instructions": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Runtime configuration instructions for this project, when applicable.",
+              "title": "Instructions"
+            }
+          },
+          "required": [
+            "project_id",
+            "entries",
+            "revision",
+            "updated_at"
+          ],
+          "title": "AppgardenEnvironmentResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "sites.get_environment_variables",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/get_environment_variables",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_project",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_project",
+        "title": "get_project",
+        "description": "Deprecated legacy Codex app alias. Use get_site instead."

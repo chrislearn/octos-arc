@@ -1,0 +1,27 @@
+[
+  {
+    "title": "date keys sort chronologically chronological",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "date keys sort chronologically lexical",
+    "ok": false,
+    "message": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: \"2026-01-02T00:30:00+02:00\"\nReceived: \"2026-01-01T23:00:00Z\"\n\nCall Log:\n- Test timeout of 5000ms exceeded\n    at Object.values (/home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/helpers.ts:43:24)\n    at Object.persisted (/home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/helpers.ts:50:76)\n    at /home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/oracle.spec.ts:15:5"
+  },
+  {
+    "title": "date keys sort chronologically noop",
+    "ok": false,
+    "message": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: \"2026-01-02T00:30:00+02:00\"\nReceived: \"2026-01-01T23:30:00Z\"\n\nCall Log:\n- Test timeout of 5000ms exceeded\n    at Object.values (/home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/helpers.ts:43:24)\n    at Object.persisted (/home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/helpers.ts:50:76)\n    at /home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/oracle.spec.ts:23:5"
+  },
+  {
+    "title": "condition Before chronological",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "condition Before lexical",
+    "ok": false,
+    "message": "Error: expect(locator).toBeVisible() failed\n\nLocator:  getByRole('grid', { name: 'Worksheet grid', exact: true }).getByRole('gridcell', { name: 'A2', exact: true, includeHidden: true })\nExpected: visible\nReceived: hidden\n\nCall log:\n  - Expect \"toBeVisible\" getByRole('grid', { name: 'Worksheet grid', exact: true }).getByRole('gridcell', { name: 'A2', exact: true, includeHidden: true }) with timeout 5000ms\n  - waiting for getByRole('grid', { name: 'Worksheet grid', exact: true }).getByRole('gridcell', { name: 'A2', exact: true, includeHidden: true })\n    13 × locator resolved to <div tabindex=\"0\" role=\"gridcell\" aria-label=\"A2\" aria-selected=\"false\">2026-01-02T00:30:00+02:00</div>\n       - unexpected value \"hidden\"\n  - Test timeout of 5000ms exceeded.\n\n\n   at helpers.ts:148\n\n  146 | }\n  147 | export async function visibleRows(p: Page, visible: string[], hidden: string[]) {\n> 148 |   for (const at of visible) await expect(cell(p, at)).toBeVisible();\n      |                                                       ^\n  149 |   for (const at of hidden) await expect(cell(p, at)).toBeHidden();\n  150 | }\n  151 | export async function filterHeaders(p: Page, expected: Record<string, string>) {\n    at Object.visibleRows (/home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/helpers.ts:148:55)\n    at /home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/oracle.spec.ts:36:166\n    at Object.persisted (/home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/helpers.ts:50:76)\n    at /home/chris/Works/octos-arc/arc/local-grader/sheet-date-oracle-hkyot88d/prepared/tests/oracle.spec.ts:36:73"
+  }
+]

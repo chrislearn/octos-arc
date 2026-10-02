@@ -1,0 +1,29 @@
+{
+  "run_id": "03a12926c294",
+  "nodes": 42,
+  "atomic_requirements": 24,
+  "scenario_count": 100,
+  "generic_workflow_scenarios": 100,
+  "specs": 24,
+  "cases": 131,
+  "raw_requirements_sha256": "9cddf67be50748106289ed158648629a6c50c30a490d0eda5bd570c557440b96",
+  "canonical_requirements_sha256": "0cd43ed5e40610fee702ca65f4cc8acf876a146f494ec8edd69b296964ef5b99",
+  "manifest_identity_verified": true,
+  "obligation_inventory_count": 339,
+  "oracle_checks": {
+    "startTime": "2026-10-02T04:40:34.140Z",
+    "duration": 1964.8029999999999,
+    "expected": 6,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "product_suite_executed": false,
+  "confirmed_findings": [
+    "values helper collapses whitespace",
+    "values helper removes all button data",
+    "save failure imposes alert role",
+    "date fixture cannot distinguish lexical from chronological sorting"
+  ],
+  "excluded_hypothesis": "inline timestamp layout restriction did not reproduce"
+}

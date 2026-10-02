@@ -1,0 +1,42 @@
+{
+  "run_id": "74294e08e089",
+  "scope": "downloaded snapshot at 2026-10-02 12:16 Asia/Shanghai",
+  "source_requirements_sha256": "bdc17d23265a6b1948aec150e69d0b2accfa37db4c569305c97be7ff7f3b0b8f",
+  "source_and_derived_requirements_identical": true,
+  "source_node_count": 65,
+  "atomic_requirement_count": 47,
+  "source_scenario_count": 100,
+  "exported_spec_count": 47,
+  "exported_case_count": 110,
+  "per_module_case_count": {
+    "1": 16,
+    "2": 13,
+    "3": 12,
+    "4": 21,
+    "5": 18,
+    "6": 30
+  },
+  "ignored_source_specs": [
+    "INTEGRATION-file-history.spec.ts",
+    "INTEGRATION-identity.spec.ts",
+    "INTEGRATION-protection.spec.ts",
+    "INTEGRATION-review-cycle.spec.ts",
+    "INTEGRATION-team-access.spec.ts"
+  ],
+  "source_case_count": 116,
+  "cross_node_context_cases": 6,
+  "obligation_inventory_count": 1667,
+  "distinct_requirement_quote_count": 587,
+  "mutable_fixture_count": 69,
+  "unique_mutable_fixture_count": 69,
+  "hash_integrity_verified": true,
+  "playwright_discovery": "110 tests in 47 files",
+  "product_runtime_suite_run": false,
+  "oracle_checks": {
+    "passed": 10,
+    "false_rejection_probes": 5,
+    "false_acceptance_source_cases": 4,
+    "context_inheritance_exclusion_probe": 1,
+    "meaning": "Audit probes reproduced oracle defects; these are not product passes"
+  }
+}

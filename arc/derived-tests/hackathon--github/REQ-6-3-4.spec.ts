@@ -56,3 +56,87 @@ test("REQ-6-3-4: guide: submitting one review publishes only that reviewers draf
     });
   } finally { await other.close(); await visitor.close(); }
 });
+
+test("REQ-6-3-4: author cannot persist a review decision", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-write'); await h.pr(page,'review-denied-author');
+  await h.link(page,'Files changed').click(); await expect(h.text(page,'src/search.ts')).toBeVisible();
+  const address=page.url(),summary=h.unique('forbidden-review');
+  const open=h.button(page,'Review changes');
+  if(await open.count() && await open.isVisible() && await open.isEnabled()) {
+    await open.click(); const decision=page.getByRole('radio',{name:'Approve',exact:true});
+    await decision.waitFor({state:'visible',timeout:2000}).catch(error=>{ if(error.name!=='TimeoutError') throw error; });
+    if(await decision.count() && await decision.isVisible() && await decision.isEnabled()) {
+      await decision.check(); if(await h.field(page,'Summary').count()) await h.field(page,'Summary').fill(summary);
+      const submit=h.button(page,'Submit review'); if(await submit.count() && await submit.isEnabled()) await h.attemptSubmission(page,submit);
+    }
+  }
+  await page.goto(address); await h.persisted(page,async()=>{
+    await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible();
+    await expect(h.text(page,'Open').first()).toBeVisible();
+    await expect(h.containsValue(page,summary)).toHaveCount(0); await expect(h.text(page,'Approved')).toHaveCount(0);
+  });
+});
+
+test("REQ-6-3-4: draft cannot persist a review decision", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'bob-reviewer'); await h.pr(page,'review-denied-draft');
+  await h.link(page,'Files changed').click(); await expect(h.text(page,'README.md')).toBeVisible();
+  const address=page.url(),summary=h.unique('forbidden-review');
+  const open=h.button(page,'Review changes');
+  if(await open.count() && await open.isVisible() && await open.isEnabled()) {
+    await open.click(); const decision=page.getByRole('radio',{name:'Approve',exact:true});
+    await decision.waitFor({state:'visible',timeout:2000}).catch(error=>{ if(error.name!=='TimeoutError') throw error; });
+    if(await decision.count() && await decision.isVisible() && await decision.isEnabled()) {
+      await decision.check(); if(await h.field(page,'Summary').count()) await h.field(page,'Summary').fill(summary);
+      const submit=h.button(page,'Submit review'); if(await submit.count() && await submit.isEnabled()) await h.attemptSubmission(page,submit);
+    }
+  }
+  await page.goto(address); await h.persisted(page,async()=>{
+    await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible();
+    await expect(h.text(page,'Draft').first()).toBeVisible();
+    await expect(h.containsValue(page,summary)).toHaveCount(0); await expect(h.text(page,'Approved')).toHaveCount(0);
+  });
+});
+
+test("REQ-6-3-4: read cannot persist a review decision", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-read'); await h.pr(page,'review-denied-read');
+  await h.link(page,'Files changed').click(); await expect(h.text(page,'src/search.ts')).toBeVisible();
+  const address=page.url(),summary=h.unique('forbidden-review');
+  const open=h.button(page,'Review changes');
+  if(await open.count() && await open.isVisible() && await open.isEnabled()) {
+    await open.click(); const decision=page.getByRole('radio',{name:'Approve',exact:true});
+    await decision.waitFor({state:'visible',timeout:2000}).catch(error=>{ if(error.name!=='TimeoutError') throw error; });
+    if(await decision.count() && await decision.isVisible() && await decision.isEnabled()) {
+      await decision.check(); if(await h.field(page,'Summary').count()) await h.field(page,'Summary').fill(summary);
+      const submit=h.button(page,'Submit review'); if(await submit.count() && await submit.isEnabled()) await h.attemptSubmission(page,submit);
+    }
+  }
+  await page.goto(address); await h.persisted(page,async()=>{
+    await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible();
+    await expect(h.text(page,'Open').first()).toBeVisible();
+    await expect(h.containsValue(page,summary)).toHaveCount(0); await expect(h.text(page,'Approved')).toHaveCount(0);
+  });
+});
+
+test("REQ-6-3-4: triage cannot persist a review decision", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-triage'); await h.pr(page,'review-denied-triage');
+  await h.link(page,'Files changed').click(); await expect(h.text(page,'src/search.ts')).toBeVisible();
+  const address=page.url(),summary=h.unique('forbidden-review');
+  const open=h.button(page,'Review changes');
+  if(await open.count() && await open.isVisible() && await open.isEnabled()) {
+    await open.click(); const decision=page.getByRole('radio',{name:'Approve',exact:true});
+    await decision.waitFor({state:'visible',timeout:2000}).catch(error=>{ if(error.name!=='TimeoutError') throw error; });
+    if(await decision.count() && await decision.isVisible() && await decision.isEnabled()) {
+      await decision.check(); if(await h.field(page,'Summary').count()) await h.field(page,'Summary').fill(summary);
+      const submit=h.button(page,'Submit review'); if(await submit.count() && await submit.isEnabled()) await h.attemptSubmission(page,submit);
+    }
+  }
+  await page.goto(address); await h.persisted(page,async()=>{
+    await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible();
+    await expect(h.text(page,'Open').first()).toBeVisible();
+    await expect(h.containsValue(page,summary)).toHaveCount(0); await expect(h.text(page,'Approved')).toHaveCount(0);
+  });
+});

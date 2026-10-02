@@ -1,0 +1,1157 @@
+            }
+          },
+          "required": [
+            "project_id",
+            "binding_name",
+            "table_name",
+            "columns",
+            "rows",
+            "limit",
+            "offset",
+            "has_more",
+            "model_projection"
+          ],
+          "title": "DatabaseTableRowsModelProjection",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "model"
+            ]
+          },
+          "_codex_apps": {
+            "returns_pre_shaped_mcp_result": true,
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/read_database_table_rows",
+            "contains_mcp_source": false
+          },
+          "resource_name": "sites.read_database_table_rows",
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_refresh_custom_domain_status",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.refresh_custom_domain_status",
+        "title": "refresh_custom_domain_status",
+        "description": "Refresh custom domain validation status for a site.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "custom_domain_id": {
+              "description": "Custom domain ID",
+              "title": "Custom Domain Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id",
+            "custom_domain_id"
+          ],
+          "title": "AppgardenCustomDomainRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "hostname": {
+              "title": "Hostname",
+              "type": "string"
+            },
+            "worker_name": {
+              "title": "Worker Name",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "active",
+                "failed"
+              ],
+              "title": "AppCustomDomainStatus",
+              "type": "string"
+            },
+            "provider_status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider Status"
+            },
+            "ssl_status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ssl Status"
+            },
+            "cname_target": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "CNAME target to use for custom subdomains.",
+              "title": "Cname Target"
+            },
+            "apex_proxy_ipv4_targets": {
+              "description": "A record targets to use when the custom hostname is a zone apex.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Apex Proxy Ipv4 Targets",
+              "type": "array"
+            },
+            "validation_records": {
+              "items": {
+                "properties": {
+                  "record_type": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Record Type"
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Name"
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Value"
+                  }
+                },
+                "title": "AppgardenCustomDomainValidationRecordResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Validation Records",
+              "type": "array"
+            },
+            "last_error": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Error"
+            },
+            "created_at": {
+              "title": "Created At",
+              "type": "string"
+            },
+            "updated_at": {
+              "title": "Updated At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "project_id",
+            "hostname",
+            "worker_name",
+            "status",
+            "provider_status",
+            "ssl_status",
+            "cname_target",
+            "apex_proxy_ipv4_targets",
+            "validation_records",
+            "last_error",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "AppgardenCustomDomainResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": true
+        },
+        "_meta": {
+          "resource_name": "sites.refresh_custom_domain_status",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/refresh_custom_domain_status",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_remove_custom_domain",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.remove_custom_domain",
+        "title": "remove_custom_domain",
+        "description": "Remove a custom domain from a site.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "custom_domain_id": {
+              "description": "Custom domain ID",
+              "title": "Custom Domain Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id",
+            "custom_domain_id"
+          ],
+          "title": "AppgardenCustomDomainRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "project_id": {
+              "title": "Project Id",
+              "type": "string"
+            },
+            "hostname": {
+              "title": "Hostname",
+              "type": "string"
+            },
+            "worker_name": {
+              "title": "Worker Name",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "active",
+                "failed"
+              ],
+              "title": "AppCustomDomainStatus",
+              "type": "string"
+            },
+            "provider_status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider Status"
+            },
+            "ssl_status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ssl Status"
+            },
+            "cname_target": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "CNAME target to use for custom subdomains.",
+              "title": "Cname Target"
+            },
+            "apex_proxy_ipv4_targets": {
+              "description": "A record targets to use when the custom hostname is a zone apex.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Apex Proxy Ipv4 Targets",
+              "type": "array"
+            },
+            "validation_records": {
+              "items": {
+                "properties": {
+                  "record_type": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Record Type"
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Name"
+                  },
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Value"
+                  }
+                },
+                "title": "AppgardenCustomDomainValidationRecordResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Validation Records",
+              "type": "array"
+            },
+            "last_error": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Error"
+            },
+            "created_at": {
+              "title": "Created At",
+              "type": "string"
+            },
+            "updated_at": {
+              "title": "Updated At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "project_id",
+            "hostname",
+            "worker_name",
+            "status",
+            "provider_status",
+            "ssl_status",
+            "cname_target",
+            "apex_proxy_ipv4_targets",
+            "validation_records",
+            "last_error",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "AppgardenCustomDomainResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": true
+        },
+        "_meta": {
+          "resource_name": "sites.remove_custom_domain",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/remove_custom_domain",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_save_site_version",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.save_site_version",
+        "title": "save_site_version",
+        "description": "Save a version of the site's pushed source without deploying it. Full SHA of the pushed source commit. It must match the current HEAD of the site's configured remote source branch and the source used to build any supplied archive. The archive supplies build output or configured static assets from that commit. Include the archive whenever it can be packaged locally; omit it only when local packaging cannot complete and remote build fallback is required. Returns the saved version ID and user-facing version number.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "commit_sha": {
+              "description": "Full SHA of the pushed source commit. It must match the current HEAD of the site's configured remote source branch and the source used to build any supplied archive.",
+              "title": "Commit Sha",
+              "type": "string"
+            },
+            "archive": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "download_url": {
+                      "title": "Download Url",
+                      "type": "string"
+                    },
+                    "file_id": {
+                      "title": "File Id",
+                      "type": "string"
+                    },
+                    "mime_type": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Mime Type"
+                    },
+                    "file_name": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "File Name"
+                    }
+                  },
+                  "required": [
+                    "download_url",
+                    "file_id"
+                  ],
+                  "title": "AppgardenUploadedFilePayload",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Deployment tar archive containing build output or configured static assets from commit_sha, not the project source tree. Must contain .openai/hosting.json and either a supported Worker entrypoint or an index.html in the directory declared by static.directory. Include it whenever local packaging is possible, including for sites with no build step; omit it only when local packaging cannot complete and remote build fallback is required. Keep unchanged until saving succeeds."
+            }
+          },
+          "required": [
+            "project_id",
+            "commit_sha"
+          ],
+          "title": "AppgardenSaveSiteVersionRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "description": "Opaque saved version ID. Pass this exact value as version_id.",
+              "title": "Id",
+              "type": "string"
+            },
+            "project_id": {
+              "description": "Opaque site project ID. Pass this exact value as project_id.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "version_number": {
+              "title": "Version Number",
+              "type": "integer"
+            },
+            "source": {
+              "properties": {
+                "commit_sha": {
+                  "title": "Commit Sha",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "commit_sha"
+              ],
+              "title": "AppGardenVersionSourceResponse",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "archive_storage": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "archive_format": {
+                      "title": "Archive Format",
+                      "type": "string"
+                    },
+                    "sediment_file_id": {
+                      "title": "Sediment File Id",
+                      "type": "string"
+                    },
+                    "content_hash": {
+                      "title": "Content Hash",
+                      "type": "string"
+                    },
+                    "size_bytes": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Size Bytes"
+                    },
+                    "file_count": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "File Count"
+                    }
+                  },
+                  "required": [
+                    "archive_format",
+                    "sediment_file_id",
+                    "content_hash"
+                  ],
+                  "title": "AppGardenVersionArchiveStorageResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "screenshot_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Screenshot Url"
+            },
+            "deployment_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Latest publish attempt for this saved version; use get_deployment_status.",
+              "title": "Deployment Id"
+            }
+          },
+          "required": [
+            "id",
+            "project_id",
+            "version_number",
+            "source"
+          ],
+          "title": "AppGardenVersionResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "openai/fileParams": [
+            "archive"
+          ],
+          "openai/fileUploadConfig": {
+            "store_in_library": false
+          },
+          "_codex_apps": {
+            "accepted_mcp_request_meta_keys": [
+              "openai/codex_client_type",
+              "x-codex-turn-metadata"
+            ],
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/save_site_version",
+            "contains_mcp_source": false
+          },
+          "resource_name": "sites.save_site_version",
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_save_version_and_deploy_private",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.save_version_and_deploy_private",
+        "title": "save_version_and_deploy_private",
+        "description": "For a site created in the current flow whose owner-only access has not changed, or an existing site already known to be owner-private for the selected account, use this instead of save_site_version followed by deploy_private_site_version. Never use this tool as an access probe. The backend still verifies owner-only access. Publish after creating or editing a site by default, including on subsequent turns. Respect explicit local-only requests, requests to save without deploying, and instructions not to publish. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Do not add a separate conversational deployment confirmation; runtime tool approvals and backend access checks still apply. It saves the current pushed source and deploys that exact version in one call; do not save or deploy separately for the same operation. For an already saved version, use deploy_private_site_version with version_id instead; do not upload or save it again. Full SHA of the pushed source commit. It must match the current HEAD of the site's configured remote source branch and the source used to build any supplied archive. Supply the archive as for save_site_version. This does not change sharing or private tunnel bindings. If ownership or audience is unknown, call get_site first. Use deploy_site_version unless owner-only access for the selected account is confirmed. After site_not_owner_only, do not retry private or silently fall back: re-read access and use deploy_site_version unless that audience conflicts with the user's explicit sharing instructions. If it conflicts, report the audience mismatch. If an error includes saved_version_id, retain it and retry deployment with that version rather than saving again. Use get_deployment_status when the returned deployment is not terminal; a deployment URL is a production URL.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "commit_sha": {
+              "description": "Full SHA of the pushed source commit. It must match the current HEAD of the site's configured remote source branch and the source used to build any supplied archive.",
+              "title": "Commit Sha",
+              "type": "string"
+            },
+            "archive": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "download_url": {
+                      "title": "Download Url",
+                      "type": "string"
+                    },
+                    "file_id": {
+                      "title": "File Id",
+                      "type": "string"
+                    },
+                    "mime_type": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Mime Type"
+                    },
+                    "file_name": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "File Name"
+                    }
+                  },
+                  "required": [
+                    "download_url",
+                    "file_id"
+                  ],
+                  "title": "AppgardenUploadedFilePayload",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Deployment tar archive containing build output or configured static assets from commit_sha, not the project source tree. Must contain .openai/hosting.json and either a supported Worker entrypoint or an index.html in the directory declared by static.directory. Include it whenever local packaging is possible, including for sites with no build step; omit it only when local packaging cannot complete and remote build fallback is required. Keep unchanged until saving succeeds."
+            }
+          },
+          "required": [
+            "project_id",
+            "commit_sha"
+          ],
+          "title": "AppgardenSaveSiteVersionRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "description": "Opaque deployment ID. Pass this exact value as deployment_id.",
+              "title": "Id",
+              "type": "string"
+            },
+            "project_id": {
+              "description": "Opaque site project ID. Pass this exact value as project_id.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "version_id": {
+              "description": "Opaque saved version ID. Pass this exact value as version_id.",
+              "title": "Version Id",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "preview",
+                "publish"
+              ],
+              "title": "AppDeploymentKind",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "pending",
+                "building",
+                "publishing",
+                "succeeded",
+                "failed"
+              ],
+              "title": "AppDeploymentStatus",
+              "type": "string"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Url"
+            },
+            "has_mcp": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Has Mcp"
+            },
+            "screenshot_asset_pointer": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Screenshot Asset Pointer"
+            },
+            "provider_deployment_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider Deployment Id"
+            },
+            "failure_message": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Failure Message"
+            },
+            "env_set_revision": {
+              "title": "Env Set Revision",
+              "type": "integer"
+            },
+            "updated_at": {
+              "title": "Updated At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "project_id",
+            "title",
+            "version_id",
+            "type",
+            "status",
+            "url",
+            "provider_deployment_id",
+            "failure_message",
+            "env_set_revision",
+            "updated_at"
+          ],
+          "title": "AppGardenDeploymentResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "openai/fileParams": [
+            "archive"
+          ],
+          "openai/fileUploadConfig": {
+            "store_in_library": false
+          },
+          "_codex_apps": {
+            "accepted_mcp_request_meta_keys": [
+              "openai/codex_client_type",
+              "x-codex-turn-metadata"
+            ],
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/save_version_and_deploy_private",
+            "contains_mcp_source": false
+          },
+          "resource_name": "sites.save_version_and_deploy_private",
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_update_access",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.update_access",
+        "title": "update_access",
+        "description": "Deprecated legacy Codex app alias. Use update_site_access instead.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Workspace site project ID",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "access_mode": {
+              "description": "Required access mode for the site: workspace_all grants all active workspace users; custom uses the supplied user and group allowlists.",
+              "enum": [
+                "workspace_all",
+                "custom"
+              ],
+              "title": "Access Mode",
+              "type": "string"
+            },
+            "allowed_user_emails": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "User email allowlist for the site.",
+              "title": "Allowed User Emails"
+            },
+            "allowed_workspace_group_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Workspace group ID allowlist for the site.",
+              "title": "Allowed Workspace Group Ids"
+            },
+            "allowed_tenant_group_ids": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Tenant group ID allowlist for the site.",
+              "title": "Allowed Tenant Group Ids"
+            }
+          },
+          "required": [
+            "project_id",
+            "access_mode"
+          ],
+          "title": "update_access_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "app"
+            ]
+          },
+          "_codex_apps": {
+            "accepted_mcp_request_meta_keys": [
+              "openai/codex_client_type"
+            ],
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/update_access",
+            "contains_mcp_source": false
+          },
+          "resource_name": "sites.update_access",
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_update_environment",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.update_environment",
+        "title": "update_environment",
+        "description": "Deprecated legacy Codex app alias. Use update_environment_variables instead.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Site project ID",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "set_values": {
+              "description": "Environment entries to create or replace.",
+              "items": {
+                "properties": {
+                  "key": {
+                    "description": "Required non-empty, case-sensitive environment variable name.",
+                    "title": "Key",
+                    "type": "string"
+                  },
+                  "value": {
+                    "title": "Value",
+                    "type": "string"
+                  },
+                  "is_secret": {
+                    "default": false,
+                    "description": "Set true for sensitive values so they are not returned in plaintext.",
+                    "title": "Is Secret",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "const": "envvar",
+                    "default": "envvar",
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "value"
+                ],
+                "title": "UpdateAppgardenEnvironmentEnvVarEntryRequest",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Set Values",
+              "type": "array"
+            },
+            "remove": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Environment keys to remove.",
+              "title": "Remove"
+            }
+          },
+          "required": [
+            "project_id",
+            "set_values"
+          ],
+          "title": "update_environment_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "app"
+            ]
+          },
+          "resource_name": "sites.update_environment",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/update_environment",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+     

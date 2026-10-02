@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "task": "hackathon--sheet",
+  "isolation": "Mutations create their own workbook through visible UI, except the exclusive row-node and column-node seeds. Q3 Sales is read-only. Fresh server data is required for each suite invocation.",
+  "workbooks": [
+    {
+      "name": "Q3 Sales",
+      "worksheets": [
+        {
+          "name": "Sheet1",
+          "cells": {
+            "A1": "Region"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Row operations seed",
+      "case_id": "row-node",
+      "worksheets": [
+        {
+          "name": "Sheet1",
+          "cells": {
+            "A1": "Label",
+            "B1": "Value",
+            "A2": "first",
+            "B2": "10",
+            "A3": "second",
+            "B3": "20"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Column operations seed",
+      "case_id": "column-node",
+      "worksheets": [
+        {
+          "name": "Sheet1",
+          "cells": {
+            "A1": "first",
+            "A2": "alpha",
+            "B1": "second",
+            "B2": "beta",
+            "C1": "third",
+            "C2": "gamma"
+          }
+        }
+      ]
+    }
+  ],
+  "private_api_required": false,
+  "routes": "Implementation-defined; tests discover and reuse browser-visible URLs."
+}

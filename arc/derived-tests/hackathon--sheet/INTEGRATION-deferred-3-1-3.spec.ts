@@ -6,7 +6,7 @@ import * as h from './helpers';
 test("INTEGRATION-deferred-3-1-3: complete rectangle replaces and persists exact selected ARIA cells independently per sheet", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.blank(page); await h.range(page, 'B2', 'C3');
-  const check = async () => { await expect(h.grid(page)).toHaveAttribute('aria-multiselectable', 'true'); for (const at of ['B2','C2','B3','C3']) await expect(h.cell(page, at)).toHaveAttribute('aria-selected','true'); for (const at of ['A1','A2','B1','D3']) await expect(h.cell(page, at)).toHaveAttribute('aria-selected','false'); };
+  const check = async () => h.selection(page,['B2','C2','B3','C3'],['A1','A2','B1','D3']);
   await check(); await h.button(page, 'Add worksheet').click(); await h.cell(page,'D4').click(); await h.tab(page,'Sheet1').click(); await h.persisted(page, check);
   await h.cell(page,'A1').click(); await expect(h.cell(page,'B2')).toHaveAttribute('aria-selected','false');
 });

@@ -1,0 +1,291 @@
+{
+  "config": {
+    "argv": [
+      "/home/chris/.nvm/versions/node/v22.23.2/bin/node",
+      "/home/chris/Works/octos-arc/arc/local-grader/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "evidence/derived-audit-03a12926c294-20261002/oracle-checks/playwright.config.cjs"
+    ],
+    "configFile": "/home/chris/Works/octos-arc/evidence/derived-audit-03a12926c294-20261002/oracle-checks/playwright.config.cjs",
+    "rootDir": "/home/chris/Works/octos-arc/evidence/derived-audit-03a12926c294-20261002/oracle-checks",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/chris/Works/octos-arc/evidence/derived-audit-03a12926c294-20261002/oracle-checks/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/home/chris/Works/octos-arc/evidence/derived-audit-03a12926c294-20261002/oracle-checks",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 10000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/home/chris/Works/octos-arc/evidence/derived-audit-03a12926c294-20261002/oracle-checks/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "oracle.spec.ts",
+      "file": "oracle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "downloaded values helper accepts collapsed newline and lost surrounding whitespace",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 10000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 180,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:40:34.499Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3b2801c78781a5f8de0b-9fc5d2381837f81ddb39",
+          "file": "oracle.spec.ts",
+          "line": 6,
+          "column": 5
+        },
+        {
+          "title": "downloaded values helper discards extra visible button text inside a cell",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 10000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 89,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:40:34.780Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3b2801c78781a5f8de0b-791869775250f9e6be17",
+          "file": "oracle.spec.ts",
+          "line": 16,
+          "column": 5
+        },
+        {
+          "title": "failed-save alert assertion rejects ordinary visible error text",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 10000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 559,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:40:34.876Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3b2801c78781a5f8de0b-5f7f86b18005e732424c",
+          "file": "oracle.spec.ts",
+          "line": 22,
+          "column": 5
+        },
+        {
+          "title": "timestamp helper accepts inline timestamp; suspected layout restriction is not reproduced",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 10000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 73,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:40:35.445Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3b2801c78781a5f8de0b-af20765f4d40268a99ed",
+          "file": "oracle.spec.ts",
+          "line": 31,
+          "column": 5
+        },
+        {
+          "title": "date-sort fixture produces identical string and chronological order",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 10000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:40:35.525Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3b2801c78781a5f8de0b-2db37cad31b37666135f",
+          "file": "oracle.spec.ts",
+          "line": 37,
+          "column": 5
+        },
+        {
+          "title": "downloaded values helper rejects data text rendered inside an ordinary button",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 10000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 504,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T04:40:35.537Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3b2801c78781a5f8de0b-5d49b9fe42aeeddfe5ce",
+          "file": "oracle.spec.ts",
+          "line": 47,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-02T04:40:34.140Z",
+    "duration": 1964.8029999999999,
+    "expected": 6,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

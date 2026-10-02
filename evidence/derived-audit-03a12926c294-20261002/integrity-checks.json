@@ -1,0 +1,14 @@
+{
+  "manifest_file_review_verification": "passed",
+  "raw_requirements_equal": true,
+  "node_specs": 24,
+  "discovered_cases": 131,
+  "plan_cases": 131,
+  "late_declared_dependencies": [],
+  "current_local_sheet_spec_bytes_match": true,
+  "ignored_source_spec_files": 17,
+  "ignored_source_cases": 53,
+  "retained_origin_cases": 53,
+  "missing_origin_titles": [],
+  "current_local_source_manifest_matches": true
+}

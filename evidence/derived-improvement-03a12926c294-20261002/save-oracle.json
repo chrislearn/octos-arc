@@ -1,0 +1,52 @@
+[
+  {
+    "title": "cells-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "workbook-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "cells-retry-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "workbook-retry-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "cells-generic-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "workbook-generic-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "cells-plain-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "workbook-plain-generic-good",
+    "ok": true,
+    "message": ""
+  },
+  {
+    "title": "cells-bad",
+    "ok": false,
+    "message": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: \"original\"\nReceived: \"sheet-d656fbf7-4ac\"\n\nCall Log:\n- Test timeout of 10000ms exceeded\n    at Object.values (/home/chris/Works/octos-arc/arc/local-grader/save-failure-oracle-vcw30b9r/prepared/tests/helpers.ts:43:24)\n    at /home/chris/Works/octos-arc/arc/local-grader/save-failure-oracle-vcw30b9r/prepared/tests/oracle.spec.ts:204:13"
+  },
+  {
+    "title": "workbook-bad",
+    "ok": false,
+    "message": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: \"original\"\nReceived: \"sheet-6bbe9cab-4d4\"\n\nCall Log:\n- Test timeout of 10000ms exceeded\n    at Object.values (/home/chris/Works/octos-arc/arc/local-grader/save-failure-oracle-vcw30b9r/prepared/tests/helpers.ts:43:24)\n    at /home/chris/Works/octos-arc/arc/local-grader/save-failure-oracle-vcw30b9r/prepared/tests/oracle.spec.ts:227:13"
+  }
+]

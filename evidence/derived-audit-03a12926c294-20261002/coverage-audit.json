@@ -1,0 +1,269 @@
+{
+  "basis": "Manual assertion review of downloaded snapshot; contextual witnesses included; primary counts are not clause coverage percentages",
+  "rows": [
+    {
+      "requirement_id": "REQ-1-1-1",
+      "name": "View and Open a Workbook",
+      "priority": "P2",
+      "primary_cases": 1,
+      "covered": "首页打开、稳定地址、刷新、独立浏览器会话；后续 context 验证时间戳一致、工作簿隔离及复合状态重开",
+      "gaps": "编辑后的 last updated 是否真正更新未验证；独立会话的完整筛选、验证、选区、透视配置组合覆盖有限",
+      "requirement_description_line": 52,
+      "primary_spec": "REQ-1-1-1.spec.ts",
+      "context_origin_cases": 3
+    },
+    {
+      "requirement_id": "REQ-1-2-1",
+      "name": "Create a Blank Workbook",
+      "priority": "P1",
+      "primary_cases": 1,
+      "covered": "创建后单一 Sheet1、A1 选中、刷新及直接地址；后续验证新工作簿不继承他簿状态",
+      "gaps": "没有创建保存失败、可重试及首页无残留记录的用例；基础创建只检查 A1 为空，并未检查整个已渲染数据区",
+      "requirement_description_line": 119,
+      "primary_spec": "REQ-1-2-1.spec.ts",
+      "context_origin_cases": 1
+    },
+    {
+      "requirement_id": "REQ-1-2-2",
+      "name": "Rename a Workbook",
+      "priority": "P1",
+      "primary_cases": 2,
+      "covered": "修剪、成功改名、首页重开、空名称拒绝；context 验证只改当前工作簿",
+      "gaps": "没有有效名称在服务器保存失败时保留原名的用例；prefill 只验证非空，未与最后保存名逐字比较",
+      "requirement_description_line": 153,
+      "primary_spec": "REQ-1-2-2.spec.ts",
+      "context_origin_cases": 1
+    },
+    {
+      "requirement_id": "REQ-1-3-1",
+      "name": "Import CSV to Create a Workbook",
+      "priority": "P1",
+      "primary_cases": 2,
+      "covered": "Unicode、逗号、引号、嵌入换行、007、空字段、错误引号无残留；context 验证首行普通数据及只剥离最后扩展名",
+      "gaps": "有效 CSV 的存储失败及重试没有覆盖；普通字段经 Formula bar 作精确检查，但网格 helper 本身压缩空白",
+      "requirement_description_line": 227,
+      "primary_spec": "REQ-1-3-1.spec.ts",
+      "context_origin_cases": 1
+    },
+    {
+      "requirement_id": "REQ-1-3-2",
+      "name": "Export the Current Worksheet as CSV",
+      "priority": "P2",
+      "primary_cases": 1,
+      "covered": "下载文件名、独立 CSV parser、转义、空字段、计算结果、当前表限定、隐藏行仍导出、状态保留",
+      "gaps": "导出前后不是完整状态快照；部分网格及选区仍只检查少量坐标，尚缺筛选和选区同时保持的完整比较",
+      "requirement_description_line": 342,
+      "primary_spec": "REQ-1-3-2.spec.ts",
+      "context_origin_cases": 2
+    },
+    {
+      "requirement_id": "REQ-2-1-1",
+      "name": "Add a Worksheet",
+      "priority": "P1",
+      "primary_cases": 2,
+      "covered": "新增激活、顺序及 A1；context 验证 first unused SheetN、既有数据及筛选和验证隔离",
+      "gaps": "没有新增保存失败时无新 tab、原表不变的用例；从有透视结果的工作簿新增空表后，对透视继承的显式断言有限",
+      "requirement_description_line": 472,
+      "primary_spec": "REQ-2-1-1.spec.ts",
+      "context_origin_cases": 3
+    },
+    {
+      "requirement_id": "REQ-2-1-2",
+      "name": "Switch Worksheets",
+      "priority": "P2",
+      "primary_cases": 8,
+      "covered": "选中单元格、完整矩形选区、最后活动表、公式、验证及筛选独立；复合重开验证透视结果",
+      "gaps": "跨表状态隔离已较广，但没有一套每表完整结构、公式、选区、筛选、验证、透视配置的统一状态快照",
+      "requirement_description_line": 537,
+      "primary_spec": "REQ-2-1-2.spec.ts",
+      "context_origin_cases": 0
+    },
+    {
+      "requirement_id": "REQ-2-1-3",
+      "name": "Rename a Worksheet",
+      "priority": "P1",
+      "primary_cases": 1,
+      "covered": "prefill、修剪、空白及重复拒绝、刷新、顺序及数据规则保留",
+      "gaps": "有效新名称遇到保存失败时的错误和原名保持没有覆盖；失败后即时状态及首页重开覆盖不完整",
+      "requirement_description_line": 669,
+      "primary_spec": "REQ-2-1-3.spec.ts",
+      "context_origin_cases": 2
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "name": "Delete a Worksheet",
+      "priority": "P1",
+      "primary_cases": 5,
+      "covered": "删除确认、目标名称、末表保护、相邻激活、删源表保护、删透视表释放约束、命名空位复用",
+      "gaps": "一般存储失败时目标 tab 及全部数据保持未测；删除包含 numeric rule 的表时，没有通过后续输入证明规则已完全清理",
+      "requirement_description_line": 757,
+      "primary_spec": "REQ-2-1-4.spec.ts",
+      "context_origin_cases": 0
+    },
+    {
+      "requirement_id": "REQ-2-2-1",
+      "name": "Insert and Delete Rows",
+      "priority": "P1",
+      "primary_cases": 1,
+      "covered": "seed 移动完整记录、上下插入、删除、刷新；后续 context 覆盖公式、筛选、规则及透视源联动",
+      "gaps": "没有插入或删除保存失败后的结构原子性；多行连续变动、结构变化中复合范围公式的边界仍有限",
+      "requirement_description_line": 887,
+      "primary_spec": "REQ-2-2-1.spec.ts",
+      "context_origin_cases": 9
+    },
+    {
+      "requirement_id": "REQ-2-2-2",
+      "name": "Insert and Delete Columns",
+      "priority": "P1",
+      "primary_cases": 1,
+      "covered": "seed 完整列移动、左右插入、删除、刷新；context 覆盖 #REF、验证、筛选、透视字段移动及删除",
+      "gaps": "没有插删列保存失败后原结构保持；删除被选透视字段后只打开 editor 而不点 Refresh 的错误路径未单独验证",
+      "requirement_description_line": 1013,
+      "primary_spec": "REQ-2-2-2.spec.ts",
+      "context_origin_cases": 9
+    },
+    {
+      "requirement_id": "REQ-3-1-1",
+      "name": "Edit a Cell Through the Grid or Formula Bar",
+      "priority": "P1",
+      "primary_cases": 7,
+      "covered": "grid 与 Formula bar 的 Enter、blur、Escape；文本、数字、布尔类、日期；HTTP 500 保存失败及重试",
+      "gaps": "失败测试额外要求 alert role 且限定 HTTP 请求体；通过 inline Edit 控件输入公式未覆盖；普通值空白损坏可能被 helper 漏掉",
+      "requirement_description_line": 1161,
+      "primary_spec": "REQ-3-1-1.spec.ts",
+      "context_origin_cases": 1
+    },
+    {
+      "requirement_id": "REQ-3-1-2",
+      "name": "Paste Two-Dimensional Table Data",
+      "priority": "P1",
+      "primary_cases": 5,
+      "covered": "完整 TSV、空字段、目标外保持、菜单和 Ctrl+V、覆盖公式及依赖重算；验证失败全量回滚",
+      "gaps": "没有有效矩形在存储失败时所有目标及依赖保持的用例；只用 values 的普通文本缺精确空白检查",
+      "requirement_description_line": 1279,
+      "primary_spec": "REQ-3-1-2.spec.ts",
+      "context_origin_cases": 5
+    },
+    {
+      "requirement_id": "REQ-3-1-3",
+      "name": "Select a Rectangular Cell Range",
+      "priority": "P2",
+      "primary_cases": 1,
+      "covered": "正向及反向拖动、替换选区、刷新、跨表保持、范围排序不扩展",
+      "gaps": "outside 列表仅抽样，不能排除未列出的格子残留 aria-selected=true；缺首页重开后的完整矩形检查",
+      "requirement_description_line": 1418,
+      "primary_spec": "REQ-3-1-3.spec.ts",
+      "context_origin_cases": 2
+    },
+    {
+      "requirement_id": "REQ-3-2-1",
+      "name": "Copy, Cut, and Paste Cell Ranges",
+      "priority": "P1",
+      "primary_cases": 3,
+      "covered": "二维 copy/cut、源及目标保持、重叠剪切、外部剪贴板替换、相对及绝对引用、验证拒绝",
+      "gaps": "没有有效移动遇到保存失败后的源目标及依赖全量回滚；先显示完整目标再清源只验证前后状态，未观测中间顺序",
+      "requirement_description_line": 1498,
+      "primary_spec": "REQ-3-2-1.spec.ts",
+      "context_origin_cases": 4
+    },
+    {
+      "requirement_id": "REQ-3-2-2",
+      "name": "Undo and Redo Recent Operations",
+      "priority": "P2",
+      "primary_cases": 2,
+      "covered": "连续 undo/redo、按钮及快捷键、新分支禁 redo、跨簿隔离；context 覆盖公式、结构、规则及透视有效性",
+      "gaps": "删除结构与恢复的矩阵仍有限；一个透视联动用例在 Refresh 后要求还能 Redo，额外假定 Refresh 不进入历史",
+      "requirement_description_line": 1609,
+      "primary_spec": "REQ-3-2-2.spec.ts",
+      "context_origin_cases": 5
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "name": "Calculate Basic Expressions and Aggregate Functions",
+      "priority": "P2",
+      "primary_cases": 16,
+      "covered": "基本运算、括号、A1、六种聚合、大小写、忽略空格子及文本、负数 MAX、原公式及持久化",
+      "gaps": "没有通过 grid inline editor 输入公式的用例；连续区域聚合大多只用单列，二维区域及复杂引用组合不足",
+      "requirement_description_line": 1820,
+      "primary_spec": "REQ-4-1-1.spec.ts",
+      "context_origin_cases": 0
+    },
+    {
+      "requirement_id": "REQ-4-1-2",
+      "name": "Copy Formulas and Adjust Relative References",
+      "priority": "P2",
+      "primary_cases": 2,
+      "covered": "相对及完整绝对引用、二维拷贝、目标结果、源保持、越界 =#REF!、刷新",
+      "gaps": "位移主要为对角线；仅水平或垂直位移、范围引用拷贝及更远列的覆盖仍有限；混合引用语义可作为后续需求澄清",
+      "requirement_description_line": 1945,
+      "primary_spec": "REQ-4-1-2.spec.ts",
+      "context_origin_cases": 0
+    },
+    {
+      "requirement_id": "REQ-4-2-1",
+      "name": "Recalculate Dependent Formulas After Source Data Changes",
+      "priority": "P2",
+      "primary_cases": 2,
+      "covered": "直接及传递依赖，编辑、paste、move；context 验证结构调整及另一表不变",
+      "gaps": "依赖图主要为简单链；多支合流和二维 SUM 区域的结构变动可补强，不能据此判定已有结果错误",
+      "requirement_description_line": 2019,
+      "primary_spec": "REQ-4-2-1.spec.ts",
+      "context_origin_cases": 1
+    },
+    {
+      "requirement_id": "REQ-4-2-2",
+      "name": "Display and Fix Formula Errors",
+      "priority": "P2",
+      "primary_cases": 9,
+      "covered": "五类稳定错误、直接及间接环、刷新、错误修复、依赖恢复、错误隔离及传播",
+      "gaps": "各错误类型的 inline editor 输入及多分支错误隔离未覆盖；间接循环用例没有逐个验证两格的原公式",
+      "requirement_description_line": 2108,
+      "primary_spec": "REQ-4-2-2.spec.ts",
+      "context_origin_cases": 0
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "name": "Sort a Data Range by a Specified Column",
+      "priority": "P1",
+      "primary_cases": 6,
+      "covered": "文本升降序、稳定相等键、数字、表头、完整数值记录、范围外保持、公式及过滤验证联动",
+      "gaps": "日期样本全为 ISO，字符串排序也通过；没测排序保存失败后的原序保持；基础升降序漏断言 Status 列，补充数字用例不能替代此分支",
+      "requirement_description_line": 2273,
+      "primary_spec": "REQ-5-1-1.spec.ts",
+      "context_origin_cases": 0
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "name": "Filter Rows by Value or Condition",
+      "priority": "P2",
+      "primary_cases": 7,
+      "covered": "值过滤、五种条件、跨列 AND、隐藏非删除、清除恢复、隐藏行导出及透视、结构联动",
+      "gaps": "日期 Before 样本同样无法排除字符串比较；没有完整验证 distinct checkbox 集合；清除后的公式及规则仅有部分 context 见证",
+      "requirement_description_line": 2435,
+      "primary_spec": "REQ-5-1-2.spec.ts",
+      "context_origin_cases": 2
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "name": "Set Dropdown or Numeric Validation for a Range",
+      "priority": "P1",
+      "primary_cases": 22,
+      "covered": "下拉修剪、上下含边界、定制界限、所有输入路径拒绝、批量原子性、修改及删除规则、结构随动",
+      "gaps": "Number range 未测试非数字字符串；有效规则保存、修改及删除的存储失败分支缺失；存在使用旧错误文本即可满足下一次断言的风险",
+      "requirement_description_line": 2600,
+      "primary_spec": "REQ-5-2-1.spec.ts",
+      "context_origin_cases": 0
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "name": "Create and Refresh a Basic Pivot Table",
+      "priority": "P2",
+      "primary_cases": 24,
+      "covered": "SUM/COUNT/AVERAGE、行列布局、首次出现顺序、总计、隐藏行参与、显式 refresh、源字段删除及重选、undo 关联",
+      "gaps": "未在重开后验证所有 Columns 配置；尚缺其它可达 invalid range 路径；部分无数字分组输出在原需求未明确，不宜擅自强制 0 或空值",
+      "requirement_description_line": 2793,
+      "primary_spec": "REQ-5-3-1.spec.ts",
+      "context_origin_cases": 2
+    }
+  ]
+}

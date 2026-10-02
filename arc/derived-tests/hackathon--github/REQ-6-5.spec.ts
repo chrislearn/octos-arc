@@ -45,6 +45,77 @@ test("REQ-6-5: old-commit approval cannot satisfy a protected current-commit PR"
   await h.signIn(page,'spec-maintain'); await h.pr(page,'merge-stale-approval'); await expect(h.button(page,'Merge pull request')).toBeDisabled(); await expect(h.text(page,'Review required by branch protection').first()).toBeVisible(); await page.reload(); await expect(h.button(page,'Merge pull request')).toBeDisabled();
 });
 
+test("REQ-6-5: write cannot merge or change the base branch", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-write'); await h.pr(page,'merge-denied-write'); const address=page.url();
+  await expect(h.text(page,'Open').first()).toBeVisible();
+  const merge=h.button(page,'Merge pull request');
+  if(await merge.count() && await merge.isVisible() && await merge.isEnabled()) {
+    await merge.click(); const confirm=h.button(page,'Confirm merge');
+    await confirm.waitFor({state:'visible',timeout:2000}).catch(error=>{ if(error.name!=='TimeoutError') throw error; });
+    if(await confirm.count() && await confirm.isVisible() && await confirm.isEnabled()) await h.attemptSubmission(page,confirm);
+  }
+  await page.goto(address); await h.persisted(page,async()=>{ await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.text(page,'Merged')).toHaveCount(0); });
+  await h.repo(page,h.fixtureRepo('merge-denied-write')); await h.link(page,'src').click(); await h.link(page,'search.ts').click();
+  await h.persisted(page,()=>expect(h.text(page,'export const search = "search flow";')).toBeVisible());
+});
+
+test("REQ-6-5: read cannot merge or change the base branch", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-read'); await h.pr(page,'merge-denied-read'); const address=page.url();
+  await expect(h.text(page,'Open').first()).toBeVisible();
+  const merge=h.button(page,'Merge pull request');
+  if(await merge.count() && await merge.isVisible() && await merge.isEnabled()) {
+    await merge.click(); const confirm=h.button(page,'Confirm merge');
+    await confirm.waitFor({state:'visible',timeout:2000}).catch(error=>{ if(error.name!=='TimeoutError') throw error; });
+    if(await confirm.count() && await confirm.isVisible() && await confirm.isEnabled()) await h.attemptSubmission(page,confirm);
+  }
+  await page.goto(address); await h.persisted(page,async()=>{ await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.text(page,'Merged')).toHaveCount(0); });
+  await h.repo(page,h.fixtureRepo('merge-denied-read')); await h.link(page,'src').click(); await h.link(page,'search.ts').click();
+  await h.persisted(page,()=>expect(h.text(page,'export const search = "search flow";')).toBeVisible());
+});
+
+test("REQ-6-5: triage cannot merge or change the base branch", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-triage'); await h.pr(page,'merge-denied-triage'); const address=page.url();
+  await expect(h.text(page,'Open').first()).toBeVisible();
+  const merge=h.button(page,'Merge pull request');
+  if(await merge.count() && await merge.isVisible() && await merge.isEnabled()) {
+    await merge.click(); const confirm=h.button(page,'Confirm merge');
+    await confirm.waitFor({state:'visible',timeout:2000}).catch(error=>{ if(error.name!=='TimeoutError') throw error; });
+    if(await confirm.count() && await confirm.isVisible() && await confirm.isEnabled()) await h.attemptSubmission(page,confirm);
+  }
+  await page.goto(address); await h.persisted(page,async()=>{ await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.text(page,'Merged')).toHaveCount(0); });
+  await h.repo(page,h.fixtureRepo('merge-denied-triage')); await h.link(page,'src').click(); await h.link(page,'search.ts').click();
+  await h.persisted(page,()=>expect(h.text(page,'export const search = "search flow";')).toBeVisible());
+});
+
+test("REQ-6-5: a failed required check blocks an otherwise approved PR", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-maintain'); await h.pr(page,'merge-check-failure');
+  await h.persisted(page,async()=>{ await expect(h.text(page,'Open').first()).toBeVisible(); await expect(h.button(page,'Merge pull request')).toBeDisabled(); });
+  await h.repo(page,h.fixtureRepo('merge-check-failure')); await h.link(page,'src').click(); await h.link(page,'search.ts').click();
+  await h.persisted(page,()=>expect(h.text(page,'export const search = "search flow";')).toBeVisible());
+});
+
+test("REQ-6-5: context REQ-6-2-1: Open Draft Closed and actual Merged status filters isolate records and retain other PRs", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-maintain'); const address=await h.repo(page,h.fixtureRepo('pr-filter-lifecycle-node'));
+  await h.link(page,'Pull requests').click(); const list=page.url();
+  for(const [status,title] of [['Open','Improve onboarding'],['Draft','Draft onboarding update'],['Closed','Fix search']]) {
+    await h.filterStatus(page,status); await h.persisted(page,async()=>{
+      await expect(h.link(page,title)).toBeVisible();
+      for(const other of ['Improve onboarding','Draft onboarding update','Fix search'].filter(name=>name!==title)) await expect(h.link(page,other)).toHaveCount(0);
+    });
+  }
+  await h.filterStatus(page,'Open'); await h.link(page,'Improve onboarding').click();
+  await h.button(page,'Merge pull request').click(); await h.button(page,'Confirm merge').click(); await expect(h.text(page,'Merged').first()).toBeVisible();
+  await page.goto(list); await h.filterStatus(page,'Merged');
+  await h.persisted(page,async()=>{ await expect(h.link(page,'Improve onboarding')).toBeVisible(); await expect(h.link(page,'Fix search')).toHaveCount(0); await expect(h.link(page,'Draft onboarding update')).toHaveCount(0); });
+  await h.filterStatus(page,'Draft'); await expect(h.link(page,'Draft onboarding update')).toBeVisible();
+  await h.filterStatus(page,'Closed'); await expect(h.link(page,'Fix search')).toBeVisible();
+});
+
 test("REQ-6-5: context REQ-6-5: guide: new compare commit invalidates review/check, preserves comments and merges only after renewal", async ({ page, browser }) => {
   test.setTimeout(60_000);
   const reviewer=await browser.newContext(), maintainer=await browser.newContext(), writer=await browser.newContext();

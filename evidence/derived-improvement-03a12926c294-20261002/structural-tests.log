@@ -1,0 +1,337 @@
+...[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[guard] cost guard: 60000000 tokens / 96 turns
+[guard] cost guard: 60000000 tokens / 96 turns
+[tests] 41 spec files at /home/chris/.local/tmp/tmpfghn9d6y/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[tests] 41 spec files at /home/chris/.local/tmp/tmpfghn9d6y/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] binary (dry run: no kernel)
+[octos] binary (dry run: no kernel)
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[delivery] final files retained; stopping edits and handing off to platform evaluation (exit=0)
+[delivery] final files retained; stopping edits and handing off to platform evaluation (exit=0)
+......hackathon--github 54 files 141 cases
+hackathon--sheet 41 files 196 cases
+[tests] no acceptance specs found; wrote deterministic requirement contract for 0 node(s) to /home/chris/.local/tmp/tmp96uh2lj7/.arc/requirement-contracts.json
+[tests] no acceptance specs found; wrote deterministic requirement contract for 0 node(s) to /home/chris/.local/tmp/tmp96uh2lj7/.arc/requirement-contracts.json
+......[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[guard] cost guard: 60000000 tokens / 96 turns
+[guard] cost guard: 60000000 tokens / 96 turns
+[tests] 41 spec files at /home/chris/.local/tmp/tmpd0vsfukw/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[tests] 41 spec files at /home/chris/.local/tmp/tmpd0vsfukw/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] binary (dry run: no kernel)
+[octos] binary (dry run: no kernel)
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] stopped editing after internal failure: OSError
+[flow] stopped editing after internal failure: OSError
+[delivery] cleanup unavailable: OSError
+[delivery] cleanup unavailable: OSError
+[delivery] final files retained; stopping edits and handing off to platform evaluation (exit=0)
+[delivery] final files retained; stopping edits and handing off to platform evaluation (exit=0)
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[guard] cost guard: 60000000 tokens / 96 turns
+[guard] cost guard: 60000000 tokens / 96 turns
+[tests] 41 spec files at /home/chris/.local/tmp/tmpd0vsfukw/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[tests] 41 spec files at /home/chris/.local/tmp/tmpd0vsfukw/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] binary (dry run: no kernel)
+[octos] binary (dry run: no kernel)
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] stopped editing after internal failure: OSError
+[flow] stopped editing after internal failure: OSError
+[delivery] cleanup unavailable: OSError
+[delivery] cleanup unavailable: OSError
+[delivery] final files retained; stopping edits and handing off to platform evaluation (exit=0)
+[delivery] final files retained; stopping edits and handing off to platform evaluation (exit=0)
+.....[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[guard] cost guard: 60000000 tokens / 96 turns
+[guard] cost guard: 60000000 tokens / 96 turns
+[tests] 41 spec files at /home/chris/.local/tmp/tmp1vflkck2/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[tests] 41 spec files at /home/chris/.local/tmp/tmp1vflkck2/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] binary (dry run: no kernel)
+[octos] binary (dry run: no kernel)
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[acceptance] full suite has no complete verdict: playwright run exceeded 900s
+[acceptance] full suite has no complete verdict: playwright run exceeded 900s
+[delivery] runnable application retained; local verification incomplete for 24 node(s); handing off to platform evaluation
+[delivery] runnable application retained; local verification incomplete for 24 node(s); handing off to platform evaluation
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[guard] cost guard: 60000000 tokens / 96 turns
+[guard] cost guard: 60000000 tokens / 96 turns
+[tests] 41 spec files at /home/chris/.local/tmp/tmp1vflkck2/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[tests] 41 spec files at /home/chris/.local/tmp/tmp1vflkck2/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] binary (dry run: no kernel)
+[octos] binary (dry run: no kernel)
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[acceptance] full suite has no complete verdict: playwright run exceeded 900s
+[acceptance] full suite has no complete verdict: playwright run exceeded 900s
+[delivery] runnable application retained; local verification incomplete for 24 node(s); handing off to platform evaluation
+[delivery] runnable application retained; local verification incomplete for 24 node(s); handing off to platform evaluation
+..[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] adapter source sha256=84dee0431836e63eaba52050580ef2107e873fc9f394ae27551a964ba01506f2 (adapter_python_and_blueprints)
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] 24 atomic nodes in dependency order: ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']; time budget 36000s
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[flow] evolution mode: existing app detected; unchanged nodes [], to implement ['REQ-1-1-1', 'REQ-1-2-1', 'REQ-1-2-2', 'REQ-1-3-1', 'REQ-1-3-2', 'REQ-2-1-3', 'REQ-2-1-1', 'REQ-2-2-1', 'REQ-2-2-2', 'REQ-3-1-1', 'REQ-3-1-2', 'REQ-3-1-3', 'REQ-3-2-1', 'REQ-3-2-2', 'REQ-4-1-1', 'REQ-4-2-1', 'REQ-4-2-2', 'REQ-4-1-2', 'REQ-5-1-2', 'REQ-5-2-1', 'REQ-2-1-2', 'REQ-5-1-1', 'REQ-5-3-1', 'REQ-2-1-4']
+[guard] cost guard: 60000000 tokens / 96 turns
+[guard] cost guard: 60000000 tokens / 96 turns
+[tests] 41 spec files at /home/chris/.local/tmp/tmpzv6l8gax/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[tests] 41 spec files at /home/chris/.local/tmp/tmpzv6l8gax/suite; mapping {'REQ-1-1-1': ['REQ-1-1-1.spec.ts'], 'REQ-1-2-1': ['REQ-1-2-1.spec.ts'], 'REQ-1-2-2': ['REQ-1-2-2.spec.ts'], 'REQ-1-3-1': ['REQ-1-3-1.spec.ts'], 'REQ-1-3-2': ['REQ-1-3-2.spec.ts'], 'REQ-2-1-3': ['REQ-2-1-3.spec.ts'], 'REQ-2-1-1': ['REQ-2-1-1.spec.ts'], 'REQ-2-2-1': ['REQ-2-2-1.spec.ts'], 'REQ-2-2-2': ['REQ-2-2-2.spec.ts'], 'REQ-3-1-1': ['REQ-3-1-1.spec.ts'], 'REQ-3-1-2': ['REQ-3-1-2.spec.ts'], 'REQ-3-1-3': ['REQ-3-1-3.spec.ts'], 'REQ-3-2-1': ['REQ-3-2-1.spec.ts'], 'REQ-3-2-2': ['REQ-3-2-2.spec.ts'], 'REQ-4-1-1': ['REQ-4-1-1.spec.ts'], 'REQ-4-2-1': ['REQ-4-2-1.spec.ts'], 'REQ-4-2-2': ['REQ-4-2-2.spec.ts'], 'REQ-4-1-2': ['REQ-4-1-2.spec.ts'], 'REQ-5-1-2': ['REQ-5-1-2.spec.ts'], 'REQ-5-2-1': ['REQ-5-2-1.spec.ts'], 'REQ-2-1-2': ['REQ-2-1-2.spec.ts'], 'REQ-5-1-1': ['REQ-5-1-1.spec.ts'], 'REQ-5-3-1': ['REQ-5-3-1.spec.ts'], 'REQ-2-1-4': ['REQ-2-1-4.spec.ts'], None: ['INTEGRATION-data-workflow.spec.ts', 'INTEGRATION-deferred-1-2-2.spec.ts', 'INTEGRATION-deferred-1-3-1.spec.ts', 'INTEGRATION-deferred-1-3-2.spec.ts', 'INTEGRATION-deferred-2-1-1.spec.ts', 'INTEGRATION-deferred-2-1-3.spec.ts', 'INTEGRATION-deferred-2-2-1.spec.ts', 'INTEGRATION-deferred-2-2-2.spec.ts', 'INTEGRATION-deferred-3-1-1.spec.ts', 'INTEGRATION-deferred-3-1-2.spec.ts', 'INTEGRATION-deferred-3-1-3.spec.ts', 'INTEGRATION-deferred-3-2-1.spec.ts', 'INTEGRATION-deferred-3-2-2.spec.ts', 'INTEGRATION-deferred-4-2-1.spec.ts', 'INTEGRATION-deferred-5-1-2.spec.ts', 'INTEGRATION-deferred-5-3-1.spec.ts', 'INTEGRATION-workbook-context.spec.ts']}; aliases {}
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] OCTOS_ARC_DRYRUN=1: fixed placeholder replies, no model calls
+[octos] binary (dry run: no kernel)
+[octos] binary (dry run: no kernel)
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 1/24 REQ-1-1-1 starting (budget 417s, specs=['REQ-1-1-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 2/24 REQ-1-2-1 starting (budget 435s, specs=['REQ-1-2-1.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 3/24 REQ-1-2-2 starting (budget 455s, specs=['REQ-1-2-2.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 4/24 REQ-1-3-1 starting (budget 476s, specs=['REQ-1-3-1.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 5/24 REQ-1-3-2 starting (budget 500s, specs=['REQ-1-3-2.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 6/24 REQ-2-1-3 starting (budget 526s, specs=['REQ-2-1-3.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 7/24 REQ-2-1-1 starting (budget 556s, specs=['REQ-2-1-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 8/24 REQ-2-2-1 starting (budget 588s, specs=['REQ-2-2-1.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 9/24 REQ-2-2-2 starting (budget 625s, specs=['REQ-2-2-2.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 10/24 REQ-3-1-1 starting (budget 667s, specs=['REQ-3-1-1.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 11/24 REQ-3-1-2 starting (budget 714s, specs=['REQ-3-1-2.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 12/24 REQ-3-1-3 starting (budget 769s, specs=['REQ-3-1-3.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 13/24 REQ-3-2-1 starting (budget 833s, specs=['REQ-3-2-1.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 14/24 REQ-3-2-2 starting (budget 909s, specs=['REQ-3-2-2.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 15/24 REQ-4-1-1 starting (budget 1000s, specs=['REQ-4-1-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 16/24 REQ-4-2-1 starting (budget 1111s, specs=['REQ-4-2-1.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 17/24 REQ-4-2-2 starting (budget 1250s, specs=['REQ-4-2-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 18/24 REQ-4-1-2 starting (budget 1429s, specs=['REQ-4-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 19/24 REQ-5-1-2 starting (budget 2000s, specs=['REQ-5-1-2.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 20/24 REQ-5-2-1 starting (budget 2750s, specs=['REQ-5-2-1.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 21/24 REQ-2-1-2 starting (budget 3000s, specs=['REQ-2-1-2.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 22/24 REQ-5-1-1 starting (budget 3000s, specs=['REQ-5-1-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 23/24 REQ-5-3-1 starting (budget 3000s, specs=['REQ-5-3-1.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[flow] node 24/24 REQ-2-1-4 starting (budget 3000s, specs=['REQ-2-1-4.spec.ts'])
+[delivery] runnable application retained; local verification incomplete for 0 node(s); handing off to platform evaluation
+[delivery] runnable application retained; local verification incomplete for 0 node(s); handing off to platform evaluation
+..[derived] compiling requirement specs for 1 node(s)
+[derived] compiling requirement specs for 1 node(s)
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp2haxd8uh/derived-tests-2
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp2haxd8uh/derived-tests-2
+[derived] compiling requirement specs for 1 node(s)
+[derived] compiling requirement specs for 1 node(s)
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp2haxd8uh/derived-tests-2
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp2haxd8uh/derived-tests-2
+.[derived] compiling requirement specs for 1 node(s)
+[derived] compiling requirement specs for 1 node(s)
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp46qu43yf/derived-tests
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp46qu43yf/derived-tests
+.[derived] compiling requirement specs for 1 node(s)
+[derived] compiling requirement specs for 1 node(s)
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmpyxrcwhlm/derived-tests
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmpyxrcwhlm/derived-tests
+[guard] restored 1 protected file(s) under /home/chris/.local/tmp/tmpyxrcwhlm/derived-tests: ['A.spec.ts']
+[guard] restored 1 protected file(s) under /home/chris/.local/tmp/tmpyxrcwhlm/derived-tests: ['A.spec.ts']
+[tests] 1 derived spec files at /home/chris/.local/tmp/tmpyxrcwhlm/derived-tests are internal diagnostics; mapping {'A': ['A.spec.ts']}
+[tests] 1 derived spec files at /home/chris/.local/tmp/tmpyxrcwhlm/derived-tests are internal diagnostics; mapping {'A': ['A.spec.ts']}
+.[derived] compiling requirement specs for 1 node(s)
+[derived] compiling requirement specs for 1 node(s)
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp7pivijc0/derived-tests-2
+[derived] compiled 1 static check(s) (0 scenario script(s), 0 entry script(s)) for 1/1 leaves into /home/chris/.local/tmp/tmp7pivijc0/derived-tests-2
+.
+----------------------------------------------------------------------
+Ran 28 tests in 5.070s
+
+OK

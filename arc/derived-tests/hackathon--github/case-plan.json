@@ -400,7 +400,7 @@
       "REQ-3-1",
       "REQ-3-3"
     ],
-    "title": "REQ-2-3: live team search creates one Write grant and reload retains it",
+    "title": "REQ-2-3: live team grant admits its member and preserves private denial and one saved grant",
     "file": "REQ-2-3.spec.ts"
   },
   {
@@ -609,6 +609,20 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-2-1: branch commit history displays exact message, author and relative timestamp",
+    "file": "REQ-4-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-2-1: branch history keeps newest-first order and file history excludes unrelated commits",
     "file": "REQ-4-2-1.spec.ts"
   },
   {
@@ -851,6 +865,102 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-4: guide: editing creates a real commit and an old revision retains its original bytes",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "file-denied-spec-read",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: spec-read cannot commit files on a readable repository",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "file-denied-spec-triage",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: spec-triage cannot commit files on a readable repository",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "file-path-absolute",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: absolute file path is rejected without advancing history",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "file-path-existing-file",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: existing-file file path is rejected without advancing history",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "file-path-directory",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: directory file path is rejected without advancing history",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "file-message-too-long",
+    "phase": "node",
+    "requires": [
+      "REQ-4-4",
+      "REQ-4-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: overlong trimmed commit message leaves files and history unchanged",
     "file": "REQ-4-4.spec.ts"
   },
   {
@@ -1112,6 +1222,40 @@
       "REQ-5-1-2"
     ],
     "title": "REQ-5-2-3: blank comment adds no article or activity through either allowed UI behavior",
+    "file": "REQ-5-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-3",
+    "fixture": "issue-comment-denied-spec-read",
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-5-1-1",
+      "REQ-5-1-2"
+    ],
+    "title": "REQ-5-2-3: spec-read can read discussion but cannot publish a comment",
+    "file": "REQ-5-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-3",
+    "fixture": "issue-comment-denied-spec-triage",
+    "phase": "node",
+    "requires": [
+      "REQ-5-2-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-5-1-1",
+      "REQ-5-1-2"
+    ],
+    "title": "REQ-5-2-3: spec-triage can read discussion but cannot publish a comment",
     "file": "REQ-5-2-3.spec.ts"
   },
   {
@@ -1454,6 +1598,69 @@
     "file": "REQ-6-3-1.spec.ts"
   },
   {
+    "node_id": "REQ-6-3-1",
+    "fixture": "pr-milestone-node",
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-3",
+      "REQ-6-3-1"
+    ],
+    "origin_node_id": "REQ-5-3-3",
+    "origin_file": "INTEGRATION-pr-planning.spec.ts",
+    "origin_title": "INTEGRATION-pr-planning: PR milestone toggles without cross-repository choices or deleting history",
+    "source_fixture": "pr-milestone",
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1"
+    ],
+    "title": "REQ-6-3-1: context REQ-5-3-3: PR milestone toggles without cross-repository choices or deleting history",
+    "file": "REQ-6-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-1",
+    "fixture": "pr-milestone-denied-spec-read-node",
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-3",
+      "REQ-6-3-1"
+    ],
+    "origin_node_id": "REQ-5-3-3",
+    "origin_file": "INTEGRATION-pr-planning.spec.ts",
+    "origin_title": "INTEGRATION-pr-planning: spec-read cannot change a PR milestone",
+    "source_fixture": "pr-milestone-denied-spec-read",
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1"
+    ],
+    "title": "REQ-6-3-1: context REQ-5-3-3: spec-read cannot change a PR milestone",
+    "file": "REQ-6-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-1",
+    "fixture": "pr-milestone-denied-spec-write-node",
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-3",
+      "REQ-6-3-1"
+    ],
+    "origin_node_id": "REQ-5-3-3",
+    "origin_file": "INTEGRATION-pr-planning.spec.ts",
+    "origin_title": "INTEGRATION-pr-planning: spec-write cannot change a PR milestone",
+    "source_fixture": "pr-milestone-denied-spec-write",
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1"
+    ],
+    "title": "REQ-6-3-1: context REQ-5-3-3: spec-write cannot change a PR milestone",
+    "file": "REQ-6-3-1.spec.ts"
+  },
+  {
     "node_id": "REQ-6-3-2",
     "fixture": null,
     "phase": "node",
@@ -1595,6 +1802,74 @@
     "file": "REQ-6-3-4.spec.ts"
   },
   {
+    "node_id": "REQ-6-3-4",
+    "fixture": "review-denied-author",
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-3-4: author cannot persist a review decision",
+    "file": "REQ-6-3-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-4",
+    "fixture": "review-denied-draft",
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-3-4: draft cannot persist a review decision",
+    "file": "REQ-6-3-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-4",
+    "fixture": "review-denied-read",
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-3-4: read cannot persist a review decision",
+    "file": "REQ-6-3-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-4",
+    "fixture": "review-denied-triage",
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-3-4: triage cannot persist a review decision",
+    "file": "REQ-6-3-4.spec.ts"
+  },
+  {
     "node_id": "REQ-6-4",
     "fixture": "review-request",
     "phase": "node",
@@ -1732,6 +2007,100 @@
   },
   {
     "node_id": "REQ-6-5",
+    "fixture": "merge-denied-write",
+    "phase": "node",
+    "requires": [
+      "REQ-6-5",
+      "REQ-4-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-5: write cannot merge or change the base branch",
+    "file": "REQ-6-5.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-5",
+    "fixture": "merge-denied-read",
+    "phase": "node",
+    "requires": [
+      "REQ-6-5",
+      "REQ-4-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-5: read cannot merge or change the base branch",
+    "file": "REQ-6-5.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-5",
+    "fixture": "merge-denied-triage",
+    "phase": "node",
+    "requires": [
+      "REQ-6-5",
+      "REQ-4-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-5: triage cannot merge or change the base branch",
+    "file": "REQ-6-5.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-5",
+    "fixture": "merge-check-failure",
+    "phase": "node",
+    "requires": [
+      "REQ-6-5",
+      "REQ-4-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-5: a failed required check blocks an otherwise approved PR",
+    "file": "REQ-6-5.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-5",
+    "fixture": "pr-filter-lifecycle-node",
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-1",
+      "REQ-6-2-4",
+      "REQ-6-3-1",
+      "REQ-6-5"
+    ],
+    "origin_node_id": "REQ-6-2-1",
+    "origin_file": "INTEGRATION-pr-filters.spec.ts",
+    "origin_title": "INTEGRATION-pr-filters: Open Draft Closed and actual Merged status filters isolate records and retain other PRs",
+    "source_fixture": "pr-filter-lifecycle",
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-6-5: context REQ-6-2-1: Open Draft Closed and actual Merged status filters isolate records and retain other PRs",
+    "file": "REQ-6-5.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-5",
     "fixture": "guide-review-cycle-node",
     "phase": "node",
     "requires": [
@@ -1791,6 +2160,78 @@
     ],
     "title": "REQ-6-6: Read viewer has no close or reopen action",
     "file": "REQ-6-6.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-3",
+    "fixture": "pr-milestone",
+    "phase": "integration",
+    "requires": [
+      "REQ-5-3-3",
+      "REQ-6-3-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "INTEGRATION-pr-planning: PR milestone toggles without cross-repository choices or deleting history",
+    "file": "INTEGRATION-pr-planning.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-3",
+    "fixture": "pr-milestone-denied-spec-read",
+    "phase": "integration",
+    "requires": [
+      "REQ-5-3-3",
+      "REQ-6-3-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "INTEGRATION-pr-planning: spec-read cannot change a PR milestone",
+    "file": "INTEGRATION-pr-planning.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-3",
+    "fixture": "pr-milestone-denied-spec-write",
+    "phase": "integration",
+    "requires": [
+      "REQ-5-3-3",
+      "REQ-6-3-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "INTEGRATION-pr-planning: spec-write cannot change a PR milestone",
+    "file": "INTEGRATION-pr-planning.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-1",
+    "fixture": "pr-filter-lifecycle",
+    "phase": "integration",
+    "requires": [
+      "REQ-6-2-1",
+      "REQ-6-2-4",
+      "REQ-6-3-1",
+      "REQ-6-5"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "INTEGRATION-pr-filters: Open Draft Closed and actual Merged status filters isolate records and retain other PRs",
+    "file": "INTEGRATION-pr-filters.spec.ts"
   },
   {
     "node_id": "REQ-6-5",

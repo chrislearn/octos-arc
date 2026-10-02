@@ -1,0 +1,1153 @@
+l/implicit_link::connector_openai_codex_document_control/get_document_tool_schemas",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_codex_document_control",
+          "connector_name": "Codex Document Control",
+          "connector_description": "Use Codex Document Control to find connected document sessions, inspect the tools supported by a selected session, and execute one supported tool against that session. Call `list_document_sessions` first to choose the intended connected session, call `get_document_tool_schemas` before constructing tool arguments, then call `execute_document_command` with a caller-stable `idempotency_key`. Use this only for connected Codex document control; do not use it for general spreadsheet, presentation, or document tasks without a connected document session.",
+          "link_id": "implicit_link::connector_openai_codex_document_control"
+        }
+      },
+      "connector_id": "connector_openai_codex_document_control",
+      "connector_name": "Codex Document Control",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_list_document_sessions",
+      "tool_namespace": "codex_apps__codex_document_control",
+      "namespace_description": "Use Codex Document Control to find connected document sessions, inspect the tools supported by a selected session, and execute one supported tool against that session. Call `list_document_sessions` first to choose the intended connected session, call `get_document_tool_schemas` before constructing tool arguments, then call `execute_document_command` with a caller-stable `idempotency_key`. Use this only for connected Codex document control; do not use it for general spreadsheet, presentation, or document tasks without a connected document session.",
+      "tool": {
+        "name": "codex_document_control.list_document_sessions",
+        "title": "list_document_sessions",
+        "description": "List the user's currently connected Codex document sessions and the surface-specific tools each session supports. Call this before executing a document-control command so you can choose the intended `executor_session_id` and `supported_tools[].name`.",
+        "inputSchema": {
+          "properties": {
+            "surface": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "excel",
+                    "powerpoint",
+                    "sheets",
+                    "word"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional document surface filter. Use `excel` for Excel workbooks, `powerpoint` for PowerPoint presentations, `word` for Word documents, or `sheets` for Google Sheets spreadsheets. Omit to list connected Codex document sessions across all supported surfaces.",
+              "title": "Surface"
+            }
+          },
+          "title": "list_document_sessions_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "codex_document_control.list_document_sessions",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_codex_document_control/implicit_link::connector_openai_codex_document_control/list_document_sessions",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_codex_document_control",
+          "connector_name": "Codex Document Control",
+          "connector_description": "Use Codex Document Control to find connected document sessions, inspect the tools supported by a selected session, and execute one supported tool against that session. Call `list_document_sessions` first to choose the intended connected session, call `get_document_tool_schemas` before constructing tool arguments, then call `execute_document_command` with a caller-stable `idempotency_key`. Use this only for connected Codex document control; do not use it for general spreadsheet, presentation, or document tasks without a connected document session.",
+          "link_id": "implicit_link::connector_openai_codex_document_control"
+        }
+      },
+      "connector_id": "connector_openai_codex_document_control",
+      "connector_name": "Codex Document Control",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_adopt",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.adopt",
+        "title": "adopt",
+        "description": "Adopt a shared ChatGPT pet from its opaque sharepet_ ID. When the user provides a full /s/sharepet_ URL, extract the sharepet_ ID and pass it here. This installs a new user-owned copy in the current user's pet library without exposing owner identity.",
+        "inputSchema": {
+          "properties": {
+            "shared_pet_id": {
+              "minLength": 1,
+              "pattern": "^sharepet_",
+              "title": "Shared Pet Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "shared_pet_id"
+          ],
+          "title": "adopt_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.adopt",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/adopt",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_create_pet",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.create_pet",
+        "title": "create_pet",
+        "description": "Consume a completed prepare_pet_upload session by its upload_session_id, validate the sprite sheet with the same deterministic preflight, run image scanning and pet moderation, and create a ChatGPT pet for Work mode. The upload session is the create idempotency key: retry a transient or timed-out create with the same upload_session_id, name, and description. If transfer, upload finalization, sprite-sheet validation, or session expiration fails, repair the file when needed, call prepare_pet_upload again, and use the new session. This does not select the pet; call select_pet when the user wants to use it.",
+        "inputSchema": {
+          "properties": {
+            "name": {
+              "maxLength": 80,
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            },
+            "upload_session_id": {
+              "minLength": 1,
+              "title": "Upload Session Id",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Description"
+            }
+          },
+          "required": [
+            "name",
+            "upload_session_id"
+          ],
+          "title": "create_pet_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.create_pet",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/create_pet",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_delete_pet",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.delete_pet",
+        "title": "delete_pet",
+        "description": "Permanently delete one owned custom ChatGPT pet and its stored sprite sheet. Use only after an explicit user request. Built-in pets cannot be deleted.",
+        "inputSchema": {
+          "properties": {
+            "pet_id": {
+              "minLength": 1,
+              "title": "Pet Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pet_id"
+          ],
+          "title": "delete_pet_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.delete_pet",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/delete_pet",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_pet_download_link",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.get_pet_download_link",
+        "title": "get_pet_download_link",
+        "description": "Get a download URL for one built-in or owned custom ChatGPT pet sprite sheet. Built-in URLs are static and custom-pet URLs are short-lived; always use the stable pet ID as identity.",
+        "inputSchema": {
+          "properties": {
+            "pet_id": {
+              "minLength": 1,
+              "title": "Pet Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pet_id"
+          ],
+          "title": "get_pet_download_link_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.get_pet_download_link",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/get_pet_download_link",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_list_pets",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.list_pets",
+        "title": "list_pets",
+        "description": "List one page of built-in and custom ChatGPT pet metadata plus the active pet ID. At most 20 pets are returned per page; larger requested limits are capped. When cursor is non-null, call list_pets again with that cursor to continue; keep paging until cursor is null or the requested stable pet ID is found. This does not return image URLs; use get_pet_download_link to inspect or download any pet.",
+        "inputSchema": {
+          "properties": {
+            "limit": {
+              "default": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            },
+            "cursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Cursor"
+            }
+          },
+          "title": "list_pets_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.list_pets",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/list_pets",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_prepare_pet_upload",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.prepare_pet_upload",
+        "title": "prepare_pet_upload",
+        "description": "Prepare a user-scoped ChatGPT pet sprite-sheet upload. First call validate_pet_spritesheet and repair all reported errors. Pass the final sprite sheet's absolute local path as file; the host uploads and rewrites it before this tool receives the authenticated file reference. The file is validated and transferred automatically; pass the returned upload_session_id to create_pet or update_pet. The sprite sheet must be exactly 1536x1872 pixels (v1, 8 columns by 9 rows) or 1536x2288 pixels (v2, 8 columns by 11 rows). Use 192x208 cells and populate the first 6, 8, 8, 4, 5, 8, 6, 6, and 6 cells of the first nine rows with artwork and a transparent background; v2 must also populate all 8 cells in each of its final two rows. Other row counts are not supported.",
+        "inputSchema": {
+          "properties": {
+            "file": {
+              "description": "Host-uploaded PNG or WebP sprite-sheet file payload.",
+              "properties": {
+                "download_url": {
+                  "title": "Download Url",
+                  "type": "string"
+                },
+                "file_id": {
+                  "title": "File Id",
+                  "type": "string"
+                },
+                "mime_type": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Mime Type"
+                },
+                "file_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "File Name"
+                }
+              },
+              "required": [
+                "download_url",
+                "file_id"
+              ],
+              "title": "ProvidedFilePayload",
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "file"
+          ],
+          "title": "prepare_pet_upload_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "openai/fileParams": [
+            "file"
+          ],
+          "resource_name": "pets.prepare_pet_upload",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/prepare_pet_upload",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_select_pet",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.select_pet",
+        "title": "select_pet",
+        "description": "Persist a built-in or owned custom ChatGPT pet as active by its stable pet ID. Pass default to turn the animated companion off.",
+        "inputSchema": {
+          "properties": {
+            "pet_id": {
+              "minLength": 1,
+              "title": "Pet Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pet_id"
+          ],
+          "title": "select_pet_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.select_pet",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/select_pet",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_share_pet",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.share_pet",
+        "title": "share_pet",
+        "description": "Create a share link for one owned custom ChatGPT pet. Personal links are public; enterprise links follow the same workspace access rules as shared conversations. The snapshot contains only the pet name, description, and sprite sheet and never owner identity. Use only after the user explicitly confirms the applicable audience. Built-in pets cannot be shared.",
+        "inputSchema": {
+          "properties": {
+            "pet_id": {
+              "minLength": 1,
+              "title": "Pet Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pet_id"
+          ],
+          "title": "share_pet_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.share_pet",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/share_pet",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_unshare_pet",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.unshare_pet",
+        "title": "unshare_pet",
+        "description": "Stop sharing one owned custom ChatGPT pet and invalidate its current share URL. Use only after an explicit user request. This does not delete the pet.",
+        "inputSchema": {
+          "properties": {
+            "pet_id": {
+              "minLength": 1,
+              "title": "Pet Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pet_id"
+          ],
+          "title": "unshare_pet_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.unshare_pet",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/unshare_pet",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_update_pet",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.update_pet",
+        "title": "update_pet",
+        "description": "Update the name, description, sprite sheet, or any combination for one owned custom ChatGPT pet. Omit a field to preserve it; set description to null to clear it. To replace the sprite sheet, call prepare_pet_upload first and pass its upload_session_id. Retry a transient or timed-out update with the same session; after transfer, finalization, validation, or expiration errors, repair the file when needed and prepare a new session.",
+        "inputSchema": {
+          "properties": {
+            "pet_id": {
+              "minLength": 1,
+              "title": "Pet Id",
+              "type": "string"
+            },
+            "updates": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "anyOf": [
+                    {
+                      "maxLength": 80,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Name"
+                },
+                "description": {
+                  "anyOf": [
+                    {
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Description"
+                },
+                "upload_session_id": {
+                  "anyOf": [
+                    {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Upload Session Id"
+                }
+              },
+              "title": "PetUpdates",
+              "type": "object",
+              "description": "Fields to update. Omitted fields are preserved; an explicit null description clears it. upload_session_id replaces the sprite sheet using a completed prepare_pet_upload session."
+            }
+          },
+          "required": [
+            "pet_id",
+            "updates"
+          ],
+          "title": "update_pet_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "pets.update_pet",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/update_pet",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_validate_pet_spritesheet",
+      "tool_namespace": "codex_apps__pets",
+      "namespace_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+      "tool": {
+        "name": "pets.validate_pet_spritesheet",
+        "title": "validate_pet_spritesheet",
+        "description": "Validate a ChatGPT pet PNG or WebP before creating an upload session. Pass its absolute local path as file; the host uploads and rewrites it before this tool receives the authenticated file reference. Return structured zero-indexed row/frame errors for wrong dimensions, missing artwork, opaque backgrounds, and artwork in unused cells. Supports 1536x1872 v1 and 1536x2288 v2 sheets with 192x208 cells. Repair every error and repeat until valid=true, then pass the same file to prepare_pet_upload. This read-only preflight does not create a pet upload session, scan, moderate, or create a pet.",
+        "inputSchema": {
+          "properties": {
+            "file": {
+              "description": "Host-uploaded PNG or WebP sprite-sheet file payload.",
+              "properties": {
+                "download_url": {
+                  "title": "Download Url",
+                  "type": "string"
+                },
+                "file_id": {
+                  "title": "File Id",
+                  "type": "string"
+                },
+                "mime_type": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Mime Type"
+                },
+                "file_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "File Name"
+                }
+              },
+              "required": [
+                "download_url",
+                "file_id"
+              ],
+              "title": "ProvidedFilePayload",
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "file"
+          ],
+          "title": "validate_pet_spritesheet_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "openai/fileParams": [
+            "file"
+          ],
+          "resource_name": "pets.validate_pet_spritesheet",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_chatgpt_pets/implicit_link::connector_openai_chatgpt_pets/validate_pet_spritesheet",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_chatgpt_pets",
+          "connector_name": "Pets",
+          "connector_description": "Create and manage the user's animated companion pets inside ChatGPT Work mode. Use only for ChatGPT Pets, not real-world animal advice, generic pet images, or pets in other apps.",
+          "link_id": "implicit_link::connector_openai_chatgpt_pets"
+        }
+      },
+      "connector_id": "connector_openai_chatgpt_pets",
+      "connector_name": "Pets",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_local_hotline",
+      "tool_namespace": "codex_apps__hotline",
+      "namespace_description": "Look up local suicide or self harm helpline information for the user based on country inferred from the conversation. You must use this tool before providing a suicide or self-harm helpline; do not use web search or guess the suicide or self harm helpline information.",
+      "tool": {
+        "name": "hotline.get_local_hotline",
+        "title": "get_local_hotline",
+        "description": "Look up local suicide or self harm helpline information for the user based on country inferred from the conversation. You must use this tool before providing a suicide or self-harm helpline; do not use web search or guess the suicide or self harm helpline information.",
+        "inputSchema": {
+          "properties": {},
+          "title": "get_local_hotline_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "_codex_apps": {
+            "accepted_mcp_request_meta_keys": [
+              "openai/userLocation",
+              "openai/session",
+              "x-codex-turn-metadata"
+            ],
+            "returns_pre_shaped_mcp_result": true,
+            "resource_uri": "/connector_openai_hotline/implicit_link::connector_openai_hotline/get_local_hotline",
+            "contains_mcp_source": false
+          },
+          "resource_name": "hotline.get_local_hotline",
+          "connector_id": "connector_openai_hotline",
+          "connector_name": "Hotline",
+          "connector_description": "Look up local suicide or self harm helpline information for the user based on country inferred from the conversation. You must use this tool before providing a suicide or self-harm helpline; do not use web search or guess the suicide or self harm helpline information.",
+          "link_id": "implicit_link::connector_openai_hotline"
+        }
+      },
+      "connector_id": "connector_openai_hotline",
+      "connector_name": "Hotline",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_app_permissions",
+      "tool_namespace": "codex_apps__plugin_management",
+      "namespace_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+      "tool": {
+        "name": "plugin_management.get_app_permissions",
+        "title": "get_app_permissions",
+        "description": "Inspect one named ChatGPT plugin's global/default and plugin-specific permission settings. Use when the user asks what the plugin may read, write, or do, whether it must ask first, or whether it inherits the default. For a missing/broad target such as my plugins, all, or Google, make no call and ask which plugin. Never pass global. Do not use for OAuth/admin scopes, install/connect/undo requests, ordinary plugin use, or npm/Chrome/code plugins.",
+        "inputSchema": {
+          "properties": {
+            "app_id": {
+              "description": "ChatGPT plugin reference to inspect. May be a plugin id, connector id, platform slug, or unambiguous user-facing plugin name. It must identify one plugin; never pass all, global, Google, or another broad/generic target.",
+              "title": "App Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "app_id"
+          ],
+          "title": "get_app_permissions_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "plugin_management.get_app_permissions",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_plugin_management/implicit_link::connector_openai_plugin_management/get_app_permissions",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_plugin_management",
+          "connector_name": "Plugin Management",
+          "connector_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+          "link_id": "implicit_link::connector_openai_plugin_management"
+        }
+      },
+      "connector_id": "connector_openai_plugin_management",
+      "connector_name": "Plugin Management",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_plugin_dependencies",
+      "tool_namespace": "codex_apps__plugin_management",
+      "namespace_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+      "tool": {
+        "name": "plugin_management.get_plugin_dependencies",
+        "title": "get_plugin_dependencies",
+        "description": "Resolve the canonical public plugins declared by one plugin's app manifest. Use only when a skill or user explicitly asks for dependency metadata. Pass a plugin ID or name@marketplace reference unchanged. Named references resolve by globally listed plugin name. This reports metadata plus current user-aware plugin status, installation policy, and installed state; it does not install or connect anything. The result separates visible canonical plugins from app entries that lack a unique canonical plugin or whose canonical plugin is unavailable to the current user.",
+        "inputSchema": {
+          "properties": {
+            "plugin_reference": {
+              "description": "Plugin ID or name@marketplace reference whose manifest dependencies should be resolved. Pass it unchanged.",
+              "title": "Plugin Reference",
+              "type": "string"
+            }
+          },
+          "required": [
+            "plugin_reference"
+          ],
+          "title": "get_plugin_dependencies_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "plugin_management.get_plugin_dependencies",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_plugin_management/implicit_link::connector_openai_plugin_management/get_plugin_dependencies",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_plugin_management",
+          "connector_name": "Plugin Management",
+          "connector_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+          "link_id": "implicit_link::connector_openai_plugin_management"
+        }
+      },
+      "connector_id": "connector_openai_plugin_management",
+      "connector_name": "Plugin Management",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_search_plugins",
+      "tool_namespace": "codex_apps__plugin_management",
+      "namespace_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+      "tool": {
+        "name": "plugin_management.search_plugins",
+        "title": "search_plugins",
+        "description": "Search available plugins when the user explicitly requests a plugin or provider, or when their task would benefit from an external app, account, service, data source, or capability not available through existing tools. Infer relevant plugin intent from the task even when the user does not mention plugins. For example, requests involving email, calendars, messaging, documents, CRM, project management, finance, or analytics may warrant plugin discovery. Search before claiming a service is unavailable, asking for pasted data, or proposing a manual workaround. Use concise provider names, product names, or capability keywords. The results returned by this tool are not exhaustive; if you don't find what the user is asking for, mention that more plugins may be available in the [plugin directory](https://chatgpt.com/plugins).",
+        "inputSchema": {
+          "properties": {
+            "query": {
+              "description": "Relevant provider names, product names, or capability keywords. Multiple relevant terms may be combined; results can match any term, and plugins matching more terms rank higher. To find, search for, list, or recommend plugins, use search_plugins instead of web search or public plugin pages; do not pass the full user request.",
+              "minLength": 1,
+              "title": "Query",
+              "type": "string"
+            },
+            "limit": {
+              "anyOf": [
+                {
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Maximum number of plugins to return, between 1 and 50. Usually request 5-10; request more only when broader discovery is needed. Defaults to 50 if omitted.",
+              "title": "Limit"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "search_plugins_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "plugin_management.search_plugins",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_plugin_management/implicit_link::connector_openai_plugin_management/search_plugins",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_plugin_management",
+          "connector_name": "Plugin Management",
+          "connector_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+          "link_id": "implicit_link::connector_openai_plugin_management"
+        }
+      },
+      "connector_id": "connector_openai_plugin_management",
+      "connector_name": "Plugin Management",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_suggest_plugins",
+      "tool_namespace": "codex_apps__plugin_management",
+      "namespace_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+      "tool": {
+        "name": "plugin_management.suggest_plugins",
+        "title": "suggest_plugins",
+        "description": "Suggest plugins when an external integration would help the user. The user does not need to mention plugins or installation. Call plugin_management.search_plugins for relevant missing capabilities when needed, then choose the most relevant eligible plugins. Call plugin_management.suggest_plugins at most once per turn with one or more references or plugin IDs. Accept exact plugin IDs or exact name@openai-curated-remote references. Do not suggest installed plugins or plugins already pending. Suggestions do not block the turn; continue independent work and explain any remaining connection requirement. Use plugins only after their connections are confirmed.",
+        "inputSchema": {
+          "properties": {
+            "plugin_ids": {
+              "description": "Exact Plugin_<id>, plugins~Plugin_<id>, plugin_asdk_app_<id>, plugin_connector_<id>, or plugin_templated_apps_<id> IDs returned by search_plugins, exact name@openai-curated manifest references, or exact name@openai-curated-remote references from <recommended_plugins>. Choose up to 10 eligible IDs.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 10,
+              "minItems": 1,
+              "title": "Plugin Ids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "plugin_ids"
+          ],
+          "title": "suggest_plugins_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "openai/outputTemplate": "internal://plugin-management-suggestions",
+          "ui": {
+            "resourceUri": "internal://plugin-management-suggestions"
+          },
+          "_codex_apps": {
+            "accepted_mcp_request_meta_keys": [
+              "openai/work_plugin_recommendation_set_id"
+            ],
+            "returns_pre_shaped_mcp_result": true,
+            "resource_uri": "/connector_openai_plugin_management/implicit_link::connector_openai_plugin_management/suggest_plugins",
+            "contains_mcp_source": false
+          },
+          "resource_name": "plugin_management.suggest_plugins",
+          "connector_id": "connector_openai_plugin_management",
+          "connector_name": "Plugin Management",
+          "connector_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+          "link_id": "implicit_link::connector_openai_plugin_management"
+        }
+      },
+      "connector_id": "connector_openai_plugin_management",
+      "connector_name": "Plugin Management",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_uninstall_app",
+      "tool_namespace": "codex_apps__plugin_management",
+      "namespace_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+      "tool": {
+        "name": "plugin_management.uninstall_app",
+        "title": "uninstall_app",
+        "description": "Uninstall ChatGPT plugins only for explicit uninstall, remove, or disconnect intent. Pass every exact, user-approved target in one call. For a missing/broad target such as Google, all/risky plugins, or a choice left to you, make no call and ask. Disable is not uninstall. Never use this for install/connect/undo/how-to, sentiment, negation, ordinary plugin use, or npm/Chrome/code plugins. The result reports each outcome.",
+        "inputSchema": {
+          "properties": {
+            "app_ids": {
+              "description": "Exact, user-approved ChatGPT plugin references to uninstall. Each item may be a plugin id, connector id, platform slug, or unambiguous user-facing name. Never pass Google or another broad provider, all/risky plugins, or a target chosen by the assistant.",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "App Ids",
+              "type": "array"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional user-visible reason for uninstalling the plugin.",
+              "title": "Reason"
+            }
+          },
+          "required": [
+            "app_ids"
+          ],
+          "title": "uninstall_app_input",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "plugin_management.uninstall_app",
+          "_codex_apps": {
+            "resource_uri": "/connector_openai_plugin_management/implicit_link::connector_openai_plugin_management/uninstall_app",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_openai_plugin_management",
+          "connector_name": "Plugin Management",
+          "connector_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+          "link_id": "implicit_link::connector_openai_plugin_management"
+        }
+      },
+      "connector_id": "connector_openai_plugin_management",
+      "connector_name": "Plugin Management",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_update_app_permissions",
+      "tool_namespace": "codex_apps__plugin_management",
+      "namespace_description": "Manage plugins, settings, permissions, and connections. Prefer available built-in tools or connected plugins when they fit the task. Proactively search for plugins when an external app, account, or service would materially help, even if the user did not request a plugin. Search before claiming a service is unavailable or suggesting manual workarounds. Do not suggest plugins for native web search, image generation, memory, or sites unless a specific external provider or missing capability is needed.",
+      "tool": {
+        "name": "plugin_management.update_app_permissions",
+        "title": "update_app_permissions",
+        "description": "Update global ChatGPT plugin permissions or a plugin-specific override. Omit app_id for global-only updates and provide it for plugin-specific updates. Map Always ask to always_ask, Any changes to ask_before_writes, Important actions to review_important_actions, Never ask to full_access, and Use my default to inherit. For plugin-specific changes, a missing/broad target such as Google, a vague mode such as tighter/more permissive, conflicting intent such as less access plus Never ask, or a choice left to you requires a question and no tool call; explicit global/default changes need no app_id. Never infer a mode or probe with get_app_permissions. One call may include both global_permissions and app_permissions with app_id; the global change is applied first. For several plugins call once per target and complete every requested update.",
+        "inputSchema": {
+          "properties": {
+            "updates": {
+              "properties": {
+                "global_permissions": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "properties": {
+                          "setting": {
+                            "const": "permission_mode",
+                            "default": "permission_mode",
+                            "description": "Permission setting to update. This field is optional; omit it unless needed. If provided, use permission_mode.",
+                            "title": "Setting",
+                            "type": "string"
+                          },
+                          "value": {
+                            "description": "New value for the global permission setting. Options: always_ask (UI label: Always ask; ask before reading or making changes), ask_before_writes (UI label: Allow read actions; read without asking but ask before making changes), review_important_actions (UI label: Allow low-risk actions; automatically approve low-risk actions but may deny actions involving sensitive information), and full_access (UI label: Allow all actions; read or take action without asking; elevated risk and may be unavailable globally when the feature gate hides it).",
+                            "enum": [
+                              "always_ask",
+                              "ask_before_writes",
+                              "review_important_actions",
+                              "full_access"
+                            ],
+                            "title": "Value",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "title": "GlobalPermissionUpdate",
+                        "type": "object",
+                        "additionalProperties": false
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Global default permission updates to apply.",
+                  "title": "Global Permissions"
+                },
+                "app_permissions": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "properties": {
+                          "setting": {
+                            "const": "permission_mode",
+                            "default": "permission_mode",
+                            "description": "Permission setting to update. This field is optional; omit it unless needed. If provided, use permission_mode.",
+                            "title": "Setting",
+                            "type": "string"
+                          },
+                          "value": {
+                            "description": "New value for the plugin-specific permission setting. Options: inherit (UI label: Use default or follow global; clear this plugin's override), always_ask (UI label: Always ask; ask before reading or making changes with this plugin), ask_before_writes (UI label: Allow read actions; read without asking but ask before making changes with this plugin), review_important_actions (UI label: Allow low-risk actions; automatically approve low-risk actions with this plugin but may deny actions involving sensitive information), and full_access (UI label: Allow all actions; read or take action with this plugin without asking; elevated risk).",
+                            "enum": [
+                              "inherit",
+                              "always_ask",
+                              "ask_before_writes",
+                              "review_important_actions",
+                     

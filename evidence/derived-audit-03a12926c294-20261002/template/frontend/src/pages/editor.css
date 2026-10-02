@@ -1,0 +1,37 @@
+.editor-page { padding: 16px; font-family: system-ui, sans-serif; }
+.editor-header { display: flex; align-items: baseline; gap: 16px; }
+.editor-header h1 { margin: 0; font-size: 20px; }
+.editor-header button { padding: 4px 10px; cursor: pointer; }
+.editor-header label { display: block; margin-bottom: 4px; }
+.editor-header form input { width: 100%; padding: 4px 8px; margin-bottom: 8px; border: 1px solid #bbb; border-radius: 4px; }
+.editor-header form button { padding: 4px 12px; cursor: pointer; }
+.formula-bar { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.formula-bar textarea {
+  flex: 1; padding: 4px 8px; border: 1px solid #bbb; border-radius: 4px;
+  resize: none; overflow: hidden; white-space: pre; font: inherit;
+}
+.worksheet-tabs { display: flex; gap: 4px; border-bottom: 1px solid #ccc; margin-bottom: 8px; }
+.worksheet-tabs [role="tab"] {
+  padding: 6px 14px; border: 1px solid #ccc; border-bottom: none;
+  border-radius: 4px 4px 0 0; background: #f1f3f4; cursor: pointer;
+}
+.worksheet-tabs [role="tab"][aria-selected="true"] { background: #fff; font-weight: 600; }
+.worksheet-grid { display: inline-block; border: 1px solid #ccc; }
+.grid-row { display: flex; }
+.grid-corner, .grid-row-header, .grid-column-header {
+  min-width: 48px; padding: 2px 6px; background: #f1f3f4;
+  border-right: 1px solid #ddd; border-bottom: 1px solid #ddd;
+  font-size: 12px; text-align: center;
+}
+.grid-cell {
+  min-width: 96px; min-height: 24px; padding: 2px 6px;
+  border-right: 1px solid #ddd; border-bottom: 1px solid #ddd;
+  cursor: cell; white-space: nowrap;
+}
+.grid-cell.selected { outline: 2px solid #1a73e8; outline-offset: -2px; }
+.grid-cell:focus-visible { outline: 3px solid #1a73e8; outline-offset: -2px; }
+.grid-cell-editor {
+  width: 100%; box-sizing: border-box; padding: 0 2px;
+  border: 1px solid #1a73e8; border-radius: 2px; font: inherit;
+}
+.grid-cell-editor:focus { outline: 2px solid #1a73e8; outline-offset: -1px; }

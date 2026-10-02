@@ -1,0 +1,1352 @@
+ish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_site",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_site",
+        "title": "get_site",
+        "description": "Get a site and its current access configuration, including external visitors. For a Library Site result, copy its server-returned site_metadata.project_id unchanged as project_id; the Library text is only a captured publication. external_visitor_invites_enabled says whether the owner may add external viewers. Set include_mcp_connection=true to include the settings needed to connect Codex when the current publication is MCP-ready, including its saved plugin_id when available. Pass plugin_id unchanged to suggest_plugins to offer installation; it does not indicate installed or connected state. Reading these settings does not install or connect a plugin.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "include_mcp_connection": {
+              "default": false,
+              "description": "Set true to include connection details and the provisioned plugin's ID when the current published Site is MCP-ready.",
+              "title": "Include Mcp Connection",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "title": "AppgardenGetSiteRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "description": "Opaque site project ID. Pass this exact value as project_id.",
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "slug": {
+              "title": "Slug",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "suspended",
+                "deleting"
+              ],
+              "title": "AppProjectStatus",
+              "type": "string"
+            },
+            "auth_client_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth Client Id"
+            },
+            "latest_version_number": {
+              "title": "Latest Version Number",
+              "type": "integer"
+            },
+            "current_preview_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Current Preview Url"
+            },
+            "current_live_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Current Live Url"
+            },
+            "screenshot_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Screenshot Url"
+            },
+            "disabled_by": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "workspace_admin",
+                    "openai"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Disabled By"
+            },
+            "created_at": {
+              "title": "Created At",
+              "type": "string"
+            },
+            "updated_at": {
+              "title": "Updated At",
+              "type": "string"
+            },
+            "latest_edit_context": {
+              "anyOf": [
+                {
+                  "description": "The authenticated user's last Site edit; never another editor's context.",
+                  "properties": {
+                    "chatgpt_conversation_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Chatgpt Conversation Id"
+                    },
+                    "codex_thread_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Codex Thread Id"
+                    }
+                  },
+                  "title": "SitesLatestEditContext",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "expected_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Generated Site origin for the current project and workspace route. Use it for absolute Site URLs needed before publication; it does not mean the Site is live. The source repository's remote_url is a Git endpoint, not the Site origin.",
+              "title": "Expected Url"
+            },
+            "source_repository_credential": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "provider": {
+                      "description": "Source repository provider.",
+                      "title": "Provider",
+                      "type": "string"
+                    },
+                    "app_repository_id": {
+                      "description": "AppGen AppRepository id.",
+                      "title": "App Repository Id",
+                      "type": "string"
+                    },
+                    "repository": {
+                      "description": "Provider repository name bound to the AppGen project.",
+                      "title": "Repository",
+                      "type": "string"
+                    },
+                    "branch": {
+                      "description": "Default branch the client should push.",
+                      "title": "Branch",
+                      "type": "string"
+                    },
+                    "remote_url": {
+                      "description": "Git remote URL without embedded credentials.",
+                      "title": "Remote Url",
+                      "type": "string"
+                    },
+                    "token": {
+                      "description": "Short-lived repo-scoped Git token.",
+                      "title": "Token",
+                      "type": "string"
+                    },
+                    "token_expires_at": {
+                      "description": "Token expiration timestamp when provided.",
+                      "title": "Token Expires At",
+                      "type": "string"
+                    },
+                    "auth_mode": {
+                      "description": "Git authentication mode for the token.",
+                      "title": "Auth Mode",
+                      "type": "string"
+                    },
+                    "publish_on_push_expires_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Until this timestamp, the owner has authorized private publication of pushes to this branch. Null neither authorizes nor cancels a window. After expiry, opt in again through create_source_repository_write_credential.",
+                      "title": "Publish On Push Expires At"
+                    },
+                    "publish_on_push_accepted": {
+                      "default": false,
+                      "description": "Whether this response confirms an accepted automatic private publication window. If true, push before publish_on_push_expires_at and check the matching version's deployment_id and deployment status; do not separately save/deploy. If false, Site creation and write-credential callers must use the existing explicit publishing flow. False does not cancel an earlier window: reconcile any existing deployment before retrying publication.",
+                      "title": "Publish On Push Accepted",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "app_repository_id",
+                    "repository",
+                    "branch",
+                    "remote_url",
+                    "token",
+                    "token_expires_at",
+                    "auth_mode"
+                  ],
+                  "title": "AppgardenSourceRepositoryCredentialResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Short-lived source repository write credential when requested."
+            },
+            "attached_page_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Attached Page Id"
+            },
+            "current_user_role": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "owner",
+                    "editor"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The authenticated user's role on this Sites project.",
+              "title": "Current User Role"
+            },
+            "access_mode": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "admins_only",
+                    "workspace_all",
+                    "custom"
+                  ],
+                  "title": "AppProjectAccessMode",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Workspace access mode for this Sites project, or null for non-workspace apps."
+            },
+            "access_policy": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "project_id": {
+                      "description": "Appgen project ID",
+                      "title": "Project Id",
+                      "type": "string"
+                    },
+                    "access_mode": {
+                      "description": "Access mode for the app.",
+                      "enum": [
+                        "public",
+                        "admins_only",
+                        "workspace_all",
+                        "custom"
+                      ],
+                      "title": "AppProjectAccessMode",
+                      "type": "string"
+                    },
+                    "allowed_account_user_ids": {
+                      "description": "Account user ID allowlist for the app.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "title": "Allowed Account User Ids",
+                      "type": "array"
+                    },
+                    "external_visitor_count": {
+                      "default": 0,
+                      "description": "Number of email-bound external visitors allowed to view the site.",
+                      "title": "External Visitor Count",
+                      "type": "integer"
+                    },
+                    "allowed_users": {
+                      "description": "Allowed workspace users and email-bound external visitors. External visitors use their grant ID as account_user_id and set is_external.",
+                      "items": {
+                        "properties": {
+                          "account_user_id": {
+                            "description": "Stable row identifier. This is an account user ID for a workspace user and an external visitor grant ID when is_external is true.",
+                            "title": "Account User Id",
+                            "type": "string"
+                          },
+                          "email": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Email address for the allowed user, when available.",
+                            "title": "Email"
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Display name for the allowed user, when available.",
+                            "title": "Name"
+                          },
+                          "avatar_url": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "title": "Avatar Url"
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "owner",
+                                  "editor",
+                                  "viewer"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Project sharing role when supplied by the current access response.",
+                            "title": "Role"
+                          },
+                          "is_external": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "True when this email is authorized as an external visitor rather than through workspace membership.",
+                            "title": "Is External"
+                          }
+                        },
+                        "required": [
+                          "account_user_id"
+                        ],
+                        "title": "AppGardenAccessUserResponse",
+                        "type": "object",
+                        "additionalProperties": false
+                      },
+                      "title": "Allowed Users",
+                      "type": "array"
+                    },
+                    "allowed_groups": {
+                      "description": "Group details resolved from allowed workspace and tenant group IDs.",
+                      "items": {
+                        "properties": {
+                          "id": {
+                            "description": "Group ID to use in an Appgen access policy.",
+                            "title": "Id",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "Group display name.",
+                            "title": "Name",
+                            "type": "string"
+                          },
+                          "size": {
+                            "description": "Total number of members in the group.",
+                            "title": "Size",
+                            "type": "integer"
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "viewer",
+                                  "editor"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Site sharing role when supplied by the current access response.",
+                            "title": "Role"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "size"
+                        ],
+                        "title": "AppGardenAccessGroupResponse",
+                        "type": "object",
+                        "additionalProperties": false
+                      },
+                      "title": "Allowed Groups",
+                      "type": "array"
+                    },
+                    "allowed_workspace_group_ids": {
+                      "description": "Workspace group ID allowlist for the app.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "title": "Allowed Workspace Group Ids",
+                      "type": "array"
+                    },
+                    "allowed_tenant_group_ids": {
+                      "description": "Tenant group ID allowlist for the app.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "title": "Allowed Tenant Group Ids",
+                      "type": "array"
+                    },
+                    "revision": {
+                      "description": "Monotonic access policy revision.",
+                      "title": "Revision",
+                      "type": "integer"
+                    },
+                    "updated_at": {
+                      "description": "Access policy update timestamp.",
+                      "title": "Updated At",
+                      "type": "string"
+                    },
+                    "allowed_editors": {
+                      "description": "Accepted project editors in the current workspace.",
+                      "items": {
+                        "properties": {
+                          "account_user_id": {
+                            "description": "Stable row identifier. This is an account user ID for a workspace user and an external visitor grant ID when is_external is true.",
+                            "title": "Account User Id",
+                            "type": "string"
+                          },
+                          "email": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Email address for the allowed user, when available.",
+                            "title": "Email"
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Display name for the allowed user, when available.",
+                            "title": "Name"
+                          },
+                          "avatar_url": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "title": "Avatar Url"
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "owner",
+                                  "editor",
+                                  "viewer"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Project sharing role when supplied by the current access response.",
+                            "title": "Role"
+                          },
+                          "is_external": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "True when this email is authorized as an external visitor rather than through workspace membership.",
+                            "title": "Is External"
+                          }
+                        },
+                        "required": [
+                          "account_user_id"
+                        ],
+                        "title": "AppGardenAccessUserResponse",
+                        "type": "object",
+                        "additionalProperties": false
+                      },
+                      "title": "Allowed Editors",
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "project_id",
+                    "access_mode",
+                    "allowed_account_user_ids",
+                    "allowed_users",
+                    "allowed_groups",
+                    "allowed_workspace_group_ids",
+                    "allowed_tenant_group_ids",
+                    "revision",
+                    "updated_at"
+                  ],
+                  "title": "AppGardenAccessPolicyResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Workspace access policy for this Appgen project, or null for non-workspace apps."
+            },
+            "available_access_modes": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "public",
+                      "workspace_all",
+                      "custom"
+                    ],
+                    "title": "AppProjectSettableAccessMode",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Access modes the current user may set. Omitted when the capability is unavailable.",
+              "title": "Available Access Modes"
+            },
+            "external_visitor_invites_enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Whether the current Site owner may add external viewers. Existing external viewers can still be removed when this is false.",
+              "title": "External Visitor Invites Enabled"
+            },
+            "schedule_request_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Copy into create_schedule.request_id for a new schedule. Once creation has been attempted, keep its original request ID on retries, even after reading the Site again.",
+              "title": "Schedule Request Id"
+            },
+            "automations": {
+              "anyOf": [
+                {
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "title": "Id",
+                        "type": "string"
+                      },
+                      "title": {
+                        "title": "Title",
+                        "type": "string"
+                      },
+                      "schedule": {
+                        "title": "Schedule",
+                        "type": "string"
+                      },
+                      "timezone": {
+                        "title": "Timezone",
+                        "type": "string"
+                      },
+                      "is_enabled": {
+                        "title": "Is Enabled",
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "schedule",
+                      "timezone",
+                      "is_enabled"
+                    ],
+                    "title": "SitesAutomationSummary",
+                    "type": "object",
+                    "additionalProperties": false
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Existing cloud schedules attached to this Site, including paused schedules. Empty means none exist; omitted when unavailable or the caller is not the Site owner.",
+              "title": "Automations"
+            },
+            "mcp_connection": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "mcp_url": {
+                      "description": "Exact streamable HTTP endpoint for the Site's MCP server.",
+                      "title": "Mcp Url",
+                      "type": "string"
+                    },
+                    "oauth_resource": {
+                      "description": "Exact OAuth resource that Codex must request for this MCP server.",
+                      "title": "Oauth Resource",
+                      "type": "string"
+                    },
+                    "plugin_id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "Plugin ID saved from successful Site provisioning, when available. Pass unchanged to suggest_plugins.",
+                      "title": "Plugin Id"
+                    }
+                  },
+                  "required": [
+                    "mcp_url",
+                    "oauth_resource"
+                  ],
+                  "title": "AppgardenMcpConnectionResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Connection details for this Site's MCP server when requested and ready."
+            },
+            "requires_byop": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Whether the published Site requires the visitor's connected apps.",
+              "title": "Requires Byop"
+            },
+            "siwc_bypass_bearer_token": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Bearer token accepted by Sites dispatch in the OAI-Sites-Authorization header.",
+              "title": "Siwc Bypass Bearer Token"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "description",
+            "slug",
+            "status",
+            "auth_client_id",
+            "latest_version_number",
+            "current_preview_url",
+            "current_live_url",
+            "screenshot_url",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "AppgardenProjectDetailResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "sites.get_site",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/get_site",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_site_analytics_overview",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_site_analytics_overview",
+        "title": "get_site_analytics_overview",
+        "description": "Get overall and hourly or daily page views, unique visitors, and the top five pages for a site analytics dashboard. The requested window must stay within the last 30 days. Both timestamps must align to the requested bucket anchored at fixed UTC-08:00.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "start_time_ms": {
+              "description": "Inclusive analytics window start as Unix epoch milliseconds.",
+              "minimum": 0,
+              "title": "Start Time Ms",
+              "type": "integer"
+            },
+            "end_time_ms": {
+              "description": "Exclusive analytics window end as Unix epoch milliseconds.",
+              "minimum": 0,
+              "title": "End Time Ms",
+              "type": "integer"
+            },
+            "granularity": {
+              "default": "1d",
+              "description": "Timeseries bucket size.",
+              "enum": [
+                "1h",
+                "1d"
+              ],
+              "title": "AppgardenAnalyticsGranularity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id",
+            "start_time_ms",
+            "end_time_ms"
+          ],
+          "title": "AppgardenAnalyticsOverviewRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "request_traffic": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "total_requests": {
+                      "minimum": 0,
+                      "title": "Total Requests",
+                      "type": "number"
+                    },
+                    "unique_visitors": {
+                      "minimum": 0,
+                      "title": "Unique Visitors",
+                      "type": "number"
+                    },
+                    "points": {
+                      "items": {
+                        "properties": {
+                          "timestamp_ms": {
+                            "title": "Timestamp Ms",
+                            "type": "integer"
+                          },
+                          "requests": {
+                            "minimum": 0,
+                            "title": "Requests",
+                            "type": "number"
+                          },
+                          "unique_visitors": {
+                            "minimum": 0,
+                            "title": "Unique Visitors",
+                            "type": "number"
+                          },
+                          "requests_by_type": {
+                            "additionalProperties": {
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "title": "Requests By Type",
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "timestamp_ms",
+                          "requests",
+                          "unique_visitors",
+                          "requests_by_type"
+                        ],
+                        "title": "SitesAnalyticsRequestPointResponse",
+                        "type": "object",
+                        "additionalProperties": false
+                      },
+                      "title": "Points",
+                      "type": "array"
+                    },
+                    "top_paths": {
+                      "items": {
+                        "properties": {
+                          "path": {
+                            "minLength": 1,
+                            "title": "Path",
+                            "type": "string"
+                          },
+                          "requests": {
+                            "minimum": 0,
+                            "title": "Requests",
+                            "type": "number"
+                          },
+                          "unique_visitors": {
+                            "minimum": 0,
+                            "title": "Unique Visitors",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "requests",
+                          "unique_visitors"
+                        ],
+                        "title": "SitesAnalyticsRequestPathResponse",
+                        "type": "object",
+                        "additionalProperties": false
+                      },
+                      "title": "Top Paths",
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "total_requests",
+                    "unique_visitors",
+                    "points",
+                    "top_paths"
+                  ],
+                  "title": "SitesAnalyticsRequestTrafficResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "project_id": {
+              "description": "Opaque site project ID. Pass this exact value as project_id.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "window": {
+              "properties": {
+                "start_time_ms": {
+                  "title": "Start Time Ms",
+                  "type": "integer"
+                },
+                "end_time_ms": {
+                  "title": "End Time Ms",
+                  "type": "integer"
+                },
+                "granularity": {
+                  "enum": [
+                    "1h",
+                    "1d"
+                  ],
+                  "title": "AppgardenAnalyticsGranularity",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "start_time_ms",
+                "end_time_ms",
+                "granularity"
+              ],
+              "title": "AppgardenAnalyticsWindowResponse",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "overall": {
+              "properties": {
+                "page_views": {
+                  "properties": {
+                    "value": {
+                      "minimum": 0,
+                      "title": "Value",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "title": "AppgardenAnalyticsValueResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                "unique_visitors": {
+                  "properties": {
+                    "value": {
+                      "minimum": 0,
+                      "title": "Value",
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "title": "AppgardenAnalyticsValueResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "page_views",
+                "unique_visitors"
+              ],
+              "title": "AppgardenAnalyticsOverviewOverallResponse",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "timeseries": {
+              "properties": {
+                "points": {
+                  "items": {
+                    "properties": {
+                      "requests_by_type": {
+                        "additionalProperties": {
+                          "type": "number"
+                        },
+                        "title": "Requests By Type",
+                        "type": "object"
+                      },
+                      "timestamp_ms": {
+                        "title": "Timestamp Ms",
+                        "type": "integer"
+                      },
+                      "page_views": {
+                        "minimum": 0,
+                        "title": "Page Views",
+                        "type": "number"
+                      },
+                      "unique_visitors": {
+                        "minimum": 0,
+                        "title": "Unique Visitors",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "timestamp_ms",
+                      "page_views",
+                      "unique_visitors"
+                    ],
+                    "title": "AppgardenAnalyticsOverviewPointResponse",
+                    "type": "object",
+                    "additionalProperties": false
+                  },
+                  "title": "Points",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "title": "AppgardenAnalyticsOverviewTimeseriesResponse",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "top_pages": {
+              "items": {
+                "properties": {
+                  "path": {
+                    "minLength": 1,
+                    "title": "Path",
+                    "type": "string"
+                  },
+                  "page_views": {
+                    "minimum": 0,
+                    "title": "Page Views",
+                    "type": "number"
+                  },
+                  "unique_visitors": {
+                    "minimum": 0,
+                    "title": "Unique Visitors",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "path",
+                  "page_views",
+                  "unique_visitors"
+                ],
+                "title": "AppgardenAnalyticsOverviewTopPageResponse",
+                "type": "object",
+                "additionalProperties": false
+              },
+              "title": "Top Pages",
+              "type": "array"
+            }
+          },
+          "required": [
+            "project_id",
+            "window",
+            "overall",
+            "timeseries",
+            "top_pages"
+          ],
+          "title": "AppgardenAnalyticsOverviewResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": true
+        },
+        "_meta": {
+          "ui": {
+            "visibility": [
+              "app"
+            ]
+          },
+          "resource_name": "sites.get_site_analytics_overview",
+          "_codex_apps": {
+            "resource_uri": "/connector_20205bf7d4e99a89d7154bb849718324/implicit_link::connector_20205bf7d4e99a89d7154bb849718324/get_site_analytics_overview",
+            "contains_mcp_source": false
+          },
+          "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+          "connector_name": "Sites",
+          "connector_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+          "link_id": "implicit_link::connector_20205bf7d4e99a89d7154bb849718324"
+        }
+      },
+      "connector_id": "connector_20205bf7d4e99a89d7154bb849718324",
+      "connector_name": "Sites",
+      "plugin_display_names": []
+    },
+    {
+      "server_name": "codex_apps",
+      "supports_parallel_tool_calls": false,
+      "server_origin": null,
+      "tool_name": "_get_site_version",
+      "tool_namespace": "codex_apps__sites",
+      "namespace_description": "Use Sites to build or modify websites, including landing pages, portfolios, dashboards, portals, trackers, hubs, and internal tools. Use Sites skills for local implementation, source preparation, and artifact packaging. Use this connector for site creation, runtime environment variables, versions, production deployments, and access controls. Read .openai/hosting.json before creating a site and reuse its project_id when present. Treat Sites IDs and cursors as opaque: copy them exactly from .openai/hosting.json or Sites responses as applicable, and never invent, reformat, derive, or substitute them. Never call create_site more than once for the same local site. Push the exact source state before saving a version. commit_sha must identify that pushed state, and any archive must be built from it. Deploy only saved versions; every Sites deployment URL is production. Inspect deployment status when the initial result is non-terminal or the user asks for progress. Publish after creating or editing a site by default, including on subsequent turns, unless the user explicitly requested local-only work, a saved version without deployment, or no publishing. New sites start private. Preserve the site's current audience unless the user explicitly requests a different audience. Use the private operation for known owner-private sites and let it enforce owner-only access. Runtime tool approvals and backend access checks still apply without a separate conversational deployment confirmation.",
+      "tool": {
+        "name": "sites.get_site_version",
+        "title": "get_site_version",
+        "description": "Get a saved site version and its source provenance. Retain version_id for follow-up calls, but report the user-facing version number when possible.",
+        "inputSchema": {
+          "properties": {
+            "project_id": {
+              "description": "Exact opaque site project ID. Copy it verbatim from .openai/hosting.json's project_id or the id field returned by create_site, list_sites, or get_site, or the server-returned site_metadata.project_id on a Library Site result. Keep the same selected workspace. Never invent, modify, or substitute another identifier.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "version_id": {
+              "description": "Exact opaque saved version ID returned as id by save_site_version, list_site_versions, or get_site_version. Copy it verbatim as version_id; never substitute a project or deployment ID.",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id",
+            "version_id"
+          ],
+          "title": "AppgardenProjectVersionRequest",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "properties": {
+            "id": {
+              "description": "Opaque saved version ID. Pass this exact value as version_id.",
+              "title": "Id",
+              "type": "string"
+            },
+            "project_id": {
+              "description": "Opaque site project ID. Pass this exact value as project_id.",
+              "title": "Project Id",
+              "type": "string"
+            },
+            "version_number": {
+              "title": "Version Number",
+              "type": "integer"
+            },
+            "source": {
+              "properties": {
+                "commit_sha": {
+                  "title": "Commit Sha",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "commit_sha"
+              ],
+              "title": "AppGardenVersionSourceResponse",
+              "type": "object",
+              "additionalProperties": false
+            },
+            "archive_storage": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "archive_format": {
+                      "title": "Archive Format",
+                      "type": "string"
+                    },
+                    "sediment_file_id": {
+                      "title": "Sediment File Id",
+                      "type": "string"
+                    },
+                    "content_hash": {
+                      "title": "Content Hash",
+                      "type": "string"
+                    },
+                    "size_bytes": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Size Bytes"
+                    },
+                    "file_count": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "File Count"
+                    }
+                  },
+                  "required": [
+                    "archive_format",
+                    "sediment_file_id",
+                    "content_hash"
+                  ],
+                  "title": "AppGardenVersionArchiveStorageResponse",
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "screenshot_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Screenshot Url"
+            },
+            "deployment_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Latest publish attempt for this saved version; use get_deployment_status.",
+              "title": "Deployment Id"
+            }
+          },
+          "required": [
+            "id",
+            "project_id",
+            "version_number",
+            "source"
+          ],
+          "title": "AppGardenVersionResponse",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "openWorldHint": false
+        },
+        "_meta": {
+          "resource_name": "sites.get_site_version",
+          "

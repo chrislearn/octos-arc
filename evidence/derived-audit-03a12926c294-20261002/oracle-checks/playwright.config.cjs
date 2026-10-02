@@ -1,0 +1,1 @@
+module.exports={testDir:'.',outputDir:__dirname+'/test-results',timeout:10000,expect:{timeout:500},workers:1,retries:0,reporter:[['list'],['json',{outputFile:__dirname+'/results.json'}]],use:{baseURL:'http://localhost:48199',headless:true}};

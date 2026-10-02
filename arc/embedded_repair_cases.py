@@ -27,10 +27,10 @@ def register(s):
     ''',requires=['REQ-2-2-2','REQ-1-2-1','REQ-3-1-2'])
     s('REQ-3-1-1', 'failed cell save restores formula-bar input and keeps persisted cell; retry succeeds', r'''
   await h.blank(page); await h.edit(page,'A1','original'); await h.values(page,{A1:'original'});
-  const alerts=page.locator('[role="alert"]:visible').filter({hasText:/\S/}); await expect(alerts).toHaveCount(0);
+  const feedback=h.saveFailureReason(page); await expect(feedback).toHaveCount(0);
     let rejectedAttempts=0, retryAttempts=0; const rejected=h.unique(), retried=h.unique(); const origin=new URL(page.url()).origin;
-    // Inject the failed value's actual write, independently of API route or
-    // whether the app persists one cell, a worksheet, or the whole workbook.
+    // Default HTTP injection supports plain-text same-origin writes. This is
+    // not a portable claim about encoded bodies, WebSocket or storage failures.
     await page.route('**/*',async route=>{
       const request=route.request(); const body=request.postData()||'';
       if(new URL(request.url()).origin===origin && ['PATCH','PUT','POST'].includes(request.method())){
@@ -39,8 +39,10 @@ def register(s):
       }
       await route.continue();
     });
-  await h.edit(page,'A1',rejected); await expect(alerts.first()).toBeVisible();
-    await h.values(page,{A1:'original'}); await expect(h.field(page,'Formula bar')).toHaveValue('original'); expect(rejectedAttempts).toBeGreaterThan(0);
+  await h.edit(page,'A1',rejected);
+    await expect.poll(()=>rejectedAttempts,{message:'Failure injection unavailable: requires a supported HTTP write adapter'}).toBeGreaterThan(0);
+    await expect(feedback.first()).toBeVisible();
+    await h.values(page,{A1:'original'}); await expect(h.field(page,'Formula bar')).toHaveValue('original');
     await page.reload(); await h.values(page,{A1:'original'}); await h.edit(page,'A1',retried);
     await h.persisted(page,()=>h.values(page,{A1:retried})); expect(retryAttempts).toBeGreaterThan(0);
     ''')
@@ -74,7 +76,9 @@ def register(s):
     await h.sourceData(page); await h.pivot(page);
     await h.tab(page,'Sheet1').click(); await h.structure(page,'row','1','Insert 1 row above'); await h.values(page,{A1:'',A2:'Region',B3:'10'});
     await h.button(page,'Undo').click(); await h.values(page,{A1:'Region',B2:'10'});
-    await h.tab(page,'Pivot1').click(); await h.button(page,'Refresh pivot table').click(); await h.values(page,{B2:'40',B3:'20',B4:'60'});
+    // Observe the restored pivot before Redo. A successful Refresh may itself
+    // create a history operation and legitimately discard the redo branch.
+    await h.tab(page,'Pivot1').click(); await h.values(page,{B2:'40',B3:'20',B4:'60'});
     await h.tab(page,'Sheet1').click(); await h.button(page,'Redo').click(); await h.values(page,{A1:'',A2:'Region',B3:'10'});
     await h.tab(page,'Pivot1').click(); await h.button(page,'Refresh pivot table').click();
     await h.persisted(page,()=>h.values(page,{B2:'40',B3:'20',B4:'60'}));

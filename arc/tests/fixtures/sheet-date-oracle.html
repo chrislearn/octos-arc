@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><div id="app"></div>
+<script>
+// Controlled infrastructure witness, never a product implementation or score.
+const app=document.getElementById('app');
+const mode=document.cookie.split('; ').find(x=>x.startsWith('oracle='))?.split('=')[1]||'chronological';
+let state=JSON.parse(localStorage.getItem('sheet-date')||'{"rows":[],"active":"A1","filter":false,"before":null}');
+function save(){localStorage.setItem('sheet-date',JSON.stringify(state));}
+function element(tag,text,attrs={}){const e=document.createElement(tag);if(text!==null)e.textContent=text;for(const [k,v]of Object.entries(attrs))e.setAttribute(k,v);return e;}
+function button(text,action,attrs={}){const e=element('button',text,attrs);e.onclick=event=>{event.stopPropagation();action();};return e;}
+function select(label,options,parent){const e=element('select',null,{'aria-label':label});for(const name of options)e.append(element('option',name));parent.append(e);return e;}
+function value(at){const col=at.charCodeAt(0)-65,row=Number(at.slice(1))-1;return state.rows[row]?.[col]??'';}
+function hidden(row){
+ if(row===0||!state.filter||!state.before)return false;
+ const source=state.rows[row]?.[0]??'';if(!source)return true;
+ return mode==='lexical'?!(source<state.before):!(Date.parse(source)<Date.parse(state.before));
+}
+function render(){
+ app.replaceChildren();
+ if(location.pathname==='/'){
+  app.append(button('New blank workbook',()=>{app.replaceChildren(button('Create',()=>{state={rows:[],active:'A1',filter:false,before:null};save();location.href='/workbook';}));}));return;
+ }
+ app.append(element('button','Sheet1',{role:'tab','aria-selected':'true'}));
+ const g=element('div',null,{role:'grid','aria-label':'Worksheet grid','aria-multiselectable':'true'});
+ g.style.cssText='display:grid;grid-template-columns:repeat(6,210px)';
+ for(let row=0;row<8;row++)for(let col=0;col<6;col++){
+  const at=String.fromCharCode(65+col)+(row+1),v=state.rows[row]?.[col]??'';
+  const c=element('div',v,{role:'gridcell','aria-label':at,'aria-selected':String(at===state.active),tabindex:'0'});
+  c.style.cssText='width:208px;height:30px;border:1px solid #ccc;white-space:pre';if(hidden(row))c.style.display='none';
+  c.onclick=()=>{state.active=at;save();render();app.querySelector(`[aria-label="${at}"]`).focus();};
+  if(row===0&&state.filter&&v)c.append(button('Filter',()=>filterDialog(v),{'aria-label':'Filter '+v}));
+  g.append(c);
+ }
+ app.append(g,element('input',null,{'aria-label':'Formula bar',value:value(state.active)}));
+ app.append(button('Data',()=>{
+  const menu=element('div',null,{role:'menu'});
+  menu.append(button('Sort range',()=>{menu.remove();sortDialog();},{role:'menuitem'}));
+  menu.append(button('Create filter',()=>{state.filter=true;save();render();},{role:'menuitem'}));
+  menu.append(button('Clear filter',()=>{state.filter=false;state.before=null;save();render();},{role:'menuitem'}));
+  app.append(menu);
+ }));
+}
+function sortDialog(){
+ const d=element('div',null,{role:'dialog','aria-label':'Sort range'});select('Sort by',state.rows[0],d);const order=select('Order',['Ascending','Descending'],d);
+ d.append(element('input',null,{type:'checkbox','aria-label':'Data has header row'}));
+ d.append(button('Sort',()=>{
+  if(mode!=='noop'){
+   const rows=state.rows.slice(1);rows.sort((a,b)=>mode==='lexical'?a[0].localeCompare(b[0]):Date.parse(a[0])-Date.parse(b[0]));
+   if(order.value==='Descending')rows.reverse();state.rows=[state.rows[0],...rows];
+  }
+  save();render();
+ }));app.append(d);
+}
+function filterDialog(header){
+ const d=element('div',null,{role:'dialog','aria-label':'Filter '+header});select('Condition',['Before'],d);
+ const input=element('input',null,{'aria-label':'Value'});d.append(input,button('Apply',()=>{state.before=input.value;save();render();}));app.append(d);
+}
+document.addEventListener('paste',event=>{
+ event.preventDefault();const pasted=event.clipboardData.getData('text/plain').split(/\r?\n/).map(row=>row.split('\t'));
+ const startCol=state.active.charCodeAt(0)-65,startRow=Number(state.active.slice(1))-1;
+ pasted.forEach((row,r)=>row.forEach((v,c)=>{state.rows[startRow+r]??=[];state.rows[startRow+r][startCol+c]=v;}));save();render();
+});
+render();
+</script>

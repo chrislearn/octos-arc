@@ -46,10 +46,96 @@ test("REQ-4-4: guide: editing creates a real commit and an old revision retains 
   });
 });
 
+test("REQ-4-4: spec-read cannot commit files on a readable repository", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-read'); const address=await h.repo(page,h.fixtureRepo('file-denied-spec-read'));
+  await h.link(page,'Commits').click(); const history=await h.historyLinks(page); await page.goto(address); await expect(h.link(page,'README.md')).toBeVisible();
+  const name=h.unique('denied')+'.md',add=h.button(page,'Add file');
+  if(await add.count() && await add.isVisible() && await add.isEnabled()) {
+    await add.click(); const create=page.getByRole('menuitem',{name:'Create new file',exact:true});
+    if(await create.count() && await create.isVisible() && await create.isEnabled()) {
+      await create.click();
+      for(const [label,value] of [['File name',name],['File contents','Must not be saved'],['Commit message','Attempt unauthorized write']]) {
+        const field=h.field(page,label); if(await field.count() && await field.isEditable()) await field.fill(value);
+      }
+      const commit=h.button(page,'Commit changes'); if(await commit.count() && await commit.isEnabled()) await h.attemptSubmission(page,commit);
+    }
+  }
+  await page.goto(address); await expect(h.link(page,name)).toHaveCount(0); await h.link(page,'Commits').click();
+  await expect.poll(()=>h.historyLinks(page)).toEqual(history); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+});
+
+test("REQ-4-4: spec-triage cannot commit files on a readable repository", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-triage'); const address=await h.repo(page,h.fixtureRepo('file-denied-spec-triage'));
+  await h.link(page,'Commits').click(); const history=await h.historyLinks(page); await page.goto(address); await expect(h.link(page,'README.md')).toBeVisible();
+  const name=h.unique('denied')+'.md',add=h.button(page,'Add file');
+  if(await add.count() && await add.isVisible() && await add.isEnabled()) {
+    await add.click(); const create=page.getByRole('menuitem',{name:'Create new file',exact:true});
+    if(await create.count() && await create.isVisible() && await create.isEnabled()) {
+      await create.click();
+      for(const [label,value] of [['File name',name],['File contents','Must not be saved'],['Commit message','Attempt unauthorized write']]) {
+        const field=h.field(page,label); if(await field.count() && await field.isEditable()) await field.fill(value);
+      }
+      const commit=h.button(page,'Commit changes'); if(await commit.count() && await commit.isEnabled()) await h.attemptSubmission(page,commit);
+    }
+  }
+  await page.goto(address); await expect(h.link(page,name)).toHaveCount(0); await h.link(page,'Commits').click();
+  await expect.poll(()=>h.historyLinks(page)).toEqual(history); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+});
+
+test("REQ-4-4: absolute file path is rejected without advancing history", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-path-absolute'));
+  await h.link(page,'Commits').click(); const history=await h.historyLinks(page); await page.goto(address);
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  await h.field(page,'File name').fill('/invalid.md'); await h.field(page,'File contents').fill('Rejected replacement');
+  await h.field(page,'Commit message').fill('Attempt invalid path'); await h.button(page,'Commit changes').click();
+  await expect(h.containsValue(page,'Invalid file path').first()).toBeVisible();
+  await page.goto(address); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+  await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+});
+
+test("REQ-4-4: existing-file file path is rejected without advancing history", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-path-existing-file'));
+  await h.link(page,'Commits').click(); const history=await h.historyLinks(page); await page.goto(address);
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  await h.field(page,'File name').fill('README.md'); await h.field(page,'File contents').fill('Rejected replacement');
+  await h.field(page,'Commit message').fill('Attempt invalid path'); await h.button(page,'Commit changes').click();
+  await expect(h.containsValue(page,'Invalid file path').first()).toBeVisible();
+  await page.goto(address); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+  await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+});
+
+test("REQ-4-4: directory file path is rejected without advancing history", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-path-directory'));
+  await h.link(page,'Commits').click(); const history=await h.historyLinks(page); await page.goto(address);
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  await h.field(page,'File name').fill('src'); await h.field(page,'File contents').fill('Rejected replacement');
+  await h.field(page,'Commit message').fill('Attempt invalid path'); await h.button(page,'Commit changes').click();
+  await expect(h.containsValue(page,'Invalid file path').first()).toBeVisible();
+  await page.goto(address); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+  await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+});
+
+test("REQ-4-4: overlong trimmed commit message leaves files and history unchanged", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-message-too-long'));
+  await h.link(page,'Commits').click(); const history=await h.historyLinks(page); await page.goto(address);
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  const name=h.unique('rejected')+'.md'; await h.field(page,'File name').fill(name);
+  await h.field(page,'File contents').fill('Must not be committed'); await h.field(page,'Commit message').fill('x'.repeat(73));
+  await h.button(page,'Commit changes').click(); await expect(h.field(page,'File name')).toBeVisible();
+  await page.goto(address); await expect(h.link(page,name)).toHaveCount(0); await h.link(page,'Commits').click();
+  await expect.poll(()=>h.historyLinks(page)).toEqual(history); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(history);
+});
+
 test("REQ-4-4: context REQ-4-4: invalid path and empty message cannot change files or history", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-invalid-node')); await h.link(page,'Commits').click(); const before=await h.historyLinks(page); await page.goto(address); await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
-  await h.field(page,'File name').fill('../invalid.md'); await h.field(page,'File contents').fill('must not be saved'); await h.button(page,'Commit changes').click(); await expect(page.getByRole('alert').filter({hasText:/Invalid file path|Commit message is required/}).first()).toBeVisible(); await page.goto(address); await expect(h.link(page,'invalid.md')).toHaveCount(0); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page),{message:'Rejected commit must preserve history'}).toEqual(before); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
+  await h.field(page,'File name').fill('../invalid.md'); await h.field(page,'File contents').fill('must not be saved'); await h.button(page,'Commit changes').click(); await expect(h.fileValidationReason(page).first()).toBeVisible(); await page.goto(address); await expect(h.link(page,'invalid.md')).toHaveCount(0); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page),{message:'Rejected commit must preserve history'}).toEqual(before); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
 });
 
 test("REQ-4-4: context REQ-4-4: successful file write adds a commit while an earlier revision keeps its original bytes", async ({ page, browser }) => {

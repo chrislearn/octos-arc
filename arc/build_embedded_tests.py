@@ -30,9 +30,9 @@ await expect(page.getByRole('checkbox',{name:'Agree to the terms',exact:true})).
 await h.register(page); await expect(h.field(page,'Username or email')).toBeVisible(); await expect(page.locator('body')).not.toContainText(h.PASSWORD);
 ''')
 g('REQ-1-1-1','registered credentials work by email and survive a later browser session', r'''
-const {username,email}=await h.register(page); await h.signIn(page,email);
+const {username,email}=await h.register(page); await h.signIn(page,email,h.PASSWORD,username);
 await h.persisted(page, () => expect(h.button(page,'Account menu')).toBeVisible());
-await h.button(page,'Account menu').click(); await expect(h.text(page,username).first()).toBeVisible();
+await h.button(page,'Account menu').click(); await expect(h.containsValue(page,username).first()).toBeVisible();
 const later=await browser.newContext();
 try { const p=await later.newPage(); await h.signIn(p,username); await expect(h.button(p,'Account menu')).toBeVisible(); }
 finally { await later.close(); }
@@ -61,8 +61,8 @@ g('REQ-1-1-2','guide: a newly registered identity signs in by email and username
 let identity: {username: string, email: string};
 await test.step('Create an account through the earlier registration capability',async()=>{ identity=await h.register(page); });
 await test.step('Use its email and retain the authenticated session after reload',async()=>{
-  await h.signIn(page,identity.email); await h.persisted(page,()=>expect(h.button(page,'Account menu')).toBeVisible());
-  await h.button(page,'Account menu').click(); await expect(h.text(page,identity.username).first()).toBeVisible();
+  await h.signIn(page,identity.email,h.PASSWORD,identity.username); await h.persisted(page,()=>expect(h.button(page,'Account menu')).toBeVisible());
+  await h.button(page,'Account menu').click(); await expect(h.containsValue(page,identity.username).first()).toBeVisible();
 });
 await test.step('Use its username in an independent browser session',async()=>{
   const later=await browser.newContext({baseURL:new URL(page.url()).origin});
@@ -96,7 +96,8 @@ await h.signIn(page, username, 'New-password-456!'); await h.signOut(page); awai
 g('REQ-1-3','missing current password and mismatch leave original credentials usable', r'''
 const { username } = await h.register(page); await h.signIn(page, username); await h.button(page, 'Account menu').click(); await h.link(page, 'Settings').click(); await h.link(page, 'Password and authentication').click();
 await h.field(page, 'New password').fill('Required-password-789!'); await h.field(page, 'Confirm password').fill('Required-password-789!'); await h.button(page, 'Update password').click(); await expect(page.getByText('Current password is required', { exact: false })).toBeVisible();
-await h.field(page, 'Current password').fill('Wrong-password-456!'); await h.field(page, 'New password').fill('Required-password-789!'); await h.field(page, 'Confirm password').fill('does-not-match'); await h.button(page, 'Update password').click(); await expect(page.getByText(/^(Current password is incorrect|Password confirmation does not match)$/).filter({ visible: true }).first()).toBeVisible(); await h.signOut(page); await h.signIn(page, username);
+await h.field(page, 'Current password').fill('Wrong-password-456!'); await h.field(page, 'New password').fill('Required-password-789!'); await h.field(page, 'Confirm password').fill('does-not-match'); await h.button(page, 'Update password').click(); await expect(h.passwordValidationReason(page).first()).toBeVisible(); await h.signOut(page);
+await h.link(page,'Sign in').click(); await h.field(page,'Username or email').fill(username); await h.field(page,'Password').fill('Required-password-789!'); await h.button(page,'Sign in').click(); await expect(h.text(page,'Invalid credentials').first()).toBeVisible(); await expect(h.button(page,'Account menu')).toHaveCount(0); await h.signIn(page, username);
 ''')
 g('REQ-2-1-1','organization live repository filter exposes public result and hides private result', r'''
 await h.organization(page); await h.link(page,'Repositories').click(); await h.field(page,'Find a repository').fill('acme-docs'); await expect(h.link(page,'acme-docs')).toBeVisible();
@@ -146,9 +147,21 @@ await h.repo(page,h.fixtureRepo('member-remove')); const address=page.url(); awa
 g('REQ-2-2-4','ordinary member has no removal controls', r'''
 await h.signIn(page,'spec-read'); await h.organization(page,'member-read'); await h.link(page,'People').click(); await expect(h.text(page,'bob-reviewer').first()).toBeVisible(); await expect(h.button(page,'Member menu bob-reviewer')).toHaveCount(0); await expect(page.getByRole('menuitem',{name:'Remove from organization',exact:true})).toHaveCount(0);
 ''','member-read')
-g('REQ-2-3','live team search creates one Write grant and reload retains it', r'''
-await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('grant-add')); await h.settings(page,'Manage access'); await h.button(page,'Add people or teams').click(); const picker=await h.accessPicker(page); await picker.getByRole('textbox',{name:'Search',exact:true}).fill('frontend-team'); await page.getByRole('option',{name:'frontend-team',exact:true}).click(); await h.choose(picker,'Role','Write'); await h.button(picker,'Add').click();
-const row=page.getByRole('row',{name:/frontend-team/}); await h.persisted(page, async () => { await expect(row).toHaveCount(1); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Write'); });
+g('REQ-2-3','live team grant admits its member and preserves private denial and one saved grant', r'''
+await h.signIn(page,'spec-admin'); const address=await h.repo(page,h.fixtureRepo('grant-add'));
+const member=await browser.newContext(), visitor=await browser.newContext();
+try {
+ const bob=await member.newPage(), ungranted=await visitor.newPage();
+ await h.signIn(bob,'bob-reviewer'); await bob.goto(address); await expect(h.text(bob,'Access denied').first()).toBeVisible();
+ await h.signIn(ungranted,'spec-new-member'); await ungranted.goto(address); await expect(h.text(ungranted,'Access denied').first()).toBeVisible();
+ await h.settings(page,'Manage access'); await h.button(page,'Add people or teams').click(); const picker=await h.accessPicker(page);
+ await picker.getByRole('textbox',{name:'Search',exact:true}).fill('frontend-team'); await page.getByRole('option',{name:/frontend-team/}).click();
+ await h.choose(picker,'Role','Write'); await h.button(picker,'Add').click(); const row=page.getByRole('row',{name:/frontend-team/});
+ await h.persisted(page,async()=>{ await expect(row).toHaveCount(1); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Write'); });
+ await bob.reload(); await expect(bob.getByRole('heading').filter({hasText:h.fixtureRepo('grant-add')})).toBeVisible(); await expect(h.text(bob,'Access denied')).toHaveCount(0);
+ await ungranted.reload(); await expect(h.text(ungranted,'Access denied').first()).toBeVisible();
+ await h.button(row,'Save').click(); await h.persisted(page,()=>expect(row).toHaveCount(1));
+} finally { await member.close(); await visitor.close(); }
 ''','grant-add')
 g('REQ-2-3','native Read selection replaces Write rather than appending a grant', r'''
 await h.signIn(page,'spec-admin'); await h.repo(page,h.fixtureRepo('grant-replace')); await h.settings(page,'Manage access'); const row=page.getByRole('row',{name:/frontend-team/}); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Write'); await row.getByRole('combobox',{name:'Role',exact:true}).selectOption({label:'Read'}); await h.button(row,'Save').click();
@@ -238,7 +251,7 @@ await expect(h.text(page,'Commit message is required').first()).toBeVisible(); a
 ''','file-invalid-message')
 g('REQ-4-4','invalid path and empty message cannot change files or history', r'''
 await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-invalid')); await h.link(page,'Commits').click(); const before=await h.historyLinks(page); await page.goto(address); await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
-await h.field(page,'File name').fill('../invalid.md'); await h.field(page,'File contents').fill('must not be saved'); await h.button(page,'Commit changes').click(); await expect(page.getByRole('alert').filter({hasText:/Invalid file path|Commit message is required/}).first()).toBeVisible(); await page.goto(address); await expect(h.link(page,'invalid.md')).toHaveCount(0); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page),{message:'Rejected commit must preserve history'}).toEqual(before); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
+await h.field(page,'File name').fill('../invalid.md'); await h.field(page,'File contents').fill('must not be saved'); await h.button(page,'Commit changes').click(); await expect(h.fileValidationReason(page).first()).toBeVisible(); await page.goto(address); await expect(h.link(page,'invalid.md')).toHaveCount(0); await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page),{message:'Rejected commit must preserve history'}).toEqual(before); await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
 ''','file-invalid', file='INTEGRATION-file-history', requires=['REQ-4-4','REQ-4-2-1'])
 g('REQ-5-1-1','Open/Closed live issue filters combine with keyword and survive refresh', r'''
 await h.repo(page); await h.link(page,'Issues').click(); await h.link(page,'Open').click(); await page.getByRole('searchbox',{name:'Search issues',exact:true}).fill('Improve onboarding'); await h.persisted(page, () => expect(h.link(page,'Improve onboarding')).toBeVisible());
@@ -265,17 +278,17 @@ g('REQ-5-2-3','Write comment stores full body and author and survives reload', r
 await h.signIn(page,'spec-write'); await h.issue(page,'issue-comment'); const body=h.unique('pw-comment'); await h.field(page,'Comment').fill(body); await h.button(page,'Comment').click(); const entry=page.getByRole('article').filter({hasText:body}); await h.persisted(page, async () => { await expect(entry).toContainText(body); await expect(entry).toContainText('spec-write'); });
 ''','issue-comment')
 g('REQ-5-2-3','blank comment adds no article or activity through either allowed UI behavior', r'''
-await h.signIn(page,'spec-write'); await h.issue(page,'issue-comment-invalid'); const before=await page.getByRole('article').allTextContents(); await h.field(page,'Comment').fill('   '); const submit=h.button(page,'Comment'); if(await submit.isEnabled()){ await submit.click(); await expect(page.getByText('Comment is required',{exact:false})).toBeVisible(); } else await expect(submit).toBeDisabled();
-expect(await page.getByRole('article').allTextContents()).toEqual(before); await page.reload(); expect(await page.getByRole('article').allTextContents()).toEqual(before);
+await h.signIn(page,'spec-write'); await h.issue(page,'issue-comment-invalid'); const before=await h.discussionSnapshot(page); await h.field(page,'Comment').fill('   '); const submit=h.button(page,'Comment'); if(await submit.isEnabled()){ await submit.click(); await expect(page.getByText('Comment is required',{exact:false})).toBeVisible(); } else await expect(submit).toBeDisabled();
+await expect.poll(()=>h.discussionSnapshot(page)).toEqual(before); await page.reload(); await expect.poll(()=>h.discussionSnapshot(page)).toEqual(before);
 ''','issue-comment-invalid')
 g('REQ-5-3-1','eligible assignee is saved live and removed without erasing timeline', r'''
-await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-assign'); await h.button(page,'Assignees').click(); await h.field(page,'Search assignees').fill('spec-triage'); await h.option(page,'spec-triage'); await h.persisted(page, () => expect(h.sidebar(page,'Assignees')).toContainText('spec-triage')); await h.button(page,'Assignees').click(); await h.option(page,'spec-triage'); await h.persisted(page, () => expect(h.sidebar(page,'Assignees')).not.toContainText('spec-triage'));
+await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-assign'); await h.button(page,'Assignees').click(); await h.field(page,'Search assignees').fill('spec-triage'); await h.option(page,'spec-triage'); await h.persisted(page, () => expect(h.metadataValue(page,'Assignees','spec-triage').first()).toBeVisible()); await h.button(page,'Assignees').click(); await h.option(page,'spec-triage'); await h.persisted(page, () => expect(h.metadataValue(page,'Assignees','spec-triage').first()).toHaveCount(0));
 ''','issue-assign')
 g('REQ-5-3-2','existing label toggle immediately saves and removes association', r'''
-await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-label'); await h.button(page,'Labels').click(); await h.option(page,'bug'); await h.persisted(page, () => expect(h.sidebar(page,'Labels')).toContainText('bug')); await h.button(page,'Labels').click(); await h.option(page,'bug'); await h.persisted(page, () => expect(h.sidebar(page,'Labels')).not.toContainText('bug'));
+await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-label'); await h.button(page,'Labels').click(); await h.option(page,'bug'); await h.persisted(page, () => expect(h.metadataValue(page,'Labels','bug').first()).toBeVisible()); await h.button(page,'Labels').click(); await h.option(page,'bug'); await h.persisted(page, () => expect(h.metadataValue(page,'Labels','bug').first()).toHaveCount(0));
 ''','issue-label')
 g('REQ-5-3-3','milestone selection saves immediately and None removes only association', r'''
-await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-milestone'); await h.button(page,'Milestone').click(); await h.option(page,'v1.0'); await h.persisted(page, () => expect(h.sidebar(page,'Milestone')).toContainText('v1.0')); await h.button(page,'Milestone').click(); await h.option(page,'None'); await h.persisted(page, () => expect(h.sidebar(page,'Milestone')).not.toContainText('v1.0'));
+await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-milestone'); await h.button(page,'Milestone').click(); await h.option(page,'v1.0'); await h.persisted(page, () => expect(h.metadataValue(page,'Milestone','v1.0').first()).toBeVisible()); await h.button(page,'Milestone').click(); await h.option(page,'None'); await h.persisted(page, () => expect(h.metadataValue(page,'Milestone','v1.0').first()).toHaveCount(0));
 ''','issue-milestone')
 g('REQ-5-4','Maintain closes and reopens issue preserving title, body and state', r'''
 await h.signIn(page,'spec-maintain'); await h.issue(page,'issue-close'); await h.button(page,'Close issue').click(); await expect(h.text(page,'Closed issue').first()).toBeVisible(); await expect(h.button(page,'Reopen issue')).toBeVisible(); await h.button(page,'Reopen issue').click(); await h.persisted(page, async () => { await expect(h.button(page,'Close issue')).toBeVisible(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.text(page,'Describe the onboarding improvement.').first()).toBeVisible(); });
@@ -403,12 +416,16 @@ from embedded_sheet_cases import register
 register(s)
 from embedded_github_quality_cases import register as register_github_quality
 register_github_quality(g)
+from embedded_github_audit_cases import register as register_github_audit
+register_github_audit(g)
 from embedded_guided_cases import register as register_guidance
 register_guidance(g, s)
 from embedded_node_smokes import register as register_node_smokes
 register_node_smokes(s)
 from embedded_repair_cases import register as register_repair_cases
 register_repair_cases(s)
+from embedded_sheet_audit_cases import register as register_sheet_audit
+register_sheet_audit(s)
 from embedded_case_phases import partition_sheet_cases
 CASES['hackathon--sheet'] = partition_sheet_cases(CASES['hackathon--sheet'], yaml.safe_load(
     (Path(__file__).resolve().parent / 'tasks/hackathon--sheet/requirements.yaml').read_text()))

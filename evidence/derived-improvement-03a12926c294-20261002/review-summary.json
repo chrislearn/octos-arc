@@ -1,0 +1,66 @@
+{
+  "run": "https://arc-bench.com/runs/03a12926c294",
+  "requirements_unchanged_byte_for_byte": true,
+  "old_exported_cases": 131,
+  "new_exported_cases": 143,
+  "source_cases": 196,
+  "atomic_nodes": 24,
+  "spec_revision": 7,
+  "all_original_exported_titles_retained": true,
+  "integration_context_origins_retained": 53,
+  "source_and_export_hash_verification": "passed",
+  "added_cases": [
+    {
+      "file": "REQ-3-1-2.spec.ts",
+      "title": "REQ-3-1-2: plain text paste preserves significant whitespace and leading zeros through Ctrl+V"
+    },
+    {
+      "file": "REQ-3-1-2.spec.ts",
+      "title": "REQ-3-1-2: plain text paste preserves significant whitespace and leading zeros through menu"
+    },
+    {
+      "file": "REQ-3-2-1.spec.ts",
+      "title": "REQ-3-2-1: copy preserves exact ordinary text in both rectangles after reload"
+    },
+    {
+      "file": "REQ-4-1-1.spec.ts",
+      "title": "REQ-4-1-1: inline grid formulas commit on Enter and blur and Escape retains the original formula"
+    },
+    {
+      "file": "REQ-4-1-1.spec.ts",
+      "title": "REQ-4-1-1: two-dimensional aggregate input through grid ignores blanks and nonnumeric text"
+    },
+    {
+      "file": "REQ-4-1-2.spec.ts",
+      "title": "REQ-4-1-2: horizontal formula copy changes only the relative axis and preserves absolute references"
+    },
+    {
+      "file": "REQ-4-1-2.spec.ts",
+      "title": "REQ-4-1-2: vertical formula copy changes only the relative axis and preserves absolute references"
+    },
+    {
+      "file": "REQ-5-2-1.spec.ts",
+      "title": "REQ-5-2-1: numeric validation rejects nonnumeric grid without changing targets sources or dependents"
+    },
+    {
+      "file": "REQ-5-2-1.spec.ts",
+      "title": "REQ-5-2-1: numeric validation rejects nonnumeric formula bar without changing targets sources or dependents"
+    },
+    {
+      "file": "REQ-5-2-1.spec.ts",
+      "title": "REQ-5-2-1: numeric validation rejects nonnumeric paste without changing targets sources or dependents"
+    },
+    {
+      "file": "REQ-5-2-1.spec.ts",
+      "title": "REQ-5-2-1: numeric validation rejects nonnumeric cut without changing targets sources or dependents"
+    },
+    {
+      "file": "REQ-5-3-1.spec.ts",
+      "title": "REQ-5-3-1: column pivot reopens all saved field selections and exact results in a later browser session"
+    }
+  ],
+  "archive_sha256": "5724cefee4823ca6df5014e7b157a36723790d86409a562dfc9bea0c18d06ca6",
+  "product_runtime_certified": false,
+  "complete_semantic_coverage_claimed": false,
+  "delivery": "local refreshed export; remote run and installed binary unchanged"
+}

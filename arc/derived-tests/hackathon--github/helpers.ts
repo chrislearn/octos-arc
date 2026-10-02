@@ -1,5 +1,6 @@
 import { test as base, expect, type Page, type Locator } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import fixtures from './fixtures.json';
 
 export { expect };
 export const test = base.extend({ page: async ({ page, context }, use) => {
@@ -18,6 +19,13 @@ export const text = (p: Page | Locator, value: string) => p.getByText(value, { e
 // Native select options contribute text matches even while hidden. Only inspect
 // the rendered summary when the contract asks for visible text.
 export const visibleText = (p: Page | Locator, value: string) => text(p, value).filter({ visible: true });
+export const containsValue = (p: Page | Locator, value: string) => p.getByText(
+  new RegExp(`(?<![\\w-])${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`)
+).and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
+export const fileValidationReason = (p: Page) => p.getByText(/Invalid file path|Commit message is required/)
+  .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
+export const passwordValidationReason = (p: Page) => p.getByText(/Current password is incorrect|Password confirmation does not match/)
+  .and(p.locator(':not(input):not(textarea):not([contenteditable="true"])')).filter({ visible: true });
 export async function accessPicker(p: Page) {
   const search = p.getByRole('textbox', { name: 'Search', exact: true });
   await expect(search).toBeVisible();
@@ -38,12 +46,17 @@ export async function historyLinks(p: Page) {
   return p.getByRole('link').allTextContents();
 }
 export async function home(p: Page) { await p.goto('/'); }
-export async function signIn(p: Page, username = 'alice-dev', password = PASSWORD) {
+export async function signIn(p: Page, username = 'alice-dev', password = PASSWORD, expectedUsername?: string) {
   await home(p); await link(p, 'Sign in').click();
   await field(p, 'Username or email').fill(username); await field(p, 'Password').fill(password);
   await button(p, 'Sign in').click(); await expect(button(p, 'Account menu')).toBeVisible();
-  await button(p, 'Account menu').click(); const account = username.includes('@') ? username.split('@')[0].replaceAll('.', '-') : username; await expect(text(p, account).first()).toBeVisible();
-  await p.keyboard.press('Escape');
+  const account = expectedUsername ?? (username.includes('@')
+    ? fixtures.accounts.find(a => a.email === username)?.username : username);
+  if (!account) throw new Error('Email sign-in needs the known account username');
+  await button(p, 'Account menu').click(); await expect(containsValue(p, account).first()).toBeVisible();
+  // A persisted session is required; reloading also closes transient menus
+  // without assuming an unspecified Escape/toggle implementation.
+  await p.reload(); await expect(button(p, 'Account menu')).toBeVisible();
 }
 export async function signOut(p: Page) {
   await button(p, 'Account menu').click(); await link(p, 'Sign out').click();
@@ -100,18 +113,54 @@ export async function compare(p: Page, caseId: string) {
   await button(p, 'Compare changes').click(); await expect(text(p, 'src/search.ts')).toBeVisible();
 }
 export async function persisted(p: Page, assertion: () => Promise<void>) { await assertion(); await p.reload(); await assertion(); }
+export async function attemptSubmission(p: Page, submit: Locator) {
+  // Observe a UI-triggered write without assuming any endpoint or payload.
+  // Wait for the server to finish before navigating; otherwise reload may
+  // cancel the write and make an invalid implementation appear to refuse it.
+  const response = p.waitForResponse(r => !['GET', 'HEAD', 'OPTIONS'].includes(r.request().method()), { timeout: 2000 })
+    .catch(error => { if (error.name === 'TimeoutError') return null; throw error; });
+  await submit.click(); const result = await response;
+  if (result) await result.finished();
+}
 export async function option(p: Page, name: string) { await p.getByRole('option', { name, exact: true }).click(); }
 export async function choose(p: Page | Locator, name: string, value: string) {
   const control = p.getByRole('combobox', { name, exact: true });
   if (await control.evaluate(el => el.tagName === 'SELECT')) await control.selectOption({ label: value });
   else { await control.click(); await p.getByRole('option', { name: value, exact: true }).click(); }
 }
-export function sidebar(p: Page, label: string) {
-  // Select the complete metadata group below its shared sidebar/timeline owner.
-  // This permits nested heading wrappers; a historical article is excluded.
-  const other = ['Assignees', 'Labels', 'Milestone', 'Reviewers'].filter(n => n !== label);
-  const condition = other.map(n => `@aria-label="${n}" or normalize-space(.)="${n}"`).join(' or ');
-  return button(p, label).locator(`xpath=ancestor::*[not(.//article) and not(.//*[self::button or @role="button"][${condition}])][last()]`);
+export async function filterStatus(p: Page, status: string) {
+  // Open is a source-prescribed link. The other status filters have no
+  // prescribed role or field label: discover their displayed enum choices.
+  const direct = link(p, status).or(button(p, status)).or(p.getByRole('tab', { name: status, exact: true }));
+  if (await direct.count()) { await direct.first().click(); return; }
+  for (const select of await p.locator('select').all()) {
+    const option = select.getByRole('option', { name: status, exact: true, includeHidden: true });
+    if (await option.count()) { await select.selectOption({ label: status }); return; }
+  }
+  for (const combo of await p.getByRole('combobox').all()) {
+    await combo.click(); const option = p.getByRole('option', { name: status, exact: true });
+    if (await option.count() && await option.first().isVisible()) { await option.first().click(); return; }
+    await p.keyboard.press('Escape');
+  }
+  throw new Error(`No visible status-filter choice for ${status}; no private route is assumed`);
+}
+export function metadataValue(p: Page, label: string, value: string) {
+  // Fixtures make each target value unique outside the discussion. Historical
+  // articles and open selector options must never prove a current association.
+  // No aside/section/grid nesting is prescribed by the original requirements.
+  const area = button(p, label).locator('xpath=ancestor::*[not(.//article)][last()]');
+  return containsValue(area, value)
+    .and(area.locator(':not(article):not(article *):not(option):not([role="option"]):not([role="option"] *)'))
+    .filter({ hasNot: p.getByRole('article') });
+}
+export async function discussionSnapshot(p: Page) {
+  const entries = p.getByRole('article');
+  await expect(entries.first()).toBeVisible();
+  return entries.evaluateAll(elements => elements.map(el => {
+    const copy = el.cloneNode(true) as Element;
+    copy.querySelectorAll('time').forEach(time => time.remove());
+    return (copy.textContent ?? '').replace(/\b\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago\b/g, '<relative time>').replace(/\s+/g, ' ').trim();
+  }));
 }
 export async function unavailable(p: Page, name: string) {
   const control=button(p,name); if(await control.count()) await expect(control).toBeDisabled();

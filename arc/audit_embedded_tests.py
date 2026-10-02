@@ -14,8 +14,8 @@ from embedded_suites import requirements_digest
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
 REVIEWED_RELEASES = {
-    'hackathon--github': ('2026-10-02', 6),
-    'hackathon--sheet': ('2026-10-02', 6),
+    'hackathon--github': ('2026-10-02', 7),
+    'hackathon--sheet': ('2026-10-02', 7),
 }
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -47,15 +47,17 @@ def fixtures(task,plan):
                       {'name':'frontend-child','direct_members':[],'parent':'frontend-team'},
                       {'name':'platform-team','direct_members':[],'parent':None}]}
         orgs.append(org)
-        repo={'name':'spec-'+fid,'owner':organization,'visibility':'Private' if profile in {'member-add','member-remove','visibility','guide-team-access'} else 'Public',
+        repo={'name':'spec-'+fid,'owner':organization,'visibility':'Private' if profile in {'member-add','member-remove','visibility','guide-team-access','grant-add','grant-replace'} else 'Public',
               'direct_grants':dict(roles),'team_grants':{},'default_branch':'main',
               'branches':{'main':{'files':{'README.md':'search flow','src/search.ts':'export const search = "search flow";'},'commit_message':'Document search flow','author':'alice-dev','committed_at':'2026-09-01T12:00:00Z','parent_revision':{'files':{},'commit_message':'Initialize empty repository','author':'alice-dev','committed_at':'2026-08-31T12:00:00Z'}},
                           'feature-search':{'base':'main','files':{'README.md':'search flow','src/search.ts':'export const search = "merged search flow";','main-only.md':'feature-only content'},'commit_message':'Implement search flow','author':'spec-write'},
                           'draft-feature':{'base':'main','files':{'README.md':'draft changes','src/search.ts':'export const search = "search flow";'},'commit_message':'Draft update','author':'spec-write'}},
               'labels':['bug'],'milestones':['v1.0'],'issues':[], 'pull_requests':[], 'branch_protection':{}}
         if profile=='member-add': repo['direct_grants'].pop('spec-new-member',None)
-        if profile=='grant-add': repo['team_grants']={}
-        if profile=='grant-replace': repo['team_grants']={'frontend-team':'Write'}
+        if profile in {'grant-add','grant-replace'}:
+            repo['direct_grants'].pop('bob-reviewer')
+            org['teams'][0]['direct_members']=['bob-reviewer']
+            repo['team_grants']={} if profile=='grant-add' else {'frontend-team':'Write'}
         if profile=='guide-team-access':
             repo['direct_grants'].pop('bob-reviewer')
             repo['team_grants']={'frontend-team':'Write'}
@@ -68,8 +70,8 @@ def fixtures(task,plan):
             repo['branches']['release']={'base':'main','files':dict(repo['branches']['main']['files']),
                                          'commit_message':'Prepare release branch','author':'spec-admin'}
         pr_ids={'check-success','pr-ready','review-comment','review-pending','review-approve','review-request-changes','review-request','merge-success','merge-blocked','pr-close','pr-close-read','guide-review-cycle','guide-review-publication'}
-        if profile in pr_ids or fid.startswith('merge-') or fid=='review-replace' or fid=='review-decision-comment':
-            draft=profile=='pr-ready'
+        if profile in pr_ids or profile.startswith(('merge-','review-denied-','pr-milestone')) or profile=='pr-filter-lifecycle' or fid=='review-replace' or fid=='review-decision-comment':
+            draft=profile in {'pr-ready','review-denied-draft'}
             pr={'number':1,'title':'Draft onboarding update' if draft else 'Improve onboarding',
                 'description':'Describe the onboarding improvement.','status':'Draft' if draft else 'Open',
                 'author':'spec-write','base':'main','compare':'draft-feature' if draft else 'feature-search',
@@ -78,6 +80,10 @@ def fixtures(task,plan):
             if profile in {'merge-success','merge-blocked','check-success','guide-review-cycle'}:
                 repo['branch_protection']={'main':{'require_1_approval':True,'require_status_check_test':True}}
             if profile=='merge-success': pr.update(reviews=[{'reviewer':'bob-reviewer','decision':'Approve','commit':'current_compare'}],check_test='success')
+            if profile.startswith('merge-denied-') or profile=='merge-check-failure':
+                repo['branch_protection']={'main':{'require_1_approval':True,'require_status_check_test':True}}
+                pr.update(reviews=[{'reviewer':'bob-reviewer','decision':'Approve','commit':'current_compare'}],check_test='failure' if profile=='merge-check-failure' else 'success')
+            if profile=='review-denied-draft': pr['title']='Improve onboarding'
             if profile=='merge-blocked': pr['check_test']='success'
             if profile=='merge-check-only':
                 repo['branch_protection']={'main':{'require_1_approval':False,'require_status_check_test':True}}
@@ -93,6 +99,10 @@ def fixtures(task,plan):
                 pr['reviews']=[{'reviewer':'bob-reviewer','decision':'Approve','commit':'previous_compare'}]
                 repo['branches']['feature-search']['previous_commit']={'message':'Previous search change','author':'spec-write'}
             repo['pull_requests']=[pr]
+            if profile=='pr-filter-lifecycle':
+                repo['pull_requests'].extend([
+                    {**pr,'number':2,'title':'Fix search','status':'Closed'},
+                    {**pr,'number':3,'title':'Draft onboarding update','status':'Draft','compare':'draft-feature'}])
         repositories.append(repo)
     # Immutable public discovery records. Same repository name in two owners is
     # legitimate; the helper scopes ambiguous results by owner/name metadata.
@@ -107,7 +117,8 @@ def fixtures(task,plan):
                          {**template,'name':'acme-docs-org','owner':'Acme Demo','issues':[],'pull_requests':[]},
                          {**template,'name':'secret-research','visibility':'Private','direct_grants':{}},
                          {**template,'name':'secret-research','owner':'Acme Demo','visibility':'Private','direct_grants':{},'issues':[],'pull_requests':[]},
-                         {**template,'name':'acme-docs-fork','source_repository':'alice-dev/acme-docs'}])
+                         {**template,'name':'acme-docs-fork','source_repository':'alice-dev/acme-docs'},
+                         {**template,'name':'foreign-milestone-repo','milestones':['foreign-milestone'],'issues':[],'pull_requests':[]}])
     orgs.extend([{'identifier':'acme-demo','display_name':'Acme Demo','owners':['spec-owner'],'members':['spec-owner','bob-reviewer'],'teams':[]},
                  {'identifier':'spec-org-existing','display_name':'Existing Organization','owners':['alice-dev'],'members':['alice-dev'],'teams':[]}])
     return {'schema_version':1,'task':task,'private_api_required':False,'accounts':accounts,'organizations':orgs,'repositories':repositories,
@@ -122,6 +133,8 @@ README='''# Source-reviewed internal derived tests\n\nThese tests are derived fr
 Read fixtures.json before generating code. Provision the public records and role relationships as server seeds. Do not create a private test-only API. Every suite invocation starts with fresh server data; within a suite, mutable GitHub records are separate per case and spreadsheet mutations use separate UI-created workbooks or their exclusive seeded workbook. Tests remain enabled if a seed is missing.\n\nPlaywright uses E2E_BASE_URL (the harness supplies its isolated smoke server). Both helpers use role/name locators; entry addresses are discovered from the browser and reused across reloads. Source requirements remain authoritative if a conflict is found.\n'''
 
 README += """
+For GitHub, coverage-review.json separates node gates from reviewed behavior witnesses and records remaining gaps without counting them as passed. Features without portable interaction contracts need a target-specific adapter; backend authorization, storage failures and concurrency need implementation harnesses. Do not invent private APIs or mandatory control names to conceal a gap.
+
 The suite namespace is derived-tests for both embedded recipes and generated project files. REQ-*.spec.ts files are the per-node gates. INTEGRATION-*.spec.ts files describe final acceptance across multiple nodes; never alias them to the first requirement. Integration files are retained in the source suite and binary, but are temporarily omitted when exporting a suite into a project. They are currently unused in project acceptance. The exported suite-origin.json records export_policy, ignored_specs and source manifest identity; its case-plan, review, counts and file hashes describe only the exported REQ cases.
 
 case-plan.json records phase, primary node_id and requires (the contracts explicitly exercised by a case). A node gate cannot require a capability later in the original graph's document-stable topological order. INTEGRATION-deferred-* retains original Sheet cases using later capabilities. Every retained integration case also has an independently runnable REQ context regression at the last required capability; origin_file, origin_title and origin_node_id bind its provenance. Mutable GitHub witnesses own distinct fixture records. Exported node tests therefore keep these behavioral assertions even when integrations are omitted. The primary ID is for traceability, not early scheduling. Guided cases use test.step to explain state transitions and assert the preserved state as well as the change. These retained source cases are temporarily excluded at export, rather than marked skip or deleted.
@@ -191,8 +204,18 @@ def audit(freeze=False,task_filter=None):
             review_date, spec_revision = REVIEWED_RELEASES[task]
             from build_embedded_models import build as build_model
             build_model(task)
-            (directory/'requirements.yaml').write_bytes(source.read_bytes()); (directory/'README.md').write_text(README)
+            (directory/'requirements.yaml').write_bytes(source.read_bytes())
+            task_readme = README
+            if task == 'hackathon--sheet':
+                task_readme += '\nFor Sheet, coverage-review.json records concrete behavior witnesses and remaining gaps; node-gate coverage does not certify complete semantic coverage. Cell-value assertions preserve significant whitespace and data inside ordinary controls, removing only named dropdown/filter decorations. Date witnesses use ISO date-times with offsets to distinguish chronological comparison from string order; the supported date grammar still needs a product contract. The cell-save failure witness requires an adapter for supported HTTP writes, while lifecycle/storage/process failure coverage remains incomplete.\n'
+            (directory/'README.md').write_text(task_readme)
             write(directory/'fixtures.json',fixtures(task,plan))
+            if task=='hackathon--github':
+                from github_coverage_review import coverage_review
+                write(directory/'coverage-review.json',coverage_review(tree,plan))
+            if task=='hackathon--sheet':
+                from sheet_coverage_review import coverage_review
+                write(directory/'coverage-review.json',coverage_review(tree,plan))
             reviews=[]
             for row in plan:
                 node=nodes[row['node_id']]

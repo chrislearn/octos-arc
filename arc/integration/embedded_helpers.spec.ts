@@ -29,9 +29,9 @@ test('custom combobox follows clickable ARIA options', async ({ page }) => {
 
 test('metadata scope includes nested controls and badges but excludes historical articles', async ({ page }) => {
   await page.setContent('<main><article>Previously assigned spec-triage</article><aside><section><header><span><button>Assignees</button></span></header><div>spec-triage</div></section><section><header><button>Labels</button></header><div>bug</div></section><section><button>Milestone</button><div>v1.0</div></section></aside></main>');
-  await expect(github.sidebar(page, 'Assignees')).toContainText('spec-triage');
+  await expect(github.metadataValue(page, 'Assignees', 'spec-triage').first()).toBeVisible();
   await page.getByRole('button', { name: 'Assignees' }).evaluate(el => el.closest('section')!.querySelector('div')!.remove());
-  await expect(github.sidebar(page, 'Assignees')).not.toContainText('spec-triage');
+  await expect(github.metadataValue(page, 'Assignees', 'spec-triage')).toHaveCount(0);
   await expect(page.getByRole('article')).toContainText('spec-triage');
 });
 

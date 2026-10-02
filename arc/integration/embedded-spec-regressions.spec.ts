@@ -40,16 +40,16 @@ test('password validation accepts either or both allowed visible messages', asyn
     ['Current password is incorrect', 'Password confirmation does not match'],
   ]) {
     await page.setContent(messages.map(message=>`<div role="alert">${message}</div>`).join(''));
-    await expect(page.getByText(/^(Current password is incorrect|Password confirmation does not match)$/)
-      .filter({visible:true}).first()).toBeVisible();
+    await expect(h.passwordValidationReason(page).first()).toBeVisible();
   }
+  await page.setContent('<p>Current password is incorrect<br>Password confirmation does not match</p>');
+  await expect(h.passwordValidationReason(page).first()).toBeVisible();
 });
 
 test('password validation rejects missing, unrelated and hidden feedback', async ({ page }) => {
   for (const html of ['<main></main>', '<div role="alert">Password updated</div>',
     '<div hidden>Current password is incorrect</div><div style="display:none">Password confirmation does not match</div>']) {
     await page.setContent(html);
-    await expect(page.getByText(/^(Current password is incorrect|Password confirmation does not match)$/)
-      .filter({visible:true})).toHaveCount(0);
+    await expect(h.passwordValidationReason(page)).toHaveCount(0);
   }
 });
