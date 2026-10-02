@@ -42,6 +42,7 @@ CAPABILITIES = {
 
 REACT_CONTRACT = """\
 Fixed frontend baseline: React + Vite + Radix + React Router; preserve the installed exact versions and lockfile. frontend/src/main.jsx mounts App.jsx inside BrowserRouter; app-specific views are React modules. npm run build emits local frontend/dist; the Express entry serves SPA deep links (arc.spa=true). Do not switch this app to Vue/htmx, copy-build JSX, or implement another DOM/widget/router system.
+Fresh entry uses ordinary router updates (useTransitions=false); this is a default, not a ban on transitions or Suspense. If changed, verify pending UI and usable destination controls, not just a changed URL.
 Shared layout: routes with the same header/navigation reuse one React layout (children or Router Outlet), not copied markup and separate toggle state per page. Keep page-specific headings/content as slots; separate layouts only for genuinely different requirements. Reuse record editors/actions across views, without adding a generic schema-driven widget framework.
 Module boundary: App.jsx owns routing and top-level composition, not the whole product. Plan stable task-specific modules by layout, page, reusable editor/list and API/state concern. Normally keep an application source module below 18000 characters; before it grows beyond that, extract cohesive owners and update imports/callers in the same change. Do not split tiny cohesive code or create pass-through files merely to meet a number.
 Nested <Route element={<Layout/>}> requires Layout to render <Outlet/> imported from react-router; React Router does NOT pass routed pages as children. Use children only for explicit JSX composition. Verify a page heading/content renders on each actual route, not just the shared sidebar.
@@ -127,6 +128,13 @@ def stack_note(output_dir: Path | None) -> str:
                            raw_request_adapter(request_source))
     except OSError:
         current_adapter = False
+    scope_path = output_dir / "frontend/src/shared/request-scope.js"
+    try:
+        current_scope = scope_path.read_text() == (Path(__file__).parent / "blueprints/frontend-request-scope.js").read_text()
+    except OSError:
+        current_scope = False
+    if current_scope:
+        lines.insert(1, "Optional read guard from './shared/request-scope.js': createRequestScope(). Keep one stable scope per independently replaceable read (useState(createRequestScope)); begin() returns a ticket with signal and isCurrent(). Pass signal to requestJson and check isCurrent() before publishing success, catch or finally. cancel() on owner/session change and effect cleanup, even if no next request starts. Abort alone is insufficient. This does not undo server writes or choose auth/cache policy; clear identity data on logout/confirmed expiry, and separate initial loading from same-owner background refresh.")
     if current_adapter:
         response_note = ("Empty successful JSON responses resolve to null; HTTP and malformed-JSON failures reject with error.status. "
                          if current_request else "204 responses resolve to null; HTTP failures reject with error.status. ")

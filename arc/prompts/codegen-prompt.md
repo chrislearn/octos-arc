@@ -13,3 +13,5 @@ For required blur-save, do not gate a valid captured origin on equality with cur
 
 Keep selection state, range and ref coherent when switching views.
 Structure: compose feature modules rather than repeatedly extending one large editor. Preserve stable identifiers between UI labels and API parameters. Recoverable operation errors must not unmount unrelated working controls. Keep internal backend route helpers outside the entry's auto-discovered root route directory and register every route exactly once.
+
+Navigation/session: preserve authorized navigation and usable controls during same-owner background refresh; distinguish that from first load. Invalidate old reads and clear identity data on logout/account change/confirmed expiry; stale success, catch and finally must not publish. Check destination controls, not only the URL. Loading states and transitions remain valid when their pending and completion behavior is verified.

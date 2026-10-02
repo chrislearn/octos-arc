@@ -329,9 +329,11 @@ class TransientTests(unittest.TestCase):
         sleep.assert_called_once_with(30)
 
 class CodegenRuleTests(unittest.TestCase):
-    def test_should_ask_for_requirement_placed_uniquely_named_controls(self):
+    def test_should_resolve_requirement_control_names_in_their_intended_scope(self):
         self.assertIn("where the requirement places it", m.CODEGEN_RULES)
-        self.assertIn("same role and name", m.CODEGEN_RULES)
+        self.assertIn("within the intended record or dialog", m.CODEGEN_RULES)
+        self.assertIn("repeated names across distinct records", m.CODEGEN_RULES)
+        self.assertNotIn("No two visible controls with the same role and name", m.CODEGEN_RULES)
 
 
 class FolderDescendantTests(unittest.TestCase):

@@ -26,7 +26,7 @@ class WebStackTests(unittest.TestCase):
             html = (root / 'frontend/src/index.html').read_text()
             self.assertIn('getDerivedStateFromError', entry)
             self.assertIn('data-arc-runtime-error', entry)
-            self.assertIn('<RuntimeErrorBoundary><BrowserRouter><App />', entry)
+            self.assertIn('<RuntimeErrorBoundary><BrowserRouter useTransitions={false}><App />', entry)
             self.assertIn("main.setAttribute('data-arc-runtime-error', 'startup')", html)
 
     def test_reactive_state_contract_is_scoped_to_react_stack(self):

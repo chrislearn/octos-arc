@@ -98,6 +98,22 @@ AI 规划提示还要求按当前需求补充必填校验、取消不改已保�
 
 ## 改了内核怎么让平台用上
 
+公共 React 蓝图的导航与异步读取约束（2026-10-02）：
+
+- 新建 React 入口默认使用 `BrowserRouter useTransitions={false}`。这是当前固定依赖下的默认配置；已有项目不覆盖，允许有需求依据的 Suspense/transition 和加载状态，不把所有页面的零等待渲染设成门禁。[React Router 的配置语义](https://reactrouter.com/explanation/react-transitions)。
+- `frontend/src/shared/request-scope.js` 提供 `createRequestScope()`。每个独立读取保留一个稳定 scope；`begin()` 使旧 ticket 失效并尝试 abort，返回 `signal` 和 `isCurrent()`；发布 success/catch/finally 状态前都检查 `isCurrent()`。身份或记录切换、退出和 effect cleanup 时调用 `cancel()`，不依赖下一次请求才失效。它不决定身份策略，也不能撤销服务器写入。
+- 生成、修复与最终检查提示区分首次身份验证和同会话后台刷新：后者保留可用导航与草稿；退出、身份变化或确认失效则清除旧身份数据。短暂网络错误不直接等于退出。公共工具只是选择之一，等效实现仍须验证实际行为。
+- `tests/test_navigation_lifecycle.py` 验证安装、真实提示入口和失效工具；浏览器夹具用手动释放的 Promise 控制读取顺序，覆盖加载期间导航、旧成功/失败/finally、切换账户、退出和确认过期。两个故意恢复旧错误的浏览器对照必须被拒绝。这些是框架回归，不是所有生成应用自动获得的业务验收，也不替代原始 requirements 或修改受保护 spec。
+
+```bash
+cd arc
+PYTHONPATH=.:tests python3 -m unittest tests.test_navigation_lifecycle.NavigationContractTests
+ARC_TEST_NPM_INTEGRATION=1 ARC_TEST_PLAYWRIGHT_ROOT=/path/to/playwright-install \
+  python3 -m unittest tests.test_navigation_lifecycle.NavigationBrowserTests
+```
+
+浏览器集成检查需要上述目录中的 `node_modules/playwright` 与已安装的 Chromium；会在临时目录安装模板固定的前端依赖并真实构建。更新蓝图后仍需重新打包适配器，现有上传包不会自动变化。
+
 当前 v4 包在全新 codegen 任务开始前会安装跨任务通用的 Express 5 `backend/server.js`、`backend/lib/store.js` 和 `backend/lib/collection.js`；它们只提供路由、静态文件与通用持久化，不包含题目数据或业务规则。后端依赖写在 `backend/package.json`。已有应用不会被覆盖；设置 `OCTOS_ARC_GENERIC_TEMPLATE=0` 可关闭此行为。v3 包是原生 Node HTTP 版本，v2 无模板。
 
 前端默认用可直接复制的 HTML/CSS/JS，以免简单任务承担框架安装和输出成本。复杂客户端状态可以改用 React + Vite；服务器渲染的局部交互可用 htmx；大量工具类样式可用 Tailwind CLI。平台最终验收会在前端运行 `npm install` 和 `npm run build`，在后端运行 `npm install` 和 `npm start`；本地验收也会按 `dependencies`、`devDependencies` 和 `optionalDependencies` 的变化安装，再构建。引入前端包时必须更新 `frontend/package.json` 的构建脚本，使所有页面、JS、CSS、字体和媒体进入 `frontend/dist/`。页面不能依赖 CDN 或远程浏览器模块；构建前后都有静态检查。npm 安装时访问包仓库不等于页面运行时使用 CDN。

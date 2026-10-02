@@ -27,5 +27,8 @@ class RuntimeErrorBoundary extends React.Component {
 }
 
 createRoot(document.getElementById('app')).render(
-  <RuntimeErrorBoundary><BrowserRouter><App /></BrowserRouter></RuntimeErrorBoundary>
+  // Fresh apps use ordinary route updates so entry controls do not wait on a
+  // deferred transition. This is a default, not a ban on Suspense/transitions:
+  // if enabled later, verify pending UI and the destination's usable controls.
+  <RuntimeErrorBoundary><BrowserRouter useTransitions={false}><App /></BrowserRouter></RuntimeErrorBoundary>
 );
