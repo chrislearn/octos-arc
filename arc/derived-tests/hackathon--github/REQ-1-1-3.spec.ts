@@ -77,6 +77,54 @@ test("REQ-1-1-3: navigation readiness exposes recovery fields when the entry cli
   await expect(h.field(page,'Email')).toHaveValue('recovery-visibility@example.test');
 });
 
+test("REQ-1-1-3: 44831560 regression: email-only submission exposes the same recovery step for known and unknown addresses", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  for (const email of ['recovery-visibility@example.test','unknown@example.test']) {
+    await h.home(page); await h.link(page,'Sign in').click(); await h.recovery(page,email);
+    await expect(h.field(page,'Email')).toHaveValue(email);
+    await expect(h.text(page,'123456')).toBeVisible();
+    for (const label of ['Verification code','New password','Confirm password']) await expect(h.field(page,label)).toHaveValue('');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    // A new recovery step must accept a wrong code and report that error only
+    // after an actual reset attempt, while preserving the original account.
+    await h.field(page,'Verification code').fill('000000');
+    await h.field(page,'New password').fill('Replacement-password-456!');
+    await h.field(page,'Confirm password').fill('Replacement-password-456!');
+    await h.button(page,'Reset password').click();
+    await expect(h.text(page,'Verification code is invalid')).toBeVisible();
+  }
+  await h.signIn(page,'recovery-visibility@example.test');
+});
+
+test("REQ-1-1-3: 44831560 regression: email submission and invalid code preserve original credentials", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const {username,email}=await h.register(page);
+  await h.recovery(page,email);
+  await h.signIn(page,username); await h.signOut(page);
+  await h.link(page,'Sign in').click(); await h.recovery(page,email);
+  await h.field(page,'Verification code').fill('000000');
+  await h.field(page,'New password').fill('Replacement-password-456!');
+  await h.field(page,'Confirm password').fill('Replacement-password-456!');
+  await h.button(page,'Reset password').click();
+  await expect(h.text(page,'Verification code is invalid')).toBeVisible();
+  await h.signIn(page,username);
+});
+
+test("REQ-1-1-3: 44831560 regression: successful reset after email submission replaces the original credentials", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const {username,email}=await h.register(page);
+  await h.recovery(page,email);
+  await h.field(page,'Verification code').fill('123456');
+  await h.field(page,'New password').fill('Replacement-password-456!');
+  await h.field(page,'Confirm password').fill('Replacement-password-456!');
+  await h.button(page,'Reset password').click(); await expect(h.text(page,'Password updated')).toBeVisible();
+  await h.link(page,'Sign in').click(); await h.field(page,'Username or email').fill(username);
+  await h.field(page,'Password').fill(h.PASSWORD); await h.button(page,'Sign in').click();
+  await expect(h.text(page,'Invalid credentials')).toBeVisible();
+  await h.signIn(page,email,'Replacement-password-456!',username);
+  await page.reload(); await expect(h.button(page,'Account menu')).toBeVisible();
+});
+
 test("REQ-1-1-3: valid local recovery updates only registered credentials; invalid code preserves old password", async ({ page, browser }) => {
   test.setTimeout(60_000);
   const {username,email}=await h.register(page); await h.recovery(page,email);

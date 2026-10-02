@@ -22,6 +22,15 @@ test("REQ-2-3: selftest organization repository route reaches access settings im
   await expect(page.getByRole('row',{name:/access-role-team/})).toHaveCount(1);
 });
 
+test("REQ-2-3: 44831560 regression: account menu organization entry exposes the repository before access management", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'repo-admin'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await h.link(page,'Acme Demo').click();
+  expect(await h.link(page,'acme-docs').isVisible(),'named repository must be ready after directory navigation').toBe(true);
+  await h.link(page,'acme-docs').click(); await h.link(page,'Settings').click(); await h.link(page,'Manage access').click();
+  await expect(h.button(page,'Add people or teams')).toBeVisible();
+});
+
 test("REQ-2-3: live team grant admits its member and preserves private denial and one saved grant", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'repo-admin'); const address=await h.repo(page,h.fixtureRepo('grant-add'));

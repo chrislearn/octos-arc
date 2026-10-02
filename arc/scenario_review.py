@@ -1069,6 +1069,10 @@ def build_prompt(targets: list[dict], fixtures: Fixtures, phase_context: str = "
              "{\"scenarios\": [ ... ]}. Each check must perform the WHEN operation and verify the "
              "observable THEN outcome; merely finding an entry control is a smoke check, not feature evidence. "
              "Use skip with a concrete reason if the requirement cannot ground a sound check.\n" + DSL]
+    parts.append("\nExecute every explicitly required submission in order, including intermediate steps that do not "
+                 "persist data. Do not skip an action merely because its destination fields, a fixed value, or seeded "
+                 "content are already visible. Check the intermediate outcome and preserved state before completing "
+                 "the later action. Use the allowed controls without inventing a mandatory label among alternatives.")
     parts.append("\nCheck basic invariants as separate isolated cases when supported by this scenario's contract: "
                  "required fields reject missing input; cancel preserves saved data; reload preserves committed changes; "
                  "failed actions do not create or mutate records; protected resources enforce the stated access rules. "

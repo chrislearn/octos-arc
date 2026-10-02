@@ -1048,7 +1048,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1072,7 +1072,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1096,7 +1096,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1120,7 +1120,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1144,7 +1144,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1166,7 +1166,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1193,7 +1193,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
         "REQ-1-1-1": "The registration page is the form opened by the unique link named “Create an account” from the sign-in page. The form contains exactly one textbox labeled “Username”, one textbox labeled “Email”, one password input labeled “Password”, one password input labeled “Confirm password”, one initially unchecked checkbox named “Agree to the terms”, and one enabled button named “Create account”. The username and email identify the account, while passwords must not be echoed on the page. This product directly marks the email of a successfully registered account as verified and does not provide a subsequent email-verification page. The visitor enters a unique username, email, password, and matching confirmation, checks “Agree to the terms”, and activates “Create account”. The username must consist of 1 to 39 lowercase ASCII letters, digits, or single hyphens (`-`) and must not begin or end with a hyphen; after trimming leading and trailing whitespace, the email must contain exactly one `@`, be no longer than 254 characters, and have at least one dot and non-empty domain labels after the `@`; the password must contain 12 to 128 characters, include at least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric special character, and contain no whitespace characters. The system stores a sign-in-capable account together with its verified-email status and enters the sign-in page; if the username or email conflicts, any field is missing, the email format is invalid, the terms are not accepted, the password is noncompliant, or the confirmation does not match, the system retains the username and email input, displays an itemized message beside the corresponding field, and does not create an account. The corresponding visible field message contains “Username already exists”, “Username format is invalid”, “Email format is invalid”, “Password requirements are not satisfied”, or “Agree to terms is required”, as applicable. Visitors can use this capability on the account-access page. The system validates input rules, displays field errors, and prevents duplicate accounts; on success, it directly creates an available account. Submitting several invalid fields together must show the username, email, password, and missing-terms messages together, rather than revealing only one error per submission; the submit button remains actionable so these messages can be read. For example, a username beginning with a hyphen, email “not-an-email”, password “short”, confirmation “different”, and unchecked terms produce these field errors and preserve the attempted username. A duplicate username paired with a different unused email displays “Username already exists” and retains both attempted values. A successful registration accepts a unique username, its email, and password; the sign-in form is immediately available, accepts that email, and the resulting signed-in username remains visible after reload.\n\nScreenshot reference:\n![image](reference/github-sign-up.png)",
@@ -1217,7 +1217,82 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
+      "requirement_quotes": {
+        "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-1-1-3",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-1-1-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
+      "title": "REQ-1-1-3: 44831560 regression: email-only submission exposes the same recovery step for known and unknown addresses",
+      "file": "REQ-1-1-3.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-02",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
+      "requirement_quotes": {
+        "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-1-1-3",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-1-1-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2",
+        "REQ-1-2"
+      ],
+      "title": "REQ-1-1-3: 44831560 regression: email submission and invalid code preserve original credentials",
+      "file": "REQ-1-1-3.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-02",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
+      "requirement_quotes": {
+        "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-1-1-3",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-1-1-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2"
+      ],
+      "title": "REQ-1-1-3: 44831560 regression: successful reset after email submission replaces the original credentials",
+      "file": "REQ-1-1-3.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-02",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1243,7 +1318,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1268,7 +1343,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”.",
-      "file_sha256": "b8a6e0a7e3b7e29fb3091d71ef8b5750541f76e01b58f1e3c81101d24b728159",
+      "file_sha256": "1de47fcc84a066a8b2c5ef87ae7018b63bdc14d8ba5a9d1fbc784fe4ee37ef6e",
       "requirement_quotes": {
         "REQ-1-1-3": "The sign-in page exposes a visible “Forgot password” link. The recovery step displays visibly labeled Email, Verification code, New password, and Confirm password fields and a “Send reset link” or “Reset password” button. A registered verified email and an unknown email both reach the same recovery step and display the fixed verification code `123456` without requiring email delivery. A wrong code leaves the original password usable and displays “Verification code is invalid”. A correct code with matching compliant passwords updates the account and displays “Password updated”."
       },
@@ -1565,7 +1640,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
-      "file_sha256": "7751d585ebb62aadf88a3c2c964e7753ba7712bca026c29836d5842c57c7498c",
+      "file_sha256": "bcf3ef140d7edeccd7db68e43b51034d91d07512edbd256c53605b83486069c3",
       "requirement_quotes": {
         "REQ-2-1-1": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)"
       },
@@ -1587,7 +1662,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
-      "file_sha256": "7751d585ebb62aadf88a3c2c964e7753ba7712bca026c29836d5842c57c7498c",
+      "file_sha256": "bcf3ef140d7edeccd7db68e43b51034d91d07512edbd256c53605b83486069c3",
       "requirement_quotes": {
         "REQ-2-1-1": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)"
       },
@@ -1609,7 +1684,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
-      "file_sha256": "7751d585ebb62aadf88a3c2c964e7753ba7712bca026c29836d5842c57c7498c",
+      "file_sha256": "bcf3ef140d7edeccd7db68e43b51034d91d07512edbd256c53605b83486069c3",
       "requirement_quotes": {
         "REQ-2-1-1": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)"
       },
@@ -1631,7 +1706,29 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
-      "file_sha256": "7751d585ebb62aadf88a3c2c964e7753ba7712bca026c29836d5842c57c7498c",
+      "file_sha256": "bcf3ef140d7edeccd7db68e43b51034d91d07512edbd256c53605b83486069c3",
+      "requirement_quotes": {
+        "REQ-2-1-1": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-2-1-1",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-2-1-1"
+      ],
+      "setup_requires": [],
+      "title": "REQ-2-1-1: 44831560 regression: public directory entry exposes the public repository without a data gap",
+      "file": "REQ-2-1-1.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-02",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
+      "file_sha256": "bcf3ef140d7edeccd7db68e43b51034d91d07512edbd256c53605b83486069c3",
       "requirement_quotes": {
         "REQ-2-1-1": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)"
       },
@@ -1656,7 +1753,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)",
-      "file_sha256": "7751d585ebb62aadf88a3c2c964e7753ba7712bca026c29836d5842c57c7498c",
+      "file_sha256": "bcf3ef140d7edeccd7db68e43b51034d91d07512edbd256c53605b83486069c3",
       "requirement_quotes": {
         "REQ-2-1-1": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)"
       },
@@ -2059,7 +2156,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
-      "file_sha256": "31267db69e49753277c1652458e0b9d8ec3ec6b1399be4f5624357a97248bfce",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
       "requirement_quotes": {
         "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload."
       },
@@ -2084,7 +2181,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
-      "file_sha256": "31267db69e49753277c1652458e0b9d8ec3ec6b1399be4f5624357a97248bfce",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
       "requirement_quotes": {
         "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload."
       },
@@ -2110,11 +2207,62 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
-      "file_sha256": "31267db69e49753277c1652458e0b9d8ec3ec6b1399be4f5624357a97248bfce",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
       "requirement_quotes": {
         "REQ-2-2-1": "The organization overview exposes a visible “Teams” link. The Teams page exposes a visible “New team” link, which opens a form with a visibly labeled “Team name” field and a “Create team” button. An organization Owner can submit a unique team name containing 1–50 lowercase ASCII letters, digits, or hyphens, with no leading or trailing hyphen. A successful submission opens the new team overview and the team heading remains visible after reload. A malformed team name displays “Team name is invalid” and does not create a team.",
         "REQ-2-1-2": "The authenticated account menu exposes a visible “Your organizations” link, whose page exposes a visible “New organization” link. The organization creation page displays visibly labeled “Organization name” and “Display name” fields and a button named “Create organization”. A signed-in verified account can submit a unique organization identifier and display name; successful creation opens the new organization overview and persists it across reload. Organization identifiers must be 1–39 lowercase ASCII characters and globally unique. The display name must contain 1–100 non-whitespace characters after trimming. A duplicate identifier displays “Organization name already exists” without opening the existing organization. An invalid identifier displays “Organization name format is invalid”, and a whitespace-only display name displays “Display name is required”; rejected submissions do not create an organization.",
         "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-2-2-2",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-2-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
+      "title": "REQ-2-2-2: 44831560 regression: account menu organization entry exposes the named team without a data gap",
+      "file": "REQ-2-2-2.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-02",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
+      "requirement_quotes": {
+        "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-2-2-2",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-2-2-2",
+        "REQ-1-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2",
+        "REQ-1-2"
+      ],
+      "title": "REQ-2-2-2: 44831560 regression: browser history cannot restore member-only team links after sign-out",
+      "file": "REQ-2-2-2.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-02",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
+      "requirement_quotes": {
+        "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
+        "REQ-1-2": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The page contains exactly one button named “Account menu”; its menu contains exactly one link named “Sign out”. Activating it displays a dialog named “Sign out” with buttons named “Confirm sign out” and “Cancel”. The dialog explains that sign-out affects only the current browser session. Only “Confirm sign out” invalidates the session, while “Cancel” or closing the dialog retains the current session and page. After confirming, refresh, browser back navigation, or directly reopening a previously accessible protected account, repository, or organization page restores an unauthenticated state and displays the “Sign in” link.\n\nScreenshot reference:\n![image](reference/github-account-menu-sign-out.png)"
       },
       "runtime_status": "not_run_against_product"
     },
@@ -2139,7 +2287,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
-      "file_sha256": "31267db69e49753277c1652458e0b9d8ec3ec6b1399be4f5624357a97248bfce",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
       "requirement_quotes": {
         "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload."
       },
@@ -2166,7 +2314,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
-      "file_sha256": "31267db69e49753277c1652458e0b9d8ec3ec6b1399be4f5624357a97248bfce",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
       "requirement_quotes": {
         "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload."
       },
@@ -2193,7 +2341,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload.",
-      "file_sha256": "31267db69e49753277c1652458e0b9d8ec3ec6b1399be4f5624357a97248bfce",
+      "file_sha256": "fc77c0b122cc97965313934029a72bc8fb0b5d512613eda14c58c405e2749258",
       "requirement_quotes": {
         "REQ-2-2-2": "An organization Owner can open a team in the organization’s “Teams” page. The team page exposes “Members” and “Settings”. On Members, “Add member” opens a visibly labeled “Username” textbox and an “Add member” button; after a valid organization member is added, the member appears in the list with a “Remove <username>” button. Removing the member updates the list immediately and remains effective after reload. On Settings, “Parent team” is a combobox and “Save” persists a parent-team change. A change that would make a team its own ancestor is rejected with “Cyclic team hierarchy is not allowed”, and the previously saved parent remains selected after reload."
       },
@@ -2623,7 +2771,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
-      "file_sha256": "9a5339046d96b40982d49d3e865cafd0917664f4040966fa2e5398fbd706e4bc",
+      "file_sha256": "8a94e2341bba8f7c74f69443119b334dc0bbcda73c001f7d1efcee86e97b4aed",
       "requirement_quotes": {
         "REQ-2-3": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload."
       },
@@ -2649,7 +2797,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
-      "file_sha256": "9a5339046d96b40982d49d3e865cafd0917664f4040966fa2e5398fbd706e4bc",
+      "file_sha256": "8a94e2341bba8f7c74f69443119b334dc0bbcda73c001f7d1efcee86e97b4aed",
       "requirement_quotes": {
         "REQ-2-3": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload."
       },
@@ -2674,10 +2822,34 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
-      "file_sha256": "9a5339046d96b40982d49d3e865cafd0917664f4040966fa2e5398fbd706e4bc",
+      "file_sha256": "8a94e2341bba8f7c74f69443119b334dc0bbcda73c001f7d1efcee86e97b4aed",
       "requirement_quotes": {
         "REQ-2-3": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
         "REQ-2-1-1": "The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”. Filtering updates the visible results as the user types, without a separate submit action. Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”. Returning with browser Back keeps the public result available; filtering by the exact private repository name never exposes its link to a visitor. The seed organization has a public repository and a distinct private repository inaccessible to visitors. From the organization page, the user clicks the “Repositories” link, can enter a repository name in the filter box, select a public/private filter, and click a repository name in the list to open its overview. The system displays only the names, descriptions, visibility, and update times of repositories visible to the current user; clicking a result opens that repository's overview. Visitors can view public repositories on a public organization overview page; signed-in accounts can see only repositories for which they have read permission on the Repositories tab of the organization overview. The list reads repository name, description, visibility, and update time and provides no write operations; private repositories must first be validated under the already defined repository-access rules.\n\nScreenshot reference:\n![image](reference/github-organization-repositories.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-2-3",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-2-3"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
+      "title": "REQ-2-3: 44831560 regression: account menu organization entry exposes the repository before access management",
+      "file": "REQ-2-3.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-02",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
+      "file_sha256": "8a94e2341bba8f7c74f69443119b334dc0bbcda73c001f7d1efcee86e97b4aed",
+      "requirement_quotes": {
+        "REQ-2-3": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload."
       },
       "runtime_status": "not_run_against_product"
     },
@@ -2701,7 +2873,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
-      "file_sha256": "9a5339046d96b40982d49d3e865cafd0917664f4040966fa2e5398fbd706e4bc",
+      "file_sha256": "8a94e2341bba8f7c74f69443119b334dc0bbcda73c001f7d1efcee86e97b4aed",
       "requirement_quotes": {
         "REQ-2-3": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload."
       },
@@ -2727,7 +2899,7 @@
       "review_date": "2026-10-02",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload.",
-      "file_sha256": "9a5339046d96b40982d49d3e865cafd0917664f4040966fa2e5398fbd706e4bc",
+      "file_sha256": "8a94e2341bba8f7c74f69443119b334dc0bbcda73c001f7d1efcee86e97b4aed",
       "requirement_quotes": {
         "REQ-2-3": "A repository Admin can open “Settings” and “Manage access”. “Add people or teams” opens a picker with a visibly labeled “Search” textbox, selectable team options, a “Role” combobox, and an “Add” button. Adding a team with Write access displays the exact team name and Write role, and the grant remains visible after reload. An existing access row exposes a “Role” combobox and “Save” button; changing its role from Write to Read updates the existing record rather than creating a duplicate, and exactly one Read row remains after reload."
       },

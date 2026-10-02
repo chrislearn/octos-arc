@@ -25,6 +25,25 @@ test("REQ-2-2-2: selftest keyboard organization entry reaches teams without a re
   await h.link(page,'Settings').click(); await expect(h.field(page,'Parent team')).toBeVisible();
 });
 
+test("REQ-2-2-2: 44831560 regression: account menu organization entry exposes the named team without a data gap", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'team-maintainer'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await h.link(page,'Acme Demo').click(); await h.link(page,'Teams').click();
+  expect(await h.link(page,'frontend-team').isVisible(),'named team must be ready after directory navigation').toBe(true);
+  await h.link(page,'frontend-team').click(); await h.link(page,'Settings').click();
+  await h.chosen(page,'Parent team','platform-team');
+});
+
+test("REQ-2-2-2: 44831560 regression: browser history cannot restore member-only team links after sign-out", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'team-maintainer'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await h.link(page,'Acme Demo').click(); await h.link(page,'Teams').click(); await expect(h.link(page,'frontend-team')).toBeVisible();
+  await h.signOut(page); await expect(h.button(page,'Account menu')).toHaveCount(0);
+  await page.goBack(); await expect(h.text(page,'Access denied')).toBeVisible();
+  await expect(h.link(page,'frontend-team')).toHaveCount(0); await expect(h.link(page,'New team')).toHaveCount(0);
+  await page.reload(); await expect(h.text(page,'Access denied')).toBeVisible();
+});
+
 test("REQ-2-2-2: Owner adds and immediately removes direct team member with persistence", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'org-owner'); await h.organization(page,'team-members'); await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Members').click();

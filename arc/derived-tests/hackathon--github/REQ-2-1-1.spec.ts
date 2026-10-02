@@ -35,6 +35,13 @@ test("REQ-2-1-1: navigation readiness retains organization navigation while repo
   await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
 });
 
+test("REQ-2-1-1: 44831560 regression: public directory entry exposes the public repository without a data gap", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Acme Demo').click();
+  expect(await h.link(page,'acme-docs').isVisible(),'public repository must be ready after directory navigation').toBe(true);
+  await h.link(page,'acme-docs').click(); await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
+});
+
 test("REQ-2-1-1: organization live repository filter exposes public result and hides private result", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.organization(page); await h.link(page,'Repositories').click(); await h.field(page,'Find a repository').fill('acme-docs'); await expect(h.link(page,'acme-docs')).toBeVisible();

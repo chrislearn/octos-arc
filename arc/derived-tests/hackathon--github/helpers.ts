@@ -206,7 +206,12 @@ export async function reviewSummary(p: Page) {
 export const action = (p: Page, names: string[]) => names.map(name => button(p, name)).reduce((a, b) => a.or(b)).filter({ visible: true });
 export async function recovery(p: Page, email: string) {
   await link(p, 'Forgot password').click(); await field(p, 'Email').fill(email);
-  if (!(await containsValue(p, '123456').first().isVisible())) await action(p, ['Send reset link', 'Reset password']).click();
+  // Submitting the email is an explicit requirement step even if the local
+  // verification code is already displayed. Prefer the email action when both
+  // allowed labels exist; never bypass this step because fields are visible.
+  const send = button(p, 'Send reset link');
+  await expect(action(p, ['Send reset link', 'Reset password']).first()).toBeVisible();
+  await (await send.isVisible() ? send : button(p, 'Reset password')).click();
   await expect(containsValue(p, '123456').first()).toBeVisible();
   for (const name of ['Verification code', 'New password', 'Confirm password']) await expect(field(p, name)).toBeVisible();
   await maskedPasswords(p, ['New password', 'Confirm password']);
