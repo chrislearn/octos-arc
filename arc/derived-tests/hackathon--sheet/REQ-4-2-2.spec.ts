@@ -98,3 +98,38 @@ test("REQ-4-2-2: audit regression: =. displays a stable #ERROR! and repairing it
   await h.persisted(page,async()=>{await h.formula(page,'B1',"=.","#ERROR!");await h.values(page,{A1:'6',C1:"#ERROR!"});});
   await h.edit(page,'B1','=A1+1'); await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8'}));
 });
+
+test("REQ-4-2-2: b5b932 regression: multistep =1/0+1+2 preserves #DIV/0! through dependents and repair", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.edit(page,'A1','6');await h.edit(page,'B1',"=1/0+1+2");await h.edit(page,'C1','=B1+1');await h.edit(page,'D1','=C1*2');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=1/0+1+2","#DIV/0!");await h.values(page,{A1:'6',C1:"#DIV/0!",D1:"#DIV/0!"});});
+  await h.edit(page,'B1','=A1+1');await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8',D1:'16'}));
+});
+
+test("REQ-4-2-2: b5b932 regression: multistep =A0+1+2 preserves #REF! through dependents and repair", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.edit(page,'A1','6');await h.edit(page,'B1',"=A0+1+2");await h.edit(page,'C1','=B1+1');await h.edit(page,'D1','=C1*2');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=A0+1+2","#REF!");await h.values(page,{A1:'6',C1:"#REF!",D1:"#REF!"});});
+  await h.edit(page,'B1','=A1+1');await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8',D1:'16'}));
+});
+
+test("REQ-4-2-2: b5b932 regression: multistep =UNKNOWN(A8)+1+2 preserves #NAME? through dependents and repair", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.edit(page,'A1','6');await h.edit(page,'B1',"=UNKNOWN(A8)+1+2");await h.edit(page,'C1','=B1+1');await h.edit(page,'D1','=C1*2');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=UNKNOWN(A8)+1+2","#NAME?");await h.values(page,{A1:'6',C1:"#NAME?",D1:"#NAME?"});});
+  await h.edit(page,'B1','=A1+1');await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8',D1:'16'}));
+});
+
+test("REQ-4-2-2: b5b932 regression: multistep =B1+1+2 preserves #REF! through dependents and repair", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.edit(page,'A1','6');await h.edit(page,'B1',"=B1+1+2");await h.edit(page,'C1','=B1+1');await h.edit(page,'D1','=C1*2');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=B1+1+2","#REF!");await h.values(page,{A1:'6',C1:"#REF!",D1:"#REF!"});});
+  await h.edit(page,'B1','=A1+1');await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8',D1:'16'}));
+});
+
+test("REQ-4-2-2: b5b932 regression: multistep =2/0*3*4 preserves #DIV/0! through dependents and repair", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.edit(page,'A1','6');await h.edit(page,'B1',"=2/0*3*4");await h.edit(page,'C1','=B1+1');await h.edit(page,'D1','=C1*2');
+  await h.persisted(page,async()=>{await h.formula(page,'B1',"=2/0*3*4","#DIV/0!");await h.values(page,{A1:'6',C1:"#DIV/0!",D1:"#DIV/0!"});});
+  await h.edit(page,'B1','=A1+1');await h.persisted(page,()=>h.values(page,{A1:'6',B1:'7',C1:'8',D1:'16'}));
+});

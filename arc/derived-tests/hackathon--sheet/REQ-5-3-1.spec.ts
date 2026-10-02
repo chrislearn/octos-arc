@@ -253,3 +253,57 @@ test("REQ-5-3-1: audit regression: AVERAGE includes formula zero as a numeric re
   await h.persisted(page,async()=>{await h.values(page,{A2:'East',B2:'0',A3:'North',B3:'2',A4:'Grand Total'});expect(Number(await h.cell(page,'B4').innerText())).toBeCloseTo(2/3,10);});
   await h.tab(page,'Sheet1').click();await h.formula(page,'B2','=1-1','0');await h.formula(page,'B4','=1-1','0');
 });
+
+test("REQ-5-3-1: b5b932 regression: SUM retains blank column groups and exact row column and overall totals", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.paste(page,'A1','Region\tSales\tStatus\nEast\t10\tOpen\nEast\t20\t\nWest\t30\t');await h.values(page,{A4:'West',B4:'30',C4:''});
+  await h.pivot(page,"SUM",'Status');await h.persisted(page,()=>h.values(page,{"A1": "Region", "B1": "Open", "C1": "", "D1": "Grand Total", "A2": "East", "A3": "West", "A4": "Grand Total", "B2": "10", "C2": "20", "D2": "30", "B3": "0", "C3": "30", "D3": "30", "B4": "10", "C4": "50", "D4": "60"}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{A1:'Region',B1:'Sales',C1:'Status',A2:'East',B2:'10',C2:'Open',A3:'East',B3:'20',C3:'',A4:'West',B4:'30',C4:''});
+});
+
+test("REQ-5-3-1: b5b932 regression: COUNT retains blank column groups and exact row column and overall totals", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.paste(page,'A1','Region\tSales\tStatus\nEast\t10\tOpen\nEast\t20\t\nWest\t30\t');await h.values(page,{A4:'West',B4:'30',C4:''});
+  await h.pivot(page,"COUNT",'Status');await h.persisted(page,()=>h.values(page,{"A1": "Region", "B1": "Open", "C1": "", "D1": "Grand Total", "A2": "East", "A3": "West", "A4": "Grand Total", "B2": "1", "C2": "1", "D2": "2", "B3": "0", "C3": "1", "D3": "1", "B4": "1", "C4": "2", "D4": "3"}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{A1:'Region',B1:'Sales',C1:'Status',A2:'East',B2:'10',C2:'Open',A3:'East',B3:'20',C3:'',A4:'West',B4:'30',C4:''});
+});
+
+test("REQ-5-3-1: b5b932 regression: AVERAGE retains blank column groups and exact row column and overall totals", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.paste(page,'A1','Region\tSales\tStatus\nEast\t10\tOpen\nEast\t20\t\nWest\t30\t');await h.values(page,{A4:'West',B4:'30',C4:''});
+  await h.pivot(page,"AVERAGE",'Status');await h.persisted(page,()=>h.values(page,{"A1": "Region", "B1": "Open", "C1": "", "D1": "Grand Total", "A2": "East", "A3": "West", "A4": "Grand Total", "B2": "10", "C2": "20", "D2": "15", "C3": "30", "D3": "30", "B4": "10", "C4": "25", "D4": "20"}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{A1:'Region',B1:'Sales',C1:'Status',A2:'East',B2:'10',C2:'Open',A3:'East',B3:'20',C3:'',A4:'West',B4:'30',C4:''});
+});
+
+test("REQ-5-3-1: b5b932 regression: column group text constructor aggregates as ordinary data", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.edit(page,'C2',"constructor");await h.pivot(page,'SUM','Status');
+  await h.persisted(page,()=>h.values(page,{A1:'Region',B1:"constructor",C1:'Closed',D1:'Grand Total',A2:'East',B2:'10',C2:'30',D2:'40',A3:'North',B3:'0',C3:'20',D3:'20',A4:'Grand Total',B4:'10',C4:'50',D4:'60'}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{C2:"constructor",B2:'10',B3:'20',B4:'30'});
+});
+
+test("REQ-5-3-1: b5b932 regression: column group text toString aggregates as ordinary data", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.edit(page,'C2',"toString");await h.pivot(page,'SUM','Status');
+  await h.persisted(page,()=>h.values(page,{A1:'Region',B1:"toString",C1:'Closed',D1:'Grand Total',A2:'East',B2:'10',C2:'30',D2:'40',A3:'North',B3:'0',C3:'20',D3:'20',A4:'Grand Total',B4:'10',C4:'50',D4:'60'}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{C2:"toString",B2:'10',B3:'20',B4:'30'});
+});
+
+test("REQ-5-3-1: b5b932 regression: column group text __proto__ aggregates as ordinary data", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.sourceData(page);await h.edit(page,'C2',"__proto__");await h.pivot(page,'SUM','Status');
+  await h.persisted(page,()=>h.values(page,{A1:'Region',B1:"__proto__",C1:'Closed',D1:'Grand Total',A2:'East',B2:'10',C2:'30',D2:'40',A3:'North',B3:'0',C3:'20',D3:'20',A4:'Grand Total',B4:'10',C4:'50',D4:'60'}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{C2:"__proto__",B2:'10',B3:'20',B4:'30'});
+});
+
+test("REQ-5-3-1: b5b932 regression: deleting the entire source column preserves the last pivot despite an adjacent identical header", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.paste(page,'A1','Sales\tSales\n10\t900\n20\t800\n30\t700');await h.values(page,{A4:'30',B4:'700'});await h.range(page,'A1','A4');await h.data(page,'Create pivot table');
+  const dialog=page.getByRole('dialog',{name:'Create pivot table',exact:true});await expect(h.text(dialog,'Source range: A1:A4')).toBeVisible();await dialog.getByRole('radio',{name:'New worksheet',exact:true}).check();await h.button(dialog,'Create').click();
+  const editor=page.getByRole('region',{name:'Pivot table editor',exact:true});await h.choose(editor,'Rows','Sales');await h.choose(editor,'Values','Sales');await h.choose(editor,'Summarize by','SUM');await h.button(editor,'Apply').click();
+  await h.values(page,{A1:'Sales',B1:'SUM of Sales',A2:'10',B2:'10',A3:'20',B3:'20',A4:'30',B4:'30',A5:'Grand Total',B5:'60'});
+  await h.tab(page,'Sheet1').click();await h.structure(page,'column','A','Delete column');await h.values(page,{A1:'Sales',A2:'900',A3:'800',A4:'700'});await h.tab(page,'Pivot1').click();
+  await h.button(page,'Refresh pivot table').click();await expect(h.text(page,'Pivot field is no longer available. Select a new field.').first()).toBeVisible();
+  await h.persisted(page,()=>h.values(page,{A1:'Sales',B1:'SUM of Sales',A2:'10',B2:'10',A3:'20',B3:'20',A4:'30',B4:'30',A5:'Grand Total',B5:'60'}));
+  await h.tab(page,'Sheet1').click();await h.values(page,{A1:'Sales',A2:'900',A3:'800',A4:'700',B1:'',B2:'',B3:'',B4:''});
+});

@@ -132,3 +132,22 @@ test("REQ-4-1-1: audit regression: zero arithmetic and a dependent result remain
   await h.blank(page); await h.edit(page,'A1','=1-1'); await h.edit(page,'B1','=A1+1');
   await h.persisted(page,async()=>{await h.formula(page,'A1','=1-1','0');await h.formula(page,'B1','=A1+1','1');});
 });
+
+test("REQ-4-1-1: b5b932 regression: imported formula text submitted unchanged through formula bar calculates and exports results", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');await h.button(page,'Import CSV').click();const name=h.unique();const dialog=page.getByRole('dialog',{name:'Import CSV',exact:true});
+  await h.field(dialog,'CSV file').setInputFiles({name:`${name}.csv`,mimeType:'text/csv',buffer:Buffer.from('Input,Result\n2,=A2*2')});await h.button(dialog,'Confirm import').click();
+  await expect(h.text(page,name).first()).toBeVisible();await h.persisted(page,()=>h.values(page,{A1:'Input',B1:'Result',A2:'2',B2:'=A2*2'}));
+  await h.cell(page,'B2').click();await h.field(page,'Formula bar').focus();await h.cell(page,'A2').click();await h.values(page,{B2:'=A2*2'});
+  await h.edit(page,'B2','=A2*2',false);await h.persisted(page,()=>h.formula(page,'B2','=A2*2','4'));
+  expect(h.parseCSV(await h.csv(page))).toEqual([['Input','Result'],['2','4']]);
+});
+
+test("REQ-4-1-1: b5b932 regression: imported formula text submitted unchanged through grid calculates and exports results", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');await h.button(page,'Import CSV').click();const name=h.unique();const dialog=page.getByRole('dialog',{name:'Import CSV',exact:true});
+  await h.field(dialog,'CSV file').setInputFiles({name:`${name}.csv`,mimeType:'text/csv',buffer:Buffer.from('Input,Result\n2,=A2*2')});await h.button(dialog,'Confirm import').click();
+  await expect(h.text(page,name).first()).toBeVisible();await h.persisted(page,()=>h.values(page,{A1:'Input',B1:'Result',A2:'2',B2:'=A2*2'}));
+  await h.edit(page,'B2','=A2*2',true);await h.persisted(page,()=>h.formula(page,'B2','=A2*2','4'));
+  expect(h.parseCSV(await h.csv(page))).toEqual([['Input','Result'],['2','4']]);
+});

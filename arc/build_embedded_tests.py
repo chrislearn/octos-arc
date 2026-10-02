@@ -440,8 +440,6 @@ from embedded_repair_cases import register as register_repair_cases
 register_repair_cases(s)
 from embedded_sheet_audit_cases import register as register_sheet_audit
 register_sheet_audit(s)
-from embedded_sheet_contract_gap_cases import register as register_sheet_contract_gaps
-register_sheet_contract_gaps(s)
 from embedded_spec_revision_cases import register as register_spec_revision
 register_spec_revision(g)
 from embedded_case_phases import partition_sheet_cases
@@ -452,6 +450,18 @@ from embedded_node_coverage import complete_node_coverage
 for _task in CASES:
     CASES[_task] = complete_node_coverage(CASES[_task], yaml.safe_load(
         (Path(__file__).resolve().parent / 'tasks' / _task / 'requirements.yaml').read_text()))
+
+from embedded_sheet_contract_gap_cases import register as register_sheet_contract_gaps
+register_sheet_contract_gaps(s)
+from embedded_sheet_b5b932_cases import register as register_sheet_b5b932
+register_sheet_b5b932(s)
+
+# The appended revisions still declare every UI prerequisite, without moving old cases.
+from embedded_case_phases import sheet_features
+for _rows in CASES['hackathon--sheet'].values():
+    for _row in _rows:
+        if _row['title'].startswith(('audit regression:', 'b5b932 regression:')):
+            _row['requires'] = [_row['node_id']] + sorted((set(_row['requires']) | sheet_features(_row['body'])) - {_row['node_id']})
 
 from frozen_setup import annotate_github_setup
 CASES['hackathon--github'] = annotate_github_setup(CASES['hackathon--github'],
@@ -478,7 +488,8 @@ def build(task_filter=None):
             for recipe in recipes:
                 node, title, body = recipe['node_id'], recipe['title'], recipe['body']
                 name=f"{file if recipe['phase']=='integration' else node}: {title}"
-                parts.append(f'test({json.dumps(name)}, async ({{ page, browser }}) => {{\n  test.setTimeout(60_000);\n'+textwrap.indent(body,'  ')+'\n});\n')
+                arguments = 'page' if task == 'hackathon--sheet' and title.startswith('audit regression:') else 'page, browser'
+                parts.append(f'test({json.dumps(name)}, async ({{ {arguments} }}) => {{\n  test.setTimeout(60_000);\n'+textwrap.indent(body,'  ')+'\n});\n')
                 plan.append({k:v for k,v in recipe.items() if k not in {'body','title'}} | {'title':name,'file':f'{file}.spec.ts'})
             (directory/f'{file}.spec.ts').write_text('\n'.join(parts),encoding='utf8')
         (directory/'case-plan.json').write_text(json.dumps(plan,ensure_ascii=False,indent=2)+'\n')

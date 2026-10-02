@@ -40,7 +40,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-1-4": {
-      "exported_case_count": 6,
+      "exported_case_count": 8,
       "complete_clause_coverage_claimed": false
     },
     "REQ-2-2-1": {
@@ -72,11 +72,11 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-1": {
-      "exported_case_count": 19,
+      "exported_case_count": 21,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-2": {
-      "exported_case_count": 4,
+      "exported_case_count": 7,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-2-1": {
@@ -84,7 +84,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-2-2": {
-      "exported_case_count": 13,
+      "exported_case_count": 18,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-1": {
@@ -92,7 +92,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-2": {
-      "exported_case_count": 8,
+      "exported_case_count": 10,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-2-1": {
@@ -100,7 +100,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-1": {
-      "exported_case_count": 28,
+      "exported_case_count": 35,
       "complete_clause_coverage_claimed": false
     }
   },
@@ -467,6 +467,162 @@
         {
           "file": "REQ-5-3-1.spec.ts",
           "title": "REQ-5-3-1: audit regression: AVERAGE includes formula zero as a numeric record in group and grand totals"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "behavior": "explicit unchanged imported formula submission calculates and exports values while untouched focus/blur preserves original text",
+      "basis": "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1. Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required. The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh. Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero.\nPage reference:\n![image](reference/basic-formulas.png)\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-1-1.spec.ts",
+          "title": "REQ-4-1-1: b5b932 regression: imported formula text submitted unchanged through formula bar calculates and exports results"
+        },
+        {
+          "file": "REQ-4-1-1.spec.ts",
+          "title": "REQ-4-1-1: b5b932 regression: imported formula text submitted unchanged through grid calculates and exports results"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-2-1-4",
+      "behavior": "deleting a nonactive end worksheet activates its actual adjacent survivor",
+      "basis": "Users delete a worksheet through the \"Delete\" command in the worksheet tab menu. When deletion is allowed, the system displays a dialog named \"Delete worksheet\" describing the target worksheet, whose visible text includes \"<target worksheet name>\", and providing a \"Delete worksheet\" confirmation button. After a successful deletion, the target tab and its data, formulas, filters, validation, and pivot results no longer appear, and an adjacent worksheet becomes active; the target tab remains absent after refresh. After a pivot-result worksheet is deleted, its corresponding source worksheet is no longer constrained by that pivot table. If the target is still a pivot table source worksheet, confirmation is rejected with \"Please delete or rebuild dependent pivot tables first\"; the dialog closes and both source data and pivot results remain unchanged. If only one worksheet remains, clicking \"Delete\" does not open a confirmation dialog and instead displays \"A workbook must contain at least one worksheet\". Other deletion failures display an error; the target tab and grid remain visible and unchanged after refresh.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-2-1-4.spec.ts",
+          "title": "REQ-2-1-4: b5b932 regression: deleting nonactive Sheet4 activates adjacent Sheet3"
+        },
+        {
+          "file": "REQ-2-1-4.spec.ts",
+          "title": "REQ-2-1-4: b5b932 regression: deleting nonactive Sheet1 activates adjacent Sheet2"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-2-2",
+      "behavior": "multistep expressions retain their first stable formula error and repaired dependent results",
+      "basis": "Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays #ERROR!, and a direct or indirect circular reference displays #REF!. When an error cell is selected, the formula bar displays the original formula submitted by the user; after refresh, both the error value and original formula persist. An error cell does not block viewing, editing, or recalculating other cells. After the user changes it to a valid formula through REQ-3-1-1, the grid displays the new result, the formula bar displays the new formula, related dependent results update, and the error no longer appears after refresh.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: b5b932 regression: multistep =1/0+1+2 preserves #DIV/0! through dependents and repair"
+        },
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: b5b932 regression: multistep =A0+1+2 preserves #REF! through dependents and repair"
+        },
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: b5b932 regression: multistep =UNKNOWN(A8)+1+2 preserves #NAME? through dependents and repair"
+        },
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: b5b932 regression: multistep =B1+1+2 preserves #REF! through dependents and repair"
+        },
+        {
+          "file": "REQ-4-2-2.spec.ts",
+          "title": "REQ-4-2-2: b5b932 regression: multistep =2/0*3*4 preserves #DIV/0! through dependents and repair"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-1-2",
+      "behavior": "copying an already accepted lowercase expression preserves absolute axes and offsets relative axes",
+      "basis": "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh. If the offset moves a relative reference outside the worksheet bounds, the target formula bar displays =#REF! and the grid displays #REF!.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-1-2.spec.ts",
+          "title": "REQ-4-1-2: b5b932 regression: copying an accepted lowercase formula to D4 offsets only relative axes"
+        },
+        {
+          "file": "REQ-4-1-2.spec.ts",
+          "title": "REQ-4-1-2: b5b932 regression: copying an accepted lowercase formula to D3 offsets only relative axes"
+        },
+        {
+          "file": "REQ-4-1-2.spec.ts",
+          "title": "REQ-4-1-2: b5b932 regression: copying an accepted lowercase formula to C4 offsets only relative axes"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "behavior": "empty column groups participate in SUM COUNT AVERAGE with exact row column and overall totals",
+      "basis": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu. A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created. A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button. Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names; \"Summarize by\" provides options named SUM, COUNT, and AVERAGE. The configuration supports one row field, one optional column field, and one value field. SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.\nWhen no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records. When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row. COUNT displays 0 when a row/column combination has no record with a non-empty value field.\nAfter a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results. The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range. If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available. Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets. When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: b5b932 regression: SUM retains blank column groups and exact row column and overall totals"
+        },
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: b5b932 regression: COUNT retains blank column groups and exact row column and overall totals"
+        },
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: b5b932 regression: AVERAGE retains blank column groups and exact row column and overall totals"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "behavior": "object-property-named column groups aggregate as ordinary source values",
+      "basis": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu. A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created. A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button. Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names; \"Summarize by\" provides options named SUM, COUNT, and AVERAGE. The configuration supports one row field, one optional column field, and one value field. SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.\nWhen no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records. When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row. COUNT displays 0 when a row/column combination has no record with a non-empty value field.\nAfter a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results. The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range. If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available. Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets. When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: b5b932 regression: column group text constructor aggregates as ordinary data"
+        },
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: b5b932 regression: column group text toString aggregates as ordinary data"
+        },
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: b5b932 regression: column group text __proto__ aggregates as ordinary data"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "behavior": "deleting the entire source column preserves old pivot results when an adjacent identical header moves in",
+      "basis": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu. A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created. A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button. Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names; \"Summarize by\" provides options named SUM, COUNT, and AVERAGE. The configuration supports one row field, one optional column field, and one value field. SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.\nWhen no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records. When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row. COUNT displays 0 when a row/column combination has no record with a non-empty value field.\nAfter a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results. The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range. If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available. Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets. When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: b5b932 regression: deleting the entire source column preserves the last pivot despite an adjacent identical header"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-1-2",
+      "behavior": "Clear selection after a saved condition switches to an empty value filter and persists before clearing",
+      "basis": "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu. Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\". The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name. The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\". \"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box; \"Is empty\" and \"Is not empty\" require no value. Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered. After refresh or reopening, the same rows remain visible. CSV export and pivot summarization still include hidden rows within the filtered range. \"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-1-2.spec.ts",
+          "title": "REQ-5-1-2: b5b932 regression: Clear selection after saved Text contains applies an empty value filter"
+        },
+        {
+          "file": "REQ-5-1-2.spec.ts",
+          "title": "REQ-5-1-2: b5b932 regression: Clear selection after saved Greater than applies an empty value filter"
         }
       ],
       "status": "executable_source_reviewed",

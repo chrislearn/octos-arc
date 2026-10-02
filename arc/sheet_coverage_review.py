@@ -34,6 +34,14 @@ def coverage_review(tree, plan):
         ('REQ-5-2-1', 'failed first save, rule modification and deletion retain prior saved constraints before retry', ['failed first rule save', 'failed rule modify', 'failed rule delete']),
         ('REQ-5-3-1', 'SUM/AVERAGE Refresh rejects sources without numbers atomically and accepts a numeric-zero retry', ['refresh with no numeric values']),
         ('REQ-5-3-1', 'AVERAGE includes formula zero as a numeric record', ['AVERAGE includes formula zero']),
+        ('REQ-4-1-1', 'explicit unchanged imported formula submission calculates and exports values while untouched focus/blur preserves original text', ['b5b932 regression: imported formula text']),
+        ('REQ-2-1-4', 'deleting a nonactive end worksheet activates its actual adjacent survivor', ['b5b932 regression: deleting nonactive']),
+        ('REQ-4-2-2', 'multistep expressions retain their first stable formula error and repaired dependent results', ['b5b932 regression: multistep']),
+        ('REQ-4-1-2', 'copying an already accepted lowercase expression preserves absolute axes and offsets relative axes', ['b5b932 regression: copying an accepted lowercase']),
+        ('REQ-5-3-1', 'empty column groups participate in SUM COUNT AVERAGE with exact row column and overall totals', ['retains blank column groups']),
+        ('REQ-5-3-1', 'object-property-named column groups aggregate as ordinary source values', ['b5b932 regression: column group text']),
+        ('REQ-5-3-1', 'deleting the entire source column preserves old pivot results when an adjacent identical header moves in', ['deleting the entire source column']),
+        ('REQ-5-1-2', 'Clear selection after a saved condition switches to an empty value filter and persists before clearing', ['Clear selection after saved']),
 
     ]
     reviewed = []

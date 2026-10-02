@@ -53,3 +53,19 @@ test("REQ-2-1-4: audit regression: deleting the third of four sheets selects an 
   await h.persisted(page,async()=>{await h.tabOrder(page,['Sheet1','Sheet2','Sheet4']);
     await expect(page.getByRole('tab',{selected:true})).toHaveAccessibleName(/^Sheet(?:2|4)$/);});
 });
+
+test("REQ-2-1-4: b5b932 regression: deleting nonactive Sheet4 activates adjacent Sheet3", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);for(let i=2;i<=4;i++){await h.button(page,'Add worksheet').click();await expect(h.tab(page,`Sheet${i}`)).toHaveAttribute('aria-selected','true');}
+  await h.tab(page,"Sheet3").click();await h.edit(page,'A1','neighbor-kept');await h.values(page,{A1:'neighbor-kept'});
+  await h.tab(page,"Sheet1").click();await h.sheetMenu(page,"Sheet4",'Delete');await h.button(page.getByRole('dialog',{name:'Delete worksheet',exact:true}),'Delete worksheet').click();
+  await h.persisted(page,async()=>{await h.tabOrder(page,["Sheet1", "Sheet2", "Sheet3"]);await expect(h.tab(page,"Sheet3")).toHaveAttribute('aria-selected','true');await h.values(page,{A1:'neighbor-kept'});});
+});
+
+test("REQ-2-1-4: b5b932 regression: deleting nonactive Sheet1 activates adjacent Sheet2", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);for(let i=2;i<=4;i++){await h.button(page,'Add worksheet').click();await expect(h.tab(page,`Sheet${i}`)).toHaveAttribute('aria-selected','true');}
+  await h.tab(page,"Sheet2").click();await h.edit(page,'A1','neighbor-kept');await h.values(page,{A1:'neighbor-kept'});
+  await h.tab(page,"Sheet4").click();await h.sheetMenu(page,"Sheet1",'Delete');await h.button(page.getByRole('dialog',{name:'Delete worksheet',exact:true}),'Delete worksheet').click();
+  await h.persisted(page,async()=>{await h.tabOrder(page,["Sheet2", "Sheet3", "Sheet4"]);await expect(h.tab(page,"Sheet2")).toHaveAttribute('aria-selected','true');await h.values(page,{A1:'neighbor-kept'});});
+});
