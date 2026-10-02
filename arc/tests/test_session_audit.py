@@ -166,7 +166,7 @@ class SessionAudit(unittest.TestCase):
         self.assertEqual(route_transition_errors(before,{**before,'routes':before['routes']+[{'method':'POST','path':'/api/workbooks'}]}),[])
         self.assertTrue(route_transition_errors(before,None))
 
-    def test_fixture_closure_includes_inbound_grants_and_reports_overflow(self):
+    def test_fixture_closure_includes_inbound_grants_without_partial_text_delivery(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder); doc={'repositories':[{'name':'wanted','owner':'alice'},{'name':'unused','body':'x'*1000}],
                 'accounts':[{'username':'alice'},{'username':'writer'}], 'grants':[{'repository':'wanted','account':'writer','role':'Write'}]}
@@ -177,9 +177,12 @@ class SessionAudit(unittest.TestCase):
             self.assertIn('writer',text);self.assertIn('Write',text);self.assertNotIn('unused',text)
             with patch.dict(os.environ,{'OCTOS_ARC_FIXTURE_CONTEXT_CHARS':'50'}):
                 text=main.fixture_context(flow,'Open wanted')
-            self.assertIn('INCOMPLETE',text)
-            closure=json.loads((root/'.arc/public-fixture-closure.json').read_text())
+            self.assertNotIn('INCOMPLETE',text)
+            closure=json.loads(text[text.index('\n{')+1:])
             self.assertEqual(len(closure['grants']),1);self.assertEqual(len(closure['accounts']),2)
+            flow.metric.assert_called_once()
+            self.assertTrue(flow.metric.call_args.kwargs['complete'])
+            self.assertTrue(flow.metric.call_args.kwargs['over_inline_preference'])
             self.assertEqual(json.loads((root/'fixtures.json').read_text()),doc)
 
     def test_isolated_timeout_cannot_lose_error_when_completed_results_exist(self):

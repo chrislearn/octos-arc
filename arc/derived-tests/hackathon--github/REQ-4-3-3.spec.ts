@@ -12,3 +12,18 @@ test("REQ-4-3-3: non-Admin default-branch edit controls are absent", async ({ pa
   test.setTimeout(60_000);
   await h.signIn(page,'spec-read'); await h.repo(page,h.fixtureRepo('default-read')); if(await h.link(page,'Settings').count()){ await h.link(page,'Settings').click(); if(await h.link(page,'Branches').count()) await h.link(page,'Branches').click(); } await expect(h.field(page,'Default branch')).toHaveCount(0); await expect(h.button(page,'Update')).toHaveCount(0);
 });
+
+test("REQ-4-3-3: guide: required release branch is persisted as default without changing main", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-admin'); const address=await h.repo(page,h.fixtureRepo('guide-default-release'));
+  await test.step('Select the existing branch named by the original scenario',async()=>{
+    await h.settings(page,'Branches'); await h.field(page,'Default branch').selectOption({label:'release'});
+    await h.button(page,'Update').click(); await h.button(page.getByRole('dialog'),'Confirm').click();
+  });
+  await test.step('A direct reopen uses release and main still retains its bytes',async()=>{
+    await page.goto(address); await h.persisted(page,()=>expect(h.button(page,'Branch release')).toBeVisible());
+    await h.button(page,'Branch release').click(); await h.option(page,'main');
+    await h.link(page,'src').click(); await h.link(page,'search.ts').click();
+    await h.persisted(page,()=>expect(h.text(page,'export const search = "search flow";')).toBeVisible());
+  });
+});

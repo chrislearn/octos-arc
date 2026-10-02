@@ -401,6 +401,8 @@ await p.reload(); await expect(h.button(p,'Account menu')).toBeVisible(); await 
 
 from embedded_sheet_cases import register
 register(s)
+from embedded_github_quality_cases import register as register_github_quality
+register_github_quality(g)
 from embedded_guided_cases import register as register_guidance
 register_guidance(g, s)
 from embedded_node_smokes import register as register_node_smokes

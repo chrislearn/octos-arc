@@ -23,6 +23,29 @@ test("REQ-4-4: empty commit message rejects even with a valid file path", async 
   await expect(h.text(page,'Commit message is required').first()).toBeVisible(); await page.goto(address); await h.persisted(page,()=>expect(h.link(page,name)).toHaveCount(0));
 });
 
+test("REQ-4-4: guide: editing creates a real commit and an old revision retains its original bytes", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('guide-file-edit-history'));
+  let original=''; const message=h.unique('edit-history');
+  await test.step('Remember an immutable revision before the write',async()=>{
+    await h.link(page,'Commits').click(); await h.link(page,'Document search flow').click(); original=page.url();
+    await expect(page.locator('body')).toContainText('export const search = "search flow";');
+  });
+  await test.step('Edit through the actual file command, then reopen the saved result',async()=>{
+    await page.goto(address); await h.link(page,'src').click(); await h.link(page,'search.ts').click(); await h.button(page,'Edit').click();
+    await h.field(page,'File contents').fill('export const search = "quality guide edit";');
+    await h.field(page,'Commit message').fill(message); await h.button(page,'Commit changes').click();
+    await h.persisted(page,()=>expect(h.text(page,'export const search = "quality guide edit";')).toBeVisible());
+  });
+  await test.step('History gains that commit while the earlier snapshot stays immutable',async()=>{
+    await h.link(page,'Commits').click(); await expect(h.link(page,message)).toBeVisible(); await page.goto(original);
+    await h.persisted(page,async()=>{
+      await expect(page.locator('body')).toContainText('export const search = "search flow";');
+      await expect(page.locator('body')).not.toContainText('quality guide edit');
+    });
+  });
+});
+
 test("REQ-4-4: context REQ-4-4: invalid path and empty message cannot change files or history", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'spec-write'); const address=await h.repo(page,h.fixtureRepo('file-invalid-node')); await h.link(page,'Commits').click(); const before=await h.historyLinks(page); await page.goto(address); await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();

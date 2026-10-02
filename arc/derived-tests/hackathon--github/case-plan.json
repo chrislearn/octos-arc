@@ -443,6 +443,20 @@
     "file": "REQ-3-1.spec.ts"
   },
   {
+    "node_id": "REQ-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-3-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-3-1: guide: public scenario prerequisites are searchable before downstream operations",
+    "file": "REQ-3-1.spec.ts"
+  },
+  {
     "node_id": "REQ-3-2-1",
     "fixture": null,
     "phase": "node",
@@ -758,6 +772,24 @@
     "file": "REQ-4-3-3.spec.ts"
   },
   {
+    "node_id": "REQ-4-3-3",
+    "fixture": "guide-default-release",
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-4-1",
+      "REQ-4-3-1",
+      "REQ-4-3-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-3-3: guide: required release branch is persisted as default without changing main",
+    "file": "REQ-4-3-3.spec.ts"
+  },
+  {
     "node_id": "REQ-4-4",
     "fixture": "file-create",
     "phase": "node",
@@ -800,6 +832,25 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-4: empty commit message rejects even with a valid file path",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": "guide-file-edit-history",
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-4-1",
+      "REQ-4-2-1",
+      "REQ-4-2-2",
+      "REQ-4-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: guide: editing creates a real commit and an old revision retains its original bytes",
     "file": "REQ-4-4.spec.ts"
   },
   {
@@ -1183,6 +1234,27 @@
     "file": "REQ-5-4.spec.ts"
   },
   {
+    "node_id": "REQ-5-4",
+    "fixture": "guide-issue-lifecycle",
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-5-1-1",
+      "REQ-5-1-2",
+      "REQ-5-2-1",
+      "REQ-5-2-3",
+      "REQ-5-3-1",
+      "REQ-5-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-5-4: guide: an Issue created by Write keeps comments and assignee across Maintain status changes",
+    "file": "REQ-5-4.spec.ts"
+  },
+  {
     "node_id": "REQ-6-1",
     "fixture": "protection-create",
     "phase": "node",
@@ -1498,6 +1570,28 @@
       "REQ-6-3-1"
     ],
     "title": "REQ-6-3-4: latest Comment replaces Request changes while retaining history",
+    "file": "REQ-6-3-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-4",
+    "fixture": "guide-review-publication",
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-6-2-1",
+      "REQ-6-3-1",
+      "REQ-6-3-2",
+      "REQ-6-3-3",
+      "REQ-6-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3",
+      "REQ-6-2-1",
+      "REQ-6-3-1"
+    ],
+    "title": "REQ-6-3-4: guide: submitting one review publishes only that reviewers drafts",
     "file": "REQ-6-3-4.spec.ts"
   },
   {

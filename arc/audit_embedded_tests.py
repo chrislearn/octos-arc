@@ -14,7 +14,7 @@ from embedded_suites import requirements_digest
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
 REVIEWED_RELEASES = {
-    'hackathon--github': ('2026-10-01', 5),
+    'hackathon--github': ('2026-10-02', 6),
     'hackathon--sheet': ('2026-10-02', 6),
 }
 
@@ -64,7 +64,10 @@ def fixtures(task,plan):
         if profile.startswith('issue-'):
             repo['issues']=[{'number':1,'title':'Original issue title' if profile=='issue-edit-invalid' else 'Improve onboarding',
                              'description':'Describe the onboarding improvement.','status':'Open','author':'spec-write','assignees':[],'labels':[],'milestone':None,'comments':[], 'activity':['Created issue']}]
-        pr_ids={'check-success','pr-ready','review-comment','review-pending','review-approve','review-request-changes','review-request','merge-success','merge-blocked','pr-close','pr-close-read','guide-review-cycle'}
+        if profile=='guide-default-release':
+            repo['branches']['release']={'base':'main','files':dict(repo['branches']['main']['files']),
+                                         'commit_message':'Prepare release branch','author':'spec-admin'}
+        pr_ids={'check-success','pr-ready','review-comment','review-pending','review-approve','review-request-changes','review-request','merge-success','merge-blocked','pr-close','pr-close-read','guide-review-cycle','guide-review-publication'}
         if profile in pr_ids or fid.startswith('merge-') or fid=='review-replace' or fid=='review-decision-comment':
             draft=profile=='pr-ready'
             pr={'number':1,'title':'Draft onboarding update' if draft else 'Improve onboarding',

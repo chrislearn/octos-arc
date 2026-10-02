@@ -12,3 +12,17 @@ test("REQ-3-1: empty repository search is repeatable without stale results", asy
   test.setTimeout(60_000);
   for(let i=0;i<2;i++){ await h.home(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('no-such-repository'); await search.press('Enter'); await expect(h.text(page,'No results').first()).toBeVisible(); await expect(h.link(page,'acme-docs')).toHaveCount(0); }
 });
+
+test("REQ-3-1: guide: public scenario prerequisites are searchable before downstream operations", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'spec-owner');
+  const repos=['spec-team-members','spec-file-create','spec-file-history','spec-issue-create','spec-pr-ready','spec-review-request'];
+  for(const name of repos) await test.step(`Prerequisite repository ${name} exists with its owner`,async()=>{
+    await h.home(page); const search=page.getByRole('searchbox',{name:'Search',exact:true});
+    await search.fill(name); await search.press('Enter');
+    const entry=h.link(page,name); await expect(entry).toBeVisible();
+    const owner='spec-org-'+name.slice('spec-'.length);
+    const row=entry.locator(`xpath=ancestor::*[contains(.,"${owner}")][1]`);
+    await expect(row).toContainText(owner);
+  });
+});

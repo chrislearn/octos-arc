@@ -99,7 +99,7 @@ Environment (all optional):
     OCTOS_ARC_LLM_TIMEOUT_SECONDS  kernel HTTP timeout per LLM request; must exceed the proxy wait (default 900)
     OCTOS_ARC_EDIT_SOURCE_CHARS  whole-source retention in focused tool turns (default 32768)
     OCTOS_ARC_PRESERVATION_CHARS  complete relevant prior requirement descriptions (default up to 65536, bounded by total context; overflow uses tool reads)
-    OCTOS_ARC_FIXTURE_CONTEXT_CHARS  public frozen fixture prerequisites quoted into codegen (default 12000)
+    OCTOS_ARC_FIXTURE_CONTEXT_CHARS  preferred inline fixture size; complete prerequisite closures are never clipped (default 12000)
     OCTOS_ARC_BLOCK_ROUTE_WARNINGS  "1" makes a wave's own ROUTE_LINK warnings block completion (default advisory)
     OCTOS_ARC_PRIME_GENERATION_BUILD  "0" skips the one-time dependency/build preflight (default on)
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
@@ -2285,71 +2285,9 @@ def seed_contract_text(flow) -> str:
     return seed_contract_note(resolution) if isinstance(resolution, SeedResolution) else ""
 
 
-def fixture_context(flow, evidence: str) -> str:
-    """Inline complete public prerequisites; text-only codegen cannot read a path."""
-    directory = getattr(flow, 'tests_dir', None)
-    if not getattr(flow, 'frozen_suite', None) or not isinstance(directory, Path):
-        return ''
-    try:
-        document = json.loads((directory / 'fixtures.json').read_text(encoding='utf8'))
-    except (OSError, ValueError):
-        return ''
-    cap = max(0, int(os.environ.get('OCTOS_ARC_FIXTURE_CONTEXT_CHARS', '12000')))
-    if not cap or not isinstance(document, dict):
-        return ''
-    render = lambda value: json.dumps(value, ensure_ascii=False, separators=(',', ':'))
-    complete = True
-    required = []
-    if len(render(document)) <= cap:
-        selected = document
-    else:
-        selected = {key: value for key, value in document.items() if not isinstance(value, list)}
-        records = [(key, index, row) for key, values in document.items() if isinstance(values, list)
-                   for index, row in enumerate(values) if isinstance(row, dict)]
-        def identity(row):
-            return {str(row[field]).lower() for field in ('username', 'name', 'identifier', 'slug', 'id')
-                    if isinstance(row.get(field), (str, int)) and str(row[field])}
-        def values(row):
-            if isinstance(row, dict):
-                return set().union(*(values(v) for v in row.values()), {str(k).lower() for k in row})
-            if isinstance(row, list):
-                return set().union(*(values(v) for v in row)) if row else set()
-            return {str(row).lower()} if isinstance(row, (str, int)) else set()
-        wanted = {(key, index) for key, index, row in records if any(
-            re.search(r'(?<![\w])' + re.escape(value) + r'(?![\w])', evidence.lower()) for value in identity(row))}
-        while True:
-            refs = set().union(*(values(row) for key, index, row in records if (key, index) in wanted)) if wanted else set()
-            active_ids = set().union(*(identity(row) for key, index, row in records if (key, index) in wanted)) if wanted else set()
-            expanded = wanted | {(key, index) for key, index, row in records
-                if identity(row) & refs or (any(part in key.lower() for part in ('grant', 'permission', 'membership', 'relation'))
-                                          and values(row) & active_ids)}
-            if expanded == wanted:
-                break
-            wanted = expanded
-        for key, index, row in records:
-            if (key, index) in wanted:
-                selected.setdefault(key, []).append(row)
-                required.append(f'{key}[{index}]')
-        if not wanted:
-            return ''
-        complete = len(render(selected)) <= cap
-        if not complete:
-            # Never silently drop an owner/grant while claiming prerequisites
-            # complete. Publish the entire closure read-only for a native read.
-            closure = flow.output_dir / '.arc' / 'public-fixture-closure.json'
-            closure.parent.mkdir(parents=True, exist_ok=True)
-            closure.write_text(render(selected), encoding='utf8')
-            flow.metric('fixture_context', complete=False, required_records=required,
-                        required_chars=len(render(selected)), cap_chars=cap, source_sha256=hashlib.sha256(render(document).encode()).hexdigest())
-            return ('\nPublic fixture prerequisites: dependency closure exceeds inline budget; INCOMPLETE inline delivery. '
-                    f'Read the complete public, read-only closure at {closure} before provisioning; '
-                    'do not invent or omit grants/owners. Required records: ' + ', '.join(required) + '\n')
-    body = render(selected)
-    if len(body) > cap:
-        return ''
-
-    return ('\nPublic fixture prerequisites (read-only source-reviewed records; provision through normal '
-            'application seeds, preserve independent records, no private test API):\n' + body + '\n')
+def fixture_context(flow, evidence: str, node_ids=()) -> str:
+    from fixture_delivery import fixture_context as complete_fixture_context
+    return complete_fixture_context(flow, evidence, node_ids)
 
 
 def read_text_or_empty(path: Path) -> str:
@@ -3796,7 +3734,8 @@ class Flow:
         small = self.codegen_reasoning(len(spec)) == "none"
         rules = CODEGEN_RULES.format(port=self.web_port, ports=self.codegen_ports_clause())
         dynamic_rules = (stack_note(self.output_dir) + seed_contract_text(self)
-                         + fixture_context(self, describe_node(node) + '\n' + spec + '\n' + evidence))
+                         + fixture_context(self, describe_node(node) + '\n' + spec + '\n' + evidence,
+                                           node.get('active_requirement_ids') or [str(node.get('id'))]))
         form_context = str(node.get('description') or '') + '\n' + spec
         if re.search(r'\b(?:form|password|e-?mail|validat\w*|register|registration)\b', form_context, re.I):
             dynamic_rules += FORM_VALIDATION_GUIDANCE
