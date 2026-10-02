@@ -42,6 +42,27 @@ test("REQ-2-1-1: 44831560 regression: public directory entry exposes the public 
   await h.link(page,'acme-docs').click(); await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
 });
 
+test("REQ-2-1-1: eb7208fb compatibility: cold public home exposes the organization and its public repository", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page);
+  expect(await h.link(page,'Acme Demo').isVisible(),'public discovery must not depend on a session round trip').toBe(true);
+  await h.link(page,'Acme Demo').click(); await h.link(page,'Repositories').click();
+  expect(await h.link(page,'acme-docs').isVisible()).toBe(true);
+  await expect(h.link(page,'secret-research')).toHaveCount(0);
+  await h.link(page,'acme-docs').click(); await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
+});
+
+test("REQ-2-1-1: eb7208fb compatibility: sign-out retains public discovery without restoring private repository entries", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.link(page,'Acme Demo').click();
+  await expect(h.link(page,'secret-research')).toBeVisible();
+  await h.signOut(page); await expect(h.button(page,'Account menu')).toHaveCount(0);
+  expect(await h.link(page,'Acme Demo').isVisible()).toBe(true);
+  await h.link(page,'Acme Demo').click(); await h.link(page,'Repositories').click();
+  await expect(h.link(page,'acme-docs')).toBeVisible(); await expect(h.link(page,'secret-research')).toHaveCount(0);
+  await page.reload(); await expect(h.link(page,'acme-docs')).toBeVisible(); await expect(h.link(page,'secret-research')).toHaveCount(0);
+});
+
 test("REQ-2-1-1: organization live repository filter exposes public result and hides private result", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.organization(page); await h.link(page,'Repositories').click(); await h.field(page,'Find a repository').fill('acme-docs'); await expect(h.link(page,'acme-docs')).toBeVisible();

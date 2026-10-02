@@ -44,6 +44,14 @@ test("REQ-2-2-2: 44831560 regression: browser history cannot restore member-only
   await page.reload(); await expect(h.text(page,'Access denied')).toBeVisible();
 });
 
+test("REQ-2-2-2: eb7208fb compatibility: named team navigation keeps the settings entry usable", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'team-maintainer'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await h.link(page,'Acme Demo').click(); await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click();
+  expect(await h.link(page,'Settings').isVisible(),'team detail must retain its settings navigation while data loads').toBe(true);
+  await h.link(page,'Settings').click(); await h.chosen(page,'Parent team','platform-team');
+});
+
 test("REQ-2-2-2: Owner adds and immediately removes direct team member with persistence", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'org-owner'); await h.organization(page,'team-members'); await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Members').click();

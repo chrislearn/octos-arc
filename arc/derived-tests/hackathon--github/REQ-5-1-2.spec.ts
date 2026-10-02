@@ -18,6 +18,16 @@ test("REQ-5-1-2: requirement scenario 3", async ({ page, browser }) => {
   await h.scenarioIssue(page,"Improve onboarding"); await expect(h.text(page,'Describe the onboarding improvement.')).toBeVisible(); await expect(h.text(page,'Open').first()).toBeVisible(); await expect(page.getByRole('article').first()).toBeVisible(); await h.scenarioIssue(page,"Improve onboarding"); await expect(h.text(page,'Describe the onboarding improvement.')).toBeVisible();
 });
 
+test("REQ-5-1-2: 81c7432a compatibility: issue navigation and named discussion entries are ready along the public chain", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Acme Demo').click(); await h.link(page,'acme-docs').click();
+  expect(await h.link(page,'Issues').isVisible()).toBe(true); await h.link(page,'Issues').click();
+  for (const name of ['Improve onboarding','Editable onboarding issue','Original issue title','Commentable onboarding issue',
+    'Comment validation issue','Assignable onboarding issue','Labelable onboarding issue','Milestone onboarding issue',
+    'Closable onboarding issue','Protected onboarding issue']) expect(await h.link(page,name).isVisible(),name).toBe(true);
+  await h.link(page,'Improve onboarding').click(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible();
+});
+
 test("REQ-5-1-2: visitor issue detail shows complete title, description and readable timeline", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.issue(page); const address=page.url(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.text(page,'Describe the onboarding improvement.').first()).toBeVisible(); await expect(h.text(page,'Open').first()).toBeVisible(); await expect(page.getByText(/Comment|Activity/).first()).toBeVisible(); });

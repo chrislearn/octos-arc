@@ -35,6 +35,14 @@ test("REQ-3-1: personal repository results expose exact names separately from ow
   }
 });
 
+test("REQ-3-1: 7aa2e514 compatibility: homepage search remains in the initial viewport beside a populated organization directory", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); const search=page.getByRole('searchbox',{name:'Search',exact:true});
+  await expect(search).toBeInViewport(); await search.fill('acme-docs'); await search.press('Enter');
+  await h.openRepositoryResult(page,'acme-docs','Acme Demo');
+  await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
+});
+
 test("REQ-3-1: global search opens public identity and excludes private repository", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.repo(page); await h.persisted(page, () => expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible()); await h.home(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('secret-research'); await search.press('Enter'); await expect(h.link(page,'secret-research')).toHaveCount(0);

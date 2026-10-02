@@ -53,6 +53,15 @@ test("REQ-2-1-2: navigation readiness keeps New organization available after the
   for (const label of ['Organization name','Display name']) await expect(h.field(page,label)).toBeVisible();
 });
 
+test("REQ-2-1-2: eb7208fb compatibility: signed-in home and account directory expose the same organization immediately", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner');
+  expect(await h.link(page,'Acme Demo').isVisible()).toBe(true);
+  await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  expect(await h.link(page,'Acme Demo').isVisible(),'account menu and its organization directory must be ready together').toBe(true);
+  await h.link(page,'Acme Demo').click(); await expect(h.link(page,'Repositories')).toBeVisible();
+});
+
 test("REQ-2-1-2: create organization persists identifier and creator Owner relationship", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click(); await h.link(page,'New organization').click(); const name=h.unique('pw-org');

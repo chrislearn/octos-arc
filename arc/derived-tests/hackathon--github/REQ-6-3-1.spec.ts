@@ -35,6 +35,16 @@ test("REQ-6-3-1: global search file issue and PR navigation share the prescribed
   });
 });
 
+test("REQ-6-3-1: 81c7432a compatibility: named pull requests are ready when entering their list", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Acme Demo').click(); await h.link(page,'acme-docs').click();
+  await h.link(page,'Pull requests').click();
+  for (const name of ['Draft onboarding update','Overview onboarding PR','Public onboarding PR','Reviewable onboarding PR',
+    'Change request onboarding PR','Reviewer request onboarding PR','Closable onboarding PR','Protected onboarding PR'])
+    expect(await h.link(page,name).isVisible(),name).toBe(true);
+  await h.link(page,'Overview onboarding PR').click(); await expect(page.getByRole('heading',{name:'Overview onboarding PR',exact:true})).toBeVisible();
+});
+
 test("REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.pr(page); const address=page.url(); await h.link(page,'Commits').click();

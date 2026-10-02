@@ -906,6 +906,32 @@
     "requires": [
       "REQ-2-1-1"
     ],
+    "setup_requires": [],
+    "title": "REQ-2-1-1: eb7208fb compatibility: cold public home exposes the organization and its public repository",
+    "file": "REQ-2-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-1",
+      "REQ-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-1-2"
+    ],
+    "title": "REQ-2-1-1: eb7208fb compatibility: sign-out retains public discovery without restoring private repository entries",
+    "file": "REQ-2-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-1"
+    ],
     "setup_requires": [
       "REQ-3-1",
       "REQ-3-3"
@@ -989,6 +1015,19 @@
       "REQ-1-1-2"
     ],
     "title": "REQ-2-1-2: navigation readiness keeps New organization available after the account menu entry",
+    "file": "REQ-2-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-1-2: eb7208fb compatibility: signed-in home and account directory expose the same organization immediately",
     "file": "REQ-2-1-2.spec.ts"
   },
   {
@@ -1194,6 +1233,19 @@
       "REQ-1-2"
     ],
     "title": "REQ-2-2-2: 44831560 regression: browser history cannot restore member-only team links after sign-out",
+    "file": "REQ-2-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-2-2: eb7208fb compatibility: named team navigation keeps the settings entry usable",
     "file": "REQ-2-2-2.spec.ts"
   },
   {
@@ -1532,6 +1584,34 @@
   },
   {
     "node_id": "REQ-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-3: eb7208fb compatibility: repository access is discoverable through the complete organization chain",
+    "file": "REQ-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-2-3: eb7208fb compatibility: reloading repository settings retains the access navigation entry",
+    "file": "REQ-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-3",
     "fixture": "grant-add",
     "phase": "node",
     "requires": [
@@ -1613,6 +1693,17 @@
     ],
     "setup_requires": [],
     "title": "REQ-3-1: personal repository results expose exact names separately from owner metadata",
+    "file": "REQ-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-3-1: 7aa2e514 compatibility: homepage search remains in the initial viewport beside a populated organization directory",
     "file": "REQ-3-1.spec.ts"
   },
   {
@@ -1854,6 +1945,17 @@
     "requires": [
       "REQ-3-3"
     ],
+    "setup_requires": [],
+    "title": "REQ-3-3: 7aa2e514 compatibility: public organization directory discovers each named stage 2 repository",
+    "file": "REQ-3-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-3"
+    ],
     "setup_requires": [
       "REQ-3-1"
     ],
@@ -1888,6 +1990,20 @@
       "REQ-3-3"
     ],
     "title": "REQ-3-4: requirement scenario 2",
+    "file": "REQ-3-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-1-2"
+    ],
+    "title": "REQ-3-4: 7aa2e514 compatibility: authorized accounts discover the visibility repository through the organization entry",
     "file": "REQ-3-4.spec.ts"
   },
   {
@@ -2002,6 +2118,17 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-2-2: requirement scenario 1",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-4-2-2: 7aa2e514 compatibility: the public repository chain exposes its named commit before opening the diff",
     "file": "REQ-4-2-2.spec.ts"
   },
   {
@@ -2704,6 +2831,17 @@
       "REQ-5-1-1"
     ],
     "title": "REQ-5-1-2: requirement scenario 3",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-5-1-2: 81c7432a compatibility: issue navigation and named discussion entries are ready along the public chain",
     "file": "REQ-5-1-2.spec.ts"
   },
   {
@@ -3443,6 +3581,19 @@
   },
   {
     "node_id": "REQ-6-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-6-2-2: 81c7432a compatibility: pull request and comparison navigation remain discoverable before detail data",
+    "file": "REQ-6-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-2",
     "fixture": "pr-compare",
     "phase": "node",
     "requires": [
@@ -3686,6 +3837,17 @@
       "REQ-3-3"
     ],
     "title": "REQ-6-3-1: global search file issue and PR navigation share the prescribed organization repository",
+    "file": "REQ-6-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-6-3-1: 81c7432a compatibility: named pull requests are ready when entering their list",
     "file": "REQ-6-3-1.spec.ts"
   },
   {
@@ -4125,6 +4287,17 @@
       "REQ-6-3-1"
     ],
     "title": "REQ-6-5: requirement scenario 2",
+    "file": "REQ-6-5.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-5",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-5"
+    ],
+    "setup_requires": [],
+    "title": "REQ-6-5: 81c7432a compatibility: protection and merge repositories expose their named pull requests",
     "file": "REQ-6-5.spec.ts"
   },
   {

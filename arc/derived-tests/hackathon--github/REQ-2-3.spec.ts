@@ -31,6 +31,24 @@ test("REQ-2-3: 44831560 regression: account menu organization entry exposes the 
   await expect(h.button(page,'Add people or teams')).toBeVisible();
 });
 
+test("REQ-2-3: eb7208fb compatibility: repository access is discoverable through the complete organization chain", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'repo-admin');
+  for (const name of ['Acme Demo','acme-docs','Settings','Manage access']) {
+    expect(await h.link(page,name).isVisible(),`next navigation target ${name}`).toBe(true);
+    await h.link(page,name).click();
+  }
+  await expect(h.button(page,'Add people or teams')).toBeVisible();
+});
+
+test("REQ-2-3: eb7208fb compatibility: reloading repository settings retains the access navigation entry", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'repo-admin'); await h.canonicalRepo(page); await h.link(page,'Settings').click();
+  await expect(h.link(page,'Manage access')).toBeVisible(); await page.reload();
+  expect(await h.link(page,'Manage access').isVisible()).toBe(true);
+  await h.link(page,'Manage access').click(); await expect(h.button(page,'Add people or teams')).toBeVisible();
+});
+
 test("REQ-2-3: live team grant admits its member and preserves private denial and one saved grant", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'repo-admin'); const address=await h.repo(page,h.fixtureRepo('grant-add'));

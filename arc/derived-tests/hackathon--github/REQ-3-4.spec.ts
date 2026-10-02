@@ -13,6 +13,16 @@ test("REQ-3-4: requirement scenario 2", async ({ page, browser }) => {
   await h.signIn(page,"collaborator"); await h.repo(page,'visibility-demo'); await h.settings(page,'General'); await h.unavailable(page,'Change visibility');
 });
 
+test("REQ-3-4: 7aa2e514 compatibility: authorized accounts discover the visibility repository through the organization entry", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  for (const account of ['visibility-admin','collaborator']) {
+    await h.signIn(page,account); await h.link(page,'Acme Demo').click();
+    expect(await h.link(page,'visibility-demo').isVisible()).toBe(true);
+    await h.link(page,'visibility-demo').click(); await expect(page.getByRole('heading').filter({hasText:'visibility-demo'})).toBeVisible();
+    await h.signOut(page); await expect(h.button(page,'Account menu')).toHaveCount(0);
+  }
+});
+
 test("REQ-3-4: Admin makes Private repository Public and fresh visitor reads saved identity", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'repo-admin'); const address=await h.repo(page,h.fixtureRepo('visibility')); await expect(h.text(page,'Private').first()).toBeVisible(); await h.settings(page,'General'); await h.button(page,'Change visibility').click(); await page.getByRole('radio',{name:'Public',exact:true}).check(); await h.button(page,'Confirm visibility').click(); await expect(h.text(page,'Public').first()).toBeVisible();

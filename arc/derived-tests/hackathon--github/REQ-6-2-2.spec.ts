@@ -25,6 +25,16 @@ test("REQ-6-2-2: comparison controls have the exact Base and Compare accessible 
   await h.button(page,'Compare changes').click(); await expect(h.text(page,'src/search.ts')).toBeVisible();
 });
 
+test("REQ-6-2-2: 81c7432a compatibility: pull request and comparison navigation remain discoverable before detail data", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'pr-author'); await h.link(page,'Acme Demo').click(); await h.link(page,'acme-docs').click();
+  expect(await h.link(page,'Pull requests').isVisible()).toBe(true);
+  expect(await h.link(page,'Compare').isVisible()).toBe(true);
+  await h.link(page,'Pull requests').click(); await h.link(page,'New pull request').click();
+  await expect(page.getByRole('combobox',{name:'Base',exact:true})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Compare',exact:true})).toBeVisible();
+});
+
 test("REQ-6-2-2: Base/Compare comboboxes show exact changed file and comparable commits", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'file-contributor'); await h.compare(page,'pr-compare'); await expect(h.comparisonCommitInformation(page,'Implement search flow',1).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();

@@ -122,6 +122,8 @@ def suite_cases(g):
     register_navigation_readiness(g)
     from embedded_github_selftest_44831560_cases import register as register_selftest_44831560
     register_selftest_44831560(g)
+    from embedded_github_selftest_eb7208fb_cases import register as register_selftest_eb7208fb
+    register_selftest_eb7208fb(g)
     regressions=json.loads((Path(__file__).parent/'github_regression_recipes.json').read_text())
     for file,recipes in regressions.items():
         for row in recipes:

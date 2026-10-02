@@ -13,6 +13,20 @@ test("REQ-6-5: requirement scenario 2", async ({ page, browser }) => {
   await h.signIn(page,"pr-maintainer"); await h.scenarioPr(page,"Blocked onboarding PR","merge-onboarding-demo"); await h.persisted(page,()=>expect(h.button(page,'Merge pull request')).toBeDisabled()); await expect(page.getByText(/Review required|protection/).first()).toBeVisible(); await expect(h.text(page,'Open').first()).toBeVisible();
 });
 
+test("REQ-6-5: 81c7432a compatibility: protection and merge repositories expose their named pull requests", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  for (const [repository,titles] of [
+    ['branch-protection-demo',['Protection status onboarding PR']],
+    ['merge-onboarding-demo',['Mergeable onboarding PR','Blocked onboarding PR']]
+  ] as const) {
+    await h.home(page); await h.link(page,'Acme Demo').click();
+    expect(await h.link(page,repository).isVisible()).toBe(true); await h.link(page,repository).click();
+    expect(await h.link(page,'Pull requests').isVisible()).toBe(true); await h.link(page,'Pull requests').click();
+    for (const title of titles) expect(await h.link(page,title).isVisible(),title).toBe(true);
+    await h.link(page,titles[0]).click(); await expect(page.getByRole('heading',{name:titles[0],exact:true})).toBeVisible();
+  }
+});
+
 test("REQ-6-5: Maintain merge commits actual changes to base branch and persists terminal status", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'pr-maintainer'); await h.pr(page,'merge-success'); await expect(h.button(page,'Merge pull request')).toBeEnabled(); await h.button(page,'Merge pull request').click(); await h.button(page,'Confirm merge').click(); await h.persisted(page, () => expect(h.text(page,'Merged').first()).toBeVisible()); await expect(h.button(page,'Close pull request')).toHaveCount(0); await expect(h.button(page,'Reopen pull request')).toHaveCount(0);
