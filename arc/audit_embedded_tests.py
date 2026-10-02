@@ -14,7 +14,7 @@ from embedded_suites import requirements_digest
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
 REVIEWED_RELEASES = {
-    'hackathon--github': ('2026-10-03', 17),
+    'hackathon--github': ('2026-10-03', 18),
     'hackathon--sheet': ('2026-10-03', 12),
 }
 
@@ -184,7 +184,8 @@ def audit(freeze=False,task_filter=None):
         assert len(mutable)==len(set(mutable)),(task,'mutable fixture reused across cases')
         validate_plan(plan,nodes,specs)
         if task=='hackathon--github':
-            from frozen_setup import github_setup_features, frozen_setup_dependencies, setup_generation_order
+            from github_test_setup import github_setup_features
+            from frozen_setup import frozen_setup_dependencies, setup_generation_order
             from build_embedded_tests import CASES
             helpers=(directory/'helpers.ts').read_text()
             recipes={(r['node_id'],r['title']):r for rows in CASES[task].values() for r in rows}
@@ -194,7 +195,7 @@ def audit(freeze=False,task_filter=None):
                 assert recipe is not None,('missing source recipe',row['title'])
                 expected=github_setup_features(recipe['body'],helpers)-{row['node_id']}
                 assert set(row.get('setup_requires',[]))==expected,('helper setup closure mismatch',row)
-            setup_generation_order(tree,frozen_setup_dependencies(directory,{'name':task},tree))
+            setup_generation_order(tree,frozen_setup_dependencies(directory,tree))
         names=set()
         for row in plan:
             source_text=(directory/row['file']).read_text(); title=row['title']; assert title not in names; names.add(title)
@@ -210,6 +211,7 @@ def audit(freeze=False,task_filter=None):
             (directory/'requirements.yaml').write_bytes(source.read_bytes())
             task_readme = README
             if task == 'hackathon--github':
+                task_readme += '\nRevision 18 preserves all 336 prior cases and adds 10 home-workspace and branch-protection regressions from submission fc6db770. Direct home Issues/Pull requests/Compare entries and named issue/PR entries are exercised without inserting a repository-search step. Additional cases cover repository selection, colliding titles, newly created private issues, rename/sign-out persistence, search isolation, and an unambiguous saved protection-rule summary while preserving native default-branch selection. Requirements, fixtures and helpers remain unchanged. The evaluator-side uniqueAccount ReferenceError is recorded, not emulated as application behavior.\n'
                 task_readme += '\nRevision 17 retains all 324 prior cases and adds 12 repository-discovery and reference-navigation regressions. Homepage directory cases explicitly cover a visible-entry compatibility design without inserting search or organization hops. Additional cases cover identity-filtered discovery, newly created personal repositories, search result uniqueness, cross-page Issues/PR/Code navigation, observed deep-link reloads, repository and branch/revision context, and the unique PR Commits tab. Parent requirements and reference structure motivate this coverage; reference pixels and unavailable evaluator helper behavior are not treated as a contract. Requirements, fixtures and helpers are unchanged.\n'
                 task_readme += '\nRevision 16 retains all 310 prior cases and adds 14 cross-stage compatibility witnesses for cold public discovery, the authenticated directory, team/repository settings, sign-out privacy, the homepage search viewport, named repositories, commit entry, and Issues/Pull requests discovery. The three remote reports contain 70 navigation failures and one evaluator-side ReferenceError (uniqueAccount is not defined); these tests do not claim to reconstruct that unavailable helper. Requirements, fixtures and existing assertions are unchanged. Navigation read models remain scoped to the current identity and repository permissions.\n'
                 task_readme += '\nRevision 15 retains all 303 prior cases and adds seven regressions for email-only recovery submission, credential preservation/replacement, named repository/team data readiness after directory entry, and sign-out history privacy. The recovery helper now always submits Email using an allowed action; an already visible code must not bypass that requirement step. Data-readiness checks are compatibility witnesses, not reconstructed evaluator source. Requirements and fixtures remain unchanged; no member-role hiding or global Member uniqueness is required.\n'

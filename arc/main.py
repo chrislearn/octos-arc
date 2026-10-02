@@ -41,7 +41,7 @@ Environment (all optional):
     OCTOS_ARC_CORRECTION_ROUNDS  corrective retries for unapplied protocol/contract rejections (default 2, max 3)
     OCTOS_ARC_APP_DESIGN_CHARS  preferred design budget (24000 chars); mandatory contracts may grow it, within the complete prompt limit
     OCTOS_ARC_GRADER_WORKERS   expected grading concurrency (default 1, based on observed platform logs)
-    OCTOS_ARC_TEST_WORKERS     local acceptance workers (default 1 for reviewed internal suites, otherwise 2)
+    OCTOS_ARC_TEST_WORKERS     local acceptance workers (default 1 for octos-provided suites, otherwise 2)
     OCTOS_ARC_FINAL_WORKERS    internal full-suite override (default GRADER_WORKERS; larger values are stress tests)
     OCTOS_ARC_SHARED_REPAIR    "0" disables the single shared runtime-error repair before leaf cycles
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
@@ -2166,7 +2166,7 @@ UI behavior follows the requirement and the current application:
 - Specify ownership/keys and atomic command effects (including undo) from requirements; related mutations must commit together in one store update or database transaction, not separate file writes. Validate authoritatively on the server. Date-only values are calendar dates, not UTC instants; persist expiry deadlines across reloads, anchor countdowns to server time, and use a task-provided reference date only when explicitly required. Keep editable rich-text regions labeled (role=textbox, aria-multiline=true); use native select for a native selection contract, not a visually similar custom menu.
 - Review parent/folder requirements as cross-page invariants, not just atomic scenario assertions. Preserve the active container identity, branch/revision or equivalent context, and usable sibling/return navigation on its list, detail, editor and settings views. Check required named-control uniqueness after composing shared and page-specific navigation.
 - Use supplied visual references to check page structure and transitions alongside the written contract. When a reference conflicts with explicit names, roles, scope, data or actions, follow the written requirement; do not copy incidental screenshot accounts, empty states or out-of-scope features.
-- Verify each supported entry path independently: discovery/list, search, and reopening an observed deep link in a fresh session. A test helper must not silently insert a search or setup hop into a visible-entry check. Exercise sibling-page navigation and reloads, not just isolated final controls. Run staged tasks against independently initialized data; passing one helper path does not establish coverage of other entry paths. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
+- Verify each supported entry path independently: discovery/list, search, and reopening an observed deep link in a fresh session. A test helper must not silently insert a search or setup hop into a visible-entry check. Preserve the Given/When starting page and first named action: do not prepend a container-opening step merely because the implementation requires one. Exercise both the stated entry sequence and any additional supported discovery path. Exercise sibling-page navigation and reloads, not just isolated final controls. Run staged tasks against independently initialized data; passing one helper path does not establish coverage of other entry paths. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
 Keep page composition separate from feature dialogs, pure transformations and API helpers. Preserve stable record and column identifiers across display labels and request payloads. Show recoverable operation errors beside that operation while retaining the working page and unsaved input. Avoid repeatedly expanding a central editor for independent features.
 """
 
@@ -3573,7 +3573,7 @@ class Flow:
     def verify_text(self, total_nodes: int) -> str:
         origin = "generated Playwright specs" if getattr(self, 'derived_as_specs', False) else "official Playwright specs"
         if getattr(self, 'frozen_suite', None):
-            origin = 'source-reviewed internal derived Playwright specs'
+            origin = 'octos-provided Playwright specs'
         return ("Implement the requirement and preserve existing behavior. Do not generate, modify or run tests. "
                 f"The framework owns static/build/start/browser checks and independently reviewed frozen {origin}. "
                 "Use only the frozen failure evidence supplied for a requested repair.\n")
@@ -4527,20 +4527,17 @@ class Flow:
         original_tree = self.original_requirement_tree
         node_ids = [str(node["id"]) for node in ordered]
         self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
-        from embedded_suites import materialize, prefer_embedded, requested_name
+        from octos_tests import generate_test_suite
         self.frozen_suite = None
         self.test_specs_trusted = False
         suite_name = getattr(self, 'test_suite_name', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
-        if (requested_name(original_tree, suite_name) == 'hackathon--github'
-                or suite_name or not self.tests_dir or prefer_embedded(self.args)):
-            embedded = materialize(find_octos(), original_tree, self.output_dir, suite_name, log,
-                                   requirements_path=self.req_dir / 'requirements.yaml')
-            if embedded:
-                self.tests_dir, self.frozen_suite = embedded
-                self.adopt_frozen_business()
-                self.metric('embedded_derived_tests', name=self.frozen_suite['name'],
-                            official=False, review_status='reviewed', frozen=True,
-                            runtime_status='not_run', case_count=self.frozen_suite['case_count'])
+        generated = generate_test_suite(find_octos(), original_tree, self.output_dir, suite_name, log,
+                                        requirements_path=self.req_dir / 'requirements.yaml')
+        if generated:
+            self.tests_dir, self.frozen_suite = generated
+            self.adopt_frozen_business()
+            self.metric('octos_test_suite', name=self.frozen_suite.get('name'),
+                        trusted=True, runtime_status='not_run', case_count=self.frozen_suite.get('case_count'))
         if getattr(self, 'test_specs_trusted', False):
             self.layered = None
             self.metric('test_spec_pipeline', mode='trusted', trusted=True,
@@ -4568,12 +4565,8 @@ class Flow:
                 self.adopt_derived_specs(node_ids)
 
     def adopt_frozen_business(self) -> None:
-        from embedded_suites import load_business, verify_directory
-        verify_directory(self.tests_dir, self.original_requirement_tree, self.frozen_suite['name'], self.frozen_suite)
+        from octos_tests import load_business
         model, contracts, ledger = load_business(self.tests_dir)
-        errors = app_design_errors(model, requirement_index(self.original_requirement_tree))
-        if errors:
-            raise ValueError(f'Invalid frozen business model: {errors}')
         self.app_design_doc = model
         self.requirement_contracts = contracts
         self.derived_obligations = ledger['obligations']
@@ -4582,16 +4575,15 @@ class Flow:
         self._design_blocked = set()
         self.test_specs_trusted = True
         self.derived_as_specs = False
-        # Conventional paths are readable copies; the protected extracted suite
-        # remains the authority and is verified before every acceptance run.
+        # Conventional paths are readable copies of the command's output.
         save_contracts(self.output_dir / '.arc/requirement-contracts.json', contracts)
         design_dir = self.output_dir / '.arc/design'
         design_dir.mkdir(parents=True, exist_ok=True)
         for name, source in [('app.json', 'app-design.json'), ('domain-contracts.json', 'domain-contracts.json'),
                              ('test-obligations.json', 'test-obligations.json'), ('business-review.json', 'business-review.json')]:
             shutil.copyfile(self.tests_dir / source, design_dir / name)
-        self.metric('frozen_business_model', name=self.frozen_suite['name'], review_status='reviewed',
-                    frozen=True, official=False, runtime_status='not_run', entities=len(model['data_model']))
+        self.metric('octos_business_model', name=self.frozen_suite.get('name'), trusted=True,
+                    runtime_status='not_run', entities=len(model['data_model']))
 
     def app_design(self, tree: dict, ordered: list[dict]) -> dict | None:
         """One request over the tree's outline -> routes, pages and data model
@@ -5921,7 +5913,7 @@ class Flow:
 
     def derived_note(self) -> str:
         if getattr(self, 'frozen_suite', None):
-            from embedded_suites import generation_note
+            from octos_tests import generation_note
             return generation_note(self.tests_dir)
         return DERIVED_SPECS_NOTE if getattr(self, "derived_as_specs", False) else ""
 
@@ -6037,7 +6029,7 @@ class Flow:
         template = DERIVED_REPAIR_PROMPT if getattr(self, "derived_as_specs", False) else REPAIR_PROMPT
         result = template.format(**fields)
         if getattr(self, 'frozen_suite', None):
-            result = result.replace('official acceptance tests', 'reviewed internal derived tests').replace('official tests', 'reviewed internal derived tests')
+            result = result.replace('official acceptance tests', 'octos-provided tests').replace('official tests', 'octos-provided tests')
         node = getattr(self, 'requirement_nodes', {}).get(fields.get('node_id'), {})
         form_context = str(node.get('description') or '') + '\n' + str(fields.get('failures') or '')
         if re.search(r'\b(?:form|password|e-?mail|validat\w*|register|registration)\b', form_context, re.I):
@@ -6047,8 +6039,8 @@ class Flow:
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         result = self._tests_prompt_for(node_id, skeleton)
         if getattr(self, 'frozen_suite', None):
-            result = (result.replace('official Playwright specs', 'source-reviewed internal derived Playwright specs')
-                      .replace('PUBLIC ACCEPTANCE TESTS', 'SOURCE-REVIEWED INTERNAL DERIVED TESTS'))
+            result = (result.replace('official Playwright specs', 'octos-provided Playwright specs')
+                      .replace('PUBLIC ACCEPTANCE TESTS', 'OCTOS TEST SUITE'))
         return result
 
     def _tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
@@ -6578,12 +6570,6 @@ class Flow:
         if selected_runner is None:
             return RunSummary(error='acceptance runner unavailable')
         workers = self.spec_workers(workers, selected_runner)
-        if getattr(self, 'frozen_suite', None):
-            from embedded_suites import verify_directory
-            try:
-                verify_directory(self.tests_dir, self.original_requirement_tree, self.frozen_suite['name'], self.frozen_suite)
-            except (OSError, ValueError, KeyError) as exc:
-                return RunSummary(error=f'Derived test suite integrity check failed: {exc}')
         if (getattr(self, 'derived_as_specs', False) is True and not basic
                 and (not self.tests_dir or self.tests_dir != getattr(self, "derived_tests_dir", None))):
             return RunSummary(error='generated suite origin mismatch')
@@ -6854,7 +6840,7 @@ class Flow:
             if not row.ok:
                 self.record_quality_observation(
                     node_id, row.title, row.message or row.status,
-                    source="derived" if getattr(self, "derived_as_specs", False) else ("embedded_reviewed" if getattr(self, "frozen_suite", None) else "official"),
+                    source="derived" if getattr(self, "derived_as_specs", False) else ("octos" if getattr(self, "frozen_suite", None) else "official"),
                     reliable=(not getattr(self, "derived_as_specs", False)
                               or self.trusted_derived_case(node_id, row.title)), source_hash=source_hash)
         try:
@@ -7722,7 +7708,7 @@ class Flow:
                     log(f'[acceptance] {node_id}: internal alternative-text locator conflicts with required field errors; case remains unverified')
                     return None
             if measured and failed_rows:
-                source = 'derived' if getattr(self, 'derived_as_specs', False) else ('embedded_reviewed' if getattr(self, 'frozen_suite', None) else 'official')
+                source = 'derived' if getattr(self, 'derived_as_specs', False) else ('octos' if getattr(self, 'frozen_suite', None) else 'official')
                 requirement_node = getattr(self, 'requirement_nodes', {}).get(node_id, {})
                 core_text = str(requirement_node.get('description') or '') + ' ' + json.dumps(requirement_node.get('scenarios') or [], ensure_ascii=False)
                 core = not core_text and source == 'official' or bool(re.search('sign.?in|sign.?out|password|permission|access|persist|save|formula|delete', core_text, re.I))
@@ -13872,7 +13858,7 @@ class Flow:
             if getattr(self, 'frozen_suite', None) and getattr(self, 'test_specs_trusted', False):
                 from frozen_setup import frozen_setup_dependencies, setup_generation_order
                 self._frozen_setup_dependencies = frozen_setup_dependencies(
-                    self.tests_dir, self.frozen_suite, tree)
+                    self.tests_dir, tree)
                 ordered, cycles = setup_generation_order(tree, self._frozen_setup_dependencies)
                 node_ids = [str(node['id']) for node in ordered]
                 self.metric('frozen_setup_order', node_ids=node_ids, preparation_cycles=cycles)
@@ -14206,10 +14192,10 @@ def coordinated_main() -> int:
     parser = argparse.ArgumentParser(description="Octos agent bundle for ARC-Bench")
     parser.add_argument("requirement_path", nargs="?", default=os.environ.get("ARCBENCH_TASK_DIR", "/workspace/task"))
     parser.add_argument("--test-suite", default=os.environ.get("OCTOS_ARC_TEST_SUITE"),
-                        help="Embedded reviewed suite name (default: match original requirement title)")
+                        help="Task identity passed to octos test generation (default: requirement title and ID)")
     parser.add_argument("--trusted-tests", action="store_true",
                         default=os.environ.get("OCTOS_ARC_TRUSTED_TESTS") == "1",
-                        help="Request octos test-suite generation; trusted results skip spec generation/review, failures use the mechanical pipeline")
+                        help="Compatibility option: octos is always consulted; trusted results skip spec planning")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--type", "--app-type", dest="app_type", default="web")
     parser.add_argument("--web-port", type=int,

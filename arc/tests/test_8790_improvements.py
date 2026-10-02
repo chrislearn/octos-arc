@@ -11,7 +11,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import yaml
-from frozen_setup import (frozen_setup_dependencies, github_setup_features,
+from github_test_setup import github_setup_features
+from frozen_setup import (frozen_setup_dependencies,
                           missing_setup, setup_generation_order)
 from llm_proxy import LlmProxy
 from main import Flow
@@ -107,7 +108,7 @@ class FrozenSetupTests(unittest.TestCase):
     def setUp(self):
         self.directory = ROOT / 'derived-tests/hackathon--github'
         self.tree = yaml.safe_load((ROOT / 'tasks/hackathon--github/requirements.yaml').read_text())
-        self.setup = frozen_setup_dependencies(self.directory, {'name': 'hackathon--github'}, self.tree)
+        self.setup = frozen_setup_dependencies(self.directory, self.tree)
 
     def test_org_and_team_entry_closure_includes_search_and_overview(self):
         for owner in ('REQ-2-1-1', 'REQ-2-2-1'):
@@ -159,18 +160,17 @@ class FrozenSetupTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in flow.acceptance_loop.call_args_list], expected)
         self.assertEqual(flow._frozen_setup_dependencies, self.setup)
 
-    def test_legacy_manifest_without_setup_still_uses_actual_public_helper_chain(self):
+    def test_setup_comes_from_command_metadata_without_helper_or_catalogue(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
-            for name in ('case-plan.json', 'helpers.ts', 'REQ-2-2-1.spec.ts'):
-                (directory / name).write_bytes((self.directory / name).read_bytes())
-            rows = json.loads((directory / 'case-plan.json').read_text())
-            rows = [row for row in rows if row['file'] == 'REQ-2-2-1.spec.ts']
-            for row in rows:
-                row.pop('setup_requires', None)
-            (directory / 'case-plan.json').write_text(json.dumps(rows))
-            inferred = frozen_setup_dependencies(directory, {'name': 'hackathon--github'}, self.tree)
-            self.assertLessEqual({'REQ-3-1', 'REQ-3-3'}, inferred['REQ-2-2-1'])
+            tree = {'id':'ROOT','children':[{'id':'A'},{'id':'B'}]}
+            (directory/'case-plan.json').write_text(json.dumps([
+                {'node_id':'A','phase':'node','setup_requires':['B'],'requires':['A']},
+                {'node_id':'B','phase':'node','setup_requires':[],'requires':['B']},
+            ]))
+            self.assertEqual(frozen_setup_dependencies(directory, tree), {'A': {'B'}, 'B': set()})
+            (directory/'case-plan.json').write_text('[{"node_id":"A","phase":"node","requires":["A"]}]')
+            self.assertEqual(frozen_setup_dependencies(directory, tree), {})
 
     def test_acceptance_waits_without_browser_or_repair_then_resumes_once(self):
         with tempfile.TemporaryDirectory() as folder:

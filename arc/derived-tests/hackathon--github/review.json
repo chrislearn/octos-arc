@@ -5256,7 +5256,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "bc987eaae912ae6758cd3b8c6dd860d35988f4e4a03f418d22f709feca1cdbe0",
+      "file_sha256": "dd0992b7e4458b5d5512f7a390f898beee6b6d445bff77b6ea796c95b8b93b0d",
       "requirement_quotes": {
         "REQ-5-1-1": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5281,7 +5281,29 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "bc987eaae912ae6758cd3b8c6dd860d35988f4e4a03f418d22f709feca1cdbe0",
+      "file_sha256": "dd0992b7e4458b5d5512f7a390f898beee6b6d445bff77b6ea796c95b8b93b0d",
+      "requirement_quotes": {
+        "REQ-5-1-1": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-5-1-1",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-5-1-1"
+      ],
+      "setup_requires": [],
+      "title": "REQ-5-1-1: home workspace: a fresh visitor opens Issues directly and filters persisted rows",
+      "file": "REQ-5-1-1.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
+      "file_sha256": "dd0992b7e4458b5d5512f7a390f898beee6b6d445bff77b6ea796c95b8b93b0d",
       "requirement_quotes": {
         "REQ-5-1-1": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5306,7 +5328,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "bc987eaae912ae6758cd3b8c6dd860d35988f4e4a03f418d22f709feca1cdbe0",
+      "file_sha256": "dd0992b7e4458b5d5512f7a390f898beee6b6d445bff77b6ea796c95b8b93b0d",
       "requirement_quotes": {
         "REQ-5-1-1": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5332,7 +5354,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "ccd33e38b1657dead5f4fc1f8c896c1e1879934caf04cf31cf45c548d1d65031",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
       "requirement_quotes": {
         "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5358,7 +5380,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "ccd33e38b1657dead5f4fc1f8c896c1e1879934caf04cf31cf45c548d1d65031",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
       "requirement_quotes": {
         "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5384,7 +5406,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "ccd33e38b1657dead5f4fc1f8c896c1e1879934caf04cf31cf45c548d1d65031",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
       "requirement_quotes": {
         "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5406,7 +5428,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "ccd33e38b1657dead5f4fc1f8c896c1e1879934caf04cf31cf45c548d1d65031",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
       "requirement_quotes": {
         "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5431,7 +5453,73 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "ccd33e38b1657dead5f4fc1f8c896c1e1879934caf04cf31cf45c548d1d65031",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
+      "requirement_quotes": {
+        "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-5-1-2",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-5-1-2"
+      ],
+      "setup_requires": [],
+      "title": "REQ-5-1-2: home workspace: every seeded issue entry is discoverable directly by its title",
+      "file": "REQ-5-1-2.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
+      "requirement_quotes": {
+        "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-5-1-2",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-5-1-2"
+      ],
+      "setup_requires": [],
+      "title": "REQ-5-1-2: home workspace: colliding titles remain operable with repository-specific accessible names",
+      "file": "REQ-5-1-2.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
+      "requirement_quotes": {
+        "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-5-1-2",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-5-1-2"
+      ],
+      "setup_requires": [],
+      "title": "REQ-5-1-2: home workspace: repository search still presents exact repository results without work-item duplicates",
+      "file": "REQ-5-1-2.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
       "requirement_quotes": {
         "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5457,7 +5545,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
-      "file_sha256": "ccd33e38b1657dead5f4fc1f8c896c1e1879934caf04cf31cf45c548d1d65031",
+      "file_sha256": "a710718c79a7665a6def7ef4d5b7a273e387fb51f8f5c887506f7ee12977aa29",
       "requirement_quotes": {
         "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)"
       },
@@ -5589,7 +5677,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
-      "file_sha256": "935ea873b25fb92c87ab7c23f661dae53055c7ace4baae5dca2ea9f5c8063b73",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
       "requirement_quotes": {
         "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
       },
@@ -5617,8 +5705,48 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
-      "file_sha256": "935ea873b25fb92c87ab7c23f661dae53055c7ace4baae5dca2ea9f5c8063b73",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
       "requirement_quotes": {
+        "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-5-2-2",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2",
+        "REQ-1-2",
+        "REQ-3-2-1",
+        "REQ-5-1-1",
+        "REQ-5-1-2",
+        "REQ-5-2-1",
+        "REQ-5-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-1",
+        "REQ-1-1-2",
+        "REQ-1-2"
+      ],
+      "title": "REQ-5-2-2: home workspace: a newly created private issue can be renamed, rediscovered, and remains private after sign-out",
+      "file": "REQ-5-2-2.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
+      "requirement_quotes": {
+        "REQ-1-1-1": "The registration page is the form opened by the unique link named “Create an account” from the sign-in page. The form contains exactly one textbox labeled “Username”, one textbox labeled “Email”, one password input labeled “Password”, one password input labeled “Confirm password”, one initially unchecked checkbox named “Agree to the terms”, and one enabled button named “Create account”. The username and email identify the account, while passwords must not be echoed on the page. This product directly marks the email of a successfully registered account as verified and does not provide a subsequent email-verification page. The visitor enters a unique username, email, password, and matching confirmation, checks “Agree to the terms”, and activates “Create account”. The username must consist of 1 to 39 lowercase ASCII letters, digits, or single hyphens (`-`) and must not begin or end with a hyphen; after trimming leading and trailing whitespace, the email must contain exactly one `@`, be no longer than 254 characters, and have at least one dot and non-empty domain labels after the `@`; the password must contain 12 to 128 characters, include at least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric special character, and contain no whitespace characters. The system stores a sign-in-capable account together with its verified-email status and enters the sign-in page; if the username or email conflicts, any field is missing, the email format is invalid, the terms are not accepted, the password is noncompliant, or the confirmation does not match, the system retains the username and email input, displays an itemized message beside the corresponding field, and does not create an account. The corresponding visible field message contains “Username already exists”, “Username format is invalid”, “Email format is invalid”, “Password requirements are not satisfied”, or “Agree to terms is required”, as applicable. Visitors can use this capability on the account-access page. The system validates input rules, displays field errors, and prevents duplicate accounts; on success, it directly creates an available account. Submitting several invalid fields together must show the username, email, password, and missing-terms messages together, rather than revealing only one error per submission; the submit button remains actionable so these messages can be read. For example, a username beginning with a hyphen, email “not-an-email”, password “short”, confirmation “different”, and unchecked terms produce these field errors and preserve the attempted username. A duplicate username paired with a different unused email displays “Username already exists” and retains both attempted values. A successful registration accepts a unique username, its email, and password; the sign-in form is immediately available, accepts that email, and the resulting signed-in username remains visible after reload.\n\nScreenshot reference:\n![image](reference/github-sign-up.png)",
+        "REQ-1-1-2": "This feature builds on the persisted objects. The sign-in page is the form on the account-access page containing “Username or email”, “Password”, and “Sign in”. A “session” is the current-browser login record saved after successful account authentication, represented in the frontend by the upper-right account menu and access to protected pages. The visitor enters a username or email and a password and submits the form. The system looks up the account and validates its credentials and availability status; if authentication fails due to an unknown username/email, incorrect password, or unavailable account, the system displays exactly the same generic failure message “Invalid credentials”, does not disclose whether the account exists or which credential was wrong, and does not create a session. After successful authentication, the system stores a session with a unique session identifier, account identifier, and active status, then redirects to the workspace accessible to that user; the session remains valid after refreshing or reopening the workspace, and subsequent protected organization, repository, and work-item requests must use this session to determine the current user.\n\nScreenshot reference:\n![image](reference/github-sign-in.png)",
+        "REQ-1-2": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The page contains exactly one button named “Account menu”; its menu contains exactly one link named “Sign out”. Activating it displays a dialog named “Sign out” with buttons named “Confirm sign out” and “Cancel”. The dialog explains that sign-out affects only the current browser session. Only “Confirm sign out” invalidates the session, while “Cancel” or closing the dialog retains the current session and page. After confirming, refresh, browser back navigation, or directly reopening a previously accessible protected account, repository, or organization page restores an unauthenticated state and displays the “Sign in” link.\n\nScreenshot reference:\n![image](reference/github-account-menu-sign-out.png)",
+        "REQ-3-2-1": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The signed-in workspace provides a “New repository” link. The form labels are “Owner”, “Repository name”, and “Description”; the signed-in user's personal namespace is selected by default, so it is possible to submit without changing the owner. Visibility choices are radio controls “Public” and “Private”; initialization is a checkbox “Add a README file”; submission uses the button “Create repository”. Other defaults must allow duplicate-name and empty-name validation without further input. A successful initialized private repository shows a heading containing the new name, a visible Private marker, and a README file link; the overview persists after reload. The optional description “Repository created by Playwright” is saved when entered. An existing repository in this same default personal namespace is supplied for duplicate validation, which stays on the form and does not open the existing repository heading. On the repository-creation page, a signed-in user selects a personal or organization owner, enters a repository name and description, selects public or private visibility, and chooses whether to create an initial commit with a README. The system verifies that the user may create a repository in that owner's namespace, that the name is unique, and that the options are valid; on success, it stores the repository identifier, owner, visibility, default branch, and creator. If initialization is selected, it must also atomically create the initial branch, README file, and initial commit; failure at any step must leave no partially created repository. On success, the new repository overview page is opened.\n\nScreenshot reference:\n![image](reference/github-create-repository.png)",
+        "REQ-5-1-1": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
+        "REQ-5-1-2": "The issue detail page is the read view for one uniquely numbered work item within a repository. Its heading exposes the complete issue title without the issue number, and the page displays the current Open or Closed status, the complete saved description, and discussion or activity content. Repository-view permission is sufficient to read this saved data; editable controls are available only to roles authorized for the corresponding operation. The seeded public repository `acme-docs` contains the Open issue `Improve onboarding` with description `Describe the onboarding improvement.` and discussion or activity text. Opening the issue from a visible issue entry, reloading its detail page, or reopening it from the application home page preserves the same title, description, and status.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
+        "REQ-5-2-1": "A signed-in user with issue-write permission opens the current repository's\nIssues page and follows the `New issue` link. The form has fields labeled\n`Title` and `Description` and a `Submit new issue` button. A valid submission\nstores the repository, title, optional description, author, creation time, and\nOpen status, assigns a unique repository-scoped number, and opens the new issue\ndetail page. The exact entered title is used as the detail heading and issue-list\nlink, and the exact description is visible. A title containing only whitespace\nis rejected with a title-required message and creates no issue.\n\nScreenshot reference:\n![image](reference/github-new-issue.png)",
         "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
       },
       "runtime_status": "not_run_against_product"
@@ -5645,7 +5773,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
-      "file_sha256": "935ea873b25fb92c87ab7c23f661dae53055c7ace4baae5dca2ea9f5c8063b73",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
       "requirement_quotes": {
         "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
       },
@@ -5673,7 +5801,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
-      "file_sha256": "935ea873b25fb92c87ab7c23f661dae53055c7ace4baae5dca2ea9f5c8063b73",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
       "requirement_quotes": {
         "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
       },
@@ -5701,7 +5829,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
-      "file_sha256": "935ea873b25fb92c87ab7c23f661dae53055c7ace4baae5dca2ea9f5c8063b73",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
       "requirement_quotes": {
         "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
       },
@@ -5729,7 +5857,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
-      "file_sha256": "935ea873b25fb92c87ab7c23f661dae53055c7ace4baae5dca2ea9f5c8063b73",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
       "requirement_quotes": {
         "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
       },
@@ -5757,7 +5885,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`.",
-      "file_sha256": "935ea873b25fb92c87ab7c23f661dae53055c7ace4baae5dca2ea9f5c8063b73",
+      "file_sha256": "575ea825363428c08a8de119662deaafcf928fbf316a657814cdf06c0afa9216",
       "requirement_quotes": {
         "REQ-5-2-2": "Only a signed-in user with Write, Maintain, or Admin may use the unique `Edit issue title` and `Edit issue description` buttons. The title form has `Issue title` and `Save issue title`; the description form has `Issue description` and `Save issue description`. Each save updates only its selected field and persists the new value. Empty titles are rejected, the original value is retained, and reload shows the unchanged original title. The separate invalid edit seed is an issue titled `Original issue title`."
       },
@@ -6385,7 +6513,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)",
-      "file_sha256": "5fb7fec3e04f29cd5760513147b92aa879e7c3a3b34907b9dd21242fd6cf54f1",
+      "file_sha256": "63397ce1224b5178327f6c413f4d7e7babceb49b32ed3ea8a52e866097cf303a",
       "requirement_quotes": {
         "REQ-6-1": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)"
       },
@@ -6411,7 +6539,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)",
-      "file_sha256": "5fb7fec3e04f29cd5760513147b92aa879e7c3a3b34907b9dd21242fd6cf54f1",
+      "file_sha256": "63397ce1224b5178327f6c413f4d7e7babceb49b32ed3ea8a52e866097cf303a",
       "requirement_quotes": {
         "REQ-6-1": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)"
       },
@@ -6439,8 +6567,38 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)",
-      "file_sha256": "5fb7fec3e04f29cd5760513147b92aa879e7c3a3b34907b9dd21242fd6cf54f1",
+      "file_sha256": "63397ce1224b5178327f6c413f4d7e7babceb49b32ed3ea8a52e866097cf303a",
       "requirement_quotes": {
+        "REQ-6-1": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-6-1",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-1-1-2",
+        "REQ-3-2-1",
+        "REQ-4-3-3",
+        "REQ-6-1"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
+      "title": "REQ-6-1: home workspace: a created protection rule has an unambiguous branch summary after reload",
+      "file": "REQ-6-1.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)",
+      "file_sha256": "63397ce1224b5178327f6c413f4d7e7babceb49b32ed3ea8a52e866097cf303a",
+      "requirement_quotes": {
+        "REQ-1-1-2": "This feature builds on the persisted objects. The sign-in page is the form on the account-access page containing “Username or email”, “Password”, and “Sign in”. A “session” is the current-browser login record saved after successful account authentication, represented in the frontend by the upper-right account menu and access to protected pages. The visitor enters a username or email and a password and submits the form. The system looks up the account and validates its credentials and availability status; if authentication fails due to an unknown username/email, incorrect password, or unavailable account, the system displays exactly the same generic failure message “Invalid credentials”, does not disclose whether the account exists or which credential was wrong, and does not create a session. After successful authentication, the system stores a session with a unique session identifier, account identifier, and active status, then redirects to the workspace accessible to that user; the session remains valid after refreshing or reopening the workspace, and subsequent protected organization, repository, and work-item requests must use this session to determine the current user.\n\nScreenshot reference:\n![image](reference/github-sign-in.png)",
+        "REQ-3-2-1": "This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes. The signed-in workspace provides a “New repository” link. The form labels are “Owner”, “Repository name”, and “Description”; the signed-in user's personal namespace is selected by default, so it is possible to submit without changing the owner. Visibility choices are radio controls “Public” and “Private”; initialization is a checkbox “Add a README file”; submission uses the button “Create repository”. Other defaults must allow duplicate-name and empty-name validation without further input. A successful initialized private repository shows a heading containing the new name, a visible Private marker, and a README file link; the overview persists after reload. The optional description “Repository created by Playwright” is saved when entered. An existing repository in this same default personal namespace is supplied for duplicate validation, which stays on the form and does not open the existing repository heading. On the repository-creation page, a signed-in user selects a personal or organization owner, enters a repository name and description, selects public or private visibility, and chooses whether to create an initial commit with a README. The system verifies that the user may create a repository in that owner's namespace, that the name is unique, and that the options are valid; on success, it stores the repository identifier, owner, visibility, default branch, and creator. If initialization is selected, it must also atomically create the initial branch, README file, and initial commit; failure at any step must leave no partially created repository. On success, the new repository overview page is opened.\n\nScreenshot reference:\n![image](reference/github-create-repository.png)",
+        "REQ-4-3-3": "A repository Admin or organization Owner can change the default branch from Settings → Branches. The “Default branch” native select exposes existing branch names as options; selecting a different branch and activating “Update” opens a confirmation flow, and “Confirm” saves the choice. The default branch is the branch shown when the repository is opened without an explicit branch; changing it does not delete or rewrite the previous branch, its commits, or its files. Read, Triage, and other non-administrator users may view repository content but must not receive an actionable default-branch combobox or update button. The saved setting is associated with the repository and remains effective after reopening.\n\nScreenshot reference:\n![image](reference/github-default-branch-settings.png)",
         "REQ-6-1": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)"
       },
       "runtime_status": "not_run_against_product"
@@ -6465,7 +6623,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)",
-      "file_sha256": "5fb7fec3e04f29cd5760513147b92aa879e7c3a3b34907b9dd21242fd6cf54f1",
+      "file_sha256": "63397ce1224b5178327f6c413f4d7e7babceb49b32ed3ea8a52e866097cf303a",
       "requirement_quotes": {
         "REQ-6-1": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)"
       },
@@ -6491,7 +6649,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)",
-      "file_sha256": "5fb7fec3e04f29cd5760513147b92aa879e7c3a3b34907b9dd21242fd6cf54f1",
+      "file_sha256": "63397ce1224b5178327f6c413f4d7e7babceb49b32ed3ea8a52e866097cf303a",
       "requirement_quotes": {
         "REQ-6-1": "A branch protection rule is persistent data bound to an exact branch.\nA repository Admin can open Settings and Branches, create a rule with `Branch\nname pattern`, `Require 1 approval`, and `Require status check test`, and see it\nafter reload. Non-Admins cannot create the rule. On an Open PR, an Admin can set\nthe `test` check from pending to success; the saved status and setter remain after\nreload. Each scenario has independent accounts and seed state.\n\nScreenshot reference:\n![image](reference/github-branch-protection.png)"
       },
@@ -6516,7 +6674,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
-      "file_sha256": "b68bc7960452e45765c72ed89627e067a65156e92d467097cb598ba09c520a71",
+      "file_sha256": "138cf8ef7d337fca263d68705db02aace90987be880202af772b428f44d22dc4",
       "requirement_quotes": {
         "REQ-6-2-1": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page."
       },
@@ -6541,7 +6699,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
-      "file_sha256": "b68bc7960452e45765c72ed89627e067a65156e92d467097cb598ba09c520a71",
+      "file_sha256": "138cf8ef7d337fca263d68705db02aace90987be880202af772b428f44d22dc4",
       "requirement_quotes": {
         "REQ-6-2-1": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page."
       },
@@ -6566,7 +6724,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
-      "file_sha256": "b68bc7960452e45765c72ed89627e067a65156e92d467097cb598ba09c520a71",
+      "file_sha256": "138cf8ef7d337fca263d68705db02aace90987be880202af772b428f44d22dc4",
       "requirement_quotes": {
         "REQ-6-2-1": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page."
       },
@@ -6593,10 +6751,54 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
-      "file_sha256": "b68bc7960452e45765c72ed89627e067a65156e92d467097cb598ba09c520a71",
+      "file_sha256": "138cf8ef7d337fca263d68705db02aace90987be880202af772b428f44d22dc4",
       "requirement_quotes": {
         "REQ-3-3": "The repository overview identifies a seeded public repository in a visible heading, displays a “Public” marker, and provides a navigation link “Code” distinct from the clone-menu Code button. The public repository is readable without sign-in and retains its heading after reload.\n\nScreenshot reference:\n![image](reference/github-repository-overview.png)",
         "REQ-5-1-1": "This feature builds on the public repository overview provided by REQ-3-3 (View a Public Repository Overview). Users with repository-view permission can read issue rows for the current repository on the Issues list page. “Open” and “Closed” are links that select status views, and the unique searchbox named “Search issues” filters matching rows as the user types without requiring Enter or a separate search button. Each result title is a link whose exact accessible name is the title. Filtering is read-only and does not modify issue data. Seed data provides public repository `acme-docs`, an Open issue titled `Improve onboarding`, and a Closed issue titled `Legacy welcome text`. The Open filter plus the known open title continues to show the matching issue after reload; the Closed filter plus the known closed title shows the closed issue and excludes the open issue.\n\nScreenshot reference:\n![image](reference/github-issues-list.png)",
+        "REQ-6-2-1": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-6-2-1",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-6-2-1"
+      ],
+      "setup_requires": [],
+      "title": "REQ-6-2-1: home workspace: a fresh visitor opens Pull requests directly",
+      "file": "REQ-6-2-1.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
+      "file_sha256": "138cf8ef7d337fca263d68705db02aace90987be880202af772b428f44d22dc4",
+      "requirement_quotes": {
+        "REQ-6-2-1": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-6-2-1",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-6-2-1"
+      ],
+      "setup_requires": [],
+      "title": "REQ-6-2-1: home workspace: changing the repository changes the collaboration destination",
+      "file": "REQ-6-2-1.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
+      "file_sha256": "138cf8ef7d337fca263d68705db02aace90987be880202af772b428f44d22dc4",
+      "requirement_quotes": {
         "REQ-6-2-1": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page."
       },
       "runtime_status": "not_run_against_product"
@@ -6620,7 +6822,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page.",
-      "file_sha256": "b68bc7960452e45765c72ed89627e067a65156e92d467097cb598ba09c520a71",
+      "file_sha256": "138cf8ef7d337fca263d68705db02aace90987be880202af772b428f44d22dc4",
       "requirement_quotes": {
         "REQ-6-2-1": "The public Pull requests page lists current-repository PRs. The `Open` link filters the list without changing data. The seeded Open PR title is an exact link that opens a detail heading, remains after reload, and can be found again after returning from the home page."
       },
@@ -6646,7 +6848,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
-      "file_sha256": "5e9e4c45b5c2679a6a89514b72d0f8b1cb14800f7ae10e0d42ed8e0ba1351085",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
       "requirement_quotes": {
         "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
       },
@@ -6672,7 +6874,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
-      "file_sha256": "5e9e4c45b5c2679a6a89514b72d0f8b1cb14800f7ae10e0d42ed8e0ba1351085",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
       "requirement_quotes": {
         "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
       },
@@ -6698,7 +6900,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
-      "file_sha256": "5e9e4c45b5c2679a6a89514b72d0f8b1cb14800f7ae10e0d42ed8e0ba1351085",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
       "requirement_quotes": {
         "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
       },
@@ -6722,7 +6924,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
-      "file_sha256": "5e9e4c45b5c2679a6a89514b72d0f8b1cb14800f7ae10e0d42ed8e0ba1351085",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
       "requirement_quotes": {
         "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
       },
@@ -6748,7 +6950,31 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
-      "file_sha256": "5e9e4c45b5c2679a6a89514b72d0f8b1cb14800f7ae10e0d42ed8e0ba1351085",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
+      "requirement_quotes": {
+        "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-6-2-2",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-6-2-2"
+      ],
+      "setup_requires": [
+        "REQ-1-1-2"
+      ],
+      "title": "REQ-6-2-2: home workspace: a fresh sign-in can open Compare without an inserted repository step",
+      "file": "REQ-6-2-2.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
       "requirement_quotes": {
         "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
       },
@@ -6775,7 +7001,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
-      "file_sha256": "5e9e4c45b5c2679a6a89514b72d0f8b1cb14800f7ae10e0d42ed8e0ba1351085",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
       "requirement_quotes": {
         "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
       },
@@ -6802,7 +7028,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)",
-      "file_sha256": "5e9e4c45b5c2679a6a89514b72d0f8b1cb14800f7ae10e0d42ed8e0ba1351085",
+      "file_sha256": "4dbe1b6f6d957601db33b4fa4f955e00d562dfd0edde2d5b44a38ea1bbe76d42",
       "requirement_quotes": {
         "REQ-6-2-2": "A signed-in contributor can use the New pull request comparison page.\nBase and Compare comboboxes select branches and `Compare changes` displays the\nseeded changed file and commit information. `main` versus `feature-search` is\ncomparable; selecting `main` for both sides reports identical/no differences\nand prevents creation.\n\nScreenshot reference:\n![image](reference/github-compare-branches.png)"
       },
@@ -8382,7 +8608,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
-      "file_sha256": "3291bddcd81afd605b68c4d573296342d71808ece209e49e722b46eef47f8cad",
+      "file_sha256": "86685d01908964a4a92b1faa9f87f6bf7a39b22724c41d26e445116a63841243",
       "requirement_quotes": {
         "REQ-6-6": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes."
       },
@@ -8410,7 +8636,29 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
-      "file_sha256": "3291bddcd81afd605b68c4d573296342d71808ece209e49e722b46eef47f8cad",
+      "file_sha256": "86685d01908964a4a92b1faa9f87f6bf7a39b22724c41d26e445116a63841243",
+      "requirement_quotes": {
+        "REQ-6-6": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes."
+      },
+      "runtime_status": "not_run_against_product"
+    },
+    {
+      "node_id": "REQ-6-6",
+      "fixture": null,
+      "phase": "node",
+      "requires": [
+        "REQ-6-6"
+      ],
+      "setup_requires": [],
+      "title": "REQ-6-6: home workspace: named PR entries across repositories open their saved details",
+      "file": "REQ-6-6.spec.ts",
+      "status": "reviewed",
+      "frozen": true,
+      "reviewer": "Codex source review",
+      "review_date": "2026-10-03",
+      "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
+      "requirement_quote": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
+      "file_sha256": "86685d01908964a4a92b1faa9f87f6bf7a39b22724c41d26e445116a63841243",
       "requirement_quotes": {
         "REQ-6-6": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes."
       },
@@ -8438,7 +8686,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
-      "file_sha256": "3291bddcd81afd605b68c4d573296342d71808ece209e49e722b46eef47f8cad",
+      "file_sha256": "86685d01908964a4a92b1faa9f87f6bf7a39b22724c41d26e445116a63841243",
       "requirement_quotes": {
         "REQ-6-6": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes."
       },
@@ -8466,7 +8714,7 @@
       "review_date": "2026-10-03",
       "basis": "Atomic description + inherited role, scope, state and entry contracts; source review only",
       "requirement_quote": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
-      "file_sha256": "3291bddcd81afd605b68c4d573296342d71808ece209e49e722b46eef47f8cad",
+      "file_sha256": "86685d01908964a4a92b1faa9f87f6bf7a39b22724c41d26e445116a63841243",
       "requirement_quotes": {
         "REQ-6-6": "The PR page provides Close pull request and Reopen pull request as buttons for authorized users. Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open. After reload, Close pull request is available again. For a viewer who is neither author nor Maintain/Admin/Owner, both controls are absent, rather than merely disabled or rejected after activation. Seed data supplies the author and a separate Read viewer, an authored Open PR for the close/reopen cycle, and a separate Open PR readable by that viewer for permission validation. When the proposed change should not proceed, the PR author, Maintain, Admin, or organization Owner may close an unmerged Open or Draft PR without merging; the same roles may reopen a Closed PR as Open. The system stores the status, operator, and time and records the transition, while keeping the PR discussion, reviews, diff, and branch references viewable; closing or reopening must not update any branch. Merged is terminal, the page does not display close or reopen operations, and the server rejects status changes. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results) and REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes."
       },

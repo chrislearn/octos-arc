@@ -13,6 +13,21 @@ test("REQ-5-2-2: requirement scenario 2", async ({ page, browser }) => {
   await h.signIn(page,"issue-editor"); await h.scenarioIssue(page,"Original issue title"); await h.button(page,'Edit issue title').click(); await h.field(page,'Issue title').fill('   '); await h.button(page,'Save issue title').click(); await expect(h.titleRequiredReason(page).first()).toBeVisible(); await page.reload(); await expect(page.getByRole('heading',{name:'Original issue title',exact:true})).toBeVisible();
 });
 
+test("REQ-5-2-2: home workspace: a newly created private issue can be renamed, rediscovered, and remains private after sign-out", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const account=await h.register(page); await h.signIn(page,account.username); await h.link(page,'New repository').click();
+  const repository=h.unique('workspace-private'), title=h.unique('Workspace issue'), renamed=title+' renamed';
+  await h.field(page,'Repository name').fill(repository); await page.getByRole('radio',{name:'Private',exact:true}).check();
+  await h.button(page,'Create repository').click(); await h.link(page,'Issues').click(); await h.link(page,'New issue').click();
+  await h.field(page,'Title').fill(title); await h.field(page,'Description').fill('Created through the visible interface.');
+  await h.button(page,'Submit new issue').click(); await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();
+  await h.home(page); await h.link(page,title).click(); await h.button(page,'Edit issue title').click();
+  await h.field(page,'Issue title').fill(renamed); await h.button(page,'Save issue title').click();
+  await h.home(page); await expect(h.link(page,renamed)).toBeVisible(); await expect(h.link(page,title)).toHaveCount(0);
+  await h.signOut(page); await expect(h.link(page,renamed)).toHaveCount(0); await page.reload();
+  await expect(h.link(page,renamed)).toHaveCount(0); await expect(h.link(page,repository)).toHaveCount(0);
+});
+
 test("REQ-5-2-2: Maintain saves issue title and body with separate commit actions and persists both", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'pr-maintainer'); await h.issue(page,'issue-edit'); await h.button(page,'Edit issue title').click(); await h.field(page,'Issue title').fill('Updated onboarding title'); await h.button(page,'Save issue title').click(); await h.button(page,'Edit issue description').click(); await h.field(page,'Issue description').fill('Updated onboarding body'); await h.button(page,'Save issue description').click();

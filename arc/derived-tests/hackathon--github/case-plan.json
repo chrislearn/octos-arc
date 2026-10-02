@@ -2899,6 +2899,17 @@
     "requires": [
       "REQ-5-1-1"
     ],
+    "setup_requires": [],
+    "title": "REQ-5-1-1: home workspace: a fresh visitor opens Issues directly and filters persisted rows",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-1"
+    ],
     "setup_requires": [
       "REQ-3-1",
       "REQ-3-3"
@@ -2974,6 +2985,39 @@
       "REQ-3-3"
     ],
     "title": "REQ-5-1-2: reference navigation: an issue direct link and reload retain its repository and sibling navigation",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-5-1-2: home workspace: every seeded issue entry is discoverable directly by its title",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-5-1-2: home workspace: colliding titles remain operable with repository-specific accessible names",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-5-1-2: home workspace: repository search still presents exact repository results without work-item duplicates",
     "file": "REQ-5-1-2.spec.ts"
   },
   {
@@ -3083,6 +3127,28 @@
       "REQ-5-1-2"
     ],
     "title": "REQ-5-2-2: requirement scenario 2",
+    "file": "REQ-5-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-1-2",
+      "REQ-3-2-1",
+      "REQ-5-1-1",
+      "REQ-5-1-2",
+      "REQ-5-2-1",
+      "REQ-5-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-1-2"
+    ],
+    "title": "REQ-5-2-2: home workspace: a newly created private issue can be renamed, rediscovered, and remains private after sign-out",
     "file": "REQ-5-2-2.spec.ts"
   },
   {
@@ -3582,6 +3648,22 @@
   },
   {
     "node_id": "REQ-6-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-3-2-1",
+      "REQ-4-3-3",
+      "REQ-6-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-6-1: home workspace: a created protection rule has an unambiguous branch summary after reload",
+    "file": "REQ-6-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-1",
     "fixture": "protection-create",
     "phase": "node",
     "requires": [
@@ -3675,6 +3757,28 @@
     "requires": [
       "REQ-6-2-1"
     ],
+    "setup_requires": [],
+    "title": "REQ-6-2-1: home workspace: a fresh visitor opens Pull requests directly",
+    "file": "REQ-6-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-1"
+    ],
+    "setup_requires": [],
+    "title": "REQ-6-2-1: home workspace: changing the repository changes the collaboration destination",
+    "file": "REQ-6-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-1"
+    ],
     "setup_requires": [
       "REQ-3-1",
       "REQ-3-3"
@@ -3753,6 +3857,19 @@
       "REQ-3-3"
     ],
     "title": "REQ-6-2-2: reference navigation: comparison keeps repository identity and permits returning to the PR list",
+    "file": "REQ-6-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-6-2-2: home workspace: a fresh sign-in can open Compare without an inserted repository step",
     "file": "REQ-6-2-2.spec.ts"
   },
   {
@@ -4750,6 +4867,17 @@
       "REQ-6-3-1"
     ],
     "title": "REQ-6-6: requirement scenario 2",
+    "file": "REQ-6-6.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-6",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-6"
+    ],
+    "setup_requires": [],
+    "title": "REQ-6-6: home workspace: named PR entries across repositories open their saved details",
     "file": "REQ-6-6.spec.ts"
   },
   {

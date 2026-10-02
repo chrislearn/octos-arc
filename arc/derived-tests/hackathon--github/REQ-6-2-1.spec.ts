@@ -28,6 +28,20 @@ test("REQ-6-2-1: reference navigation: repository lists can switch Issues to Pul
   await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
 });
 
+test("REQ-6-2-1: home workspace: a fresh visitor opens Pull requests directly", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Pull requests').click();
+  await expect(h.link(page,'Overview onboarding PR')).toBeVisible(); await h.link(page,'Open').click();
+  await page.reload(); await expect(h.link(page,'Overview onboarding PR')).toBeVisible();
+});
+
+test("REQ-6-2-1: home workspace: changing the repository changes the collaboration destination", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.choose(page,'Workspace repository','Acme Demo/branch-protection-demo');
+  await h.link(page,'Pull requests').click(); await expect(h.link(page,'Protection status onboarding PR')).toBeVisible();
+  await expect(h.link(page,'Overview onboarding PR')).toHaveCount(0);
+});
+
 test("REQ-6-2-1: visitor Open PR list filter reads same persisted PR after repeated navigation", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.repo(page); await h.link(page,'Pull requests').click(); const list=page.url(); await h.link(page,'Open').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible(); await page.reload(); await h.link(page,'Improve onboarding').click(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await h.home(page); await page.goto(list); await h.link(page,'Open').click(); await expect(h.link(page,'Improve onboarding')).toBeVisible();

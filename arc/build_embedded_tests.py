@@ -465,7 +465,7 @@ for _rows in CASES['hackathon--sheet'].values():
         if _row['title'].startswith(('audit regression:', 'b5b932 regression:')):
             _row['requires'] = [_row['node_id']] + sorted((set(_row['requires']) | sheet_features(_row['body'])) - {_row['node_id']})
 
-from frozen_setup import annotate_github_setup
+from github_test_setup import annotate_github_setup
 CASES['hackathon--github'] = annotate_github_setup(CASES['hackathon--github'],
     (ROOT / 'hackathon--github/helpers.ts').read_text())
 

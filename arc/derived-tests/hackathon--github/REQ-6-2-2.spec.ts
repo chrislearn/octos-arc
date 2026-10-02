@@ -46,6 +46,13 @@ test("REQ-6-2-2: reference navigation: comparison keeps repository identity and 
   await expect(h.link(page,'Overview onboarding PR')).toBeVisible();
 });
 
+test("REQ-6-2-2: home workspace: a fresh sign-in can open Compare without an inserted repository step", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'pr-contributor'); await h.link(page,'Compare').click();
+  await h.chosen(page,'Base','main'); await h.choose(page,'Compare','feature-search');
+  await h.button(page,'Compare changes').click(); await expect(h.text(page,'src/search.ts')).toBeVisible();
+});
+
 test("REQ-6-2-2: Base/Compare comboboxes show exact changed file and comparable commits", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'file-contributor'); await h.compare(page,'pr-compare'); await expect(h.comparisonCommitInformation(page,'Implement search flow',1).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();

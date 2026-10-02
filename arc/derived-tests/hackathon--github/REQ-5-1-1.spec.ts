@@ -13,6 +13,14 @@ test("REQ-5-1-1: requirement scenario 2", async ({ page, browser }) => {
   await h.canonicalRepo(page);await h.link(page,'Issues').click(); await h.filterStatus(page,"Closed"); await page.getByRole('searchbox',{name:'Search issues',exact:true}).fill("Legacy welcome text"); await expect(h.link(page,"Legacy welcome text")).toBeVisible();
 });
 
+test("REQ-5-1-1: home workspace: a fresh visitor opens Issues directly and filters persisted rows", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Issues').click(); await h.link(page,'Open').click();
+  await page.getByRole('searchbox',{name:'Search issues',exact:true}).fill('Improve onboarding');
+  await expect(h.link(page,'Improve onboarding')).toBeVisible(); await page.reload();
+  await expect(h.link(page,'Improve onboarding')).toBeVisible();
+});
+
 test("REQ-5-1-1: Open/Closed live issue filters combine with keyword and survive refresh", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.repo(page); await h.link(page,'Issues').click(); await h.link(page,'Open').click(); await page.getByRole('searchbox',{name:'Search issues',exact:true}).fill('Improve onboarding'); await h.persisted(page, () => expect(h.link(page,'Improve onboarding')).toBeVisible());

@@ -73,7 +73,9 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 内嵌套件的源码同样位于 `arc/derived-tests/`，写入项目也使用 `derived-tests/`。目前 `INTEGRATION-*.spec.ts` 暂停使用：源码和二进制保留这些文件，项目导出只写入 `REQ-*.spec.ts`。导出后的 case-plan、review、计数和哈希都按实际节点测试重新绑定；`suite-origin.json` 记录忽略文件及完整内嵌源的身份。逐节点和最终回归目前只执行导出的节点测试。
 
-GitHub 冻结套件的 `case-plan.json` 用 `setup_requires` 记录公开测试入口的前置能力，与业务断言的 `requires` 分开。适配器先安排这些能力的实现；准备循环允许先构建各成员，验收等待其他成员的实现证据后补测，等待状态不算通过。旧冻结套件缺少该字段时，从已验证身份的 spec/helper 源补足入口依赖。`build_embedded_tests.py --task hackathon--github` 和 `audit_embedded_tests.py --freeze --task hackathon--github` 可独立构建、审核该套件，不覆盖其他套件。
+命令返回的 `case-plan.json` 用 `setup_requires` 记录公开测试入口的前置能力，与业务断言的 `requires` 分开。适配器先安排这些能力的实现；准备循环允许先构建各成员，验收等待其他成员的实现证据后补测，等待状态不算通过。套件缺少该字段时，使用原有需求依赖顺序。`build_embedded_tests.py --task hackathon--github` 和 `audit_embedded_tests.py --freeze --task hackathon--github` 可独立构建、审核该套件，不覆盖其他套件。
+
+上传包通过 `octos_tests.py` 调用 `octos arc generate-test-suite`，由命令决定使用什么测试。Python 只读取命令的信任结果和输出文件，不携带套件目录或名称映射，不读取套件来源清单，也不校验测试哈希、审核记录或业务模型。命令失败时保留已有验收测试，或进入原有测试规划流程。每次调用选择一个空闲的 `derived-tests/` 目录，保留此前的输出和用户文件。测试生成配方、源码审核工具及 `embedded_suites.py` 仅用于仓库开发，不进入上传包。
 
 测试数据并非一直累积到开发结束：
 

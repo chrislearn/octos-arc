@@ -265,13 +265,12 @@ def coordinated_main(args) -> int:
         runtime.traceability.store_requirement_tree(tree)
         tests_dir = legacy.locate_acceptance_tests(tree, BUNDLE_DIR)
         octos_bin = legacy.find_octos()
-        from embedded_suites import materialize, prefer_embedded
+        from octos_tests import generate_test_suite
         suite_name = getattr(args, 'test_suite', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
-        if suite_name or not tests_dir or prefer_embedded(args):
-            embedded = materialize(octos_bin, tree, output_dir, suite_name, log,
-                                   requirements_path=req_dir / 'requirements.yaml')
-            if embedded:
-                tests_dir, _manifest = embedded
+        generated = generate_test_suite(octos_bin, tree, output_dir, suite_name, log,
+                                        requirements_path=req_dir / 'requirements.yaml')
+        if generated:
+            tests_dir, _receipt = generated
         runtime.git.ensure_repo()
         spec_path = output_dir / ".arc" / "runner-spec.json"
         write_runner_spec(spec_path, req_dir=req_dir, output_dir=output_dir, web_port=args.web_port, tests_dir=tests_dir,

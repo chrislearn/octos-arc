@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 import yaml
-from embedded_suites import NAMES, materialize, requested_name, requirements_digest, verify_directory
+from embedded_suites import NAMES, requirements_digest, verify_directory
+from octos_tests import generate_test_suite, project_destination
 from main import Flow
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -156,19 +157,7 @@ class EmbeddedSuiteTests(unittest.TestCase):
         changed={**self.tree,'description':'different'}
         with self.assertRaises(ValueError): verify_directory(self.directory,changed,'hackathon--sheet')
 
-    def test_github_task_names_and_explicit_aliases_select_the_existing_suite(self):
-        for task in ['github', 'GitHub', 'GITHUB', 'hackathon--GitHub', 'arc-bench-web--GITHUB',
-                     'GitHub Collaboration Platform Core Requirements', 'github_sheet', 'myGithubTask']:
-            with self.subTest(task=task):
-                self.assertEqual(requested_name({'name':task}), 'hackathon--github')
-                self.assertEqual(requested_name({'id':task}), 'hackathon--github')
-                self.assertEqual(requested_name(self.tree,task), 'hackathon--github')
-        self.assertEqual(requested_name(self.tree), 'hackathon--sheet')
-        self.assertEqual(requested_name({'name':'Collaboration Platform','id':'GITHUB'}), 'hackathon--github')
-        self.assertIsNone(requested_name({'name':'another task'}))
-        self.assertEqual(requested_name({'name':'github'},'unknown'), 'unknown')
-
-    def test_github_prefers_embedded_generation_even_when_acceptance_specs_exist(self):
+    def test_octos_result_takes_precedence_over_existing_acceptance_specs(self):
         flow=Flow(argparse.Namespace(web_port=3000),self.root,self.root/'requirements')
         tree=yaml.safe_load((ROOT/'tasks/hackathon--github/requirements.yaml').read_text())
         flow.original_requirement_tree={**tree,'name':'arc-bench-web--GITHUB','description':'another GitHub task'}
@@ -177,34 +166,13 @@ class EmbeddedSuiteTests(unittest.TestCase):
         flow.metric=Mock()
         with patch('main.locate_acceptance_tests',return_value=self.directory), \
                 patch('main.find_octos',return_value='octos'), \
-                patch('embedded_suites.materialize',return_value=(directory,manifest)) as generate, \
+                patch('octos_tests.generate_test_suite',return_value=(directory,manifest)) as generate, \
                 patch('layered_tests.LayeredTests',side_effect=AssertionError('No spec generation')):
             flow.prepare_test_spec_source(flow.original_requirement_tree,[])
         generate.assert_called_once()
         self.assertTrue(flow.test_specs_trusted)
         self.assertEqual(flow.frozen_suite['name'],'hackathon--github')
         self.assertIsNone(flow.layered)
-
-    def test_github_materialization_reuses_source_suite_for_different_requirements(self):
-        from export_node_tests import export
-        from embedded_suites import project_destination
-        tree={'name':'GITHUB_variant','description':'different requirements'}
-        source=ROOT/'derived-tests/hackathon--github'
-        def generate(command,**kwargs):
-            self.assertIn('For task "hackathon--github"',command[command.index('--prompt')+1])
-            destination=Path(command[command.index('--output-dir')+1])
-            manifest=export(source,destination)
-            receipt={**manifest,'directory':str(destination),
-                     'manifest_sha256':hashlib.sha256((destination/'suite-origin.json').read_bytes()).hexdigest()}
-            return Mock(returncode=0,stdout=json.dumps(receipt))
-        with patch('embedded_suites.subprocess.run',side_effect=generate):
-            directory,manifest=materialize('octos',tree,self.root)
-        self.assertEqual(manifest['name'],'hackathon--github')
-        self.assertNotEqual(manifest['requirements_sha256'],requirements_digest(tree))
-        self.assertEqual(verify_directory(directory,tree,'hackathon--github',manifest),manifest)
-        self.assertEqual(project_destination(self.root,tree,'hackathon--github'),directory)
-        (directory/'helpers.ts').write_text('modified')
-        with self.assertRaises(ValueError): verify_directory(directory,tree,'hackathon--github',manifest)
 
     def test_changed_helper_missing_spec_and_extra_file_are_rejected(self):
         helper=self.directory/'helpers.ts'; original=helper.read_bytes(); helper.write_text('changed')
@@ -230,43 +198,39 @@ class EmbeddedSuiteTests(unittest.TestCase):
             verify_directory(self.directory,self.tree,'hackathon--sheet',original)
 
     def test_unknown_task_requests_prompt_generation_then_falls_back(self):
-        with patch('embedded_suites.subprocess.run',return_value=Mock(returncode=1,stdout='{"trusted":false}')) as run:
-            self.assertIsNone(materialize('octos',{'name':'another task'},self.root))
+        with patch('octos_tests.subprocess.run',return_value=Mock(returncode=1,stdout='{"trusted":false}')) as run:
+            self.assertIsNone(generate_test_suite('octos',{'name':'another task'},self.root))
         command=run.call_args.args[0]
         self.assertEqual(command[:3],['octos','arc','generate-test-suite'])
         self.assertIn('For task "another task"',command[command.index('--prompt')+1])
         self.assertIn('--exclude-integration',command)
         self.assertFalse((self.root/'derived-tests').exists())
 
-    def test_embedded_export_uses_derived_tests_and_preserves_existing_user_directories(self):
-        from embedded_suites import project_destination, PROJECT_EXPORT_POLICY
-        target=project_destination(self.root,self.tree,'hackathon--sheet')
+    def test_command_output_uses_a_new_directory_and_preserves_user_files(self):
+        target=project_destination(self.root)
         self.assertEqual(target,self.root/'derived-tests')
         target.mkdir(); (target/'user.txt').write_text('keep')
-        self.assertEqual(project_destination(self.root,self.tree,'hackathon--sheet'),self.root/'derived-tests-2')
-        reusable=self.root/'derived-tests-2'; reusable.mkdir()
-        (reusable/'suite-origin.json').write_text(json.dumps({'name':'hackathon--sheet','requirements_sha256':requirements_digest(self.tree),'export_policy':PROJECT_EXPORT_POLICY}))
-        self.assertEqual(project_destination(self.root,self.tree,'hackathon--sheet'),reusable)
+        self.assertEqual(project_destination(self.root),self.root/'derived-tests-2')
         self.assertEqual((target/'user.txt').read_text(),'keep')
 
     def test_failed_generation_falls_back_for_explicit_and_automatic_names(self):
-        with patch('embedded_suites.subprocess.run',return_value=Mock(returncode=1,stdout='{"trusted":false}')) as run:
-            self.assertIsNone(materialize('octos',self.tree,self.root,'unknown'))
+        with patch('octos_tests.subprocess.run',return_value=Mock(returncode=1,stdout='{"trusted":false}')) as run:
+            self.assertIsNone(generate_test_suite('octos',self.tree,self.root,'unknown'))
             changed={**self.tree,'description':'different'}
-            self.assertIsNone(materialize('octos',changed,self.root))
-            self.assertIsNone(materialize('octos',changed,self.root,'hackathon--sheet'))
+            self.assertIsNone(generate_test_suite('octos',changed,self.root))
+            self.assertIsNone(generate_test_suite('octos',changed,self.root,'hackathon--sheet'))
             self.assertEqual(run.call_count,3)
 
     def test_old_binary_command_failure_uses_the_mechanical_fallback(self):
-        with patch('embedded_suites.subprocess.run',return_value=Mock(returncode=2,stdout='')):
-            self.assertIsNone(materialize('old-octos',self.tree,self.root))
-            self.assertIsNone(materialize('old-octos',self.tree,self.root,'hackathon--sheet'))
+        with patch('octos_tests.subprocess.run',return_value=Mock(returncode=2,stdout='')):
+            self.assertIsNone(generate_test_suite('old-octos',self.tree,self.root))
+            self.assertIsNone(generate_test_suite('old-octos',self.tree,self.root,'hackathon--sheet'))
 
     def test_only_true_octos_receipt_can_attest_trusted_tests_and_contracts(self):
         for trusted in [False, None, 'true', 1]:
-            with self.subTest(trusted=trusted), patch('embedded_suites.subprocess.run',return_value=
+            with self.subTest(trusted=trusted), patch('octos_tests.subprocess.run',return_value=
                 Mock(returncode=0,stdout=json.dumps({'trusted':trusted}))):
-                self.assertIsNone(materialize('octos',self.tree,self.root,'hackathon--sheet'))
+                self.assertIsNone(generate_test_suite('octos',self.tree,self.root,'hackathon--sheet'))
 
     def test_failed_octos_generation_enters_the_existing_mechanical_pipeline(self):
         flow=Flow(argparse.Namespace(web_port=3000,trusted_tests=True),self.root,self.root/'requirements')
@@ -275,7 +239,7 @@ class EmbeddedSuiteTests(unittest.TestCase):
         flow.prepare_derived_tests=Mock(return_value=True)
         flow.adopt_derived_specs=Mock()
         with patch('main.locate_acceptance_tests',return_value=None), patch('main.find_octos',return_value='octos'), \
-                patch('embedded_suites.materialize',return_value=None) as generate, \
+                patch('octos_tests.generate_test_suite',return_value=None) as generate, \
                 patch('layered_tests.LayeredTests',return_value=layer):
             flow.prepare_test_spec_source(flow.original_requirement_tree,[])
         generate.assert_called_once()
@@ -379,7 +343,7 @@ class EmbeddedSuiteTests(unittest.TestCase):
                 patch('main.load_requirement_tree',return_value=self.tree), \
                 patch('main.previous_requirement_records',return_value={}), \
                 patch('main.locate_acceptance_tests',return_value=None), patch('main.find_octos',return_value='octos'), \
-                patch('embedded_suites.materialize',return_value=(self.directory,manifest)), \
+                patch('octos_tests.generate_test_suite',return_value=(self.directory,manifest)), \
                 patch('layered_tests.LayeredTests',side_effect=AssertionError('No basic/business coordinator')), \
                 patch('main.build_octos_env',return_value={}), patch('main.write_profile_defaults'), \
                 patch('main._port_watchdog'), patch('main._reap_stray_processes'), patch('main.reap_workspace_processes'), \
@@ -393,7 +357,10 @@ class EmbeddedSuiteTests(unittest.TestCase):
         flow=Flow(argparse.Namespace(web_port=3000),self.root,self.root/'requirements')
         flow.tests_dir=self.directory; flow.frozen_suite=verify_directory(self.directory,self.tree,'hackathon--sheet')
         flow.original_requirement_tree=self.tree; flow.spec_map={'REQ-1-1-1':['REQ-1-1-1.spec.ts']}
-        flow.metric=Mock(); flow.adopt_frozen_business()
+        flow.metric=Mock()
+        with patch('embedded_suites.verify_directory',side_effect=AssertionError('No runtime suite audit')), \
+                patch('main.app_design_errors',side_effect=AssertionError('Use command business output')):
+            flow.adopt_frozen_business()
         with patch.object(flow, 'text_turn', side_effect=AssertionError('Frozen design must not be regenerated')):
             self.assertIs(flow.app_design(self.tree,[]),flow.app_design_doc)
         self.assertTrue(flow._design_semantics_reviewed)
@@ -408,12 +375,22 @@ class EmbeddedSuiteTests(unittest.TestCase):
         self.assertFalse(flow.prepare_derived_tests([]))
         flow.start_background_specs([{'id':'REQ-1-1-1'}])
         prompt=flow.tests_prompt_for('REQ-1-1-1')
-        self.assertIn('SOURCE-REVIEWED INTERNAL DERIVED',prompt); self.assertIn('fixtures.json',prompt)
-        self.assertIn('not official benchmark tests',prompt)
+        self.assertIn('OCTOS TEST SUITE',prompt); self.assertIn('fixtures.json',prompt)
+        self.assertIn('not a measured product pass or an official benchmark score',prompt)
         self.assertIn('app-design.json',prompt); self.assertIn('test-obligations.json',prompt)
-        self.assertIn('source-reviewed internal derived',flow.verify_text(24))
+        self.assertIn('octos-provided',flow.verify_text(24))
         flow.runner=Mock(); (self.directory/'helpers.ts').write_text('changed')
-        result=flow.run_specs(['REQ-1-1-1.spec.ts'])
-        self.assertIn('Derived test suite integrity check failed',result.error); flow.runner.run.assert_not_called()
+        (self.directory/'suite-origin.json').unlink()
+        flow.layered=None
+        flow.generated_load_errors=Mock(return_value=[])
+        flow.runtime=SimpleNamespace(git=Mock())
+        server=Mock(); server.build.return_value='build reached'
+        with patch('main.snapshot_worktree'), patch('main.restore_worktree'), \
+                patch('main.seconds_available',return_value=1000), \
+                patch.object(flow,'app_server',return_value=server), \
+                patch('embedded_suites.verify_directory',side_effect=AssertionError('No runtime suite audit')):
+            result=flow._run_specs(['REQ-1-1-1.spec.ts'])
+        self.assertEqual(result.error,'build reached')
+        server.build.assert_called_once()
 
 if __name__=='__main__': unittest.main()
