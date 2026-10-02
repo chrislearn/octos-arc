@@ -29,6 +29,60 @@ test("REQ-2-2-3: People denies visitors and nonmembers while an ordinary member 
   await h.persisted(page,()=>expect(h.text(page,'protected-member')).toBeVisible());
 });
 
+test("REQ-2-2-3: selftest Sign in remains a link on the sign-in page and after protected organization reentry", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Sign in').click();
+  await expect(h.link(page,'Sign in')).toHaveCount(1); await expect(h.link(page,'Sign in')).toBeVisible();
+  await expect(h.button(page,'Sign in')).toBeVisible();
+  await h.signIn(page,'org-owner'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await expect(h.link(page,'Acme Demo')).toBeVisible(); const listAddress=page.url();
+  await h.link(page,'Acme Demo').click(); await h.link(page,'People').click();
+  await expect(h.text(page,'protected-member')).toBeVisible(); const peopleAddress=page.url();
+  await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click();
+  await expect(page.getByRole('heading').filter({hasText:'frontend-team'})).toBeVisible(); const teamAddress=page.url();
+  await h.signOut(page);
+  for (const address of [listAddress,peopleAddress,teamAddress]) {
+    await page.goto(address); await expect(h.link(page,'Sign in')).toBeVisible();
+    await expect(h.button(page,'Account menu')).toHaveCount(0);
+    await expect(h.text(page,'protected-member')).toHaveCount(0);
+  }
+});
+
+test("REQ-2-2-3: selftest member role pointer selection submits and duplicate errors keep the form open", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await h.link(page,'New organization').click(); const organization=h.unique('member-ui');
+  await h.field(page,'Organization name').fill(organization); await h.field(page,'Display name').fill(organization);
+  await h.button(page,'Create organization').click(); await h.link(page,'People').click();
+  await expect(h.button(page,'Add member')).toBeVisible();
+
+  await h.button(page,'Add member').click(); await h.field(page,'Username or email').fill('bob-reviewer');
+  await h.field(page,'Role').click(); await page.getByRole('option',{name:'Member',exact:true}).click({timeout:5000});
+  await h.button(page,'Add member').click(); await expect(h.text(page,'bob-reviewer')).toBeVisible();
+  await page.reload(); await expect(h.text(page,'bob-reviewer')).toHaveCount(1);
+  await h.button(page,'Add member').click(); await h.field(page,'Username or email').fill('bob-reviewer');
+  await h.button(page,'Add member').click(); await expect(h.text(page,'Account is already a member')).toBeVisible();
+  await expect(h.field(page,'Username or email')).toHaveValue('bob-reviewer');
+  await h.field(page,'Username or email').fill('unknown-reviewer'); await h.button(page,'Add member').click();
+  await expect(h.text(page,'Account not found')).toBeVisible(); await expect(h.field(page,'Username or email')).toHaveValue('unknown-reviewer');
+  await h.button(page,'Cancel').click(); await page.reload(); await expect(h.text(page,'bob-reviewer')).toHaveCount(1);
+});
+
+test("REQ-2-2-3: selftest member role keyboard selection persists the selected Member role", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await h.link(page,'New organization').click(); const organization=h.unique('member-ui');
+  await h.field(page,'Organization name').fill(organization); await h.field(page,'Display name').fill(organization);
+  await h.button(page,'Create organization').click(); await h.link(page,'People').click();
+  await expect(h.button(page,'Add member')).toBeVisible();
+
+  await h.button(page,'Add member').click(); await h.field(page,'Username or email').fill('bob-reviewer');
+  await h.field(page,'Role').press('ArrowDown'); await page.keyboard.press('m'); await page.keyboard.press('Enter');
+  await h.chosen(page,'Role','Member'); await h.button(page,'Add member').click();
+  const member=page.getByRole('listitem').filter({has:h.text(page,'bob-reviewer')});
+  await h.persisted(page,async()=>{await expect(member).toHaveCount(1);await expect(h.text(member,'Member')).toBeVisible();});
+});
+
 test("REQ-2-2-3: adding Member is immediate, listed after own login, but grants no private access", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'org-owner'); await h.organization(page,'member-add'); await h.link(page,'People').click(); await h.button(page,'Add member').click(); await h.field(page,'Username or email').fill('new-member'); await h.choose(page,'Role','Member'); await h.button(page,'Add member').last().click();

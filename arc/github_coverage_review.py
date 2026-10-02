@@ -13,11 +13,18 @@ def coverage_review(tree, plan):
 
     visit(tree)
     checks = [
+        ('REQ-1-1-3', 'recovery fields and fixed code are available together and success permits immediate new-credential login', ['selftest recovery']),
+        ('REQ-1-2', 'Sign in link persists on sign-in and protected organization reentry', ['selftest Sign in']),
+        ('REQ-1-3', 'keyboard account navigation reaches the password form without hidden login reloads', ['selftest account menu keyboard']),
+        ('REQ-2-2-1', 'keyboard organization entry reaches teams and their settings without a reload helper', ['selftest keyboard organization']),
+        ('REQ-2-3', 'organization repository navigation reaches access settings immediately after login', ['selftest organization repository']),
+        ('REQ-2-2-3', 'member roles support pointer and keyboard interaction and rejected duplicates keep the form open', ['selftest member role']),
+        ('REQ-2-2-4', 'isolated removal persists and only explicit readdition restores membership', ['selftest removed members']),
         ('REQ-1-1-1', 'homepage provides direct Sign up and rejected registration clears passwords', ['homepage Sign up', 'rejected registration retains nonsensitive']),
         ('REQ-1-1-2', 'failed login retains identifier clears password and permits a valid retry', ['rejected login clears password']),
         ('REQ-1-1-3', 'invalid recovery code or confirmation clears both passwords without changing credentials', ['rejected recovery clears both passwords']),
-        ('REQ-2-1-1', 'public organization identity and repository-only navigation survive reload', ['public organization shows both identities']),
-        ('REQ-2-1-2', 'prescribed account-menu organization entry shows both identities and member navigation', ['account menu organization entry']),
+        ('REQ-2-1-1', 'public organization navigation survives reload while private data remains hidden', ['public organization retains navigation']),
+        ('REQ-2-1-2', 'prescribed account-menu organization entry shows organization identity and member navigation', ['account menu organization entry']),
         ('REQ-2-2-3', 'People refuses visitors and nonmembers while preserving ordinary member reads', ['People denies visitors']),
         ('REQ-2-2-1', 'Teams list and detail refuse visitors and nonmembers while preserving member reads', ['Teams list and detail deny']),
         ('REQ-3-1', 'personal search links use exact names separately from visible owner metadata', ['personal repository results expose exact names']),

@@ -13,6 +13,15 @@ test("REQ-2-3: requirement scenario 2", async ({ page, browser }) => {
   await h.signIn(page,"repo-admin"); await h.canonicalRepo(page);await h.settings(page,'Manage access'); const row=page.getByRole('row',{name:/access-role-team/}); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Write'); await row.getByRole('combobox',{name:'Role',exact:true}).selectOption({label:'Read'}); await h.button(row,'Save').click(); await h.persisted(page,async()=>{await expect(row).toHaveCount(1); await expect(row.getByRole('combobox',{name:'Role',exact:true}).locator('option:checked')).toHaveText('Read');});
 });
 
+test("REQ-2-3: selftest organization repository route reaches access settings immediately after login", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'repo-admin'); await h.link(page,'Acme Demo').click();
+  await h.link(page,'Repositories').click(); await h.link(page,'acme-docs').click();
+  await h.link(page,'Settings').click(); await h.link(page,'Manage access').click();
+  await expect(h.button(page,'Add people or teams')).toBeVisible();
+  await expect(page.getByRole('row',{name:/access-role-team/})).toHaveCount(1);
+});
+
 test("REQ-2-3: live team grant admits its member and preserves private denial and one saved grant", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'repo-admin'); const address=await h.repo(page,h.fixtureRepo('grant-add'));

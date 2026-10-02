@@ -112,10 +112,9 @@ export async function signIn(p: Page, username = 'alice-dev', password = PASSWOR
   const account = expectedUsername ?? (username.includes('@')
     ? fixtures.accounts.find(a => a.email === username)?.username : username);
   if (!account) throw new Error('Email sign-in needs the known account username');
-  await button(p, 'Account menu').click(); await expect(containsValue(p, account).first()).toBeVisible();
-  // A persisted session is required; reloading also closes transient menus
-  // without assuming an unspecified Escape/toggle implementation.
-  await p.reload(); await expect(button(p, 'Account menu')).toBeVisible();
+  // Verify the authenticated workspace before the next action. Persistence is
+  // tested explicitly by callers; login must not silently reload or open a menu.
+  await expect(containsValue(p, account).first()).toBeVisible();
 }
 export async function signOut(p: Page) {
   await button(p, 'Account menu').click(); await link(p, 'Sign out').click();

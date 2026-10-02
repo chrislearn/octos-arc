@@ -13,6 +13,25 @@ test("REQ-2-2-4: requirement scenario 2", async ({ page, browser }) => {
   await h.signIn(page,"org-member"); await h.memberOrganization(page);await h.link(page,'People').click(); await expect(h.text(page,'protected-member')).toBeVisible(); await expect(h.button(page,'Member menu protected-member')).toHaveCount(0); await expect(page.getByRole('menuitem',{name:'Remove from organization',exact:true})).toHaveCount(0);
 });
 
+test("REQ-2-2-4: selftest removed members stay removed until explicit readdition and then reject duplicates", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.button(page,'Account menu').click(); await h.link(page,'Your organizations').click();
+  await h.link(page,'New organization').click(); const organization=h.unique('member-ui');
+  await h.field(page,'Organization name').fill(organization); await h.field(page,'Display name').fill(organization);
+  await h.button(page,'Create organization').click(); await h.link(page,'People').click();
+  await expect(h.button(page,'Add member')).toBeVisible();
+
+  await h.button(page,'Add member').click(); await h.field(page,'Username or email').fill('bob-reviewer'); await h.button(page,'Add member').click();
+  await expect(h.text(page,'bob-reviewer')).toBeVisible(); await h.button(page,'Member menu bob-reviewer').click();
+  await page.getByRole('menuitem',{name:'Remove from organization',exact:true}).click(); await h.button(page,'Remove').click();
+  await h.persisted(page,()=>expect(h.text(page,'bob-reviewer')).toHaveCount(0));
+  await h.button(page,'Add member').click(); await h.field(page,'Username or email').fill('bob-reviewer'); await h.button(page,'Add member').click();
+  await expect(h.text(page,'bob-reviewer')).toHaveCount(1); await h.button(page,'Add member').click();
+  await h.field(page,'Username or email').fill('bob-reviewer'); await h.button(page,'Add member').click();
+  await expect(h.text(page,'Account is already a member')).toBeVisible(); await h.button(page,'Cancel').click();
+  await page.reload(); await expect(h.text(page,'bob-reviewer')).toHaveCount(1);
+});
+
 test("REQ-2-2-4: Owner removes membership and associated access without deleting account", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'org-owner'); await h.organization(page,'member-remove'); await h.link(page,'People').click(); await h.button(page,'Member menu bob-reviewer').click(); await page.getByRole('menuitem',{name:'Remove from organization',exact:true}).click(); await h.button(page,'Remove').click(); await h.persisted(page, () => expect(h.text(page,'bob-reviewer')).toHaveCount(0));

@@ -10,7 +10,19 @@ test("REQ-2-2-2: requirement scenario 1", async ({ page, browser }) => {
 
 test("REQ-2-2-2: requirement scenario 2", async ({ page, browser }) => {
   test.setTimeout(60_000);
-  await h.signIn(page,"team-maintainer"); await h.memberOrganization(page);await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Settings').click(); const parent=h.field(page,'Parent team'),original=await parent.inputValue(); await parent.selectOption({label:'frontend-child'}); await h.button(page,'Save').click(); await expect(h.text(page,'Cyclic team hierarchy is not allowed')).toBeVisible(); await expect(parent).toHaveValue(original); await page.reload(); await expect(parent).toHaveValue(original);
+  await h.signIn(page,"team-maintainer"); await h.memberOrganization(page);await h.link(page,'Teams').click(); await h.link(page,'frontend-team').click(); await h.link(page,'Settings').click(); const parent=h.field(page,'Parent team'); await expect(parent).toHaveValue('platform-team'); await parent.selectOption({label:'frontend-child'}); await h.button(page,'Save').click(); await expect(h.text(page,'Cyclic team hierarchy is not allowed')).toBeVisible(); await expect(parent).toHaveValue('platform-team'); await page.reload(); await expect(parent).toHaveValue('platform-team');
+});
+
+test("REQ-2-2-2: selftest keyboard organization entry reaches teams without a reload or search helper", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await h.button(page,'Account menu').press('ArrowDown');
+  const organizations=h.link(page,'Your organizations');
+  for (let step=0;step<10 && !await organizations.evaluate(element=>element===document.activeElement);step++) await page.keyboard.press('ArrowDown');
+  await expect(organizations).toBeFocused(); await page.keyboard.press('Enter');
+  await h.link(page,'Acme Demo').click(); await h.link(page,'Teams').click();
+  await expect(h.link(page,'New team')).toBeVisible(); await h.link(page,'frontend-team').click();
+  await expect(page.getByRole('heading').filter({hasText:'frontend-team'})).toBeVisible();
+  await h.link(page,'Settings').click(); await expect(h.field(page,'Parent team')).toBeVisible();
 });
 
 test("REQ-2-2-2: Owner adds and immediately removes direct team member with persistence", async ({ page, browser }) => {

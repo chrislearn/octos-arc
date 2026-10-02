@@ -5,7 +5,7 @@
       "root_name": "GitHub Collaboration Platform Core Requirements",
       "requirements_sha256": "3195ce431f728df9b266afd7007f7183f788702fa6f04394f6e41fad8781de56",
       "spec_count": 54,
-      "case_count": 288,
+      "case_count": 297,
       "review_status": "reviewed",
       "frozen": true,
       "trusted": true,

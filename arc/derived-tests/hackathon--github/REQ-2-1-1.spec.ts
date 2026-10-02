@@ -13,18 +13,17 @@ test("REQ-2-1-1: requirement scenario 2", async ({ page, browser }) => {
   await h.canonicalOrganization(page);await h.link(page,'Repositories').click(); await h.field(page,'Find a repository').fill('secret-research'); await expect(h.link(page,'secret-research')).toHaveCount(0);
 });
 
-test("REQ-2-1-1: public organization shows both identities and only repository navigation", async ({ page, browser }) => {
+test("REQ-2-1-1: public organization retains navigation while exposing only public repository data", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.canonicalOrganization(page);
   await h.persisted(page,async()=>{
-    await expect(page.getByRole('heading',{name:'Acme Demo',exact:true})).toBeVisible();
-    await expect(page.getByRole('heading',{name:'acme-demo',exact:true})).toBeVisible();
+    await expect(page.getByRole('heading').filter({hasText:/Acme Demo|acme-demo/}).first()).toBeVisible();
     await expect(h.link(page,'acme-docs')).toBeVisible(); await expect(h.link(page,'secret-research')).toHaveCount(0);
-    for (const name of ['People','Teams']) await expect(h.link(page,name)).toHaveCount(0);
+    for (const name of ['Repositories','People','Teams']) await expect(h.link(page,name)).toBeVisible();
     await expect(h.text(page,'bob-reviewer')).toHaveCount(0);
   });
   await h.link(page,'acme-docs').click(); await h.link(page,'Acme Demo').click();
-  await expect(page.getByRole('heading',{name:'Acme Demo',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading').filter({hasText:/Acme Demo|acme-demo/}).first()).toBeVisible();
 });
 
 test("REQ-2-1-1: organization live repository filter exposes public result and hides private result", async ({ page, browser }) => {

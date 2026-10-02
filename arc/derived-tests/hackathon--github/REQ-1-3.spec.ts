@@ -18,6 +18,18 @@ test("REQ-1-3: requirement scenario 3", async ({ page, browser }) => {
   await h.signIn(page,"password-change-required"); await h.button(page,'Account menu').click(); await h.link(page,'Settings').click(); await h.link(page,'Password and authentication').click(); await h.field(page,'Current password').fill(""); await h.field(page,'New password').fill("Required-password-789!"); await h.field(page,'Confirm password').fill("Required-password-789!"); await h.button(page,'Update password').click(); await expect(h.text(page,"Current password is required")).toBeVisible(); await h.signOut(page); await h.signIn(page,"password-change-required@example.test","Valid-password-123!");
 });
 
+test("REQ-1-3: selftest account menu keyboard navigation reaches password settings without reloading", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'password-change-invalid');
+  await h.button(page,'Account menu').press('ArrowDown');
+  const settings=h.link(page,'Settings');
+  for (let step=0;step<10 && !await settings.evaluate(element=>element===document.activeElement);step++) await page.keyboard.press('ArrowDown');
+  await expect(settings).toBeFocused();
+  await page.keyboard.press('Enter'); await h.link(page,'Password and authentication').click();
+  for (const label of ['Current password','New password','Confirm password']) await expect(h.field(page,label)).toBeVisible();
+  await expect(h.button(page,'Account menu')).toHaveCount(1);
+});
+
 test("REQ-1-3: password change uses current account and old password no longer signs in", async ({ page, browser }) => {
   test.setTimeout(60_000);
   const { username } = await h.register(page); await h.signIn(page, username); await h.button(page, 'Account menu').click(); await h.link(page, 'Settings').click(); await h.link(page, 'Password and authentication').click();

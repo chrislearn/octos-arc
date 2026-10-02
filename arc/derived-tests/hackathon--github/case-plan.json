@@ -577,6 +577,33 @@
     "requires": [
       "REQ-1-1-3"
     ],
+    "setup_requires": [],
+    "title": "REQ-1-1-3: selftest recovery opens one labeled form with a code before email submission",
+    "file": "REQ-1-1-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-3",
+      "REQ-1-1-1",
+      "REQ-1-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-1-1-3: selftest recovery has one success message and new credentials sign in without a reset helper",
+    "file": "REQ-1-1-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-1-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-3"
+    ],
     "setup_requires": [
       "REQ-1-1-1",
       "REQ-1-1-2",
@@ -702,6 +729,19 @@
       "REQ-1-3"
     ],
     "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-1-3: selftest account menu keyboard navigation reaches password settings without reloading",
+    "file": "REQ-1-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-1-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-3"
+    ],
+    "setup_requires": [
       "REQ-1-1-1",
       "REQ-1-1-2",
       "REQ-1-2"
@@ -757,7 +797,7 @@
       "REQ-2-1-1"
     ],
     "setup_requires": [],
-    "title": "REQ-2-1-1: public organization shows both identities and only repository navigation",
+    "title": "REQ-2-1-1: public organization retains navigation while exposing only public repository data",
     "file": "REQ-2-1-1.spec.ts"
   },
   {
@@ -836,7 +876,7 @@
     "setup_requires": [
       "REQ-1-1-2"
     ],
-    "title": "REQ-2-1-2: account menu organization entry preserves display name identifier and member navigation",
+    "title": "REQ-2-1-2: account menu organization entry preserves organization identity and member navigation",
     "file": "REQ-2-1-2.spec.ts"
   },
   {
@@ -1003,6 +1043,21 @@
   },
   {
     "node_id": "REQ-2-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-1",
+      "REQ-2-1-2",
+      "REQ-2-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-2-2: selftest keyboard organization entry reaches teams without a reload or search helper",
+    "file": "REQ-2-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-2",
     "fixture": "team-members",
     "phase": "node",
     "requires": [
@@ -1095,6 +1150,51 @@
   },
   {
     "node_id": "REQ-2-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-2",
+      "REQ-2-1-2",
+      "REQ-2-2-1",
+      "REQ-2-2-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-1-2"
+    ],
+    "title": "REQ-2-2-3: selftest Sign in remains a link on the sign-in page and after protected organization reentry",
+    "file": "REQ-2-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-3",
+      "REQ-2-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-2-3: selftest member role pointer selection submits and duplicate errors keep the form open",
+    "file": "REQ-2-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-3",
+      "REQ-2-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-2-3: selftest member role keyboard selection persists the selected Member role",
+    "file": "REQ-2-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-3",
     "fixture": "member-add",
     "phase": "node",
     "requires": [
@@ -1152,6 +1252,21 @@
       "REQ-2-1-2"
     ],
     "title": "REQ-2-2-4: requirement scenario 2",
+    "file": "REQ-2-2-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-2-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-2-4",
+      "REQ-2-2-3",
+      "REQ-2-1-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-2-4: selftest removed members stay removed until explicit readdition and then reject duplicates",
     "file": "REQ-2-2-4.spec.ts"
   },
   {
@@ -1232,6 +1347,20 @@
       "REQ-3-3"
     ],
     "title": "REQ-2-3: requirement scenario 2",
+    "file": "REQ-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-2-3",
+      "REQ-2-1-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-2-3: selftest organization repository route reaches access settings immediately after login",
     "file": "REQ-2-3.spec.ts"
   },
   {
