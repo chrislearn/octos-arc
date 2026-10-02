@@ -43,6 +43,19 @@ test("REQ-4-4: slash branch web writes edits and history remain isolated from ma
   await expect(h.link(page,message)).toHaveCount(0); await expect(h.link(page,editMessage)).toHaveCount(0);
 });
 
+test("REQ-4-4: reference navigation: file editor displays repository and selected branch across reload", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'file-contributor'); await h.repo(page,'file-management-demo');
+  const branch='context/'+h.unique('branch'); await h.button(page,'Branch main').click();
+  await h.field(page,'Find branch').fill(branch); await page.getByRole('option',{name:'Create branch: '+branch,exact:true}).click();
+  await expect(h.button(page,'Branch '+branch)).toBeVisible();
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  await expect(h.field(page,'File name')).toBeVisible(); await expect(h.link(page,'file-management-demo')).toBeVisible();
+  await expect(h.renderedSubstring(page,'Branch '+branch).first()).toBeVisible(); await page.reload();
+  await expect(h.field(page,'File name')).toBeVisible(); await expect(h.renderedSubstring(page,'Branch '+branch).first()).toBeVisible();
+  await h.link(page,'Code').click(); await expect(h.button(page,'Branch '+branch)).toBeVisible();
+});
+
 test("REQ-4-4: file creation persists exact contents", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'file-contributor'); await h.repo(page,h.fixtureRepo('file-create')); await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click(); const name=`${h.unique('pw-file')}.md`,message=`Add ${name}`;

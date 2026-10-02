@@ -55,3 +55,31 @@ test("REQ-4-1-2: b5b932 regression: copying an accepted lowercase formula to C4 
   await h.persisted(page,async()=>{await h.values(page,{A1:'10',B1:'40',A2:'30',B2:'20',C3:'20',F6:'outside',"C4":"40"});await h.cell(page,"C4").click();expect((await h.field(page,'Formula bar').inputValue()).toUpperCase()).toBe("=A2+$A$1");});
   await h.formula(page,'C3','=a1+$a$1','20');
 });
+
+test("REQ-4-1-2: audit regression: mixed absolute axes copy from D4 to E5 independently", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.paste(page,'A1','2\t3\n5\t7');await h.edit(page,'D4','=$A1+A$1+$A$1+A1');
+  await h.formula(page,'D4','=$A1+A$1+$A$1+A1','8');await h.cell(page,'D4').click();await page.keyboard.press('Control+c');
+  await h.cell(page,'E5').click();await page.keyboard.press('Control+v');
+  await h.persisted(page,async()=>{await h.formula(page,'D4','=$A1+A$1+$A$1+A1','8');await h.formula(page,'E5','=$A2+B$1+$A$1+B2','17');await h.values(page,{A1:'2',B1:'3',A2:'5',B2:'7'});});
+});
+
+test("REQ-4-1-2: audit regression: mixed absolute axes copy from E5 to D4 independently", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.paste(page,'A1','2\t3\n5\t7');await h.edit(page,'E5','=$B2+B$2+$B$2+B2');
+  await h.formula(page,'E5','=$B2+B$2+$B$2+B2','28');await h.cell(page,'E5').click();await page.keyboard.press('Control+c');
+  await h.cell(page,'D4').click();await page.keyboard.press('Control+v');
+  await h.persisted(page,async()=>{await h.formula(page,'E5','=$B2+B$2+$B$2+B2','28');await h.formula(page,'D4','=$B1+A$2+$B$2+A1','17');await h.values(page,{A1:'2',B1:'3',A2:'5',B2:'7'});});
+});
+
+test("REQ-4-1-2: audit regression: formula copy crosses Z to AA without changing absolute columns", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');await h.button(page,'Import CSV').click();const name=h.unique();
+  const dialog=page.getByRole('dialog',{name:'Import CSV',exact:true});
+  const row=Array.from({length:28},(_,i)=>i===25?'4':i===26?'9':'').join(',');
+  await h.field(dialog,'CSV file').setInputFiles({name:`${name}.csv`,mimeType:'text/csv',buffer:Buffer.from(row)});
+  await h.button(dialog,'Confirm import').click();await expect(h.text(page,name).first()).toBeVisible();
+  await h.edit(page,'Z2','=Z1+$Z$1');await h.formula(page,'Z2','=Z1+$Z$1','8');
+  await h.cell(page,'Z2').click();await page.keyboard.press('Control+c');await h.cell(page,'AA2').click();await page.keyboard.press('Control+v');
+  await h.persisted(page,async()=>{await h.formula(page,'Z2','=Z1+$Z$1','8');await h.formula(page,'AA2','=AA1+$Z$1','13');await h.values(page,{Z1:'4',AA1:'9'});});
+});

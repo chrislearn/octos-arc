@@ -22,14 +22,14 @@ class TimingCompatibility(unittest.TestCase):
             f.run_specs(['A.spec.ts'])
         self.assertEqual(f.node_measurement_window(['A.spec.ts']), 40)
         f.runner.timeout_ms = 90000
-        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 168)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 75)
 
     def test_custom_runner_measurement_cannot_shrink_default_runner_window(self):
         f = self.flow
         custom = SimpleNamespace(timeout_ms=1000, workers=1)
         with patch('main.time.monotonic', side_effect=[1000.0, 1001.0]):
             f.run_specs(['A.spec.ts'], runner=custom)
-        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 132)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 75)
 
     def test_isolation_change_invalidates_multi_file_measurement(self):
         f = self.flow
@@ -44,7 +44,7 @@ class TimingCompatibility(unittest.TestCase):
                 f.run_specs(['A.spec.ts', 'B.spec.ts'])
             self.assertEqual(f.node_measurement_window(['A.spec.ts', 'B.spec.ts']), 40)
         with patch.dict('os.environ', {'OCTOS_ARC_DERIVED_ISOLATE': '0'}):
-            self.assertEqual(f.node_measurement_window(['A.spec.ts', 'B.spec.ts']), 204)
+            self.assertEqual(f.node_measurement_window(['A.spec.ts', 'B.spec.ts']), 90)
 
     def test_selection_read_failure_does_not_override_the_actual_verdict(self):
         f = self.flow
@@ -52,7 +52,7 @@ class TimingCompatibility(unittest.TestCase):
         f.derived_case_selection = Mock(side_effect=OSError('review metadata unavailable'))
         expected = f._run_specs.return_value
         self.assertIs(f.run_specs(['A.spec.ts']), expected)
-        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 132)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 75)
         self.assertFalse(getattr(f, '_acceptance_timings', []))
 
     def test_missing_derived_test_directory_keeps_origin_error(self):

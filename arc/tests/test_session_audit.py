@@ -97,7 +97,7 @@ class SessionAudit(unittest.TestCase):
         self.assertFalse(is_test_infrastructure_error('frontend/src/App.jsx:3 SyntaxError'))
 
     def test_large_full_suite_default_admits_sufficient_budget_and_respects_explicit_cap(self):
-        for cap,left,admitted in [(None,10000,True),('900',10000,False),(None,800,False)]:
+        for cap,left,admitted in [(None,10000,True),('900',10000,False),(None,800,True),(None,300,False)]:
             with self.subTest(cap=cap,left=left), tempfile.TemporaryDirectory() as folder, patch.dict(os.environ):
                 os.environ.pop('OCTOS_ARC_FULL_SUITE_SECONDS_CAP',None)
                 if cap is not None: os.environ['OCTOS_ARC_FULL_SUITE_SECONDS_CAP']=cap

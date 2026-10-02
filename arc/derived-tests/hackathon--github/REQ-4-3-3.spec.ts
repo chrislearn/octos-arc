@@ -13,6 +13,15 @@ test("REQ-4-3-3: requirement scenario 2", async ({ page, browser }) => {
   await h.signIn(page,"default-branch-viewer"); await h.repo(page,'default-branch-demo'); await h.settings(page,'Branches'); await expect(h.field(page,'Default branch')).toHaveCount(0); await h.unavailable(page,'Update');
 });
 
+test("REQ-4-3-3: reference navigation: branch settings retain the repository navigation after direct reload", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'default-branch-admin'); await h.repo(page,'default-branch-demo');
+  await h.link(page,'Settings').click(); await h.link(page,'Branches').click(); await page.reload();
+  await expect(page.getByRole('combobox',{name:'Default branch',exact:true})).toBeVisible();
+  await expect(h.link(page,'default-branch-demo')).toBeVisible(); await h.link(page,'Code').click();
+  await expect(page.getByRole('heading').filter({hasText:'default-branch-demo'})).toBeVisible();
+});
+
 test("REQ-4-3-3: Admin changes native default branch and old branch still exists", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'repo-admin'); const address=await h.repo(page,h.fixtureRepo('default-branch')); await h.settings(page,'Branches'); await h.field(page,'Default branch').selectOption({label:'feature-search'}); await h.button(page,'Update').click(); await h.button(page.getByRole('dialog'),'Confirm').click(); await page.goto(address); await expect(h.button(page,'Branch feature-search')).toBeVisible(); await h.button(page,'Branch feature-search').click(); await expect(page.getByRole('option',{name:'main',exact:true})).toBeVisible();

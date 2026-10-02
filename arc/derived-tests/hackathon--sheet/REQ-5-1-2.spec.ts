@@ -58,26 +58,34 @@ test("REQ-5-1-2: context REQ-2-2-2: column insertion/deletion moves filter heade
 test("REQ-5-1-2: audit regression: failed filter apply preserves the saved predicate and supports retry", async ({ page }) => {
   test.setTimeout(60_000);
   await h.sourceData(page);await h.range(page,'A1','C4');await h.data(page,'Create filter');await h.filterValues(page,'Region',['East']);await h.visibleRows(page,['A2','A4'],['A3']);
-  const write=await h.learnWrite(page,async()=>{await h.filterValues(page,'Region',['North']);await h.visibleRows(page,['A3'],['A2','A4']);});
-  await h.button(page,'Filter Region').click();const dialog=page.getByRole('dialog',{name:'Filter Region',exact:true});await h.button(dialog,'Clear selection').click();await dialog.getByRole('checkbox',{name:'East',exact:true}).check();
+  await h.button(page,'Filter Region').click();const dialog=page.getByRole('dialog',{name:'Filter Region',exact:true});
+  await h.button(dialog,'Clear selection').click();await dialog.getByRole('checkbox',{name:'North',exact:true}).check();
+  const write=await h.learnWrite(page,async()=>{await h.button(dialog,'Apply').click();await expect(dialog).toBeHidden();await h.visibleRows(page,['A3'],['A2','A4']);});
+  await h.button(page,'Filter Region').click();await h.button(dialog,'Clear selection').click();await dialog.getByRole('checkbox',{name:'East',exact:true}).check();
   const fault=await h.rejectWrites(page,write);
-  try{await h.button(dialog,'Apply').click();await expect.poll(()=>fault.attempts()).toBeGreaterThan(0);await expect(dialog).toBeVisible();await expect(dialog.getByRole('alert')).toBeVisible();await expect(dialog.getByRole('checkbox',{name:'East',exact:true})).toBeChecked();}
+  try{await h.button(dialog,'Apply').click();await fault.assertInjected();await expect(dialog).toBeVisible();await expect(h.saveFailureReason(dialog).first()).toBeVisible();await expect(dialog.getByRole('checkbox',{name:'East',exact:true})).toBeChecked();}
   finally{await fault.remove();}
   await h.button(dialog,'Cancel').click();await h.persisted(page,()=>h.visibleRows(page,['A3'],['A2','A4']));
   await h.button(page,'Filter Region').click();await h.button(dialog,'Clear selection').click();await dialog.getByRole('checkbox',{name:'East',exact:true}).check();
   await h.button(dialog,'Apply').click();await expect(dialog).toBeHidden();await h.persisted(page,()=>h.visibleRows(page,['A2','A4'],['A3']));
 });
 
-test("REQ-5-1-2: b5b932 regression: Clear selection after saved Text contains applies an empty value filter", async ({ page, browser }) => {
+test("REQ-5-1-2: b5b932 regression: Clear filter resets saved Text contains before a fresh empty value filter", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.sourceData(page);await h.range(page,'A1','C4');await h.data(page,'Create filter');await h.condition(page,"Region","Text contains","East");await page.reload();
-  await h.button(page,"Filter Region").click();const dialog=page.getByRole('dialog',{name:"Filter Region",exact:true});await h.button(dialog,'Clear selection').click();await h.button(dialog,'Apply').click();
-  await h.persisted(page,()=>h.visibleRows(page,['A1'],['A2','A3','A4']));await h.data(page,'Clear filter');await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A2:'East',B2:'10',A3:'North',B3:'20',A4:'East',B4:'30'});});
+  await h.visibleRows(page,['A2','A4'],['A3']);await h.data(page,'Clear filter');await h.persisted(page,()=>h.visibleRows(page,['A2','A3','A4'],[]));
+  await h.range(page,'A1','C4');await h.data(page,'Create filter');await h.button(page,'Filter Region').click();
+  const dialog=page.getByRole('dialog',{name:'Filter Region',exact:true});await h.button(dialog,'Clear selection').click();await h.button(dialog,'Apply').click();
+  await h.persisted(page,()=>h.visibleRows(page,['A1'],['A2','A3','A4']));await h.data(page,'Clear filter');
+  await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A2:'East',B2:'10',A3:'North',B3:'20',A4:'East',B4:'30'});});
 });
 
-test("REQ-5-1-2: b5b932 regression: Clear selection after saved Greater than applies an empty value filter", async ({ page, browser }) => {
+test("REQ-5-1-2: b5b932 regression: Clear filter resets saved Greater than before a fresh empty value filter", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.sourceData(page);await h.range(page,'A1','C4');await h.data(page,'Create filter');await h.condition(page,"Sales","Greater than","15");await page.reload();
-  await h.button(page,"Filter Sales").click();const dialog=page.getByRole('dialog',{name:"Filter Sales",exact:true});await h.button(dialog,'Clear selection').click();await h.button(dialog,'Apply').click();
-  await h.persisted(page,()=>h.visibleRows(page,['A1'],['A2','A3','A4']));await h.data(page,'Clear filter');await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A2:'East',B2:'10',A3:'North',B3:'20',A4:'East',B4:'30'});});
+  await h.visibleRows(page,['A3','A4'],['A2']);await h.data(page,'Clear filter');await h.persisted(page,()=>h.visibleRows(page,['A2','A3','A4'],[]));
+  await h.range(page,'A1','C4');await h.data(page,'Create filter');await h.button(page,'Filter Region').click();
+  const dialog=page.getByRole('dialog',{name:'Filter Region',exact:true});await h.button(dialog,'Clear selection').click();await h.button(dialog,'Apply').click();
+  await h.persisted(page,()=>h.visibleRows(page,['A1'],['A2','A3','A4']));await h.data(page,'Clear filter');
+  await h.persisted(page,async()=>{await h.visibleRows(page,['A2','A3','A4'],[]);await h.values(page,{A2:'East',B2:'10',A3:'North',B3:'20',A4:'East',B4:'30'});});
 });

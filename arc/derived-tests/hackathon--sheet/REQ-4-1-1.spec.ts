@@ -151,3 +151,17 @@ test("REQ-4-1-1: b5b932 regression: imported formula text submitted unchanged th
   await h.edit(page,'B2','=A2*2',true);await h.persisted(page,()=>h.formula(page,'B2','=A2*2','4'));
   expect(h.parseCSV(await h.csv(page))).toEqual([['Input','Result'],['2','4']]);
 });
+
+test("REQ-4-1-1: audit regression: insert right changes only references at or after the actual insertion", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.edit(page,'A1','10');await h.edit(page,'B1','20');await h.edit(page,'D1','=A1+B1');
+  await h.formula(page,'D1','=A1+B1','30');await h.structure(page,'column','A','Insert 1 column right');
+  await h.persisted(page,async()=>{await h.values(page,{A1:'10',B1:'',C1:'20'});await h.formula(page,'E1','=A1+C1','30');});
+});
+
+test("REQ-4-1-1: audit regression: insert below preserves references above the actual insertion and all column axes", async ({ page }) => {
+  test.setTimeout(60_000);
+  await h.blank(page);await h.edit(page,'A1','10');await h.edit(page,'A2','20');await h.edit(page,'B4','=A1+A2');
+  await h.formula(page,'B4','=A1+A2','30');await h.structure(page,'row','1','Insert 1 row below');
+  await h.persisted(page,async()=>{await h.values(page,{A1:'10',A2:'',A3:'20'});await h.formula(page,'B5','=A1+A3','30');});
+});

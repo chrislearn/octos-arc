@@ -17,6 +17,17 @@ test("REQ-3-3: 7aa2e514 compatibility: public organization directory discovers e
   }
 });
 
+test("REQ-3-3: reference navigation: cold homepage has public repository entries without a search prerequisite", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page);
+  await expect(page.getByRole('searchbox',{name:'Search',exact:true})).toHaveValue('');
+  for (const name of ['acme-docs','branch-switch-demo','default-branch-demo','file-management-demo'])
+    await expect(h.link(page,name)).toBeVisible();
+  await expect(h.link(page,'secret-research')).toHaveCount(0);
+  await h.link(page,'acme-docs').click(); await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
+  await page.reload(); await expect(h.link(page,'Issues')).toBeVisible();
+});
+
 test("REQ-3-3: visitor public repository overview and Code navigation persist", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.repo(page); await expect(h.text(page,'Public').first()).toBeVisible(); await expect(h.link(page,'Code')).toBeVisible(); await h.persisted(page, () => expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible());

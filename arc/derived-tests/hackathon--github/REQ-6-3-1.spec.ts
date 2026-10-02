@@ -45,6 +45,16 @@ test("REQ-6-3-1: 81c7432a compatibility: named pull requests are ready when ente
   await h.link(page,'Overview onboarding PR').click(); await expect(page.getByRole('heading',{name:'Overview onboarding PR',exact:true})).toBeVisible();
 });
 
+test("REQ-6-3-1: reference navigation: PR context does not duplicate its Commits tab", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.canonicalRepo(page); await h.link(page,'Pull requests').click();
+  await h.link(page,'Overview onboarding PR').click(); await page.reload();
+  await expect(h.link(page,'acme-docs')).toBeVisible(); await expect(h.link(page,'Commits')).toHaveCount(1);
+  await h.link(page,'Commits').click(); await expect(h.link(page,'Conversation')).toBeVisible();
+  await expect(h.link(page,'acme-docs')).toBeVisible(); await h.link(page,'Issues').click();
+  await expect(h.link(page,'Improve onboarding')).toBeVisible();
+});
+
 test("REQ-6-3-1: visitor PR overview, commits and changed-files navigation survives direct reopen", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.pr(page); const address=page.url(); await h.link(page,'Commits').click();

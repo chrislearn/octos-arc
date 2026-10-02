@@ -72,11 +72,11 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-1": {
-      "exported_case_count": 21,
+      "exported_case_count": 23,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-2": {
-      "exported_case_count": 7,
+      "exported_case_count": 10,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-2-1": {
@@ -88,7 +88,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-1": {
-      "exported_case_count": 10,
+      "exported_case_count": 12,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-2": {
@@ -100,7 +100,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-1": {
-      "exported_case_count": 35,
+      "exported_case_count": 36,
       "complete_clause_coverage_claimed": false
     }
   },
@@ -613,16 +613,84 @@
     },
     {
       "requirement_id": "REQ-5-1-2",
-      "behavior": "Clear selection after a saved condition switches to an empty value filter and persists before clearing",
+      "behavior": "Clear filter removes a saved condition before creating and persisting a fresh empty value filter",
       "basis": "Users create a filter for a data region with headers in the current active worksheet through \"Create filter\" in the \"Data\" menu. Each header provides a button with the accessible name \"Filter <header text>\"; the dialog with the same name supports selecting specific values and condition options named \"Text contains\", \"Greater than\", \"Before\", \"Is empty\", and \"Is not empty\". The value-filter dialog provides \"Clear selection\", checkboxes generated from distinct source values, and \"Apply\"; each checkbox uses the displayed source value as its accessible name. The condition dialog provides a combo box labeled \"Condition\", a text box labeled \"Value\", and \"Apply\". \"Text contains\", \"Greater than\", and \"Before\" use the \"Value\" text box; \"Is empty\" and \"Is not empty\" require no value. Conditions on different columns are combined with AND; nonmatching rows are hidden only and are neither deleted nor reordered. After refresh or reopening, the same rows remain visible. CSV export and pivot summarization still include hidden rows within the filtered range. \"Clear filter\" restores all source records in their original order and with their original values; after refresh all remain visible, while formula and validation behavior are unchanged.\n",
       "exported_witnesses": [
         {
           "file": "REQ-5-1-2.spec.ts",
-          "title": "REQ-5-1-2: b5b932 regression: Clear selection after saved Text contains applies an empty value filter"
+          "title": "REQ-5-1-2: b5b932 regression: Clear filter resets saved Text contains before a fresh empty value filter"
         },
         {
           "file": "REQ-5-1-2.spec.ts",
-          "title": "REQ-5-1-2: b5b932 regression: Clear selection after saved Greater than applies an empty value filter"
+          "title": "REQ-5-1-2: b5b932 regression: Clear filter resets saved Greater than before a fresh empty value filter"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-1-1",
+      "behavior": "ascending and descending numeric equality preserve records despite different numeric spellings",
+      "basis": "Users select a rectangular data range in the current active worksheet and choose \"Sort range\" from the \"Data\" menu. A dialog named \"Sort range\" provides combo boxes labeled \"Sort by\" and \"Order\", a \"Data has header row\" checkbox, and a \"Sort\" button. Options in \"Sort by\" use the header text of the selected range as accessible names; \"Order\" provides options named \"Ascending\" and \"Descending\". When the first row is declared a header, it does not participate in sorting. Numbers, parseable dates, and text are compared according to their respective types; equal sort keys preserve their original relative order, and entire records move together by row. After sorting, the formula bar displays references and results consistent with the new positions, filtering and validation continue to apply to the same selected range, and data outside the selection remains unchanged; order and results persist after refresh. If sorting fails, an error is displayed and the grid retains its original order.\n\nPage reference:\n![image](reference/sort-range.png)\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-1-1.spec.ts",
+          "title": "REQ-5-1-1: audit regression: Ascending keeps numerically equal spellings in original record order"
+        },
+        {
+          "file": "REQ-5-1-1.spec.ts",
+          "title": "REQ-5-1-1: audit regression: Descending keeps numerically equal spellings in original record order"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "behavior": "insert-right and insert-below preserve references before the actual insertion and untouched axes",
+      "basis": "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1. Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required. The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh. Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero.\nPage reference:\n![image](reference/basic-formulas.png)\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-1-1.spec.ts",
+          "title": "REQ-4-1-1: audit regression: insert right changes only references at or after the actual insertion"
+        },
+        {
+          "file": "REQ-4-1-1.spec.ts",
+          "title": "REQ-4-1-1: audit regression: insert below preserves references above the actual insertion and all column axes"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-1-2",
+      "behavior": "mixed absolute axes move independently and copied columns cross the Z to AA boundary",
+      "basis": "When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet, relative row and column references in the target formula bar change according to the target offset while absolute references remain unchanged; the source formula and result remain unchanged, the target grid displays the result based on the new references, and the state persists after refresh. If the offset moves a relative reference outside the worksheet bounds, the target formula bar displays =#REF! and the grid displays #REF!.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-1-2.spec.ts",
+          "title": "REQ-4-1-2: audit regression: mixed absolute axes copy from D4 to E5 independently"
+        },
+        {
+          "file": "REQ-4-1-2.spec.ts",
+          "title": "REQ-4-1-2: audit regression: mixed absolute axes copy from E5 to D4 independently"
+        },
+        {
+          "file": "REQ-4-1-2.spec.ts",
+          "title": "REQ-4-1-2: audit regression: formula copy crosses Z to AA without changing absolute columns"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-3-1",
+      "behavior": "COUNT retains blank row groups and includes their records in the overall total",
+      "basis": "Users select a source range containing headers and click \"Create pivot table\" in the \"Data\" menu. A dialog named \"Create pivot table\" displays visible text in the format \"Source range: <cell range>\", provides a \"New worksheet\" radio option and a \"Create\" button; when no pivot-result worksheet exists, the first unused PivotN name is used, so Pivot1 is created. A region named \"Pivot table editor\" provides combo boxes labeled \"Rows\", \"Columns\", \"Values\", and \"Summarize by\", plus an \"Apply\" button. Options for \"Rows\", \"Columns\", and \"Values\" use source header text as accessible names; \"Summarize by\" provides options named SUM, COUNT, and AVERAGE. The configuration supports one row field, one optional column field, and one value field. SUM/AVERAGE aggregate only parseable numbers, while COUNT counts non-empty records in the value field and does not fail because of nonnumeric content.\nWhen no column field is selected, A1 displays the row-field name and B1 displays \"<summarization method> of <value field>\"; row groups are ordered by first appearance in the source data, and the final row is Grand Total aggregating all qualifying source records. When a column field is selected, A1 displays the row-field name, column-field values are arranged from B1 onward in order of first appearance, and the final column is Grand Total; row-field values are likewise ordered by first appearance, with Grand Total as the final row. COUNT displays 0 when a row/column combination has no record with a non-empty value field.\nAfter a successful apply, refreshing or reopening still shows the same pivot worksheet, field layout, summarization method, and results. The result worksheet provides a \"Refresh pivot table\" button; after source data or row/column changes, clicking refresh completely replaces the old summary using the current source range. If a selected source header has been deleted, clicking refresh displays \"Pivot field is no longer available. Select a new field.\", preserves the last successful result, and does not modify the source worksheet; other invalid source ranges or fields likewise display a visible error and preserve both worksheets. When SUM or AVERAGE is applied to a value field with no parseable numbers, \"Value field requires numeric values\" is displayed, the old result is preserved, and the source worksheet is not modified.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-3-1.spec.ts",
+          "title": "REQ-5-3-1: audit regression: COUNT retains blank row groups and all source records in totals"
         }
       ],
       "status": "executable_source_reviewed",
@@ -630,6 +698,22 @@
     }
   ],
   "remaining_gaps": [
+    {
+      "requirements": [
+        "REQ-5-1-2"
+      ],
+      "behavior": "switching a saved condition directly to value selection within the same filter dialog",
+      "status": "requires_requirement_clarification",
+      "reason": "The source specifies each mode and Clear filter, but not same-column precedence or whether Clear selection cancels a saved condition. Witnesses clear the filter explicitly before creating a fresh value filter."
+    },
+    {
+      "requirements": [
+        "REQ-5-3-1"
+      ],
+      "behavior": "SUM and AVERAGE display for empty row/column combinations",
+      "status": "requires_requirement_clarification",
+      "reason": "Only COUNT explicitly requires zero for empty combinations. Special-key witnesses retain populated aggregates and totals without imposing a SUM empty-combination display."
+    },
     {
       "requirements": [
         "REQ-1-2-1",

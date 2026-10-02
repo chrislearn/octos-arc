@@ -1713,6 +1713,17 @@
     "requires": [
       "REQ-3-1"
     ],
+    "setup_requires": [],
+    "title": "REQ-3-1: reference navigation: search replaces the directory without duplicate repository links",
+    "file": "REQ-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-1"
+    ],
     "setup_requires": [
       "REQ-3-3"
     ],
@@ -1781,6 +1792,24 @@
       "REQ-1-1-2"
     ],
     "title": "REQ-3-2-1: requirement scenario 3",
+    "file": "REQ-3-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-1-2",
+      "REQ-3-2-1"
+    ],
+    "setup_requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-1-2"
+    ],
+    "title": "REQ-3-2-1: reference navigation: a newly created personal repository is discoverable after returning home",
     "file": "REQ-3-2-1.spec.ts"
   },
   {
@@ -1956,6 +1985,17 @@
     "requires": [
       "REQ-3-3"
     ],
+    "setup_requires": [],
+    "title": "REQ-3-3: reference navigation: cold homepage has public repository entries without a search prerequisite",
+    "file": "REQ-3-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-3"
+    ],
     "setup_requires": [
       "REQ-3-1"
     ],
@@ -2008,6 +2048,23 @@
   },
   {
     "node_id": "REQ-3-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-1-2",
+      "REQ-3-3",
+      "REQ-3-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-1-2"
+    ],
+    "title": "REQ-3-4: reference navigation: authorized home entries follow identity and sign-out permissions",
+    "file": "REQ-3-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-4",
     "fixture": "visibility",
     "phase": "node",
     "requires": [
@@ -2048,6 +2105,20 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-1: requirement scenario 1",
+    "file": "REQ-4-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-1"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-1: reference navigation: file pages retain repository tabs and one file-specific Commits entry",
     "file": "REQ-4-1.spec.ts"
   },
   {
@@ -2129,6 +2200,20 @@
     ],
     "setup_requires": [],
     "title": "REQ-4-2-2: 7aa2e514 compatibility: the public repository chain exposes its named commit before opening the diff",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-2-2: reference navigation: commit detail retains repository context and returns to code after reload",
     "file": "REQ-4-2-2.spec.ts"
   },
   {
@@ -2424,6 +2509,21 @@
   },
   {
     "node_id": "REQ-4-3-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-3-3"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-3-3: reference navigation: branch settings retain the repository navigation after direct reload",
+    "file": "REQ-4-3-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-3-3",
     "fixture": "default-branch",
     "phase": "node",
     "requires": [
@@ -2517,6 +2617,24 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-4: slash branch web writes edits and history remain isolated from main",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-2",
+      "REQ-3-3",
+      "REQ-4-3-2",
+      "REQ-4-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: reference navigation: file editor displays repository and selected branch across reload",
     "file": "REQ-4-4.spec.ts"
   },
   {
@@ -2842,6 +2960,20 @@
     ],
     "setup_requires": [],
     "title": "REQ-5-1-2: 81c7432a compatibility: issue navigation and named discussion entries are ready along the public chain",
+    "file": "REQ-5-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-2"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-5-1-2: reference navigation: an issue direct link and reload retain its repository and sibling navigation",
     "file": "REQ-5-1-2.spec.ts"
   },
   {
@@ -3525,6 +3657,22 @@
     "fixture": null,
     "phase": "node",
     "requires": [
+      "REQ-3-3",
+      "REQ-5-1-1",
+      "REQ-6-2-1"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-6-2-1: reference navigation: repository lists can switch Issues to Pull requests and back to Code",
+    "file": "REQ-6-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
       "REQ-6-2-1"
     ],
     "setup_requires": [
@@ -3590,6 +3738,21 @@
       "REQ-1-1-2"
     ],
     "title": "REQ-6-2-2: 81c7432a compatibility: pull request and comparison navigation remain discoverable before detail data",
+    "file": "REQ-6-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-6-2-2: reference navigation: comparison keeps repository identity and permits returning to the PR list",
     "file": "REQ-6-2-2.spec.ts"
   },
   {
@@ -3848,6 +4011,20 @@
     ],
     "setup_requires": [],
     "title": "REQ-6-3-1: 81c7432a compatibility: named pull requests are ready when entering their list",
+    "file": "REQ-6-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-3-1"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-6-3-1: reference navigation: PR context does not duplicate its Commits tab",
     "file": "REQ-6-3-1.spec.ts"
   },
   {

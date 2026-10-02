@@ -44,8 +44,9 @@ function sortDialog(){
  d.append(element('input',null,{type:'checkbox','aria-label':'Data has header row'}));
  d.append(button('Sort',()=>{
   if(mode!=='noop'){
-   const rows=state.rows.slice(1);rows.sort((a,b)=>mode==='lexical'?a[0].localeCompare(b[0]):Date.parse(a[0])-Date.parse(b[0]));
-   if(order.value==='Descending')rows.reverse();state.rows=[state.rows[0],...rows];
+   const direction=order.value==='Descending'?-1:1;
+   const rows=state.rows.slice(1);rows.sort((a,b)=>direction*(mode==='lexical'?a[0].localeCompare(b[0]):Date.parse(a[0])-Date.parse(b[0])));
+   state.rows=[state.rows[0],...rows];
   }
   save();render();
  }));app.append(d);

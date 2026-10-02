@@ -18,6 +18,18 @@ test("REQ-3-2-1: requirement scenario 3", async ({ page, browser }) => {
   await h.signIn(page,"repo-owner"); await h.link(page,'New repository').click(); await h.field(page,'Repository name').fill(''); await h.button(page,'Create repository').click(); await expect(page.getByText(/Repository name.*required/)).toBeVisible();
 });
 
+test("REQ-3-2-1: reference navigation: a newly created personal repository is discoverable after returning home", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const account=await h.register(page); await h.signIn(page,account.username);
+  await h.link(page,'New repository').click(); const name=h.unique('home-repository');
+  await h.field(page,'Repository name').fill(name);
+  await page.getByRole('radio',{name:'Private',exact:true}).check(); await h.button(page,'Create repository').click();
+  await expect(page.getByRole('heading').filter({hasText:name})).toBeVisible();
+  await h.home(page); await expect(h.link(page,name)).toBeVisible(); await h.link(page,name).click();
+  await expect(page.getByRole('heading').filter({hasText:name})).toBeVisible();
+  await h.signOut(page); await expect(h.link(page,name)).toHaveCount(0);
+});
+
 test("REQ-3-2-1: default personal namespace creates initialized Private repository and saved README", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page); await h.link(page,'New repository').click(); const name=h.unique('pw-repo'); await h.field(page,'Repository name').fill(name); await h.field(page,'Description').fill('Repository created by Playwright'); await page.getByRole('radio',{name:'Private',exact:true}).check(); await page.getByRole('checkbox',{name:'Add a README file',exact:true}).check(); await h.button(page,'Create repository').click();

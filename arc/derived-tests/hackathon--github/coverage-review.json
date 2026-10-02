@@ -56,11 +56,11 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-1": {
-      "exported_case_count": 9,
+      "exported_case_count": 10,
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-2-1": {
-      "exported_case_count": 5,
+      "exported_case_count": 6,
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-2-2": {
@@ -72,15 +72,15 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-3": {
-      "exported_case_count": 3,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
     "REQ-3-4": {
-      "exported_case_count": 5,
+      "exported_case_count": 6,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1": {
-      "exported_case_count": 2,
+      "exported_case_count": 3,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-2-1": {
@@ -88,7 +88,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-2-2": {
-      "exported_case_count": 3,
+      "exported_case_count": 4,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-2-3": {
@@ -104,11 +104,11 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-3-3": {
-      "exported_case_count": 5,
+      "exported_case_count": 6,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-4": {
-      "exported_case_count": 16,
+      "exported_case_count": 17,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-1": {
@@ -116,7 +116,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-1-2": {
-      "exported_case_count": 5,
+      "exported_case_count": 6,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-2-1": {
@@ -152,11 +152,11 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-2-1": {
-      "exported_case_count": 4,
+      "exported_case_count": 5,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-2-2": {
-      "exported_case_count": 6,
+      "exported_case_count": 7,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-2-3": {
@@ -168,7 +168,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-1": {
-      "exported_case_count": 9,
+      "exported_case_count": 10,
       "complete_clause_coverage_claimed": false
     },
     "REQ-6-3-2": {

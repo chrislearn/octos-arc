@@ -455,6 +455,8 @@ from embedded_sheet_contract_gap_cases import register as register_sheet_contrac
 register_sheet_contract_gaps(s)
 from embedded_sheet_b5b932_cases import register as register_sheet_b5b932
 register_sheet_b5b932(s)
+from embedded_sheet_reference_cases import register as register_sheet_references
+register_sheet_references(s)
 
 # The appended revisions still declare every UI prerequisite, without moving old cases.
 from embedded_case_phases import sheet_features

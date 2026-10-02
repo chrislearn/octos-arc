@@ -148,6 +148,7 @@ from guard import TurnMonitor  # noqa: E402
 from repair_control import isolated_node_deadline, startup_recovery_deadline, repair_deadline, seconds_available, progress_snapshot, measured_progress  # noqa: E402
 from flow_policy import (generation_tokens, node_seconds, phase_for_label, repair_seconds,
                          reasoning_for_phase, is_test_infrastructure_error, measurement_seconds, startup_failure_summary)  # noqa: E402
+from measurement_timing import compose_window, padded_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
 from runtime_diagnostics import (application_failures, backend_binding_health,
                                  backend_http_failure_observation, binding_failure_observation,
@@ -2163,7 +2164,9 @@ UI behavior follows the requirement and the current application:
 - Keep a pending edit's origin separate from the current selection or focus. Pointer-down can change selection before blur commits the old draft. Commit and cancel using the draft's captured record/cell ID, and inspect guards in the called commit function as well as the outer event handler. Verify typing, selecting another item, blur/Enter, reload and cancellation; preserving the text alone does not prove it was saved to the right item. Keep any ref for latest selection synchronized across loading, navigation and pointer transitions; older save responses must not overwrite the newly selected item's controls. Keep selection state, range and ref coherent when switching views.
 - Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
 - Specify ownership/keys and atomic command effects (including undo) from requirements; related mutations must commit together in one store update or database transaction, not separate file writes. Validate authoritatively on the server. Date-only values are calendar dates, not UTC instants; persist expiry deadlines across reloads, anchor countdowns to server time, and use a task-provided reference date only when explicitly required. Keep editable rich-text regions labeled (role=textbox, aria-multiline=true); use native select for a native selection contract, not a visually similar custom menu.
-- Use supplied visual references when relevant. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
+- Review parent/folder requirements as cross-page invariants, not just atomic scenario assertions. Preserve the active container identity, branch/revision or equivalent context, and usable sibling/return navigation on its list, detail, editor and settings views. Check required named-control uniqueness after composing shared and page-specific navigation.
+- Use supplied visual references to check page structure and transitions alongside the written contract. When a reference conflicts with explicit names, roles, scope, data or actions, follow the written requirement; do not copy incidental screenshot accounts, empty states or out-of-scope features.
+- Verify each supported entry path independently: discovery/list, search, and reopening an observed deep link in a fresh session. A test helper must not silently insert a search or setup hop into a visible-entry check. Exercise sibling-page navigation and reloads, not just isolated final controls. Run staged tasks against independently initialized data; passing one helper path does not establish coverage of other entry paths. Public tests are examples of required behavior, not permission to hardcode test outcomes or omit untested requirements.
 Keep page composition separate from feature dialogs, pure transformations and API helpers. Preserve stable record and column identifiers across display labels and request payloads. Show recoverable operation errors beside that operation while retaining the working page and unsaved input. Avoid repeatedly expanding a central editor for independent features.
 """
 
@@ -6423,6 +6426,8 @@ class Flow:
                           if self.tests_dir and (self.tests_dir / spec).is_file() else None for spec in specs}
         case_scope = self.measurement_case_scope(specs)
         run_config = self.measurement_run_config(specs, runner)
+        spec_scopes = self.measurement_spec_scopes(specs)
+        timing_mode = self.measurement_timing_mode(grader_like, workers, runner)
         prior = getattr(self, '_last_repair_round', {})
         summary = None
         try:
@@ -6439,6 +6444,7 @@ class Flow:
                     'scope_hash': scope_hash, 'workers': self.spec_workers(workers, runner),
                     'seconds': elapsed, 'case_scope': case_scope, 'grader_like': grader_like,
                     'run_config': run_config,
+                    'spec_scopes': spec_scopes, 'timing_mode': timing_mode,
                 }])[-64:]
             self.metric('acceptance_measurement', specs=specs, source_hash=source,
                         source_after=self.app_source_digest(),
@@ -6484,9 +6490,36 @@ class Flow:
                 'isolated': bool(getattr(self, 'derived_as_specs', False) and len(specs) > 1
                                  and os.environ.get('OCTOS_ARC_DERIVED_ISOLATE', '1') != '0')}
 
-    def node_measurement_window(self, specs: list[str], grader_like: bool = False) -> float:
-        """Reserve a build/start/test run, using only complete, compatible timings."""
-        workers = self.spec_workers()
+    def measurement_spec_scopes(self, specs: list[str]) -> dict:
+        """File and selected-case identities, including shared executable helpers."""
+        try:
+            support = {str(path.relative_to(self.tests_dir)): hashlib.sha256(path.read_bytes()).hexdigest()
+                       for path in self.tests_dir.rglob('*') if path.is_file()
+                       and not path.name.endswith('.spec.ts')
+                       and (path.suffix in {'.ts', '.tsx', '.js', '.jsx', '.cjs', '.mjs'}
+                            or path.name == 'fixtures.json')}
+            support_hash = hashlib.sha256(json.dumps(support, sort_keys=True).encode()).hexdigest()
+            scopes = {}
+            for spec in sorted(set(specs)):
+                selected = self.measurement_case_scope([spec])
+                scopes[spec] = ({'source': hashlib.sha256((self.tests_dir / spec).read_bytes()).hexdigest(),
+                                 'cases': selected, 'support': support_hash} if selected is not None else None)
+            return scopes
+        except (OSError, TypeError, AttributeError):
+            return {spec: None for spec in specs}
+
+    def measurement_timing_mode(self, grader_like, workers=None, runner=None) -> dict:
+        return {'workers': self.spec_workers(workers, runner), 'grader_like': grader_like,
+                'timeout_ms': self.measurement_run_config([], runner)['timeout_ms'],
+                # A single spec and an isolated multi-spec run use the same
+                # per-spec environment. Changing the isolation policy invalidates both.
+                'isolation_policy': bool(getattr(self, 'derived_as_specs', False)
+                                         and os.environ.get('OCTOS_ARC_DERIVED_ISOLATE', '1') != '0')}
+
+    def node_measurement_window(self, specs: list[str], grader_like: bool = False,
+                                workers: int | None = None) -> float:
+        """Forecast a measurement without turning timeout ceilings into demand."""
+        workers = self.spec_workers(workers)
         versions = {spec: hashlib.sha256((self.tests_dir / spec).read_bytes()).hexdigest()
                     if self.tests_dir and (self.tests_dir / spec).is_file() else None
                     for spec in sorted(set(specs))}
@@ -6494,14 +6527,27 @@ class Flow:
         case_scope = self.measurement_case_scope(specs)
         run_config = self.measurement_run_config(specs)
         timings = getattr(self, '_acceptance_timings', [])
+        spec_scopes = self.measurement_spec_scopes(specs)
+        timing_mode = self.measurement_timing_mode(grader_like, workers)
         samples = [row['seconds'] for row in timings
                    if row['scope_hash'] == scope_hash and row['workers'] == workers
                    and row['case_scope'] == case_scope and row['grader_like'] == grader_like
                    and case_scope is not None and row.get('run_config') == run_config
+                   and row.get('spec_scopes') == spec_scopes
+                   and all(value is not None for value in spec_scopes.values())
+                   and row.get('timing_mode') == timing_mode
                    and row['seconds'] > 0]
         if samples:
-            return max(30.0, max(samples[-5:]) * 1.25 + 15.0)
-        return measurement_seconds(self.tests_dir, specs, run_config['timeout_ms'], workers)
+            window, covered, unknown = padded_seconds(max(samples[-5:])), sorted(set(specs)), []
+        else:
+            window, covered, unknown = compose_window(spec_scopes, timings, timing_mode,
+                                                      self.tests_dir, run_config['timeout_ms'], workers)
+        self.metric('measurement_forecast', specs=specs, grader_like=grader_like,
+                    seconds=round(window, 3), measured_specs=covered, estimated_specs=unknown,
+                    basis='exact' if samples else 'composed' if covered else 'cold_start',
+                    timeout_ceiling_seconds=measurement_seconds(self.tests_dir, specs,
+                                                               run_config['timeout_ms'], workers))
+        return window
 
     def node_measurement_reserve(self, specs: list[str], related: list[str]) -> float:
         window = self.node_measurement_window(specs)
@@ -13065,21 +13111,17 @@ class Flow:
                     continue
                 if self.derived_review_needed(node_id):
                     partial_review.append(path.name)
-                source = path.read_text(encoding="utf-8")
-                titles = [match.group(1).replace("\\'", "'") for match in re.finditer(
-                    r"(?m)^\s*test\('((?:\\.|[^'\\])*)',", source)]
                 risk = bool(re.search(r"sign.?in|sign.?out|password|permission|access|persist|save|formula|delete",
                                       str(getattr(self, "requirement_nodes", {}).get(node_id, {}).get("description") or ""), re.I))
-                candidates.append((not risk, node_id, path.name, max(1, len(titles))))
+                candidates.append((not risk, node_id, path.name))
             candidates.sort()
-            timeout_s = max(1, getattr(self.runner, "timeout_ms", 30000) / 1000)
             allowance = max(0.0, self.remaining() - self.final_measurement_reserve() - self.repair_minimum())
-            selected, estimate = [], 30.0
-            for _, _, spec, count in candidates:
-                cost = 30.0 + count * timeout_s
-                if estimate + cost <= allowance:
+            selected, estimate = [], 0.0
+            for _, _, spec in candidates:
+                cost = self.node_measurement_window(selected + [spec], grader_like=True, workers=1)
+                if cost <= allowance:
                     selected.append(spec)
-                    estimate += cost
+                    estimate = cost
             self.metric("final_suite_selection", selected=selected,
                         deferred=[row[2] for row in candidates if row[2] not in selected],
                         review_pending=review_pending, partial_review=partial_review,
@@ -13150,7 +13192,7 @@ class Flow:
             timeout_s = max(1, getattr(self.runner, 'timeout_ms', 30000) / 1000)
             workers = max(1, self.final_workers())
             def estimate(paths: list[str]) -> float:
-                return measurement_seconds(self.tests_dir, paths, int(timeout_s * 1000), workers)
+                return self.node_measurement_window(paths, grader_like=True, workers=workers)
             proven_estimated = estimate(proven_specs)
             if (proven_specs and len(proven_specs) < len(all_specs)
                     and self.remaining() >= proven_estimated + 20):
@@ -13180,14 +13222,16 @@ class Flow:
                 log('[acceptance] provider circuit open; preserving measured source without final model repairs')
                 return
             estimated = estimate(all_specs)
-            # The default must grow with the case-based estimate, otherwise a
-            # 16-case file can never enter even when hours of budget remain.
-            # An explicit operator cap remains an independent hard limit.
-            cap = max(60, int(os.environ.get("OCTOS_ARC_FULL_SUITE_SECONDS_CAP", str(max(900, int(estimated) + 1)))))
+            # Forecast admission separately from runner timeouts. Preserve the
+            # explicit operator's conservative ceiling check when one is set.
+            configured_cap = os.environ.get('OCTOS_ARC_FULL_SUITE_SECONDS_CAP')
+            cap = max(60, int(configured_cap)) if configured_cap is not None else max(900, int(estimated) + 1)
+            ceiling = measurement_seconds(self.tests_dir, all_specs, int(timeout_s * 1000), workers)
             final_startup_buffer = min(120.0, max(30.0, self.remaining() * .30))
-            if estimated > min(cap, max(0, self.remaining() - final_startup_buffer)):
+            if ((configured_cap is not None and ceiling > cap)
+                    or estimated > min(cap, max(0, self.remaining() - final_startup_buffer))):
                 log(f'[acceptance] full suite deferred: {len(all_specs)} specs, estimated '
-                    f'{estimated:.0f}s from case count; cap {cap}s, {self.remaining():.0f}s remains')
+                    f'{estimated:.0f}s; timeout ceiling {ceiling:.0f}s, cap {cap}s, {self.remaining():.0f}s remains')
                 self.metric('acceptance', scope='full_suite_admission', decision='deferred',
                             specs=len(all_specs), estimated_seconds=round(estimated), cap_seconds=cap,
                             remaining_seconds=round(self.remaining()))

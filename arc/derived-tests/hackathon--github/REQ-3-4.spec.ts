@@ -23,6 +23,18 @@ test("REQ-3-4: 7aa2e514 compatibility: authorized accounts discover the visibili
   }
 });
 
+test("REQ-3-4: reference navigation: authorized home entries follow identity and sign-out permissions", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'org-owner'); await expect(h.link(page,'secret-research')).toBeVisible();
+  await h.link(page,'secret-research').click(); const address=page.url();
+  await expect(page.getByRole('heading').filter({hasText:'secret-research'})).toBeVisible();
+  await h.signOut(page); await expect(h.link(page,'secret-research')).toHaveCount(0);
+  await page.reload(); await expect(h.link(page,'secret-research')).toHaveCount(0);
+  await page.goto(address); await expect(h.link(page,'secret-research')).toHaveCount(0);
+  await h.signIn(page,'org-owner'); await expect(h.link(page,'secret-research')).toBeVisible();
+  await h.link(page,'secret-research').click(); await expect(page.getByRole('heading').filter({hasText:'secret-research'})).toBeVisible();
+});
+
 test("REQ-3-4: Admin makes Private repository Public and fresh visitor reads saved identity", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'repo-admin'); const address=await h.repo(page,h.fixtureRepo('visibility')); await expect(h.text(page,'Private').first()).toBeVisible(); await h.settings(page,'General'); await h.button(page,'Change visibility').click(); await page.getByRole('radio',{name:'Public',exact:true}).check(); await h.button(page,'Confirm visibility').click(); await expect(h.text(page,'Public').first()).toBeVisible();

@@ -43,6 +43,17 @@ test("REQ-3-1: 7aa2e514 compatibility: homepage search remains in the initial vi
   await expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible();
 });
 
+test("REQ-3-1: reference navigation: search replaces the directory without duplicate repository links", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await expect(h.link(page,'acme-docs')).toBeVisible();
+  const search=page.getByRole('searchbox',{name:'Search',exact:true});
+  await search.fill('acme-docs'); await search.press('Enter');
+  await expect(h.link(page,'acme-docs')).toHaveCount(1); await h.openRepositoryResult(page,'acme-docs','Acme Demo');
+  await h.home(page); await search.fill('no-match-'+h.unique('repo')); await search.press('Enter');
+  await expect(h.text(page,'No results')).toBeVisible(); await expect(h.link(page,'acme-docs')).toHaveCount(0);
+  await search.fill(''); await expect(h.link(page,'acme-docs')).toBeVisible();
+});
+
 test("REQ-3-1: global search opens public identity and excludes private repository", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.repo(page); await h.persisted(page, () => expect(page.getByRole('heading').filter({hasText:'acme-docs'})).toBeVisible()); await h.home(page); const search=page.getByRole('searchbox',{name:'Search',exact:true}); await search.fill('secret-research'); await search.press('Enter'); await expect(h.link(page,'secret-research')).toHaveCount(0);

@@ -220,12 +220,16 @@ test("REQ-5-2-1: audit regression: single-cell number error uses between while p
 
 test("REQ-5-2-1: audit regression: failed rule modify retains the dialog and previous constraint until a successful retry", async ({ page }) => {
   test.setTimeout(60_000);
-  await h.blank(page);const write=await h.learnWrite(page,()=>h.validation(page,'A1','A1'));await page.reload();
+  await h.blank(page);await h.validation(page,'A1','A1');
   await h.data(page,'Data validation');const dialog=page.getByRole('dialog',{name:'Data validation',exact:true});
+  await h.field(dialog,'Maximum').fill('80');
+  const write=await h.learnWrite(page,async()=>{await h.button(dialog,'Save').click();await expect(dialog).toBeHidden();});
+  await h.data(page,'Data validation');await h.field(dialog,'Maximum').fill('100');await h.button(dialog,'Save').click();await expect(dialog).toBeHidden();
+  await page.reload();await h.data(page,'Data validation');
   await h.field(dialog,'Maximum').fill('20');
   const fault=await h.rejectWrites(page,write);
-  try {await h.button(dialog,"Save").click();await expect.poll(()=>fault.attempts()).toBeGreaterThan(0);
-    await expect(dialog).toBeVisible();await expect(dialog.getByRole('alert')).toBeVisible();
+  try {await h.button(dialog,"Save").click();await fault.assertInjected();
+    await expect(dialog).toBeVisible();await expect(h.saveFailureReason(dialog).first()).toBeVisible();
   } finally {await fault.remove();}
   await page.reload();await h.edit(page,'A1','101');await expect(h.text(page,'Please enter a number between 0 and 100').first()).toBeVisible();await h.values(page,{A1:''});
   await h.data(page,'Data validation');await expect(h.field(dialog,'Maximum')).toHaveValue('100');
@@ -236,11 +240,13 @@ test("REQ-5-2-1: audit regression: failed rule modify retains the dialog and pre
 
 test("REQ-5-2-1: audit regression: failed rule delete retains the dialog and previous constraint until a successful retry", async ({ page }) => {
   test.setTimeout(60_000);
-  await h.blank(page);const write=await h.learnWrite(page,()=>h.validation(page,'A1','A1'));await page.reload();
+  await h.blank(page);await h.validation(page,'A1','A1');
   await h.data(page,'Data validation');const dialog=page.getByRole('dialog',{name:'Data validation',exact:true});
+  const write=await h.learnWrite(page,async()=>{await h.button(dialog,'Delete rule').click();await expect(dialog).toBeHidden();});
+  await h.validation(page,'A1','A1');await page.reload();await h.data(page,'Data validation');
   const fault=await h.rejectWrites(page,write);
-  try {await h.button(dialog,"Delete rule").click();await expect.poll(()=>fault.attempts()).toBeGreaterThan(0);
-    await expect(dialog).toBeVisible();await expect(dialog.getByRole('alert')).toBeVisible();
+  try {await h.button(dialog,"Delete rule").click();await fault.assertInjected();
+    await expect(dialog).toBeVisible();await expect(h.saveFailureReason(dialog).first()).toBeVisible();
   } finally {await fault.remove();}
   await page.reload();await h.edit(page,'A1','101');await expect(h.text(page,'Please enter a number between 0 and 100').first()).toBeVisible();await h.values(page,{A1:''});
   await h.data(page,'Data validation');await expect(h.field(dialog,'Maximum')).toHaveValue('100');
@@ -258,12 +264,15 @@ test("REQ-5-2-1: audit regression: modified inclusive number bounds become effec
 
 test("REQ-5-2-1: audit regression: failed first rule save reports an error without closing or installing the rule", async ({ page }) => {
   test.setTimeout(60_000);
-  await h.blank(page);const write=await h.learnWrite(page,async()=>{await h.edit(page,'A1','original');await h.values(page,{A1:'original'});});await page.reload();
+  await h.blank(page);await h.edit(page,'A1','original');await h.values(page,{A1:'original'});
+  const setup=await h.prepareValidation(page,'A1','A1');
+  const write=await h.learnWrite(page,async()=>{await h.button(setup,'Save').click();await expect(setup).toBeHidden();});
+  await h.data(page,'Data validation');await h.button(setup,'Delete rule').click();await expect(setup).toBeHidden();await page.reload();
   await h.data(page,'Data validation');const dialog=page.getByRole('dialog',{name:'Data validation',exact:true});await h.choose(dialog,'Rule type','Number range');
   await h.field(dialog,'Minimum').fill('0');await h.field(dialog,'Maximum').fill('20');const fault=await h.rejectWrites(page,write);
-  try{await h.button(dialog,'Save').click();await expect.poll(()=>fault.attempts()).toBeGreaterThan(0);await expect(dialog).toBeVisible();await expect(dialog.getByRole('alert')).toBeVisible();}
+  try{await h.button(dialog,'Save').click();await fault.assertInjected();await expect(dialog).toBeVisible();await expect(h.saveFailureReason(dialog).first()).toBeVisible();}
   finally{await fault.remove();}
   await page.reload();await h.edit(page,'A1','21');await h.values(page,{A1:'21'});await h.data(page,'Data validation');await expect(h.button(dialog,'Delete rule')).toHaveCount(0);
-  await h.field(dialog,'Minimum').fill('0');await h.field(dialog,'Maximum').fill('20');await h.button(dialog,'Save').click();await expect(dialog).toBeHidden();await h.edit(page,'A1','22');
+  await h.choose(dialog,'Rule type','Number range');await h.field(dialog,'Minimum').fill('0');await h.field(dialog,'Maximum').fill('20');await h.button(dialog,'Save').click();await expect(dialog).toBeHidden();await h.edit(page,'A1','22');
   await expect(h.text(page,'Please enter a number between 0 and 20').first()).toBeVisible();await h.persisted(page,()=>h.values(page,{A1:'21'}));
 });

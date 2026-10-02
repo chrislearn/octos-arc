@@ -150,17 +150,17 @@ class MeasurementHistory(unittest.TestCase):
         self.assertEqual(len(f._acceptance_timings), 1)
         self.assertEqual(f.node_measurement_window(['A.spec.ts']), 115)
 
-    def test_changed_spec_or_worker_uses_timeout_estimate_instead_of_old_fast_measurement(self):
+    def test_changed_spec_or_worker_uses_cold_forecast_instead_of_old_fast_measurement(self):
         f = self.flow; f._run_specs = Mock(return_value=self.measured(True))
         with patch('main.time.monotonic', side_effect=[1000.0, 1020.0]):
             f.run_specs(['A.spec.ts'])
         self.assertEqual(f.node_measurement_window(['A.spec.ts']), 40)
         f.runner.workers = 2
-        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 96)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 67.5)
         f.runner.workers = 1
         with (f.tests_dir / 'A.spec.ts').open('a') as out:
             out.write("\ntest('two',()=>{});")
-        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 204)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 90)
 
     def test_generated_case_selection_and_grader_environment_invalidate_fast_history(self):
         f = self.flow
@@ -170,9 +170,9 @@ class MeasurementHistory(unittest.TestCase):
         with patch('main.time.monotonic', side_effect=[1000.0, 1020.0]):
             f.run_specs(['A.spec.ts'])
         self.assertEqual(f.node_measurement_window(['A.spec.ts']), 40)
-        self.assertEqual(f.node_measurement_window(['A.spec.ts'], grader_like=True), 132)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts'], grader_like=True), 75)
         f.derived_case_selection.return_value = (2, {})
-        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 132)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 75)
 
     def test_layered_selected_case_identity_invalidates_history_without_mutating_selection(self):
         f = self.flow
@@ -189,7 +189,7 @@ class MeasurementHistory(unittest.TestCase):
         self.assertEqual(f.node_measurement_window(['A.spec.ts']), 40)
         self.assertIs(f.layered.case_inclusions, old)
         chosen.append({'title': 'two', 'line': 4})
-        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 132)
+        self.assertEqual(f.node_measurement_window(['A.spec.ts']), 75)
         self.assertIs(f.layered.case_inclusions, old)
 
 

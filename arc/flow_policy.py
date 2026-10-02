@@ -54,24 +54,42 @@ def startup_failure_summary(summary) -> bool:
             or not summary.error_kind and not is_test_infrastructure_error(summary.error))
 
 
-def measurement_seconds(tests_dir, specs, timeout_ms=10000, workers=1) -> float:
-    """Budget by case declarations and explicit spec timeout, never file count alone.
-
-    This conservative source estimate is admission guidance; the actual runner
-    roster remains the authority for case identities and verdicts.
-    """
-    total = 0.0
+def _measurement_case_budgets(tests_dir, specs, timeout_ms):
     for rel in specs:
         try:
             source = (tests_dir / rel).read_text(encoding='utf8')
-        except (OSError, TypeError):
+        except (OSError, TypeError, AttributeError):
             source = ''
         cases = max(1, len(re.findall(r'\btest\s*(?:\.\s*(?:only|skip|fixme))?\s*\(\s*[\'"`]', source)))
         overrides = [int(s.replace('_', '')) for s in re.findall(
             r'(?:setTimeout\s*\(|timeout\s*:)\s*([\d_]+)', source)]
-        case_seconds = max([timeout_ms, *overrides]) / 1000
-        total += cases * case_seconds
+        yield cases, max([timeout_ms, *overrides]) / 1000
+
+
+def measurement_seconds(tests_dir, specs, timeout_ms=10000, workers=1) -> float:
+    """Budget by case declarations and explicit spec timeout, never file count alone.
+
+    This conservative ceiling sizes runner timeouts and explicit hard caps.
+    Scheduling uses measurement_forecast_seconds or compatible measured runs;
+    the actual runner roster remains the authority for identities and verdicts.
+    """
+    total = sum(cases * seconds for cases, seconds in
+                _measurement_case_budgets(tests_dir, specs, timeout_ms))
     return 60 + 1.2 * total / max(1, workers)
+
+
+def measurement_forecast_seconds(tests_dir, specs, timeout_ms=10000, workers=1) -> float:
+    """Cold-start admission estimate, separate from the runner's hard timeout.
+
+    A declared 60s test timeout is not an expected 60s duration. Until a complete
+    compatible measurement exists, allow 10s per case plus 50% headroom and 60s
+    startup. This grants repair opportunities; only an actual complete run can
+    certify the result. The runner still uses measurement_seconds and the hard
+    node/run deadlines, so an underestimated forecast cannot produce a pass.
+    """
+    total = sum(cases * min(seconds, 10.0) for cases, seconds in
+                _measurement_case_budgets(tests_dir, specs, timeout_ms))
+    return 60 + 1.5 * total / max(1, workers)
 
 
 def repair_seconds(samples: list[float], minimum: float) -> float:

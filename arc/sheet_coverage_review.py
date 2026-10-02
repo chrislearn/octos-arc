@@ -41,7 +41,11 @@ def coverage_review(tree, plan):
         ('REQ-5-3-1', 'empty column groups participate in SUM COUNT AVERAGE with exact row column and overall totals', ['retains blank column groups']),
         ('REQ-5-3-1', 'object-property-named column groups aggregate as ordinary source values', ['b5b932 regression: column group text']),
         ('REQ-5-3-1', 'deleting the entire source column preserves old pivot results when an adjacent identical header moves in', ['deleting the entire source column']),
-        ('REQ-5-1-2', 'Clear selection after a saved condition switches to an empty value filter and persists before clearing', ['Clear selection after saved']),
+        ('REQ-5-1-2', 'Clear filter removes a saved condition before creating and persisting a fresh empty value filter', ['Clear filter resets saved']),
+        ('REQ-5-1-1', 'ascending and descending numeric equality preserve records despite different numeric spellings', ['keeps numerically equal spellings']),
+        ('REQ-4-1-1', 'insert-right and insert-below preserve references before the actual insertion and untouched axes', ['actual insertion']),
+        ('REQ-4-1-2', 'mixed absolute axes move independently and copied columns cross the Z to AA boundary', ['mixed absolute axes', 'crosses Z to AA']),
+        ('REQ-5-3-1', 'COUNT retains blank row groups and includes their records in the overall total', ['COUNT retains blank row groups']),
 
     ]
     reviewed = []
@@ -62,6 +66,14 @@ def coverage_review(tree, plan):
                         'complete_clause_coverage_claimed': False} for nid in nodes},
         'reviewed_behaviors': reviewed,
         'remaining_gaps': [
+            {'requirements': ['REQ-5-1-2'],
+             'behavior': 'switching a saved condition directly to value selection within the same filter dialog',
+             'status': 'requires_requirement_clarification',
+             'reason': 'The source specifies each mode and Clear filter, but not same-column precedence or whether Clear selection cancels a saved condition. Witnesses clear the filter explicitly before creating a fresh value filter.'},
+            {'requirements': ['REQ-5-3-1'],
+             'behavior': 'SUM and AVERAGE display for empty row/column combinations',
+             'status': 'requires_requirement_clarification',
+             'reason': 'Only COUNT explicitly requires zero for empty combinations. Special-key witnesses retain populated aggregates and totals without imposing a SUM empty-combination display.'},
             {'requirements': ['REQ-1-2-1','REQ-1-2-2','REQ-1-3-1','REQ-2-1-1','REQ-2-1-3','REQ-2-1-4'],
              'behavior': 'valid lifecycle operations fail without partial records; retry succeeds',
              'status': 'requires_implementation_harness'},

@@ -12,6 +12,7 @@ def sheet_features(body):
         'blank':['REQ-1-2-1'], 'edit':['REQ-3-1-1'], 'paste':['REQ-3-1-2'],
         'sourceData':['REQ-1-2-1','REQ-3-1-2'], 'range':['REQ-3-1-3'], 'selection':['REQ-3-1-3'],
         'formula':['REQ-4-1-1'], 'validation':['REQ-5-2-1','REQ-3-1-3'], 'numericRule':['REQ-5-2-1','REQ-3-1-3'],
+        'prepareValidation':['REQ-5-2-1','REQ-3-1-3'],
         'pivot':['REQ-5-3-1','REQ-3-1-3','REQ-2-1-1'], 'csv':['REQ-1-3-2'], 'renameWorkbook':['REQ-1-2-2'],
         'filterValues':['REQ-5-1-2'], 'condition':['REQ-5-1-2'], 'visibleRows':['REQ-5-1-2'],
     }

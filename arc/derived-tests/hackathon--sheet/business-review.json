@@ -34,8 +34,8 @@
     "REQ-5-3-1"
   ],
   "files": {
-    "app-design.json": "5d4ae152bf7420771137a3e3d59cae34154f8448991648d83c94ddbefd670903",
-    "domain-contracts.json": "d03edb2ccf7c6220592522f116f33b5a1719cd8822c5f752ac153f8beec5894d",
+    "app-design.json": "ebb1b7cb363c3017cbd5aa37f9648affab9f2f17c5a9ec8ff7d5ebf6ddba789d",
+    "domain-contracts.json": "88908beb3d3b8f0fd48c4f98d6f4374fb6b617fcf586382a9e6a3e6f4c8c6ef9",
     "requirement-contracts.json": "df75d43956a7ac305ad8452cd4eb7ce922c3b191ec9f3689b149c91996c0cad8",
     "test-obligations.json": "1e46fd9ae84cbe23f0868fa9d0a46b358d0f47eccab2038008b9833888c792b9"
   },

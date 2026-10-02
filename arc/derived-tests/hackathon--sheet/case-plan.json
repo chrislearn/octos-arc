@@ -1638,6 +1638,32 @@
     "file": "REQ-4-1-1.spec.ts"
   },
   {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-1-1",
+      "REQ-1-2-1",
+      "REQ-2-2-2",
+      "REQ-3-1-1"
+    ],
+    "title": "REQ-4-1-1: audit regression: insert right changes only references at or after the actual insertion",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-1-1",
+      "REQ-1-2-1",
+      "REQ-2-2-1",
+      "REQ-3-1-1"
+    ],
+    "title": "REQ-4-1-1: audit regression: insert below preserves references above the actual insertion and all column axes",
+    "file": "REQ-4-1-1.spec.ts"
+  },
+  {
     "node_id": "REQ-4-1-2",
     "fixture": null,
     "phase": "node",
@@ -1741,6 +1767,50 @@
       "REQ-4-1-1"
     ],
     "title": "REQ-4-1-2: b5b932 regression: copying an accepted lowercase formula to C4 offsets only relative axes",
+    "file": "REQ-4-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-2-1",
+      "REQ-4-1-1"
+    ],
+    "title": "REQ-4-1-2: audit regression: mixed absolute axes copy from D4 to E5 independently",
+    "file": "REQ-4-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-1-2",
+      "REQ-1-2-1",
+      "REQ-3-1-1",
+      "REQ-3-1-2",
+      "REQ-3-2-1",
+      "REQ-4-1-1"
+    ],
+    "title": "REQ-4-1-2: audit regression: mixed absolute axes copy from E5 to D4 independently",
+    "file": "REQ-4-1-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-1-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-1-2",
+      "REQ-1-3-1",
+      "REQ-3-1-1",
+      "REQ-3-2-1",
+      "REQ-4-1-1"
+    ],
+    "title": "REQ-4-1-2: audit regression: formula copy crosses Z to AA without changing absolute columns",
     "file": "REQ-4-1-2.spec.ts"
   },
   {
@@ -2178,6 +2248,32 @@
     "file": "REQ-5-1-1.spec.ts"
   },
   {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-1-1: audit regression: Ascending keeps numerically equal spellings in original record order",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-1-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-1-1",
+      "REQ-1-2-1",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-1-1: audit regression: Descending keeps numerically equal spellings in original record order",
+    "file": "REQ-5-1-1.spec.ts"
+  },
+  {
     "node_id": "REQ-5-1-2",
     "fixture": null,
     "phase": "node",
@@ -2301,7 +2397,7 @@
       "REQ-3-1-2",
       "REQ-3-1-3"
     ],
-    "title": "REQ-5-1-2: b5b932 regression: Clear selection after saved Text contains applies an empty value filter",
+    "title": "REQ-5-1-2: b5b932 regression: Clear filter resets saved Text contains before a fresh empty value filter",
     "file": "REQ-5-1-2.spec.ts"
   },
   {
@@ -2315,7 +2411,7 @@
       "REQ-3-1-2",
       "REQ-3-1-3"
     ],
-    "title": "REQ-5-1-2: b5b932 regression: Clear selection after saved Greater than applies an empty value filter",
+    "title": "REQ-5-1-2: b5b932 regression: Clear filter resets saved Greater than before a fresh empty value filter",
     "file": "REQ-5-1-2.spec.ts"
   },
   {
@@ -2834,7 +2930,8 @@
     "requires": [
       "REQ-5-2-1",
       "REQ-1-2-1",
-      "REQ-3-1-1"
+      "REQ-3-1-1",
+      "REQ-3-1-3"
     ],
     "title": "REQ-5-2-1: audit regression: failed first rule save reports an error without closing or installing the rule",
     "file": "REQ-5-2-1.spec.ts"
@@ -3430,6 +3527,21 @@
       "REQ-3-1-3"
     ],
     "title": "REQ-5-3-1: b5b932 regression: deleting the entire source column preserves the last pivot despite an adjacent identical header",
+    "file": "REQ-5-3-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-5-3-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-5-3-1",
+      "REQ-1-2-1",
+      "REQ-2-1-1",
+      "REQ-2-1-2",
+      "REQ-3-1-2",
+      "REQ-3-1-3"
+    ],
+    "title": "REQ-5-3-1: audit regression: COUNT retains blank row groups and all source records in totals",
     "file": "REQ-5-3-1.spec.ts"
   },
   {

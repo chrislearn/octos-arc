@@ -81,7 +81,9 @@ class MeasuredRepairTests(TestCase):
         f.driver = None
         f.remaining = lambda: 180
         f.final_acceptance_passes()
-        f.final_acceptance.assert_not_called()  # estimated full suite exceeds remaining measurement budget
+        # Enough wall time remains for measurement even though model repair has
+        # stopped. Per-case timeout ceilings must not suppress this checkpoint.
+        f.final_acceptance.assert_called_once()
 
     def test_large_unentered_suite_keeps_a_bounded_delivery_checkpoint(self):
         f = self.flow

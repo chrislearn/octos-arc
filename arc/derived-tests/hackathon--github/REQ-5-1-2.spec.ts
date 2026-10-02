@@ -28,6 +28,18 @@ test("REQ-5-1-2: 81c7432a compatibility: issue navigation and named discussion e
   await h.link(page,'Improve onboarding').click(); await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible();
 });
 
+test("REQ-5-1-2: reference navigation: an issue direct link and reload retain its repository and sibling navigation", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.canonicalRepo(page); await h.link(page,'Issues').click();
+  await h.link(page,'Improve onboarding').click(); const address=page.url(); await h.home(page); await page.goto(address);
+  for (let attempt=0;attempt<2;attempt++) {
+    await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible();
+    await expect(h.link(page,'acme-docs')).toBeVisible(); await expect(h.link(page,'Pull requests')).toBeVisible();
+    if (!attempt) await page.reload();
+  }
+  await h.link(page,'acme-docs').click(); await expect(h.link(page,'Code')).toBeVisible();
+});
+
 test("REQ-5-1-2: visitor issue detail shows complete title, description and readable timeline", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.issue(page); const address=page.url(); await page.goto(address); await h.persisted(page, async () => { await expect(page.getByRole('heading',{name:'Improve onboarding',exact:true})).toBeVisible(); await expect(h.text(page,'Describe the onboarding improvement.').first()).toBeVisible(); await expect(h.text(page,'Open').first()).toBeVisible(); await expect(page.getByText(/Comment|Activity/).first()).toBeVisible(); });

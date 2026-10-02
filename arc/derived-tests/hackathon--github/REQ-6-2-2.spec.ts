@@ -35,6 +35,17 @@ test("REQ-6-2-2: 81c7432a compatibility: pull request and comparison navigation 
   await expect(page.getByRole('combobox',{name:'Compare',exact:true})).toBeVisible();
 });
 
+test("REQ-6-2-2: reference navigation: comparison keeps repository identity and permits returning to the PR list", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'pr-author'); await h.canonicalRepo(page);
+  await h.link(page,'Pull requests').click(); await h.link(page,'New pull request').click();
+  await h.chosen(page,'Base','main'); await expect(h.link(page,'acme-docs')).toBeVisible();
+  await h.choose(page,'Compare','feature-search'); await h.button(page,'Compare changes').click();
+  await expect(h.text(page,'src/search.ts')).toBeVisible(); await page.reload();
+  await expect(h.link(page,'acme-docs')).toBeVisible(); await h.link(page,'Pull requests').click();
+  await expect(h.link(page,'Overview onboarding PR')).toBeVisible();
+});
+
 test("REQ-6-2-2: Base/Compare comboboxes show exact changed file and comparable commits", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'file-contributor'); await h.compare(page,'pr-compare'); await expect(h.comparisonCommitInformation(page,'Implement search flow',1).first()).toBeVisible(); await expect(h.button(page,'Create pull request')).toBeEnabled();

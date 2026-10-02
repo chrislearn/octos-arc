@@ -1,4 +1,4 @@
-import { test as base, expect, type Page, type Locator } from '@playwright/test';
+import { test as base, expect, type Page, type Locator, type Request, type Response } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 export { expect };
 export const test = base.extend({ page: async ({ page, context }, use) => {
@@ -82,12 +82,16 @@ export async function choose(p: Page | Locator, name: string, value: string) {
   if (await control.evaluate(el => el.tagName === 'SELECT')) await control.selectOption({ label: value });
   else { await control.click(); const root = 'keyboard' in p ? p : p.page(); await root.getByRole('option', { name: value, exact: true }).click(); }
 }
-export async function validation(p: Page, from: string, to: string, kind = 'Number range') {
+export async function prepareValidation(p: Page, from: string, to: string, kind = 'Number range') {
   await range(p, from, to); await data(p, 'Data validation');
   const dialog = p.getByRole('dialog', { name: 'Data validation', exact: true });
   await choose(dialog, 'Rule type', kind);
   if (kind === 'Number range') { await field(dialog, 'Minimum').fill('0'); await field(dialog, 'Maximum').fill('100'); }
   else await field(dialog, 'Allowed values').fill(' Open , Closed ');
+  return dialog;
+}
+export async function validation(p: Page, from: string, to: string, kind = 'Number range') {
+  const dialog = await prepareValidation(p, from, to, kind);
   await button(dialog, 'Save').click(); await expect(dialog).toBeHidden();
 }
 export async function csv(p: Page) {
@@ -177,7 +181,7 @@ export async function selection(p: Page, inside: string[], outside: string[]) {
 
 // The source requires visible errors but no particular ARIA role. Accept a
 // visible alert or ordinary error text; unsupported feedback needs an adapter.
-export const saveFailureReason = (p: Page) => p.getByRole('alert').filter({ hasText: /\S/ }).or(
+export const saveFailureReason = (p: Page | Locator) => p.getByRole('alert').filter({ hasText: /\S/ }).or(
   p.getByText(/unable to|could not|cannot save|failed|failure|error|错误|失败|无法|重试/i)
 ).filter({ visible: true });
 export async function renameWorkbook(p: Page, name: string) {
@@ -207,28 +211,63 @@ export async function tabOrder(p: Page, names: string[]) {
   for (let i = 0; i < names.length; i++) await expect(tabs.nth(i)).toHaveAccessibleName(names[i]);
 }
 
-// Failure/race adapters learn a successful HTTP write through the UI. They do
-// not assume private routes or JSON keys and never construct product writes.
-// Other transports require an equivalent harness adapter rather than a skip.
+// Prepare the dialog/selection BEFORE learning; action performs only the exact
+// successful command later faulted. Never guess among unrelated background
+// writes or learn a create request to fault delete. Ambiguity needs an adapter.
 export async function learnWrite(p: Page, action: () => Promise<unknown>) {
   await p.waitForLoadState('networkidle');
-  const observed = p.waitForResponse(response => ['POST','PUT','PATCH','DELETE'].includes(response.request().method()) && response.ok());
-  await action();
-  const request = (await observed).request(), url = new URL(request.url());
-  return {method:request.method(), endpoint:url.origin+url.pathname, body:request.postData()};
+  const started = new Set<Request>();
+  const writes = new Map<string, {method:string, endpoint:string, body:string|null}>();
+  let observed!:()=>void;
+  const firstResponse = new Promise<void>(resolve=>observed=resolve);
+  const onRequest = (request: Request) => {
+    if (['POST','PUT','PATCH','DELETE'].includes(request.method())) started.add(request);
+  };
+  const onResponse = (response: Response) => {
+    const request = response.request();
+    if (!started.has(request) || !response.ok()) return;
+    const url = new URL(request.url());
+    const write = {method:request.method(), endpoint:url.origin+url.pathname+url.search, body:request.postData()};
+    writes.set(JSON.stringify(write), write);
+    observed();
+  };
+  p.on('request', onRequest); p.on('response', onResponse);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await action();
+    // networkidle can still reflect the prior document state immediately after
+    // a click. First observe an actual response from this command.
+    await Promise.race([firstResponse, new Promise<never>((_,reject)=>{
+      timer=setTimeout(()=>reject(new Error('HARNESS_UNSUPPORTED: observed 0 successful command writes; provide a transport adapter')),10_000);
+    })]);
+    await Promise.all([...started].map(request=>request.response()));
+    await p.waitForLoadState('networkidle', {timeout:10_000});
+  } finally {
+    clearTimeout(timer);
+    p.off('request', onRequest); p.off('response', onResponse);
+  }
+  if (writes.size !== 1) throw new Error(
+    `HARNESS_UNSUPPORTED: expected one successful command write, observed ${writes.size}; prepare selection first or provide a transport adapter`);
+  return [...writes.values()][0];
 }
 export function matchesWrite(request: any, write: {method:string, endpoint:string}) {
   const url = new URL(request.url());
-  return request.method() === write.method && url.origin+url.pathname === write.endpoint;
+  return request.method() === write.method && url.origin+url.pathname+url.search === write.endpoint;
 }
 export async function rejectWrites(p: Page, write: {method:string, endpoint:string}) {
   let attempts = 0;
+  const evidence: {method:string, url:string, status:number}[] = [];
   const intercept = async (route: any) => {
     if (matchesWrite(route.request(),write)) {
       attempts++;
       await route.fulfill({status:500, contentType:'application/json',body:JSON.stringify({error:'Unable to save changes'})});
-    } else await route.continue();
+      evidence.push({method:route.request().method(), url:route.request().url(), status:500});
+    } else await route.fallback();
   };
   await p.route('**/*',intercept);
-  return {attempts:()=>attempts,remove:()=>p.unroute('**/*',intercept)};
+  return {attempts:()=>attempts, remove:()=>p.unroute('**/*',intercept),
+    assertInjected:async()=>{
+      await expect.poll(()=>evidence.length, {message:'HARNESS_UNSUPPORTED: target command did not use the learned HTTP write; no injected failure was observed'}).toBeGreaterThan(0);
+      await test.info().attach('http-fault-injection', {body:JSON.stringify(evidence), contentType:'application/json'});
+    }};
 }

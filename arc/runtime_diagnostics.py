@@ -12,6 +12,13 @@ from pathlib import Path
 
 def diagnose(summary) -> list[dict]:
     issues = []
+    for result in getattr(summary, 'results', []):
+        message = str(getattr(result, 'message', '') or '')
+        if 'HARNESS_UNSUPPORTED:' in message:
+            issues.append({'id': hashlib.sha256(('harness_adapter' + message).encode()).hexdigest()[:16],
+                           'owner': 'harness', 'kind': 'interaction_adapter', 'state': 'confirmed',
+                           'impact': 'diagnostic', 'message': message,
+                           'evidence': {'file': result.file, 'title': result.title}})
     for observation in getattr(summary, "runtime_observations", []):
         kind = observation.get("kind", "unknown")
         confirmed = observation.get("confirmed") is True
