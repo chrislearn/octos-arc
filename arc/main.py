@@ -77,6 +77,9 @@ Environment (all optional):
     OCTOS_ARC_TRANSIENT_ATTEMPT_SECONDS  cap for each request after the first provider error (default 180)
     OCTOS_ARC_WHOLE_APP_PROMPT_CHARS  input cap for each generation wave (default 96000)
     OCTOS_ARC_WHOLE_APP_SOURCE_CHARS  full-source budget inside a wave (default 60000)
+    OCTOS_ARC_PARALLEL_CODEGEN  "0" disables independent module codegen (default on)
+    OCTOS_ARC_PARALLEL_CODEGEN_WORKERS  concurrent private codegen workers (default 3, maximum 3)
+    OCTOS_ARC_PARALLEL_CODEGEN_TIMEOUT  per-worker model turn timeout (default 900 seconds)
     OCTOS_ARC_ADAPTIVE_WAVE_CONTEXT  "0" disables larger single-leaf waves; default requires declared model capacities
     OCTOS_ARC_MODEL_CONTEXT_TOKENS  JSON map of explicit model context capacities for the proxy and adaptive waves
     OCTOS_ARC_LLM_TIMEOUT_SECONDS  kernel HTTP timeout per LLM request; must exceed the proxy wait (default 900)
@@ -133,6 +136,9 @@ from flow_policy import (generation_tokens, node_seconds, phase_for_label, repai
                          reasoning_for_phase, is_test_infrastructure_error, measurement_seconds, startup_failure_summary)  # noqa: E402
 from measurement_timing import compose_window, padded_seconds  # noqa: E402
 from generation_policy import first_level_phases, phase_context, classify_observation  # noqa: E402
+from parallel_codegen_plan import plan_parallel_tasks  # noqa: E402
+from parallel_codegen_protocol import parse_candidate  # noqa: E402
+from parallel_codegen_workers import WorkerJob, WorkerReply, run_parallel  # noqa: E402
 from runtime_diagnostics import (application_failures, backend_binding_health,
                                  backend_http_failure_observation, binding_failure_observation,
                                  browser_failure_summary, browser_health,
@@ -2194,7 +2200,7 @@ Reply with ONE complete, compact JSON object (no prose) that every requirement w
 {{"data_model": {{"collection": {{"field": "type"}}}},
  "routes": [{{"method": "GET|POST|PUT|PATCH|DELETE", "path": "/api/...", "purpose": "one line", "requirements": ["REQ-..."], "errors": [{{"kind": "validation", "condition": "explicitly required invalid input", "status": 422}}]}}],
  "pages": [{{"path": "/...", "purpose": "one line", "requirements": ["REQ-..."]}}],
- "modules": [{{"path": "frontend/src/...|backend/routes/...", "owns": ["cohesive page/layout/editor/API concern"]}}],
+ "modules": [{{"path": "frontend/src/...|backend/routes/...", "owns": ["cohesive page/layout/editor/API concern"], "requirements": ["REQ-..."]}}],
  "contracts": [{{"requirements": ["REQ-..."], "invariants": ["ownership/key scope", "command: preconditions -> atomic effects and undo", "draft/save/cancel semantics", "date-only/clock/deadline rules", "control and validation semantics"]}}],
  "domain_contracts": [{{"entity":"collection", "identity":"stable ID and scope", "storage":"authoritative module/store", "producers":["writer module"], "consumers":["reader module"], "requirements":["REQ-..."]}}],
  "commands": [{{"name":"business action", "requirements":["REQ-..."], "preconditions":[], "effects":[], "rejected_effects":[], "state_transitions":[], "permissions":[], "persistence":"commit and reload contract"}}],
@@ -4824,7 +4830,7 @@ class Flow:
                         "Do not repeat or change accepted entries. Use the same schema and cite original "
                         "requirement IDs on each addition. The accepted design is context, not output:\n"
                       + json.dumps(aggregate, ensure_ascii=False))
-            if len(prompt) > self.codegen_context_chars():
+            if len(prompt) + len(FORMAT_INSTRUCTIONS) + 1 > self.codegen_context_chars():
                 self.metric("design_recovery", phase=phase["id"], outcome="insufficient_context")
                 continue
             category_deadline = min(recovery_deadline, time.monotonic() + category_cap)
@@ -8087,6 +8093,21 @@ class Flow:
                         decision='stop_new_nodes')
             return False
         ids = [str(node.get("id")) for node in ordered]
+        parallel_enabled = os.environ.get("OCTOS_ARC_PARALLEL_CODEGEN", "1") != "0"
+        if (parallel_enabled and not self.evolution and len(ids) >= 2 and self.codegen_mode()
+                and self.runner is not None and all(self.spec_map.get(node_id) for node_id in ids)
+                and isinstance(getattr(self, "llm_proxy", None), LlmProxy)
+                and isinstance(getattr(self, "driver", None), OctosDriver)
+                and not missing_backend_entry(self.output_dir)
+                and not self.wound_down()
+                and self.remaining() >= self.min_repair_seconds + 180):
+            available = {str(path.relative_to(self.output_dir)) for path in app_source_files(self.output_dir)
+                         if not path.is_symlink() and path.resolve().is_relative_to(self.output_dir.resolve())}
+            tasks = plan_parallel_tasks(ordered, self.app_design_doc or {}, available,
+                                        max_workers=self.parallel_codegen_workers())
+            if tasks:
+                self.metric("parallel_codegen_admission", tasks=len(tasks), workers=self.parallel_codegen_workers())
+                return self.whole_app_waves(tree, ordered)
         setting = os.environ.get("OCTOS_ARC_WHOLE_APP", "auto").strip().lower()
         enabled = setting == "1"
         has_generation_contract = (self.runner is not None
@@ -8222,11 +8243,11 @@ class Flow:
         log(f"[flow] whole-app waves: build repair {'cleared the check' if repaired else 'did not clear the check'}")
         return repaired
 
-    def generation_batch_check(self, label):
+    def generation_batch_check(self, label, *, force: bool = False):
         changed = getattr(self, 'last_codegen_written', [])
         if not changed or not hasattr(self, 'max_total_tokens'):
             return  # No configured execution budget: do not launch subprocesses.
-        if self.wound_down() or self.remaining() < self.min_repair_seconds + 120:
+        if (self.wound_down() and not force) or self.remaining() < self.min_repair_seconds + 120:
             return
         from generation_checks import check_batch
         index = self.repair_source_index()
@@ -10716,6 +10737,425 @@ class Flow:
         source_cap = max(8000, int(os.environ.get("OCTOS_ARC_WHOLE_APP_SOURCE_CHARS", "60000")))
         return prompt_cap, source_cap
 
+    @staticmethod
+    def parallel_codegen_workers() -> int:
+        """The coordinator stays on this thread; at most three model workers run."""
+        return max(1, min(3, int(os.environ.get("OCTOS_ARC_PARALLEL_CODEGEN_WORKERS", "3"))))
+
+    def parallel_codegen_batch(self, ordered: list[dict]) -> set[str]:
+        """Generate independent module candidates in private runtimes, then integrate serially.
+
+        A failed, stale, or unowned candidate remains for the existing node/wave
+        path. Workers receive text snapshots and never hold this Flow or its app.
+        """
+        master, driver = getattr(self, "llm_proxy", None), getattr(self, "driver", None)
+        if not isinstance(master, LlmProxy) or not isinstance(driver, OctosDriver):
+            return set()
+        if not self.head():
+            return set()
+        config_path = Path(driver.env.get("OCTOS_CONFIG_DIR", "")) / "config.json"
+        if not config_path.is_file():
+            return set()
+        try:
+            manifests = write_codegen_manifests(self.output_dir)
+        except OSError as exc:
+            self.metric("parallel_codegen_fallback", reason="manifest_write_failed", error=str(exc)[:500])
+            return set()
+        if manifests and not self.commit("parallel codegen shared manifests"):
+            self.metric("parallel_codegen_fallback", reason="manifest_commit_failed")
+            return set()
+        root = self.output_dir.resolve()
+        try:
+            source_paths = [path for path in app_source_files(self.output_dir)
+                            if not path.is_symlink() and path.resolve().is_relative_to(root)]
+            snapshot = {str(path.relative_to(self.output_dir)): path.read_text(encoding="utf-8")
+                        for path in source_paths}
+            source_hashes = {str(path.relative_to(self.output_dir)): hashlib.sha256(path.read_bytes()).hexdigest()
+                             for path in source_paths}
+        except (OSError, RuntimeError, UnicodeError) as exc:
+            self.metric("parallel_codegen_fallback", reason="source_snapshot_unavailable",
+                        error=str(exc)[:500])
+            return set()
+        tasks = plan_parallel_tasks(ordered, self.app_design_doc or {}, set(snapshot),
+                                    max_workers=max(self.parallel_codegen_workers(), len(ordered)))
+        if len(tasks) < 2:
+            return set()
+        selected = {str(node.get("id")): node for node in ordered}
+        jobs, contexts = [], {}
+        for task in tasks:
+            ids = list(task.node_ids)
+            spec = self.batch_spec_bodies(ids)
+            details = "\n\n".join(describe_node(selected[node_id], include_scenarios=bool(self.tests_dir))
+                                  for node_id in ids)
+            node = {"id": "parallel " + task.task_id, "active_requirement_ids": ids,
+                    "description": "Implement only these requirements in the assigned modules.\n" + details}
+            must = {path for path in (*task.allowed_paths, *task.shared_paths) if path in snapshot}
+            prompt = self.codegen_implement_prompt(node, spec, must_include=must,
+                                                   context_limit=self.whole_app_budgets()[0],
+                                                   source_limit=self.whole_app_budgets()[1],
+                                                   focused_sources=True)
+            if prompt is None or not must <= quoted_paths(prompt):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="snapshot_did_not_fit")
+                continue
+            packet = ("\nPARALLEL TASK PACKET\nRequirement IDs: " + ", ".join(ids)
+                      + "\nWritable paths (complete list): " + ", ".join(task.allowed_paths)
+                      + "\nRead-only shared paths: " + ", ".join(task.shared_paths)
+                      + "\nDependencies: " + ", ".join(task.dependencies)
+                      + "\nOnly return FILE/EDIT blocks for writable paths. If a shared file must change, "
+                        "return only <<<SHARED_CHANGE_REQUEST>>> JSON with path, reason, desired_change, "
+                        "requirement_ids, base_hash, then <<<END SHARED_CHANGE_REQUEST>>>. "
+                        "Do not combine a request with source blocks. Do not edit tests or data.\n")
+            shared_hashes = {path: hashlib.sha256(snapshot[path].encode()).hexdigest()
+                             for path in task.shared_paths if path in snapshot}
+            packet += "Shared source SHA-256: " + json.dumps(shared_hashes, sort_keys=True) + "\n"
+            prompt += packet
+            if len(prompt) + len(FORMAT_INSTRUCTIONS) + 1 > self.codegen_context_chars():
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="packet_did_not_fit")
+                continue
+            timeout = min(int(os.environ.get("OCTOS_ARC_PARALLEL_CODEGEN_TIMEOUT", "900")),
+                          max(60, int(self.remaining() - self.min_repair_seconds - 120)))
+            reservation = (len((prompt + "\n" + FORMAT_INSTRUCTIONS).encode("utf-8"))
+                           + len(CODEGEN_SYSTEM.encode("utf-8")) + 8192
+                           + self.generation_output_budget())
+            jobs.append(WorkerJob(task.task_id, prompt + "\n" + FORMAT_INSTRUCTIONS, timeout,
+                                  CODEGEN_SYSTEM, reservation, "parallel application implement"))
+            contexts[task.task_id] = (task, prompt, {path: source_hashes[path]
+                                                    for path in quoted_paths(prompt) if path in source_hashes})
+            if len(jobs) >= self.parallel_codegen_workers():
+                break
+        if len(jobs) < 2:
+            return set()
+        dispatch_seconds = int(self.remaining() - self.min_repair_seconds - 120)
+        if dispatch_seconds < 60 or self.wound_down() or self.final_phase_due():
+            self.metric("parallel_codegen_fallback", reason="dispatch_budget_exhausted")
+            return set()
+        jobs = [WorkerJob(job.task_id, job.prompt, min(job.timeout, dispatch_seconds),
+                          job.system, job.reservation, job.label) for job in jobs]
+        with master._lock:
+            routes = copy.deepcopy(master.routes)
+            contexts_by_model = dict(master.model_contexts)
+        worker_env = driver.env.copy()
+        config_text = config_path.read_text(encoding="utf-8")
+        upstream, mode = master.upstream, getattr(self, "base_reasoning_mode", master.mode)
+        destream, trim, min_tokens = master.destream, master.trim, master.min_max_tokens
+        octos_bin, max_iterations = driver.octos_bin, driver.max_iterations
+        output_cap = self.generation_output_budget()
+        def execute(job: WorkerJob) -> WorkerReply:
+            started = time.monotonic()
+            with tempfile.TemporaryDirectory(prefix="octos-codegen-worker-") as private:
+                private_root = Path(private)
+                config_dir, data_dir, workspace = (private_root / name for name in ("config", "data", "work"))
+                config_dir.mkdir(); data_dir.mkdir(); workspace.mkdir()
+                config = json.loads(config_text)
+                worker_mode = reasoning_for_phase(job.label, mode)
+                proxy = LlmProxy(upstream, worker_mode, private_root / "llm-usage.jsonl",
+                                 destream=destream, trim=trim, min_max_tokens=min_tokens)
+                proxy.routes = copy.deepcopy(routes)
+                proxy.model_contexts = dict(contexts_by_model)
+                proxy.no_tools = True
+                proxy.single_attempt = True
+                proxy.system_override = job.system
+                proxy.codegen_max_tokens = output_cap
+                proxy.label = job.label
+                proxy.phase = "implement"
+                proxy.max_total_tokens_abs = job.reservation
+                proxy.begin_turn(1)
+                proxy.turn_deadline = time.monotonic() + job.timeout
+                proxy.start()
+                isolated = None
+                try:
+                    config["base_url"] = proxy.base_url
+                    (config_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
+                    env = worker_env.copy()
+                    env["OCTOS_CONFIG_DIR"] = str(config_dir)
+                    env["OPENAI_BASE_URL"] = proxy.base_url
+                    env["_ARC_BASE_URL"] = proxy.base_url
+                    runtime_data = private_root / "runtime-data"
+                    runtime_data.mkdir()
+                    env["ARC_DATA_DIR"] = str(runtime_data)
+                    env.pop("OCTOS_ARC_EDIT_ARGUMENTS_DIR", None)
+                    isolated = OctosDriver(octos_bin, workspace, env, data_dir, max_iterations,
+                                           events_log=private_root / "events.jsonl")
+                    isolated.retry_attempts = 1
+                    with isolated.without_tools():
+                        ok, reply = isolated.run(job.prompt, job.timeout)
+                    if proxy.hard_budget_exhausted or proxy.interrupted_reply:
+                        ok = False
+                except Exception as exc:
+                    ok, reply = False, f"isolated codegen request failed: {exc}"[:1000]
+                finally:
+                    if isolated is not None:
+                        isolated.close()
+                    proxy.stop()
+                usage = private_root / "llm-usage.jsonl"
+                ledger = private_root / "request-ledger.jsonl"
+                return WorkerReply(job.task_id, ok, reply, proxy.total_tokens, proxy.total_requests,
+                                   tuple(usage.read_text(encoding="utf-8").splitlines()) if usage.is_file() else (),
+                                   tuple(ledger.read_text(encoding="utf-8").splitlines()) if ledger.is_file() else (),
+                                   time.monotonic() - started)
+
+        def account(_job: WorkerJob, reply: WorkerReply) -> None:
+            self.note_turn("parallel application implement")
+            append_worker_records(master, SpecReply(reply.ok, reply.text, reply.tokens, reply.requests,
+                                                    reply.usage_records, reply.ledger_records, reply.elapsed),
+                                  worker_kind="codegen")
+            self.metric("turn", label="parallel application implement", phase="implement",
+                        mode="isolated_text", ok=reply.ok, elapsed_seconds=round(reply.elapsed, 3),
+                        tokens=reply.tokens, requests=reply.requests, task=reply.task_id)
+
+        with master._lock:
+            reserved = sum(job.reservation for job in jobs)
+            current = master.total_tokens + getattr(master, "external_reserved_tokens", 0)
+            reserved_turns = getattr(master, "external_reserved_turns", 0)
+            limits = [cap for cap in (self.max_total_tokens, self.max_total_tokens_abs,
+                                      master.max_total_tokens_abs) if cap > 0]
+            if (any(current + reserved > cap for cap in limits)
+                    or self.max_turns > 0 and self.turn_count + reserved_turns + len(jobs) > self.max_turns):
+                self.metric("parallel_codegen_fallback", reason="run_reservation", reserved=reserved,
+                            turns=len(jobs))
+                return set()
+            pool_id = object()
+            reservations = getattr(master, "_spec_reservations", {})
+            reservations[pool_id] = (reserved, len(jobs))
+            master._spec_reservations = reservations
+            master.external_reserved_tokens = sum(value[0] for value in reservations.values())
+            master.external_reserved_turns = sum(value[1] for value in reservations.values())
+        try:
+            for task_id in contexts:
+                task = contexts[task_id][0]
+                for node_id in task.node_ids:
+                    if node_id not in getattr(self, "_designed_ids", set()):
+                        self.mark("design_started", node_id)
+                        self.mark("design_done", node_id, "covered by whole-application design")
+                    self.mark("implementation_started", node_id, "parallel codegen " + task.task_id)
+            replies = run_parallel(jobs, execute, max_workers=self.parallel_codegen_workers(),
+                                   on_complete=account)
+        except Exception as exc:
+            self.metric("parallel_codegen_fallback", reason="scheduler_error",
+                        error=f"{type(exc).__name__}: {exc}"[:500])
+            return set()
+        finally:
+            with master._lock:
+                reservations = getattr(master, "_spec_reservations", {})
+                reservations.pop(pool_id, None)
+                master._spec_reservations = reservations
+                master.external_reserved_tokens = sum(value[0] for value in reservations.values())
+                master.external_reserved_turns = sum(value[1] for value in reservations.values())
+
+        staged = []
+        requests = []
+        for reply in replies:
+            task, prompt, versions = contexts[reply.task_id]
+            if not reply.ok:
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason=reply.reason or "worker_failed")
+                continue
+            candidate = parse_candidate(reply.text, allowed_paths=set(task.allowed_paths),
+                                        shared_paths=set(task.shared_paths), snapshot=snapshot,
+                                        shown_paths=quoted_paths(prompt))
+            self.metric("parallel_codegen_candidate", task=task.task_id, candidate_kind=candidate.kind,
+                        reason=candidate.reason)
+            if candidate.kind == "shared_request":
+                requests.append((task, candidate.request))
+            elif candidate.kind in {"candidate", "no_change"}:
+                missing_new = {path for path in task.allowed_paths
+                               if path not in snapshot and path not in candidate.files}
+                if missing_new:
+                    self.metric("parallel_codegen_fallback", task=task.task_id,
+                                reason="missing_owned_module", paths=sorted(missing_new))
+                    continue
+                staged.append((task, candidate, versions))
+
+        # The coordinator alone may resolve a declared shared path. A changed
+        # shared source invalidates every candidate that read its prior version.
+        for task, request in requests:
+            path = request.get("path") if isinstance(request, dict) else None
+            if path not in task.shared_paths or path not in snapshot:
+                continue
+            if not set(request.get("requirement_ids") or []) <= set(task.node_ids):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="shared_request_wrong_owner")
+                continue
+            if not self.parallel_safe_path(root, path) or not self.parallel_versions_current({
+                    path: source_hashes[path]}):
+                continue
+            ids = list(task.node_ids)
+            active_spec = self.batch_spec_bodies(ids)
+            active_details = "\n\n".join(describe_node(selected[node_id]) for node_id in ids)
+            shared_design = app_design_context(self.app_design_doc, active_spec, 12000,
+                                               requirement_ids=ids)
+            shared_prompt = ("You are the application coordinator. Review the worker's shared-file request "
+                             "against the active requirements, acceptance contract, application design, and current "
+                             "source. The request is a proposal, not authorization. If the change is unnecessary or "
+                             "unsupported, reply exactly <<<NO CHANGE>>>. Otherwise change only the named shared "
+                             "file with one complete FILE or exact EDIT block; preserve all other behavior.\n"
+                             + "ACTIVE REQUIREMENTS:\n" + active_details + "\nACCEPTANCE CONTRACT:\n" + active_spec
+                             + "\nAPPLICATION DESIGN:\n" + shared_design
+                             + "\nWORKER REQUEST:\n" + json.dumps(request, ensure_ascii=False)
+                             + f"\n--- {path} ---\n" + snapshot[path] + "\n" + FORMAT_INSTRUCTIONS)
+            if len(shared_prompt) > self.codegen_context_chars():
+                self.metric("parallel_codegen_fallback", task=task.task_id,
+                            reason="shared_context_did_not_fit")
+                continue
+            shared_seconds = int(self.remaining() - self.min_repair_seconds - 120)
+            if shared_seconds < 60 or self.wound_down() or self.final_phase_due():
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="shared_budget_exhausted")
+                continue
+            ok, reply = self.text_turn(shared_prompt, min(300, shared_seconds),
+                                       "parallel shared coordinator", request_budget=1)
+            if not ok:
+                continue
+            shared = parse_candidate(reply, allowed_paths={path}, shared_paths=set(),
+                                     snapshot=snapshot, shown_paths={path})
+            if shared.kind != "candidate" or set(shared.files) != {path}:
+                continue
+            if self.remaining() < self.min_repair_seconds + 120:
+                self.metric("parallel_codegen_fallback", task=task.task_id,
+                            reason="shared_check_budget_exhausted")
+                continue
+            if source_protocol_errors(shared.files):
+                continue
+            if (getattr(self, "generic_template_installed", False) and path == "backend/server.js"
+                    and not generic_entry_intact(shared.files[path])
+                    and generic_entry_intact(snapshot[path])):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="shared_entry_guard")
+                continue
+            if (getattr(self, "generic_template_installed", False)
+                    and introduced_route_conflicts(self.output_dir, shared.files)):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="shared_route_conflict")
+                continue
+            before = self.head()
+            try:
+                written = write_files(self.output_dir, shared.files)
+                self.last_codegen_written = written
+                self._generation_gate_result = None
+                self.generation_batch_check("parallel shared coordinator", force=True)
+            except (OSError, ValueError) as exc:
+                self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id,
+                            reason="shared_apply_error", error=str(exc)[:500])
+                continue
+            gate = getattr(self, "_generation_gate_result", None)
+            if written and not isinstance(gate, dict):
+                self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id,
+                            reason="shared_source_check_unavailable")
+                continue
+            if isinstance(gate, dict) and gate.get("errors") and before:
+                self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="shared_source_check")
+            elif written:
+                if self.commit("parallel shared coordinator: " + path):
+                    self.metric("parallel_codegen_shared", task=task.task_id, path=path)
+                else:
+                    self.restore_app(before)
+                    self.parallel_reset_generation_gate()
+                    self.metric("parallel_codegen_fallback", task=task.task_id,
+                                reason="shared_commit_failed")
+
+        completed = set()
+        for task, candidate, versions in staged:
+            if self.remaining() < self.min_repair_seconds + 120:
+                self.metric("parallel_codegen_fallback", task=task.task_id,
+                            reason="candidate_check_budget_exhausted")
+                continue
+            if not self.parallel_versions_current(versions):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="stale_source")
+                continue
+            if any((self.output_dir / path).exists() or (self.output_dir / path).is_symlink()
+                   for path in candidate.files if path not in snapshot):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="new_path_already_exists")
+                continue
+            if any(not self.parallel_safe_path(root, path) for path in candidate.files):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="unsafe_path")
+                continue
+            if source_protocol_errors(candidate.files):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="source_protocol")
+                continue
+            if getattr(self, "generic_template_installed", False) and introduced_route_conflicts(self.output_dir, candidate.files):
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="route_conflict")
+                continue
+            before = self.head()
+            self.last_codegen_refused = set()
+            try:
+                self.last_codegen_written = write_files(self.output_dir, candidate.files)
+                self.last_codegen_no_change = candidate.kind == "no_change"
+                self._generation_gate_result = None
+                self.generation_batch_check("parallel application implement", force=True)
+                gate = getattr(self, "_generation_gate_result", None)
+                gaps = ([] if isinstance(gate, dict) and gate.get("errors") else
+                        self.whole_app_wave_gaps(list(task.node_ids)))
+            except (OSError, ValueError) as exc:
+                self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id,
+                            reason="candidate_apply_error", error=str(exc)[:500])
+                continue
+            if self.last_codegen_written and not isinstance(gate, dict):
+                self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id,
+                            reason="candidate_source_check_unavailable")
+                continue
+            if isinstance(gate, dict) and gate.get("errors"):
+                if before:
+                    self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="source_check")
+                continue
+            if gaps:
+                if before:
+                    self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="completion_gaps",
+                            gaps=gaps[:4])
+                continue
+            if (self.last_codegen_written and
+                    not self.commit("parallel application implement: " + task.task_id)):
+                self.restore_app(before)
+                self.parallel_reset_generation_gate()
+                self.metric("parallel_codegen_fallback", task=task.task_id, reason="candidate_commit_failed")
+                continue
+            completed.update(task.node_ids)
+            for node_id in task.node_ids:
+                self.record_implementation_evidence(node_id, "implemented_unverified",
+                                                    outcome="parallel_codegen", changed=False)
+                self.mark("implementation_done", node_id, "implemented by parallel codegen; verification pending")
+            self.metric("parallel_codegen_integrated", task=task.task_id,
+                        node_ids=list(task.node_ids), paths=self.last_codegen_written)
+        return completed
+
+    def parallel_reset_generation_gate(self) -> None:
+        """A rolled-back candidate must not reuse the rejected source-check cache."""
+        self._generation_gate_result = None
+        self._generation_checked_versions = None
+        self._generation_gate_paths = set()
+        self._generation_gate_evidence = ""
+
+    def parallel_versions_current(self, versions: dict[str, str]) -> bool:
+        try:
+            return all((self.output_dir / path).is_file() and
+                       hashlib.sha256((self.output_dir / path).read_bytes()).hexdigest() == digest
+                       for path, digest in versions.items())
+        except OSError:
+            return False
+
+    @staticmethod
+    def parallel_safe_path(root: Path, path: str) -> bool:
+        normalized = safe_relative_path(path)
+        target = root / path
+        forbidden = {"test", "tests", "__tests__", "spec", "specs", "fixture", "fixtures",
+                     "data", "datasets", "public", "dist", "build", "node_modules",
+                     "coverage", ".git"}
+        try:
+            return (normalized == path and path.startswith(("frontend/", "backend/"))
+                    and not any(part.casefold() in forbidden for part in Path(path).parts)
+                    and target.resolve().is_relative_to(root)
+                    and not any(parent.is_symlink() for parent in (target, *target.parents) if parent != root))
+        except (OSError, RuntimeError, ValueError):
+            return False
+
     def whole_app_waves(self, tree: dict, ordered: list[dict]) -> bool:
         """Generate contiguous, dependency-ordered feature groups before testing.
 
@@ -10754,6 +11194,14 @@ class Flow:
         self.whole_app_deferred_ids = set()
         self.whole_app_waiting_ids = set()
         self.whole_app_tool_ids = set()
+        parallel_completed = set()
+        if os.environ.get("OCTOS_ARC_PARALLEL_CODEGEN", "1") != "0":
+            parallel_completed = self.parallel_codegen_batch(ordered)
+            if parallel_completed:
+                self.whole_app_generated_ids.update(parallel_completed)
+                ordered = [node for node in ordered if str(node.get("id")) not in parallel_completed]
+                self.metric("parallel_codegen_batch", completed=sorted(parallel_completed),
+                            remaining=len(ordered), workers=self.parallel_codegen_workers())
         attempts = 0
         requests_before = getattr(self, "whole_app_generation_requests", 0)
         # Files a reply rewrote without seeing them, per wave position: one
@@ -11111,7 +11559,7 @@ class Flow:
             f"({attempts} group attempts, "
             f"{getattr(self, 'whole_app_generation_requests', 0) - requests_before} model turns); "
             "measurement follows the trust and budget policy")
-        return wave > 0
+        return wave > 0 or bool(parallel_completed)
 
     def pending_dependencies(self, node: dict, *, within: set[str] | None = None, wave: bool = False) -> list[str]:
         """Declared dependencies lacking a passing verdict, for context only.

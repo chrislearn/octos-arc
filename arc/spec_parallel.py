@@ -116,7 +116,7 @@ def reservation_tokens(prompt: str, requests_per_turn: int = 1, output_cap: int 
     return requests_per_turn * (len(prompt.encode("utf-8")) + 8192 + output_cap)
 
 
-def append_worker_records(main_proxy, reply: SpecReply) -> None:
+def append_worker_records(main_proxy, reply: SpecReply, *, worker_kind: str = "spec") -> None:
     """Bring private-proxy usage into the run-wide guard and audit log."""
     with main_proxy._lock:
         main_proxy.total_tokens += reply.tokens
@@ -128,7 +128,7 @@ def append_worker_records(main_proxy, reply: SpecReply) -> None:
                         row = json.loads(line)
                     except ValueError:
                         continue
-                    row["parallel_spec_worker"] = True
+                    row[f"parallel_{worker_kind}_worker"] = True
                     stream.write(json.dumps(row, ensure_ascii=False) + "\n")
             ledger = main_proxy.log_path.parent / "request-ledger.jsonl"
             with ledger.open("a", encoding="utf-8") as stream:

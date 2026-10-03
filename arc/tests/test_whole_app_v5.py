@@ -1,8 +1,10 @@
 """The v5 whole-app path keeps a measured, per-leaf repair fallback."""
 import argparse
+import hashlib
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,6 +78,187 @@ class WholeAppTests(unittest.TestCase):
             self.assertFalse(flow.whole_app_codegen(self.tree, self.nodes))
         flow.codegen_implement_prompt.assert_called_once()
 
+    def test_default_parallel_admission_precedes_optional_whole_app_mode(self):
+        flow = self.flow
+        flow.whole_app_waves = Mock(return_value=True)
+        class PrivateRuntime:
+            pass
+        flow.llm_proxy = PrivateRuntime()
+        flow.driver = PrivateRuntime()
+        with (patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "0"}),
+              patch.object(m, "LlmProxy", PrivateRuntime),
+              patch.object(m, "OctosDriver", PrivateRuntime),
+              patch.object(m, "missing_backend_entry", return_value=None),
+              patch.object(m, "plan_parallel_tasks", return_value=[object(), object()])):
+            self.assertTrue(flow.whole_app_codegen(self.tree, self.nodes))
+            flow.whole_app_waves.assert_called_once_with(self.tree, self.nodes)
+
+    def test_parallel_path_guard_rejects_symlink_and_test_tree(self):
+        root = self.root.resolve()
+        (root / "frontend").mkdir(exist_ok=True)
+        (root / "frontend" / "linked").symlink_to(self.root / "tests", target_is_directory=True)
+        self.assertFalse(m.Flow.parallel_safe_path(root, "frontend/linked/feature.js"))
+        self.assertFalse(m.Flow.parallel_safe_path(root, "frontend/tests/feature.js"))
+        self.assertFalse(m.Flow.parallel_safe_path(root, "frontend/Tests/feature.js"))
+        self.assertFalse(m.Flow.parallel_safe_path(root, "frontend/../backend/feature.js"))
+        self.assertTrue(m.Flow.parallel_safe_path(root, "frontend/src/feature.js"))
+
+    def test_parallel_candidates_integrate_only_through_coordinator(self):
+        flow = self.flow
+        flow.generation_batch_check.side_effect = lambda *_args, **_kwargs: setattr(
+            flow, "_generation_gate_result", {"errors": [], "warnings": []})
+        flow.app_design_doc = {"modules": [
+            {"path": "frontend/src/a.js", "owns": ["A"], "requirements": ["A"]},
+            {"path": "frontend/src/b.js", "owns": ["B"], "requirements": ["B"]},
+        ]}
+        config_dir = self.root / "config"
+        config_dir.mkdir()
+        (config_dir / "config.json").write_text("{}")
+
+        class PrivateRuntime:
+            pass
+
+        master = PrivateRuntime()
+        master._lock = threading.Lock()
+        master.routes = []
+        master.model_contexts = {}
+        master.total_tokens = 0
+        master.external_reserved_tokens = 0
+        master.max_total_tokens_abs = 0
+        master.mode = "none"
+        master.upstream = "http://example.invalid"
+        master.destream = False
+        master.trim = False
+        master.min_max_tokens = 1024
+        driver = PrivateRuntime()
+        driver.env = {"OCTOS_CONFIG_DIR": str(config_dir)}
+        driver.octos_bin = "octos"
+        driver.max_iterations = 1
+        flow.llm_proxy = master
+        flow.driver = driver
+        flow.head = Mock(return_value="baseline")
+        flow.batch_spec_bodies = Mock(return_value="spec")
+        flow.codegen_implement_prompt = Mock(return_value="prompt")
+        flow.whole_app_budgets = Mock(return_value=(96000, 60000))
+        flow.whole_app_wave_gaps = Mock(return_value=[])
+        flow.record_implementation_evidence = Mock()
+        flow.mark = Mock()
+
+        def replies(jobs, _execute, **_kwargs):
+            return [m.WorkerReply(job.task_id, True,
+                                  f"<<<FILE frontend/src/{letter}.js>>>\nexport const {letter} = 1;\n<<<END FILE>>>")
+                    for job, letter in zip(jobs, "ab")]
+
+        with (patch.object(m, "LlmProxy", PrivateRuntime),
+              patch.object(m, "OctosDriver", PrivateRuntime),
+              patch.object(m, "run_parallel", side_effect=replies),
+              patch.object(m, "write_codegen_manifests", return_value=[])):
+            completed = flow.parallel_codegen_batch(self.nodes)
+        self.assertEqual(completed, {"A", "B"})
+        self.assertTrue((self.root / "frontend/src/a.js").is_file())
+        self.assertTrue((self.root / "frontend/src/b.js").is_file())
+        self.assertEqual(flow.commit.call_count, 2)
+
+        # A path planned as new must still be absent at integration time.
+        flow.app_design_doc = {"modules": [
+            {"path": "frontend/src/c.js", "owns": ["C"], "requirements": ["C"]},
+            {"path": "frontend/src/d.js", "owns": ["D"], "requirements": ["D"]},
+        ]}
+        later_nodes = [{"id": value, "description": value, "dependencies": []} for value in ("C", "D")]
+
+        def racing_replies(jobs, _execute, **_kwargs):
+            (self.root / "frontend/src/d.js").write_text("another writer\n")
+            return [m.WorkerReply(job.task_id, True,
+                                  f"<<<FILE frontend/src/{letter}.js>>>\nexport const {letter} = 1;\n<<<END FILE>>>")
+                    for job, letter in zip(jobs, "cd")]
+
+        with (patch.object(m, "LlmProxy", PrivateRuntime),
+              patch.object(m, "OctosDriver", PrivateRuntime),
+              patch.object(m, "run_parallel", side_effect=racing_replies),
+              patch.object(m, "write_codegen_manifests", return_value=[])):
+            completed = flow.parallel_codegen_batch(later_nodes)
+        self.assertEqual(completed, {"C"})
+        self.assertEqual((self.root / "frontend/src/d.js").read_text(), "another writer\n")
+        self.assertEqual(flow.commit.call_count, 3)
+
+        flow.app_design_doc = {"modules": [
+            {"path": "frontend/src/e.js", "owns": ["E"], "requirements": ["E"]},
+            {"path": "frontend/src/f.js", "owns": ["F"], "requirements": ["F"]},
+        ]}
+        flow.commit = Mock(side_effect=[False, True])
+        flow.restore_app = Mock(side_effect=lambda _sha: (self.root / "frontend/src/e.js").unlink(missing_ok=True))
+        failed_commit_nodes = [{"id": value, "description": value, "dependencies": []}
+                               for value in ("E", "F")]
+
+        def commit_replies(jobs, _execute, **_kwargs):
+            return [m.WorkerReply(job.task_id, True,
+                                  f"<<<FILE frontend/src/{letter}.js>>>\nexport const {letter} = 1;\n<<<END FILE>>>")
+                    for job, letter in zip(jobs, "ef")]
+
+        with (patch.object(m, "LlmProxy", PrivateRuntime),
+              patch.object(m, "OctosDriver", PrivateRuntime),
+              patch.object(m, "run_parallel", side_effect=commit_replies),
+              patch.object(m, "write_codegen_manifests", return_value=[])):
+            completed = flow.parallel_codegen_batch(failed_commit_nodes)
+        self.assertEqual(completed, {"F"})
+        self.assertFalse((self.root / "frontend/src/e.js").exists())
+        flow.restore_app.assert_called_once_with("baseline")
+
+    def test_parallel_shared_change_invalidates_reader_candidate(self):
+        flow = self.flow
+        flow.generation_batch_check.side_effect = lambda *_args, **_kwargs: setattr(
+            flow, "_generation_gate_result", {"errors": [], "warnings": []})
+        server = self.root / "backend/server.js"
+        server.parent.mkdir()
+        server.write_text("old\n")
+        flow.app_design_doc = {"modules": [
+            {"path": "frontend/src/a.js", "owns": ["A"], "requirements": ["A"]},
+            {"path": "frontend/src/b.js", "owns": ["B"], "requirements": ["B"]},
+        ]}
+        config_dir = self.root / "config"
+        config_dir.mkdir()
+        (config_dir / "config.json").write_text("{}")
+
+        class PrivateRuntime:
+            pass
+
+        master = PrivateRuntime()
+        master._lock = threading.Lock()
+        master.routes, master.model_contexts = [], {}
+        master.total_tokens = master.external_reserved_tokens = master.max_total_tokens_abs = 0
+        master.mode, master.upstream = "none", "http://example.invalid"
+        master.destream, master.trim, master.min_max_tokens = False, False, 1024
+        driver = PrivateRuntime()
+        driver.env = {"OCTOS_CONFIG_DIR": str(config_dir)}
+        driver.octos_bin, driver.max_iterations = "octos", 1
+        flow.llm_proxy, flow.driver = master, driver
+        flow.head = Mock(return_value="baseline")
+        flow.batch_spec_bodies = Mock(return_value="spec")
+        flow.codegen_implement_prompt = Mock(return_value="--- backend/server.js ---\nold\n")
+        flow.whole_app_budgets = Mock(return_value=(96000, 60000))
+        flow.record_implementation_evidence = Mock()
+        flow.mark = Mock()
+        flow.text_turn = Mock(return_value=(True, "<<<FILE backend/server.js>>>\nnew\n<<<END FILE>>>"))
+
+        def replies(jobs, _execute, **_kwargs):
+            request = {"path": "backend/server.js", "reason": "register A", "desired_change": "new",
+                       "requirement_ids": ["A"], "base_hash": hashlib.sha256(b"old\n").hexdigest()}
+            return [m.WorkerReply(jobs[0].task_id, True,
+                                  "<<<SHARED_CHANGE_REQUEST>>>\n" + json.dumps(request)
+                                  + "\n<<<END SHARED_CHANGE_REQUEST>>>"),
+                    m.WorkerReply(jobs[1].task_id, True,
+                                  "<<<FILE frontend/src/b.js>>>\nexport const b = 1;\n<<<END FILE>>>")]
+
+        with (patch.object(m, "LlmProxy", PrivateRuntime),
+              patch.object(m, "OctosDriver", PrivateRuntime),
+              patch.object(m, "run_parallel", side_effect=replies),
+              patch.object(m, "write_codegen_manifests", return_value=[])):
+            completed = flow.parallel_codegen_batch(self.nodes)
+        self.assertEqual(completed, set())
+        self.assertEqual(server.read_text(), "new\n")
+        self.assertFalse((self.root / "frontend/src/b.js").exists())
+        flow.commit.assert_called_once()
+
     def test_no_complete_file_write_falls_back(self):
         flow = self.flow
         flow.codegen_implement_prompt = Mock(return_value="prompt")
@@ -97,6 +280,23 @@ class WholeAppTests(unittest.TestCase):
         flow.codegen_turn.assert_called_once()
         self.assertEqual(flow.whole_app_generated_ids, {'A', 'B', 'C'})
         self.assertEqual(flow.test_verdict, {})  # a model's claim is not a passing test
+
+    def test_parallel_completed_nodes_are_skipped_by_serial_waves(self):
+        flow = self.flow
+        flow.parallel_codegen_batch = Mock(return_value={"A", "B"})
+        flow.codegen_implement_prompt = Mock(return_value="prompt")
+
+        def satisfied(*args, **kwargs):
+            flow.last_codegen_no_change = True
+            flow.last_codegen_written = []
+            return True, "<<<NO CHANGE>>>"
+
+        flow.codegen_turn = Mock(side_effect=satisfied)
+        self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
+        flow.parallel_codegen_batch.assert_called_once_with(self.nodes)
+        flow.codegen_turn.assert_called_once()
+        self.assertEqual(flow.whole_app_generated_ids, {"A", "B", "C"})
+        self.assertEqual(flow.codegen_implement_prompt.call_args.args[0]["active_requirement_ids"], ["C"])
 
     def test_oversized_whole_prompt_uses_two_generation_waves(self):
         flow = self.flow
