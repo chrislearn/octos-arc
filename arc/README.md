@@ -183,7 +183,7 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_ARC_DEGENERATE_MAX_TOKENS` | 8192 | 检出大量空改动或重复 EDIT 后，本次运行后续无工具代码请求的输出上限；首次请求和设计不受影响，0 关闭；波次规划同步缩小预算 |
 | `OCTOS_ARC_IMPLEMENT_REASONING_ALL` / `OCTOS_ARC_IMPLEMENT_REASONING` | 1 / none | 代码生成默认关闭思考，覆盖文件块、结构化编辑、上下文续读和并行 worker；显式设置 low/medium/high 可开启。ALL=0 恢复旧的作用范围；设计保留基础思考，正式修复始终开启 |
 | `OCTOS_ARC_REPAIR_REASONING` | 基础 low/medium/high，否则 medium | 正式修复、重写及恢复始终开启思考；none/off/disabled 不会关闭修复思考 |
-| `OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS` | 16 | 新需求失败且改动共享源码时，即时复测此前已通过用例的上限；超出部分轮换并由检查点覆盖 |
+| `OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS` | 4 | 新需求仍失败且改动共享源码时，即时复测此前已通过用例的上限；超出部分轮换。目标通过后仍运行完整受影响选集，检查点与最终验收覆盖待办 |
 | `OCTOS_ARC_RECOVERY_REASONING` | none | 生成退化时的旧版恢复提示；默认生成仍由 IMPLEMENT_REASONING 统一控制，设置 ALL=0 后可单独选择 low/medium/high。正式修复/恢复始终开启思考 |
 | `OCTOS_ARC_MIN_NODE_START_SECONDS` | 120 s | 新代码请求的最短可用时间；短预算运行按总预算的 20% 下调，已有代码的验收可用 15 s 窗口。时间不足的节点保留待处理并记 `budget_deferred`，不伪报实现失败 |
 | `OCTOS_ARC_REGRESSION_CHECKPOINT` | 4 | 第 4、8、16、24…个节点后并行重跑此前通过的用例（后续间隔不超过配置值的两倍），把实际失败传给下一节点修复；0 关闭。末节点由全套验收覆盖，剩余不足修复时间时跳过 |

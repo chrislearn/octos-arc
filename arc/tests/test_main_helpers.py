@@ -1514,6 +1514,39 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
             self.assertTrue(flow.test_verdict['prior'])
             self.assertFalse(flow.test_verdict['feature'])
 
+    def test_failed_baseline_is_not_attributed_to_later_node(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            flow = Mock(spec=m.Flow)
+            flow.output_dir = Path(directory)
+            flow.req_dir = Path(directory)
+            flow.spec_map = {'feature': ['feature.spec.ts'], 'prior': ['prior.spec.ts']}
+            flow.proven_behavior = {'prior', 'feature'}
+            flow.test_verdict = {'prior': False, 'feature': False}
+            flow.head.return_value = 'baseline'
+            flow.repair_source_index.return_value.versions = {}
+            flow.node_budget_cap = flow.node_timeout = 300
+            flow.remaining.return_value = 600
+            flow.implement_fraction = .7
+            flow.smoke_port, flow.web_port = 3001, 3000
+            flow.design_enabled = flow.evolution = False
+            flow.has_app.return_value = True
+            flow.codegen_mode.return_value = False
+            flow.turn.return_value = (False, 'no files')
+            flow.runner = Mock()
+            flow.impl_failed = []
+            flow.pending_corrections = []
+            for method in ['ancestors_text', 'tests_prompt_for', 'perf_text', 'ui_contract',
+                           'verify_text', 'corrections_text']:
+                getattr(flow, method).return_value = ''
+            flow.acceptance_loop.return_value = False
+            m.Flow.node_cycle(flow, node('feature', 'Extension'), [], 1, 1)
+            flow.settle_failed_extension.assert_not_called()
+            self.assertFalse(flow.test_verdict['prior'])
+            self.assertEqual(flow.acceptance_loop.call_args.kwargs['baseline_failed_nodes'], {'prior'})
+
     def test_should_verify_existing_app_after_generation_returns_no_files(self):
         self.check_existing_app(True, True)
 

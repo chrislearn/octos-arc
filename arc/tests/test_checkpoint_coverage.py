@@ -95,7 +95,8 @@ class CoverageTests(unittest.TestCase):
         self.assertFalse(verdict)
         self.assertFalse(f.test_verdict['B'])
         self.assertEqual(f.run_specs.call_count, 2)
-        f.affected_regression_specs.assert_called_once_with({'frontend/shared.js'}, ['A.spec.ts'])
+        f.affected_regression_specs.assert_called_once_with({'frontend/shared.js'}, ['A.spec.ts'],
+                                                             baseline_failed_nodes=())
 
     def test_regression_audit_invalidation_never_marks_leaf_failed(self):
         import test_resumable_recovery as fixtures
@@ -165,8 +166,52 @@ class CoverageTests(unittest.TestCase):
         f.run_specs = Mock(side_effect=lambda specs, **kw: observed(specs, ['A.spec.ts']))
         self.assertFalse(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 300,
                                            source_versions={'frontend/App.jsx': 'old'}))
-        self.assertEqual(len(f.run_specs.call_args_list[1].args[0]), 16)
-        self.assertNotIn('A.spec.ts', f.run_specs.call_args_list[1].args[0])
+        first = set(f.run_specs.call_args_list[1].args[0])
+        self.assertEqual(len(first), 4)
+        self.assertNotIn('A.spec.ts', first)
+        self.assertFalse(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 300,
+                                           source_versions={'frontend/App.jsx': 'old'}))
+        second = set(f.run_specs.call_args_list[3].args[0])
+        self.assertEqual(len(second), 4)
+        self.assertFalse(first & second)
+
+    def test_failed_probe_cap_override(self):
+        import test_resumable_recovery as fixtures
+        from types import SimpleNamespace
+        import time
+        fixtures.RecoveryControlTests.setUp(self)
+        f = self.flow
+        f.repair_rounds = 0
+        f.codegen_mode = Mock(return_value=False)
+        f.repair_source_index = Mock(return_value=SimpleNamespace(versions={'frontend/App.jsx': 'new'}))
+        prior = [f'B{i}.spec.ts' for i in range(6)]
+        f.affected_regression_specs = Mock(return_value=prior + ['A.spec.ts'])
+        f.spec_map = {'A': ['A.spec.ts'], **{f'B{i}': [spec] for i, spec in enumerate(prior)}}
+        f.test_verdict = {f'B{i}': True for i in range(6)}
+        f.run_specs = Mock(side_effect=lambda specs, **kw: observed(specs, ['A.spec.ts']))
+        with patch.dict('os.environ', {'OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS': '2'}):
+            self.assertFalse(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 300,
+                                               source_versions={'frontend/App.jsx': 'old'}))
+        self.assertEqual(len(f.run_specs.call_args_list[1].args[0]), 2)
+
+    def test_failed_probe_cap_can_be_overridden_without_limiting_green_target(self):
+        import test_resumable_recovery as fixtures
+        from types import SimpleNamespace
+        import time
+        fixtures.RecoveryControlTests.setUp(self)
+        f = self.flow
+        f.repair_rounds = 0
+        f.codegen_mode = Mock(return_value=False)
+        f.repair_source_index = Mock(return_value=SimpleNamespace(versions={'frontend/App.jsx': 'new'}))
+        prior = [f'B{i}.spec.ts' for i in range(6)]
+        f.affected_regression_specs = Mock(return_value=prior + ['A.spec.ts'])
+        f.spec_map = {'A': ['A.spec.ts'], **{f'B{i}': [spec] for i, spec in enumerate(prior)}}
+        f.test_verdict = {f'B{i}': True for i in range(6)}
+        f.run_specs = Mock(side_effect=lambda specs, **kw: observed(specs))
+        with patch.dict('os.environ', {'OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS': '2'}):
+            self.assertTrue(f.acceptance_loop('A', ['A.spec.ts'], time.time() + 300,
+                                              source_versions={'frontend/App.jsx': 'old'}))
+        self.assertEqual(set(f.run_specs.call_args_list[1].args[0]), set(prior + ['A.spec.ts']))
 
     def test_backlog_does_not_grow_the_permanent_regression_set(self):
         f = self.flow()

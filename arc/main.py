@@ -5084,10 +5084,12 @@ class Flow:
             targets[node] = spec_targets(text, paths) | navigation_targets(text, paths)
         return targets
 
-    def affected_regression_specs(self, changed, already_run):
+    def affected_regression_specs(self, changed, already_run, baseline_failed_nodes=()):
         """Retest affected proven behavior, not requirements still awaiting implementation.
 
         Shared changes run the proven set together with the current target.
+        A failure already present before this node is a backlog obligation,
+        not evidence that the current edit regressed a green requirement.
         Final acceptance independently measures every requirement.
         """
         if not changed or not self.tests_dir:
@@ -5095,6 +5097,7 @@ class Flow:
         proven = set(getattr(self, 'proven_behavior', set()))
         proven.update(node for node, verdict in self.test_verdict.items() if verdict is True)
         self.proven_behavior = proven
+        proven = proven - set(baseline_failed_nodes)
         current = set(already_run)
         prior_specs = {spec for node in proven for spec in self.spec_map.get(node, [])}
         if not prior_specs - current:
@@ -7462,7 +7465,7 @@ class Flow:
         return summary
 
 
-    def acceptance_loop(self, node_id: str, specs: list[str], deadline: float, rebuild_prompt=None, initial_summary: RunSummary | None=None, source_versions: dict | None=None) -> bool | None:
+    def acceptance_loop(self, node_id: str, specs: list[str], deadline: float, rebuild_prompt=None, initial_summary: RunSummary | None=None, source_versions: dict | None=None, baseline_failed_nodes=()) -> bool | None:
         """Returns True/False for a real verdict, None when no local run happened.
             `rebuild_prompt(failures)` (optional) yields a full re-implementation
             prompt; it is used only before any behavior has passed verification.
@@ -7592,7 +7595,9 @@ class Flow:
             if measured:
                 current_versions = self.repair_source_index().versions
                 changed = {p for p in initial_versions.keys() | current_versions.keys() if initial_versions.get(p) != current_versions.get(p)}
-                regression_specs = self.affected_regression_specs(changed, specs) if repair_applied or source_versions is not None else []
+                regression_specs = (self.affected_regression_specs(changed, specs,
+                                    baseline_failed_nodes=baseline_failed_nodes)
+                                    if repair_applied or source_versions is not None else [])
                 regression_specs = sorted(set(regression_specs) | pending_regression_specs)
                 if getattr(self, 'derived_as_specs', False) is True:
                     reviewed_paths = {path for owner, paths in self.spec_map.items() if owner and self.derived_has_runnable_cases(owner) for path in paths}
@@ -7609,7 +7614,7 @@ class Flow:
                 related_specs = sorted(set(regression_specs) - set(specs))
                 if passed < summary.total and regression_specs:
                     prior_specs = sorted(set(regression_specs) - set(specs))
-                    cap = max(1, int(os.environ.get('OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS', '16')))
+                    cap = max(1, int(os.environ.get('OCTOS_ARC_FAILED_EXTENSION_REGRESSION_SPECS', '4')))
                     if len(prior_specs) > cap:
                         cursor = getattr(self, '_failed_regression_cursor', 0) % len(prior_specs)
                         regression_specs = (prior_specs[cursor:] + prior_specs[:cursor])[:cap]
@@ -11849,8 +11854,15 @@ class Flow:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         before_sha = self.head()
+        baseline_failed_nodes = {prior for prior, value in self.test_verdict.items()
+                                 if prior != node_id and value is False}
         proven_before = (set(getattr(self, 'proven_behavior', set()))
-                         | {prior for prior, value in self.test_verdict.items() if value is True})
+                         | {prior for prior, value in self.test_verdict.items() if value is True}) - {node_id}
+        deferred = sorted(proven_before & baseline_failed_nodes)
+        if deferred:
+            self.metric('baseline_failures_deferred', node_id=node_id, prior_nodes=deferred,
+                        prior_specs=sorted({spec for prior in deferred
+                                            for spec in self.spec_map.get(prior, [])}))
         self.last_codegen_written = []
         self.last_codegen_outcome = ""
         self.last_codegen_refused = set()
@@ -12181,10 +12193,13 @@ class Flow:
                     "fixing the root causes above.\n")
 
         self.last_node_own_pass = False
-        verdict = self.acceptance_loop(node_id, specs, deadline, rebuild_prompt=rebuild_prompt,
-                                       source_versions=source_versions)
+        acceptance_kwargs = {'rebuild_prompt': rebuild_prompt, 'source_versions': source_versions}
+        if baseline_failed_nodes:
+            acceptance_kwargs['baseline_failed_nodes'] = baseline_failed_nodes
+        verdict = self.acceptance_loop(node_id, specs, deadline, **acceptance_kwargs)
         self.test_verdict[node_id] = verdict
-        regressed_proven = sorted(prior for prior in proven_before if self.test_verdict.get(prior) is False)
+        regressed_proven = sorted(prior for prior in proven_before - baseline_failed_nodes
+                                 if self.test_verdict.get(prior) is False)
         if verdict is not True and regressed_proven and before_sha:
             self.settle_failed_extension(node_id, before_sha, regressed_proven,
                                          node_passed=bool(getattr(self, "last_node_own_pass", False)))

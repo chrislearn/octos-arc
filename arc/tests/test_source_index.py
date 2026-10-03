@@ -116,6 +116,9 @@ class SourceIndexTests(TestCase):
             flow.test_verdict = {'a': True, 'b': True}
             self.assertEqual(flow.affected_regression_specs({'A.jsx'}, ['a.spec.ts']), [])
             self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts']), ['a.spec.ts', 'b.spec.ts'])
+            self.assertEqual(flow.affected_regression_specs({'backend/store.js'}, ['a.spec.ts'],
+                             baseline_failed_nodes={'b'}), [])
+            self.assertIn('b', flow.proven_behavior)  # still a final-suite obligation
             self.assertEqual(flow.affected_regression_specs({'unknown.js'}, []), ['a.spec.ts', 'b.spec.ts'])
             self.assertEqual(flow.affected_regression_specs(set(), []), [])
             flow.spec_map['future'] = ['future.spec.ts']

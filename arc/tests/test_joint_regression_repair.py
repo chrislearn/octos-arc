@@ -87,8 +87,9 @@ class JointRepairTests(unittest.TestCase):
         f = self.flow
         f.affected_regression_specs({'frontend/src/Editor.jsx'}, ['rename.spec.ts'])
         f.test_verdict['csv'] = False
-        self.assertIn('csv.spec.ts', f.affected_regression_specs(
-            {'frontend/src/Editor.jsx'}, ['rename.spec.ts']))
+        self.assertNotIn('csv.spec.ts', f.affected_regression_specs(
+            {'frontend/src/Editor.jsx'}, ['rename.spec.ts'], baseline_failed_nodes={'csv'}))
+        self.assertIn('csv', f.proven_behavior)
         self.assertFalse(f.can_rewrite_from_scratch())
 
     def test_no_regression_measurement_budget_cannot_accept_green_target(self):
