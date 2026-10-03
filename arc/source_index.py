@@ -116,6 +116,46 @@ class SourceIndex:
                 pending.append(dep)
         return found | hubs
 
+    def api_owners(self, paths):
+        """Context candidates for literal client requests and direct app routes.
+
+        No runtime registration verdict is implied. Router mounts, computed
+        URLs and external requests stay unknown; matches preserve all possible
+        owners rather than assuming the first declaration wins at runtime.
+        """
+        from generation_checks import _strip_js_comments
+        routes = []
+        for path, source in self.sources.items():
+            if not path.startswith('backend/'):
+                continue
+            for match in re.finditer(r'''\bapp\.(get|post|put|patch|delete|head|options)\s*\(\s*(['"])(/api/[^'"\n]*)\2''',
+                                     _strip_js_comments(source), re.I):
+                if not re.search(r'[?*()\\]', match[3]):
+                    routes.append((match[1].upper(), match[3].strip('/').split('/'), path))
+        found = set()
+        for path in set(paths) & self.sources.keys():
+            if not path.startswith('frontend/'):
+                continue
+            source = _strip_js_comments(self.sources[path])
+            for match in re.finditer(r'''\b(?:fetch|requestJson)\s*\(\s*([`'"])(/api/[^`'"\n]*)\1''', source):
+                url = re.sub(r'\$\{[^{}]+\}', '{}', match[2])
+                if '${' in url or re.search(r'[\\\s]', url):
+                    continue
+                segments = url.split('?', 1)[0].strip('/').split('/')
+                # Only an immediately closing call or a leading literal method
+                # is certain enough for selection. Later/nested properties,
+                # callbacks, spreads and computed options remain unknown.
+                tail = source[match.end():match.end() + 180]
+                method = re.match(r'''\s*,\s*\{\s*method\s*:\s*['"](GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)['"]''', tail, re.I)
+                verb = 'GET' if re.match(r'\s*\)', tail) else method[1].upper() if method else None
+                for route_method, declared, owner in routes:
+                    if verb is not None and verb != route_method:
+                        continue
+                    if len(segments) == len(declared) and all(
+                            a == b or a.startswith(':') or b == '{}' for a, b in zip(declared, segments)):
+                        found.add(owner)
+        return found
+
     def affected(self, paths):
         """Transitive callers, unlike the bounded display's one-hop context."""
         found = set(paths)

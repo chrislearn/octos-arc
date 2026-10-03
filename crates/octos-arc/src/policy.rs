@@ -135,8 +135,7 @@ pub struct RepairPolicy {
     /// K, acceptance repair rounds per node (`OCTOS_REPAIR_ROUNDS`; an explicit value also
     /// replaces `rounds_large_tree`).
     pub rounds: u32,
-    /// Repair rounds for trees with more than `large_tree_nodes` ATOMIC nodes (wf-adapter-30:
-    /// keep barely repaired, and the identical-failure / no-improvement stops make 5 rounds rare).
+    /// Repair rounds for trees with more than `large_tree_nodes` ATOMIC nodes.
     pub rounds_large_tree: u32,
     pub large_tree_nodes: usize,
     /// Codegen repairs before falling back to tool mode (`OCTOS_ARC_CODEGEN_REPAIRS`).
@@ -145,7 +144,7 @@ pub struct RepairPolicy {
     pub rewrite_on_zero: bool,
     /// Repair rounds after the full parallel suite (`OCTOS_FINAL_REPAIR_ROUNDS`).
     pub final_rounds: u32,
-    /// Stop a node after this many repairs without improvement.
+    /// Legacy setting retained for policy compatibility; a node now stops after one repair without progress.
     pub stall_limit: u32,
     /// Roll back to the best commit after this many consecutive regressions.
     pub regression_limit: u32,
@@ -154,7 +153,7 @@ pub struct RepairPolicy {
 impl Default for RepairPolicy {
     fn default() -> Self {
         Self {
-            rounds: 5,
+            rounds: 3,
             codegen_repairs: 2,
             rewrite_on_zero: true,
             final_rounds: 2,
@@ -806,7 +805,7 @@ mod tests {
         assert_eq!(p.budget.seconds_per_node, 1500);
         assert_eq!(p.budget.min_repair_seconds, 300);
         assert_eq!(p.budget.node_time_budget_seconds, 1500);
-        assert_eq!(p.repair.rounds, 5);
+        assert_eq!(p.repair.rounds, 3);
         assert_eq!(p.repair.codegen_repairs, 2);
         assert_eq!(p.repair.final_rounds, 2);
         assert_eq!(p.mode.design_min_nodes, 3);

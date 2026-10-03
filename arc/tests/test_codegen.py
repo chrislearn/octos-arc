@@ -542,7 +542,8 @@ class BestRepairStateTests(unittest.TestCase):
         with patch.dict('os.environ', {'OCTOS_ARC_F1_REPAIR_ROUNDS': '2'}):
             self.assertFalse(flow.acceptance_loop('node', ['example.spec.ts'], time.time()+1000, rebuild))
         rebuild.assert_not_called()
-        self.assertEqual(flow.turn.call_count, 2)
+        self.assertEqual(flow.turn.call_count, 1)
+        self.assertEqual(flow.run_specs.call_count, 2)
         flow.restore_app.assert_called_once_with('same-commit')
 
 
@@ -595,13 +596,13 @@ class VerifiedBehaviorRewriteTests(unittest.TestCase):
 
 
 class RepairModeTransitionTests(unittest.TestCase):
-    def test_should_try_tool_repair_before_stopping_at_codegen_plateau(self):
+    def test_nonprogressing_codegen_repair_stops_before_tool_fallback(self):
         import main
         import time
         from unittest.mock import Mock, patch
         from acceptance import RunSummary, TestOutcome
-        for tools_succeed, rounds in ((True, 5), (False, 5), (False, 2)):
-            with self.subTest(tools_succeed=tools_succeed, rounds=rounds):
+        for rounds in (2, 5):
+            with self.subTest(rounds=rounds):
                 flow = object.__new__(main.Flow)
                 flow.runner = object()
                 flow.repair_rounds = rounds
@@ -632,20 +633,16 @@ class RepairModeTransitionTests(unittest.TestCase):
                 flow.restore_app = Mock()
                 summaries = [RunSummary(passed=0, total=1, results=[
                     TestOutcome('behavior', False, 'failed', 1, message=f'missing control {i}')])
-                    for i in range(3)]
-                summaries.append(RunSummary(passed=int(tools_succeed), total=1, results=[
-                    TestOutcome('behavior', tools_succeed, 'passed' if tools_succeed else 'failed',
-                                1, message='' if tools_succeed else 'still missing control')]))
+                    for i in range(2)]
                 flow.run_specs = Mock(side_effect=summaries)
                 with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_REPAIRS': '2',
                                             'OCTOS_ARC_F1_REPAIR_ROUNDS': str(rounds)}):
-                    self.assertEqual(flow.acceptance_loop('node', ['generic.spec.ts'], time.time()+1000),
-                                     tools_succeed)
-                self.assertEqual(flow.codegen_turn.call_count, 2)
+                    self.assertFalse(flow.acceptance_loop('node', ['generic.spec.ts'], time.time()+1000))
+                self.assertEqual(flow.codegen_turn.call_count, 1)
                 for call in flow.codegen_turn.call_args_list:
                     self.assertIn('complete-spec-and-helper-evidence', call.args[0])
-                self.assertEqual(flow.turn.call_count, int(rounds > 2))
-                self.assertEqual(flow.run_specs.call_count, 4 if rounds > 2 else 3)
+                self.assertEqual(flow.turn.call_count, 0)
+                self.assertEqual(flow.run_specs.call_count, 2)
 
 
 class RepairEntryTests(unittest.TestCase):

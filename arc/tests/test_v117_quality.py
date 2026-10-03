@@ -83,12 +83,12 @@ class QualityTests(unittest.TestCase):
         self.assertIn('zero, false', obligations[0]['text'])
         self.assertEqual(obligations[0]['status'], 'awaiting_behavior_evidence')
 
-    def test_measured_progress_extends_three_default_repairs_to_five(self):
+    def test_measured_progress_allows_three_repairs_at_most(self):
         import time
         from acceptance import RunSummary, TestOutcome
         flow = Flow(argparse.Namespace(web_port=3000), self.root, self.root)
         flow.runner = object()
-        flow.repair_rounds, flow.repair_rounds_explicit = 3, False
+        flow.repair_rounds = 5
         flow.head = Mock(return_value='best')
         flow.commit = Mock()
         flow.record_tests = Mock()
@@ -96,14 +96,38 @@ class QualityTests(unittest.TestCase):
         flow.wound_down = Mock(return_value=False)
         flow.node_repair_turn = Mock(return_value=True)
         flow.suite_is_measured = Mock(return_value=True)
-        counts = [0, 1, 2, 3, 4, 6]
+        counts = [0, 1, 2, 6]
         flow.run_specs = Mock(side_effect=[RunSummary(passed=count, total=6, results=[
             TestOutcome(f'case-{i}', i < count, 'passed' if i < count else 'failed', 1,
                         file='A.spec.ts', message='' if i < count else 'Expected visible business result')
             for i in range(6)]) for count in counts])
         self.assertTrue(flow.acceptance_loop('A', ['A.spec.ts'], time.time() + 2000))
-        self.assertEqual(flow.node_repair_turn.call_count, 5)
-        self.assertIn('5/5', flow.node_repair_turn.call_args.args[3])
+        self.assertEqual(flow.node_repair_turn.call_count, 3)
+        self.assertIn('3/3', flow.node_repair_turn.call_args.args[3])
+
+    def test_nonprogressing_repair_stops_immediately(self):
+        import time
+        from acceptance import RunSummary, TestOutcome
+        for counts, expected_repairs in (([0, 0], 1), ([0, 1, 1], 2)):
+            with self.subTest(counts=counts):
+                flow = Flow(argparse.Namespace(web_port=3000), self.root, self.root)
+                flow.runner = object()
+                flow.repair_rounds = 3
+                flow.head = Mock(return_value='best')
+                flow.commit = Mock()
+                flow.record_tests = Mock()
+                flow.remaining = Mock(return_value=9000)
+                flow.wound_down = Mock(return_value=False)
+                flow.node_repair_turn = Mock(return_value=True)
+                flow.suite_is_measured = Mock(return_value=True)
+                flow.restore_app = Mock()
+                flow.run_specs = Mock(side_effect=[RunSummary(passed=count, total=3, results=[
+                    TestOutcome(f'case-{i}', i < count, 'passed' if i < count else 'failed', 1,
+                                file='A.spec.ts', message='' if i < count else 'Still failing')
+                    for i in range(3)]) for count in counts])
+                self.assertFalse(flow.acceptance_loop('A', ['A.spec.ts'], time.time() + 2000))
+                self.assertEqual(flow.node_repair_turn.call_count, expected_repairs)
+                self.assertEqual(flow.run_specs.call_count, len(counts))
 
     def test_input_state_oracle_is_admitted_through_compile_and_semantic_gate(self):
         target = {'id':'S1','node_id':'A','title':'A: Edit quantity','description':'Edit quantity and save. The value persists after reload.',
@@ -139,8 +163,8 @@ class QualityTests(unittest.TestCase):
         self.assertTrue(any('filename' in message for message in errors))
 
     def test_positive_budget_requires_progress_and_honors_zero(self):
-        self.assertEqual(repair_allowance(3, 5, False), 3)
-        self.assertEqual(repair_allowance(3, 5, True), 5)
+        self.assertEqual(repair_allowance(1, 5, False), 1)
+        self.assertEqual(repair_allowance(1, 5, True), 3)
         self.assertEqual(repair_allowance(0, 0, True), 0)
 
     def test_read_only_workflow_does_not_inherit_description_update(self):

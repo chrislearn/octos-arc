@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 from acceptance import AppServer, RunSummary, TestOutcome, completed_step_prefix
 from guard import TurnMonitor
 from main import Flow, write_codegen_manifests, quoted_paths
-from repair_control import isolated_node_deadline, measured_progress, progress_snapshot, seconds_available, run_owned_process
+from repair_control import isolated_node_deadline, measured_progress, progress_snapshot, repair_round_progress, seconds_available, run_owned_process
 from source_index import SourceIndex
 from verify_app import verify
 
@@ -357,6 +357,19 @@ class EvidenceControls(unittest.TestCase):
         old = progress_snapshot(RunSummary(results=[self.row('A', True), self.row('B')]))
         new = progress_snapshot(RunSummary(results=[self.row('A'), self.row('B', True)]))
         self.assertEqual(measured_progress(old, new), 'regression')
+
+    def test_rotating_regression_probe_does_not_hide_target_progress(self):
+        target = ('A.spec.ts', 'target', None)
+        before = {target: (False, ())}
+        after = {target: (True, ())}
+        old_joint = {**before, ('B.spec.ts', 'prior', None): (False, ())}
+        rotated_joint = {**after, ('C.spec.ts', 'prior', None): (False, ())}
+        self.assertEqual(repair_round_progress(old_joint, rotated_joint, before, after), 'advanced')
+        self.assertEqual(repair_round_progress(old_joint, {**before, ('C.spec.ts', 'prior', None): (False, ())},
+                                               before, before), 'unknown')
+        lost_prior = {**after, ('B.spec.ts', 'prior', None): (False, ())}
+        self.assertEqual(repair_round_progress({**before, ('B.spec.ts', 'prior', None): (True, ())},
+                                               lost_prior, before, after), 'regression')
 
     def test_duplicate_ambiguous_titles_cannot_buy_progress(self):
         summary = RunSummary(results=[self.row('same', True), self.row('same')])

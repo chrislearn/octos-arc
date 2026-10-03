@@ -140,3 +140,13 @@ def measured_progress(previous, current):
                 return 'unknown'
             gained |= len(new_steps) > len(old_steps)
     return 'advanced' if gained else 'unchanged'
+
+
+def repair_round_progress(previous_joint, current_joint, previous_target, current_target):
+    """A rotating regression probe cannot hide measured progress on the target."""
+    joint = measured_progress(previous_joint, current_joint)
+    if joint == 'advanced':
+        return joint
+    if joint != 'regression' and measured_progress(previous_target, current_target) == 'advanced':
+        return 'advanced'
+    return joint

@@ -36,6 +36,10 @@ PYTHONPATH=arc python3 arc/integration/layered_input_sizes.py --evidence /tmp/la
 
 源码引用会从测试里的字面导航和实际失败 URL，沿可静态确认的 React Route 及其默认导入找到页面组件；即使组件名很短，也要求引用完整源码。路由分析限定到浏览器源码及其静态依赖，构建配置的动态 import 不参与判断。动态或有歧义的客户端路由仍留待工具核实，这个映射只选择上下文，不证明页面可达或功能通过。
 
+工具模式在默认 24,000 字符预算内优先提供节点 spec，再提供可达 helper 声明。大 spec 只在可确认顶层边界时引用完整测试用例；未完整引用的文件会明确提示继续读取，后续 helper 超限不会清空已有 spec。预算包括标题与覆盖说明，磁盘上的冻结测试不变。源码排序还会根据选中页面及其依赖的实际 `/api` 请求，优先提供匹配的直接 `app.method` 路由所有者及其依赖；这属于启发式上下文选择，不证明运行时注册，动态路由和 router mount 仍需核实。API 依赖图不会整体强制装入预算。
+
+内置 Sheet 任务在首次最终验收前默认执行一次独立交互兼容性探针，检查可见 option 点击与 Pivot Rows 标签；构建、启动和浏览器执行总预算最多 180 秒，并先保留最终验收与启动排练时间，不足 120 秒时记录延期。探针在临时应用副本运行，隔离相对文件写入和 `ARC_DATA_DIR`，结果写入 `.arc/compatibility/summary.json` 和质量摘要，不改变验收数量或节点结论。失败只作为需要按原始需求核实的修复参考，源码变化后的观察会标为过期；生成应用自己的外部数据库或绝对路径写入仍受现有隔离限制。`OCTOS_ARC_SHEET_COMPATIBILITY=0` 可关闭；手动命令为 `python3 arc/check_sheet_compat.py --base-url URL --playwright-root ROOT`，手动运行会对目标应用创建测试工作簿。
+
 菜单超时的失败摘要会优先保留“打开 → Escape → 再次打开 → 点击目标”的实际操作链；它只用于提出待核实的状态假设。目标元素缺失不能直接证明控件角色错误。修复后仍须同时测量当前节点和受影响的历史节点，全部通过才接受。
 
 ```sh
@@ -176,7 +180,8 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
 | `OCTOS_ARC_WHOLE_APP_WAVE_NODES` / `OCTOS_ARC_CODEGEN_OUTPUT_TOKENS` | 6 / 输出上限的 60% | 波次同时受输入及估计输出预算限制；超预算先拆分，不先消耗一次截断请求 |
 | `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` | 0（关闭） | 逐请求检查的累计 token 阈值；provider usage 缺失时按请求输入和最大输出额度保守预留，达到后不再发上游请求；平台私有计量口径仍不可由客户端精确重建 |
-| `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 小题 5、大于 2 节点 3 / 工具模式 300 s | 每节点验收修复轮上限；单请求代码修复默认以 60 s 为最低准入时间，再按近期实测耗时调高。显式设置的最低时间始终保留 |
+| `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 最多 3 / 工具模式 300 s | 每节点先做 1 轮修复；每轮复测有明确进展才继续，首次无进展即停止，绝不超过 3 轮（显式配置也不能提高上限）。单请求代码修复默认以 60 s 为最低准入时间，再按近期实测耗时调高 |
+| `OCTOS_ARC_F1_REPAIR_ROUNDS` | 1 | 首轮修复准入额度；后续修复需上一轮复测有明确进展，且仍受 3 轮硬上限约束。设为 0 可关闭节点修复 |
 | `OCTOS_FINAL_REPAIR_ROUNDS` / `OCTOS_FINAL_SUITE_PASSES` | 1 / 2 | 全套验收默认提供一次定向修复及复测；无有效改动时，在测量、修复、复测仍有预算的前提下允许第二个周期改变策略。全绿、连续无提升或时间/token/轮次守卫会提前停止；显式配置可覆盖默认值 |
 | `OCTOS_ARC_PARTIAL_CONFIRM_RATIO` / `OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES` | 0.9 / 3 | 首次全套验收接近全绿且时间足够时，在改代码前对未改动应用确认一次；用于识别失败项轮换，不影响普通低分 suite |
 | `OCTOS_ARC_NO_WRITE_SECONDS` | 180 s | 结构化编辑至少消耗一半请求且仍未尝试写入时，达到该时长（或用完 75% 请求）后关闭继续读取/搜索，只保留写入工具或精确阻塞报告 |

@@ -83,7 +83,7 @@ def helper_evidence_hash(directory: Path) -> str:
 
 
 def repair_allowance(initial: int, maximum: int, progress: bool) -> int:
-    return max(0, maximum if progress else min(initial, maximum))
+    return max(0, min(3, maximum if progress else min(initial, maximum)))
 
 
 def valid_json_schema(schema, depth=0) -> bool:

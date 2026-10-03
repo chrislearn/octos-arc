@@ -39,6 +39,32 @@ fn regression_checkpoint_due(index: usize, total: usize, start: usize) -> bool {
         && (index / start == 1 || (index / start) % 2 == 0)
 }
 
+type CaseProgress = BTreeMap<(String, String, Option<u64>), bool>;
+
+fn case_progress(summary: &RunSummary) -> CaseProgress {
+    let mut cases = BTreeMap::new();
+    for row in &summary.results {
+        if cases
+            .insert((row.file.clone(), row.title.clone(), row.line), row.ok)
+            .is_some()
+        {
+            return BTreeMap::new();
+        }
+    }
+    cases
+}
+
+fn measured_case_progress(previous: &CaseProgress, current: &CaseProgress) -> bool {
+    !previous.is_empty()
+        && previous.keys().eq(current.keys())
+        && !previous
+            .iter()
+            .any(|(key, passed)| *passed && !current[key])
+        && previous
+            .iter()
+            .any(|(key, passed)| !*passed && current[key])
+}
+
 /// How a codegen turn is shaped (`main.codegen_turn` keyword arguments).
 struct CodegenOptions<'a> {
     /// Prompt name of the system message; None = `codegen-system`.
@@ -1771,15 +1797,16 @@ impl Flow {
         if self.runner.is_none() || specs.is_empty() {
             return None;
         }
-        let repair_rounds = if self.plan.n_nodes > self.policy.repair.large_tree_nodes {
+        let repair_rounds = (if self.plan.n_nodes > self.policy.repair.large_tree_nodes {
             self.policy.repair.rounds_large_tree
         } else {
             self.policy.repair.rounds
-        };
+        })
+        .min(3);
         let mut best_passed: i64 = -1;
         let mut best_sha = self.git.head();
         let mut regressions = 0u32;
-        let mut stalls = 0u32;
+        let mut previous_cases = CaseProgress::new();
         let mut rewrite_used = false;
         let mut previous_failures = None;
         self.codegen_blocked = false;
@@ -1812,7 +1839,6 @@ impl Flow {
                 "[acceptance] {node_id} round {attempt}: {passed}/{}",
                 summary.total
             ));
-            let was_codegen = self.codegen_mode();
             let normalized = if summary.results.is_empty() {
                 BTreeSet::from([vec![failures.clone()]])
             } else {
@@ -1844,6 +1870,9 @@ impl Flow {
                 return Some(true);
             }
             let passed_i = passed as i64;
+            let current_cases = case_progress(&summary);
+            let advanced = measured_case_progress(&previous_cases, &current_cases);
+            previous_cases = current_cases;
             if passed_i > best_passed {
                 if best_passed >= 0 {
                     self.commit(&format!(
@@ -1854,18 +1883,6 @@ impl Flow {
                 best_passed = passed_i;
                 best_sha = self.git.head();
                 regressions = 0;
-                stalls = 0;
-            } else if passed_i == best_passed && attempt > 0 {
-                stalls += 1;
-                // A newly selected strategy gets one attempt within the existing budgets.
-                if stalls >= self.policy.repair.stall_limit
-                    && !(was_codegen && self.codegen_blocked)
-                {
-                    self.log(format!(
-                        "[flow] {node_id}: no improvement for two repairs; keeping the best state"
-                    ));
-                    break;
-                }
             } else if passed_i < best_passed {
                 regressions += 1;
                 if regressions >= self.policy.repair.regression_limit
@@ -1882,6 +1899,12 @@ impl Flow {
                     self.pending_corrections.push(correction);
                     regressions = 0;
                 }
+            }
+            if attempt > 0 && !advanced {
+                self.log(format!(
+                    "[flow] {node_id}: repair {attempt} made no measured progress; keeping the best state"
+                ));
+                break;
             }
             if attempt == repair_rounds {
                 break;
@@ -3285,6 +3308,26 @@ mod tests {
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
+
+    #[test]
+    fn repair_progress_requires_new_pass_without_losing_an_old_one() {
+        let old = BTreeMap::from([
+            (("A.spec.ts".into(), "first".into(), None), true),
+            (("A.spec.ts".into(), "second".into(), None), false),
+        ]);
+        let advanced = BTreeMap::from([
+            (("A.spec.ts".into(), "first".into(), None), true),
+            (("A.spec.ts".into(), "second".into(), None), true),
+        ]);
+        let swapped = BTreeMap::from([
+            (("A.spec.ts".into(), "first".into(), None), false),
+            (("A.spec.ts".into(), "second".into(), None), true),
+        ]);
+        assert!(measured_case_progress(&old, &advanced));
+        assert!(!measured_case_progress(&old, &swapped));
+        assert!(!measured_case_progress(&old, &old));
+        assert!(!measured_case_progress(&BTreeMap::new(), &advanced));
+    }
 
     #[test]
     fn should_bound_regression_checkpoint_gaps() {

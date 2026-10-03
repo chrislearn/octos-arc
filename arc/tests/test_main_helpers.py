@@ -88,7 +88,7 @@ class LocatorRaceAdmissionTests(unittest.TestCase):
         self.assertEqual(flow.run_specs.call_count, 3)
         flow.node_repair_turn.assert_not_called()
 
-    def test_role_repair_followup_failure_keeps_targeted_repair_instead_of_rewrite(self):
+    def test_role_repair_followup_without_progress_stops_before_rewrite(self):
         from acceptance import RunSummary, TestOutcome
         import time
         flow, first = self.flow_and_failure()
@@ -104,9 +104,9 @@ class LocatorRaceAdmissionTests(unittest.TestCase):
         rebuild = Mock(return_value='unnecessary whole-app rewrite')
         verdict = m.Flow.acceptance_loop(flow, 'REQ-1', ['REQ-1.spec.ts'],
                                         time.time() + 1500, rebuild_prompt=rebuild)
-        self.assertTrue(verdict)
-        self.assertEqual(flow.node_repair_turn.call_count, 2)
-        self.assertIn('Expected editor fields', flow.node_repair_turn.call_args.args[1])
+        self.assertFalse(verdict)
+        self.assertEqual(flow.node_repair_turn.call_count, 1)
+        self.assertEqual(flow.run_specs.call_count, 2)
         rebuild.assert_not_called()
         flow.codegen_turn.assert_not_called()
 

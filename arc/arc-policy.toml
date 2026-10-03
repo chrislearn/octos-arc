@@ -19,10 +19,10 @@
 #      the harness manifests replace the skeleton turn.
 #   3. spec too large for one request, or codegen blocked -> tool mode (kernel session).
 #   Failure handling per node: round 0 passes nothing -> one codegen rewrite
-#   (repair.rewrite_on_zero); then repair.codegen_repairs (2) single-request repairs; the same
-#   failure twice, or the repairs used up -> tool-mode repairs (requests.repair calls each) until
-#   repair.rounds / rounds_large_tree, stall_limit or the cost guard stops the node. Setting
-#   repair.codegen_repairs = 0 makes the first failure fall back to tool mode directly.
+#   (repair.rewrite_on_zero). Codegen repairs may fall back to tools within the same repair round.
+#   The first repair is allowed; another needs measured progress from the immediately prior repair.
+#   repair.rounds / rounds_large_tree is hard-capped at 3; time and cost guards may stop sooner.
+#   Setting repair.codegen_repairs = 0 makes the first failure use tool mode directly.
 #   Targets (phase 3): <= 5 requests and <= ¥0.2 per node; the cost guard ([budget]) bounds the run.
 # Python adapter v5 experiment (not a Rust policy key): OCTOS_ARC_WHOLE_APP=1
 # tries one full-tree codegen turn only up to 12 leaves; larger tasks start
@@ -67,13 +67,13 @@ max_turns = -1              # OCTOS_ARC_MAX_TURNS
 max_total_tokens_abs = 0    # OCTOS_ARC_MAX_TOTAL_TOKENS_ABS — absolute ceiling for a spend rule (¥50 ≈ 75M); can cut a healthy big tree short
 
 [repair]
-rounds = 5              # OCTOS_REPAIR_ROUNDS — K, acceptance repair rounds per node
-rounds_large_tree = 3   # v11.7 progresses to 5 on measured improvement; trees with more than large_tree_nodes ATOMIC nodes (keep barely repaired; an explicit OCTOS_REPAIR_ROUNDS applies everywhere)
+rounds = 3              # OCTOS_REPAIR_ROUNDS — per-node maximum, hard-capped at 3
+rounds_large_tree = 3   # same maximum for trees with more than large_tree_nodes ATOMIC nodes
 large_tree_nodes = 2
 codegen_repairs = 2     # OCTOS_ARC_CODEGEN_REPAIRS — codegen repairs before falling back to tool mode
 rewrite_on_zero = true  # OCTOS_ARC_REWRITE_ON_ZERO — one full rewrite on zero passes, only before any behavior is verified
 final_rounds = 1        # Python default; guarded by available repair and remeasurement time (TOML is advisory)
-stall_limit = 2         # stop a node after this many repairs without improvement
+stall_limit = 2         # legacy policy field; node repair now stops after one non-progressing repair
 regression_limit = 2    # roll back to the best commit after this many consecutive regressions
 
 [requests]

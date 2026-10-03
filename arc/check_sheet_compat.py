@@ -6,7 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
-from acceptance import AcceptanceRunner, acceptance_work_dir, find_playwright_root, playwright_candidates
+from acceptance import find_playwright_root, playwright_candidates
+from compatibility_checks import probe_started_app
 
 
 def main() -> int:
@@ -20,24 +21,12 @@ def main() -> int:
             find_playwright_root(playwright_candidates(Path(__file__).parent, suite, Path.cwd())))
     if root is None:
         parser.error('Pass --playwright-root pointing to a directory containing node_modules/@playwright/test')
-    runner = AcceptanceRunner(root, suite, acceptance_work_dir(root), print,
-                              timeout_ms=args.timeout_ms, workers=1)
-    summary = runner.run(['visible-options.spec.ts'], args.base_url,
-                         wall_timeout=max(120, args.timeout_ms // 1000 * 8), workers=1)
-    launch_errors = [row.message for row in summary.results if 'browserType.launch:' in (row.message or '')]
-    infrastructure_error = (launch_errors[0].splitlines()[0] if launch_errors and
-                            len(launch_errors) == summary.total else None)
-    print(json.dumps({
-        'passed': summary.passed, 'total': summary.total, 'error': summary.error,
-        'infrastructure_error': infrastructure_error,
-        'cases': [{'name': row.title, 'ok': row.ok, 'status': row.status,
-                   'first_error': (row.message or '')[:400]} for row in summary.results],
-        'artifacts': summary.artifact_dirs,
-        'work_dir': str(runner.work_dir),
-    }, ensure_ascii=False, indent=2))
-    if infrastructure_error or summary.error:
+    result = probe_started_app(root, suite, args.base_url, print, timeout_ms=args.timeout_ms,
+                               wall_timeout=max(120, args.timeout_ms // 1000 * 8))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result['status'] == 'unavailable':
         return 2
-    return 0 if summary.all_passed and summary.total == 4 else 1
+    return 0 if result['status'] == 'passed' else 1
 
 
 if __name__ == '__main__':

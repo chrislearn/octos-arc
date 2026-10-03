@@ -33,7 +33,7 @@ Environment (all optional):
     OCTOS_MIN_REPAIR_SECONDS  explicit repair admission floor (default tools 300s; codegen 60s + measured duration)
     OCTOS_NODE_TIME_BUDGET    explicit hard cap per node; default 1500 + earned surplus, at most 3000
     OCTOS_ARC_FINAL_PHASE_SECONDS  large-task time reserved inside the total budget for final suite repair
-    OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5 for <=2 nodes, otherwise 3)
+    OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default and hard maximum 3)
     OCTOS_DESIGN_TURN         "0" disables the design turn
     OCTOS_DESIGN_MODE         inline (default) | separate (own read-only design turn)
     OCTOS_DESIGN_MIN_NODES    design only for trees with at least this many nodes (3)
@@ -50,6 +50,7 @@ Environment (all optional):
     OCTOS_ARC_IMPLEMENT_REASONING  generation effort across file blocks/tools/continuations/workers (default: none; repair stays on)
     OCTOS_ARC_IMPLEMENT_REASONING_ALL  apply generation effort to every implementation turn (default: 1; 0 restores legacy scope)
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
+    OCTOS_ARC_SHEET_COMPATIBILITY  "0" disables the separate bounded Sheet interaction probe before final acceptance
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
     OCTOS_ARC_DROP_SHELL      legacy shell-tool pruning preference; application tests belong to the framework
@@ -145,7 +146,7 @@ from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_edit_blocks, p
                      incomplete_blocks, normalize_bare_file_reply, normalize_paired_file_reply, prepare_edit_files, safe_relative_path,
                      source_protocol_errors, write_files, parse_context_request, has_context_request)
 from guard import TurnMonitor  # noqa: E402
-from repair_control import isolated_node_deadline, startup_recovery_deadline, repair_deadline, seconds_available, progress_snapshot, measured_progress  # noqa: E402
+from repair_control import isolated_node_deadline, startup_recovery_deadline, repair_deadline, seconds_available, progress_snapshot, repair_round_progress  # noqa: E402
 from flow_policy import (generation_tokens, node_seconds, phase_for_label, repair_seconds,
                          reasoning_for_phase, is_test_infrastructure_error, measurement_seconds, startup_failure_summary)  # noqa: E402
 from measurement_timing import compose_window, padded_seconds  # noqa: E402
@@ -1440,7 +1441,14 @@ def scored_sources(output_dir: Path, spec_text: str, entry: Path | None = None,
     from source_index import SourceIndex
     index = SourceIndex({str(row[3]): row[4] for row in scored})
     related = index.related(certain | guessed | navigated)
-    scored = [(3.5 if row[0] >= 4 and str(row[3]) in related else row[0], *row[1:]) for row in scored]
+    active_context = index.contract_context(certain | guessed | navigated | index.navigation_owners(spec_text))
+    api_context = {p for p in index.contract_context([], index.api_owners(active_context))
+                   if p.startswith('backend/')}
+    # HTTP ownership is a quoting preference, not a mandatory closure: a large
+    # editor can call most of the backend. Making that whole graph compulsory
+    # would force otherwise viable first turns into the slower tool path.
+    scored = [(3.25 if row[0] > 3.25 and str(row[3]) in api_context else
+               3.5 if row[0] >= 4 and str(row[3]) in related else row[0], *row[1:]) for row in scored]
     return sorted(scored, key=lambda item: item[:3])
 
 
@@ -2570,21 +2578,75 @@ The spec files are quoted below in full — do NOT spend tool calls reading them
 
 
 def inline_spec_text(tests_dir: Path, files: list[str], max_chars: int) -> str:
-    """Quote spec + helper files into the prompt (bounded). Each read_file the
-    model would otherwise issue is a full-context round trip (~11k tokens)."""
-    parts = []
-    total = 0
-    for rel in files:
-        path = tests_dir / rel
+    """Keep complete specs/cases when support files exceed the tool budget.
+
+    This is a renderer only: protected source bytes are never changed. Unknown
+    statement boundaries stay unquoted, with an explicit instruction to read.
+    The budget includes file labels, coverage notices and the header.
+    """
+    texts = {}
+    for rel in dict.fromkeys(files):
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            texts[rel] = (tests_dir / rel).read_text(encoding="utf-8", errors="replace").strip()
         except OSError:
             continue
-        if total + len(text) > max_chars:
-            return ""  # too big to inline; let the model read selectively
-        total += len(text)
-        parts.append(f"--- {rel} ---\n{text.rstrip()}\n")
-    return INLINE_SPEC_HEADER + "".join(parts) if parts else ""
+    specs = [rel for rel in texts if rel.endswith('.spec.ts')]
+    support = [rel for rel in texts if rel not in specs]
+    referenced = {ident for rel in specs for ident in _IDENT.findall(texts[rel])}
+    if specs:
+        # Follow names between support files as well as within each file.
+        for _ in range(len(support) + 1):
+            trimmed = {rel: trim_helper_to_references(texts[rel], referenced).strip() for rel in support}
+            expanded = referenced | {ident for source in trimmed.values() for ident in _IDENT.findall(source)}
+            if expanded == referenced:
+                break
+            referenced = expanded
+    else:
+        trimmed = {rel: texts[rel] for rel in support}
+    header = ('Test context below contains complete files, selected complete top-level cases, '
+              'or reachable helper declarations, as labeled. It is not necessarily the full test scope.\n')
+    # Reserve the worst-case notice first, so adding omissions never overflows.
+    notice = ('Not fully quoted; read these protected files for remaining cases/declarations before '
+              'editing the behavior they cover: ' + ', '.join(dict.fromkeys(files)) + '.\n')
+    room = max_chars - len(header) - len(notice)
+    parts, complete = [], set()
+    for rel in specs + support:
+        source = texts[rel] if rel in specs else trimmed[rel]
+        label = rel if source == texts[rel] else rel + ' (reachable helper declarations)'
+        block = f'--- {label} ---\n{source}\n'
+        if source and len(block) <= room:
+            parts.append(block)
+            room -= len(block)
+            if source == texts[rel]:
+                complete.add(rel)
+            continue
+        if rel not in specs:
+            continue
+        statements = _helper_statements(source)
+        if statements is None:
+            continue
+        # Only standalone test(...) calls can be omitted independently. Keep
+        # all setup, hooks, imports and describe/loop registrations together.
+        is_case = lambda s: bool(re.match(r'\s*test\s*\(', re.sub(
+            r'(?s)^(?:\s|//[^\n]*(?:\n|$)|/\*.*?\*/)*', '', s)))
+        setup = ''.join(s for s in statements if not is_case(s))
+        prefix = f'--- {rel} (selected complete top-level cases) ---\n'
+        selected, size = set(), len(prefix + setup + '\n')
+        for number, statement in enumerate(statements):
+            if is_case(statement) and size + len(statement) <= room:
+                selected.add(number)
+                size += len(statement)
+        if selected:
+            block = prefix + ''.join(s for i, s in enumerate(statements)
+                                     if i in selected or not is_case(s)) + '\n'
+            parts.append(block)
+            room -= len(block)
+    if not parts:
+        return ''
+    omitted = [rel for rel in dict.fromkeys(files) if rel not in complete]
+    footer = ('Not fully quoted; read these protected files for remaining cases/declarations before '
+              'editing the behavior they cover: ' + ', '.join(omitted) + '.\n') if omitted else ''
+    return header + ''.join(parts) + footer
 
 
 def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
@@ -2689,8 +2751,7 @@ class Flow:
         self.seconds_per_node = int(os.environ.get("OCTOS_SECONDS_PER_NODE", "1500"))
         self.min_repair_seconds = int(os.environ.get("OCTOS_MIN_REPAIR_SECONDS", "300"))
         self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
-        self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
-        self.repair_rounds_explicit = bool(os.environ.get("OCTOS_REPAIR_ROUNDS"))
+        self.repair_rounds = min(3, max(0, int(os.environ.get("OCTOS_REPAIR_ROUNDS", "3"))))
         # Run-wide cost guard. Defaults scale with the tree and sit ~3x above a normal run
         # (calibration: cloud keep 2224a9013528, 32 nodes, PASSED 32/32, 9,038 s, ¥16.58 ≈ 26M
         # platform tokens ≈ 0.8M tokens and ~1.1 turns per node), so they never truncate a
@@ -2889,6 +2950,9 @@ class Flow:
                    "verification_state": "verified" if node_ids and all(self.test_verdict.get(n) is True for n in node_ids) and startable and (not self.tests_dir or getattr(self, "final_suite_green", False) is True) else "incomplete",
                    "delivery_state": "browser_ready" if startable else "not_ready",
                    "browser_health": getattr(self, "_last_browser_health", {"status": "unknown"}),
+                   "compatibility": {**getattr(self, '_compatibility_result', {'status': 'not_run'}),
+                                     'stale': bool(getattr(self, '_compatibility_result', {}).get('source_hash')
+                                                   and self._compatibility_result['source_hash'] != current_source)},
                    "startable": startable, "leaves": len(node_ids),
                    "generation": {state: sum(self.generation_state.get(node, "not_started") == state for node in node_ids)
                                   for state in ("not_started", "attempted", "source_written", "attempted_with_risk")},
@@ -6040,6 +6104,10 @@ class Flow:
         form_context = str(node.get('description') or '') + '\n' + str(fields.get('failures') or '')
         if re.search(r'\b(?:form|password|e-?mail|validat\w*|register|registration)\b', form_context, re.I):
             result += '\n' + FORM_VALIDATION_GUIDANCE
+        compatibility = getattr(self, '_compatibility_result', {})
+        if compatibility.get('source_hash') and compatibility['source_hash'] == self.app_source_digest():
+            from compatibility_checks import advisory_text
+            result += '\n' + advisory_text(compatibility)
         return result + '\n' + DRAFT_ORIGIN_GUIDANCE
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
@@ -7491,7 +7559,7 @@ class Flow:
             self.metric('derived_test_wait', node_id=node_id, decision='no_approved_cases', specs=specs)
             log(f'[acceptance] {node_id}: generated tests await complete independent review; repair deferred')
             return None
-        best_passed, best_sha, regressions, stalls = (-1, self.head(), 0, 0)
+        best_passed, best_sha, regressions = (-1, self.head(), 0)
         best_quality = (-1, -1, -1)
         rewrite_used = False
         role_conflict_confirmed = False
@@ -7504,10 +7572,10 @@ class Flow:
         getattr(self, '_regression_controls', {}).pop(node_id, None)
         initial_versions = source_versions if source_versions is not None else self.repair_source_index().versions
         self.codegen_blocked = False
-        explicit_rounds = getattr(self, 'repair_rounds_explicit', True)
-        maximum_rounds = 5 if not explicit_rounds and self.repair_rounds == 3 else self.repair_rounds
+        maximum_rounds = min(3, max(0, self.repair_rounds))
         failure_signatures = set()
         previous_progress = {}
+        previous_target_progress = {}
         best_pass_keys = set()
         made_progress = False
         attempt = 0
@@ -7585,7 +7653,6 @@ class Flow:
                 if all((member in self.batch_first_pass for member in group)):
                     first_pass = sum((self.batch_first_pass[member] for member in group))
                     log(f'[flow] sibling batch {list(group)}: first-pass {first_pass}/{len(group)} leaves')
-            was_codegen = self.codegen_mode()
             if attempt >= int(os.environ.get('OCTOS_ARC_CODEGEN_REPAIRS', '2')) and passed < summary.total and self.codegen_mode():
                 self.codegen_blocked = True
                 log(f'[flow] {node_id}: codegen attempt {attempt} still failing; repairs use tool mode')
@@ -7769,14 +7836,17 @@ class Flow:
             signature = (normalized if any(row.file or row.location for row in joint.results if not row.ok)
                          else tuple(sorted((row.title, row.status) for row in joint.results if not row.ok)))
             current_progress = progress_snapshot(joint)
-            progress = measured_progress(previous_progress, current_progress) if measured else 'unknown'
+            current_target_progress = progress_snapshot(summary)
+            progress = (repair_round_progress(previous_progress, current_progress,
+                                              previous_target_progress, current_target_progress)
+                        if measured else 'unknown')
             if attempt and progress == 'advanced':
                 made_progress = True
-                stalls = 0
             self.metric('repair_progress', node_id=node_id, attempt=attempt, outcome=progress,
                         diagnostic_changed=bool(failure_signatures and signature not in failure_signatures))
             if measured:
                 previous_progress = current_progress
+                previous_target_progress = current_target_progress
             failure_signatures.add(signature)
             lost_pass = any(key in current_progress and not current_progress[key][0] for key in best_pass_keys)
             quality = (int(not regression_failed and not lost_pass), passed, sum(row.ok for row in regression_results))
@@ -7784,14 +7854,9 @@ class Flow:
                 made_progress = made_progress or (attempt > 0 and progress == 'advanced')
                 if best_passed >= 0:
                     self.commit(f'{node_id} (repair {attempt}): {passed}/{summary.total} pass')
-                best_passed, best_sha, regressions, stalls = (passed, self.head(), 0, 0)
+                best_passed, best_sha, regressions = (passed, self.head(), 0)
                 best_quality = quality
                 best_pass_keys |= {key for key, (ok, _) in current_progress.items() if ok}
-            elif measured and quality == best_quality and (attempt > 0):
-                stalls += 1
-                if stalls >= 2 and (not (was_codegen and self.codegen_blocked)):
-                    log(f'[flow] {node_id}: no improvement for two repairs; keeping the best state')
-                    break
             elif measured and quality < best_quality:
                 regressions += 1
                 if regressions >= 2 and best_sha:
@@ -7813,7 +7878,12 @@ class Flow:
                                 pending_specs=sorted(pending_regression_specs),
                                 next_action='remeasure_before_repair')
                     continue
-            initial_cap = min(maximum_rounds, max(0, int(os.environ.get('OCTOS_ARC_F1_REPAIR_ROUNDS', '3'))))
+            if attempt and progress != 'advanced':
+                self.metric('repair_stop', node_id=node_id, reason='no_measured_progress',
+                            attempt=attempt, progress=progress)
+                log(f'[flow] {node_id}: repair {attempt} made no measured progress; keeping the best state')
+                break
+            initial_cap = min(maximum_rounds, max(0, int(os.environ.get('OCTOS_ARC_F1_REPAIR_ROUNDS', '1'))))
             repair_cap = repair_allowance(initial_cap, maximum_rounds, made_progress)
             self.metric('effective_repair_budget', node_id=node_id, attempt=attempt, initial=initial_cap, effective=repair_cap, maximum=maximum_rounds, progress=made_progress, levels=levels)
             if attempt >= repair_cap or self.wound_down():
@@ -13096,12 +13166,46 @@ class Flow:
                     and all(r.status in {"passed", "failed", "timedOut", "quarantined"} for r in summary.results)
                     and all(any(path == spec or path.endswith("/" + spec) for path in observed) for spec in specs))
 
+    def check_sheet_compatibility(self) -> None:
+        """A separate, bounded observation before final acceptance repairs."""
+        if (getattr(self, 'frozen_suite', {}) or {}).get('name') != 'hackathon--sheet':
+            return
+        if getattr(self, '_compatibility_attempted', False):
+            return
+        self._compatibility_attempted = True
+        source = self.app_source_digest()
+        suite = BUNDLE_DIR / 'sheet-compatibility'
+        runner = getattr(self, 'runner', None)
+        reserve = self.final_measurement_reserve() + self.final_rehearsal_reserve()
+        budget = min(180, int(max(0, self.remaining() - reserve)))
+        if os.environ.get('OCTOS_ARC_SHEET_COMPATIBILITY', '1') == '0':
+            result = {'status': 'disabled'}
+        elif not runner or not (suite / 'visible-options.spec.ts').is_file():
+            result = {'status': 'unavailable', 'error': 'compatibility suite or Playwright runner unavailable'}
+        elif budget < 120 or self.wound_down():
+            result = {'status': 'deferred_budget', 'available_seconds': budget}
+        else:
+            from compatibility_checks import probe_isolated_app
+            try:
+                result = probe_isolated_app(self.output_dir, runner.root, suite,
+                    self.output_dir / '.arc' / 'compatibility', log, budget=budget)
+            except Exception as exc:
+                result = {'status': 'unavailable', 'error': str(exc)[:800]}
+        result.update(source_hash=source, authority='compatibility_observation_only')
+        self._compatibility_result = result
+        path = self.output_dir / '.arc' / 'compatibility' / 'summary.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+        self.metric('compatibility_probe', **result)
+        log(f"[compatibility] Sheet probes: {result['status']} (separate from acceptance)")
+
     def final_acceptance_passes(self) -> None:
         """Admit bounded full-suite measurements and repairs after generation."""
         if getattr(self, "layered", None) is not None:
             return self.layered.final_verify()
         if getattr(self, "_final_suite_attempted", False):
             return
+        self.check_sheet_compatibility()
         self._final_suite_attempted = True
         if self.runner is None or not self.tests_dir:
             log('[acceptance] no local specs available; skipping unmeasured full-suite repair passes')
@@ -13868,8 +13972,6 @@ class Flow:
                     f"to implement {[i for i in node_ids if i not in unchanged]}")
             self.nodes_to_implement = len([n for n in node_ids if n not in unchanged])
             self.n_nodes = len(ordered)
-            if not self.repair_rounds_explicit and self.n_nodes > 2:
-                self.repair_rounds = 3  # big trees: identical-failure/no-improvement stops make 5 rounds rare anyway
             if self.max_total_tokens < 0:
                 self.max_total_tokens = max(6_000_000, 2_500_000 * self.n_nodes)   # ~3x the calibrated 0.8M/node
             if self.max_turns < 0:

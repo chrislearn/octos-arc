@@ -35,7 +35,7 @@ class JointRepairTests(unittest.TestCase):
         self.editor = self.root / 'frontend/src/Editor.jsx'
         self.editor.parent.mkdir(parents=True); self.editor.write_text('extension with CSV regression')
         f.runner = SimpleNamespace(root=self.root, env_extra={}, workers=1)
-        f.repair_rounds = 2; f.repair_rounds_explicit = True
+        f.repair_rounds = 2
         f.test_verdict = {'csv': True}
         f.requirement_nodes = {name: {'id': name, 'description': name + ' requirement'}
                                for name in f.spec_map}
@@ -70,7 +70,7 @@ class JointRepairTests(unittest.TestCase):
         self.assertEqual(f.run_specs.call_args.args[0], ['csv.spec.ts', 'rename.spec.ts'])
         f.restore_app.assert_not_called()
 
-    def test_persistent_regression_exhausts_bounded_rounds_without_acceptance(self):
+    def test_persistent_regression_stops_after_first_nonprogressing_repair(self):
         f = self.flow
         def repair(*args):
             self.editor.write_text(self.editor.read_text() + ' unsuccessful edit')
@@ -79,7 +79,7 @@ class JointRepairTests(unittest.TestCase):
         f.run_specs = Mock(side_effect=[self.bad, self.target, self.bad, self.target, self.bad])
         self.assertFalse(f.acceptance_loop('rename', ['rename.spec.ts'], time.time() + 1000,
                   initial_summary=self.target, source_versions={'frontend/src/Editor.jsx': 'before'}))
-        self.assertEqual(f.node_repair_turn.call_count, 2)
+        self.assertEqual(f.node_repair_turn.call_count, 1)
         self.assertFalse(f.test_verdict['csv'])
         self.assertFalse(any('accepted)' in str(call) for call in f.commit.call_args_list))
 
@@ -191,7 +191,7 @@ class JointRepairTests(unittest.TestCase):
                                  f.app_source_digest()), 'Keep protected sources unchanged']
         self.assertNotIn('withdrawn CSV oracle', f.corrections_text())
 
-    def test_mid_loop_rollback_remeasures_before_repair_without_spending_a_round(self):
+    def test_nonprogressing_repair_restores_best_state_without_extra_turns(self):
         f = self.flow
         f.repair_rounds = 3
         f.codegen_mode.return_value = False
@@ -219,18 +219,12 @@ class JointRepairTests(unittest.TestCase):
             return True
         f.node_repair_turn = Mock(side_effect=repair)
         baseline = run(['rename.spec.ts'])
-        self.assertTrue(f.acceptance_loop('rename', ['rename.spec.ts'], time.time() + 1000,
-                                        initial_summary=baseline))
-        self.assertEqual(len(prompts), 3)
-        self.assertIn('repair 3/3', prompts[2][2])
-        self.assertIn('Missing dismissal handler', prompts[2][0])
-        self.assertNotIn('Duplicate rejected control', prompts[2][1])
-        self.assertNotIn('Rejected shared-file behavior', prompts[2][1])
-        rolled = next(i for i, event in enumerate(events) if event[0] == 'rollback')
-        self.assertEqual(events[rolled + 1], ('measure', 'baseline', ('rename.spec.ts',)))
-        self.assertEqual(events[rolled + 2], ('measure', 'baseline', ('csv.spec.ts',)))
-        self.assertEqual(events[rolled + 3], ('repair', 'baseline'))
-        self.assertTrue(f.test_verdict['csv'])
+        self.assertFalse(f.acceptance_loop('rename', ['rename.spec.ts'], time.time() + 1000,
+                                         initial_summary=baseline))
+        self.assertEqual(len(prompts), 1)
+        self.assertIn('repair 1/1', prompts[0][2])
+        self.assertEqual(self.editor.read_text(), 'baseline')
+        self.assertEqual(len([event for event in events if event[0] == 'repair']), 1)
 
 
 class SharedFailureEvidenceTests(unittest.TestCase):
