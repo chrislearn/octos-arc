@@ -26,6 +26,16 @@ test("REQ-4-2-2: reference navigation: commit detail retains repository context 
   await h.link(page,'Code').click(); await expect(h.link(page,'README.md')).toBeVisible();
 });
 
+test("REQ-4-2-2: stage2 feedback: a fresh homepage directly exposes the saved commit and its read-only diff", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.home(page); await h.link(page,'Document search flow').click();
+  const address=page.url(); await h.persisted(page,async()=>{
+    await expect(h.text(page,'src/search.ts')).toBeVisible(); await expect(page.getByRole('heading',{name:/^Changed files/})).toBeVisible();
+    await expect(page.getByText(/\d+ additions/)).toBeVisible(); await expect(page.getByText(/\d+ deletions/)).toBeVisible();
+  });
+  await page.goto(address); await expect(h.text(page,'src/search.ts')).toBeVisible();
+});
+
 test("REQ-4-2-2: visitor commit diff reads changed file and exact additions/deletions from the parent snapshot", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.repo(page); await h.link(page,'Commits').click(); await h.link(page,'Document search flow').click(); const address=page.url(); await page.goto(address); await expect(h.text(page,'src/search.ts').first()).toBeVisible(); await expect(page.getByText(/Changed files/).first()).toBeVisible(); await expect(page.getByText('3 additions, 0 deletions',{exact:false}).first()).toBeVisible();

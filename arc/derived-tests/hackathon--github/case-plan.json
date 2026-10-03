@@ -1937,6 +1937,90 @@
       "REQ-3-1",
       "REQ-3-3"
     ],
+    "title": "REQ-3-2-3: stage2 feedback: HTTPS copy has one persistent confirmation and an unchanged action name",
+    "file": "REQ-3-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-3"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-3-2-3: stage2 feedback: SSH copy has one persistent confirmation and an unchanged action name",
+    "file": "REQ-3-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-3"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-3-2-3: stage2 feedback: changing protocol clears prior success and copies the newly displayed value",
+    "file": "REQ-3-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-3"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-3-2-3: stage2 feedback: an unavailable asynchronous clipboard still performs a real user-initiated copy",
+    "file": "REQ-3-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-3"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-3-2-3: stage2 feedback: refused clipboard writes report failure without false success and allow retry",
+    "file": "REQ-3-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-3"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-3-2-3: stage2 feedback: a late copy completion cannot confirm a different protocol or reopened menu",
+    "file": "REQ-3-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-3-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-3-2-3"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
     "title": "REQ-3-2-3: copy exact displayed HTTPS clone value without modifying repository",
     "file": "REQ-3-2-3.spec.ts"
   },
@@ -2156,6 +2240,17 @@
     "requires": [
       "REQ-4-2-1"
     ],
+    "setup_requires": [],
+    "title": "REQ-4-2-1: stage2 feedback: homepage Commits follows the selected repository and retains each row author",
+    "file": "REQ-4-2-1.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-1",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-1"
+    ],
     "setup_requires": [
       "REQ-3-1",
       "REQ-3-3"
@@ -2214,6 +2309,17 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-2-2: reference navigation: commit detail retains repository context and returns to code after reload",
+    "file": "REQ-4-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2"
+    ],
+    "setup_requires": [],
+    "title": "REQ-4-2-2: stage2 feedback: a fresh homepage directly exposes the saved commit and its read-only diff",
     "file": "REQ-4-2-2.spec.ts"
   },
   {
@@ -2284,6 +2390,20 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-2-3: requirement scenario 4",
+    "file": "REQ-4-2-3.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-2-3",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-3"
+    ],
+    "setup_requires": [
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-2-3: stage2 feedback: a search match remains visible with its full file after reload and filename navigation",
     "file": "REQ-4-2-3.spec.ts"
   },
   {
@@ -2635,6 +2755,59 @@
       "REQ-3-3"
     ],
     "title": "REQ-4-4: reference navigation: file editor displays repository and selected branch across reload",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-2",
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-1-2",
+      "REQ-3-2-1",
+      "REQ-4-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-1-2"
+    ],
+    "title": "REQ-4-4: stage2 feedback: new private commits are discoverable and colliding messages remain distinct until sign-out",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-2-3",
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-3-2-1",
+      "REQ-4-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-4-4: stage2 feedback: literal case-insensitive repeated matches preserve source bytes and markup as text",
+    "file": "REQ-4-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-4-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-4-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-4-4: stage2 feedback: simultaneous invalid inputs preserve files and history without requiring a unique global error",
     "file": "REQ-4-4.spec.ts"
   },
   {
@@ -3874,6 +4047,21 @@
   },
   {
     "node_id": "REQ-6-2-2",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-6-2-2"
+    ],
+    "setup_requires": [
+      "REQ-1-1-2",
+      "REQ-3-1",
+      "REQ-3-3"
+    ],
+    "title": "REQ-6-2-2: stage3 feedback: identical branches explain the disabled creation action",
+    "file": "REQ-6-2-2.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-2",
     "fixture": "pr-compare",
     "phase": "node",
     "requires": [
@@ -4020,6 +4208,26 @@
       "REQ-6-3-1"
     ],
     "title": "REQ-6-2-4: requirement scenario 2",
+    "file": "REQ-6-2-4.spec.ts"
+  },
+  {
+    "node_id": "REQ-6-2-4",
+    "fixture": null,
+    "phase": "node",
+    "requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2",
+      "REQ-3-2-1",
+      "REQ-4-3-2",
+      "REQ-4-4",
+      "REQ-6-2-3",
+      "REQ-6-2-4"
+    ],
+    "setup_requires": [
+      "REQ-1-1-1",
+      "REQ-1-1-2"
+    ],
+    "title": "REQ-6-2-4: stage3 feedback: a fresh session can create a draft through the default comparison after an ordinary PR",
     "file": "REQ-6-2-4.spec.ts"
   },
   {

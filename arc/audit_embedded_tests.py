@@ -14,7 +14,7 @@ from embedded_suites import requirements_digest
 ROOT=Path(__file__).resolve().parent
 SUITES=ROOT/'derived-tests'
 REVIEWED_RELEASES = {
-    'hackathon--github': ('2026-10-03', 18),
+    'hackathon--github': ('2026-10-03', 20),
     'hackathon--sheet': ('2026-10-03', 12),
 }
 
@@ -211,6 +211,7 @@ def audit(freeze=False,task_filter=None):
             (directory/'requirements.yaml').write_bytes(source.read_bytes())
             task_readme = README
             if task == 'hackathon--github':
+                task_readme += '\nRevision 19 preserves all 346 prior cases and adds 12 Stage 2 regressions from 04e112d2: real clipboard writes with single persistent feedback, protocol/lifecycle isolation, unavailable/refused APIs, direct homepage commit discovery, dynamic private commits and colliding messages, literal source-search context, scoped commit authors, and nonmutating multi-field rejection. Browser API fault injection affects only the clipboard boundary; it does not mutate application state. Highlight and feedback lifetime checks are explicit compatibility witnesses, not new interpretations of the original requirements. Repeated authors and multiple valid error reasons remain legal. Requirements, fixtures, helpers and prior case bodies remain unchanged.\n'
                 task_readme += '\nRevision 18 preserves all 336 prior cases and adds 10 home-workspace and branch-protection regressions from submission fc6db770. Direct home Issues/Pull requests/Compare entries and named issue/PR entries are exercised without inserting a repository-search step. Additional cases cover repository selection, colliding titles, newly created private issues, rename/sign-out persistence, search isolation, and an unambiguous saved protection-rule summary while preserving native default-branch selection. Requirements, fixtures and helpers remain unchanged. The evaluator-side uniqueAccount ReferenceError is recorded, not emulated as application behavior.\n'
                 task_readme += '\nRevision 17 retains all 324 prior cases and adds 12 repository-discovery and reference-navigation regressions. Homepage directory cases explicitly cover a visible-entry compatibility design without inserting search or organization hops. Additional cases cover identity-filtered discovery, newly created personal repositories, search result uniqueness, cross-page Issues/PR/Code navigation, observed deep-link reloads, repository and branch/revision context, and the unique PR Commits tab. Parent requirements and reference structure motivate this coverage; reference pixels and unavailable evaluator helper behavior are not treated as a contract. Requirements, fixtures and helpers are unchanged.\n'
                 task_readme += '\nRevision 16 retains all 310 prior cases and adds 14 cross-stage compatibility witnesses for cold public discovery, the authenticated directory, team/repository settings, sign-out privacy, the homepage search viewport, named repositories, commit entry, and Issues/Pull requests discovery. The three remote reports contain 70 navigation failures and one evaluator-side ReferenceError (uniqueAccount is not defined); these tests do not claim to reconstruct that unavailable helper. Requirements, fixtures and existing assertions are unchanged. Navigation read models remain scoped to the current identity and repository permissions.\n'

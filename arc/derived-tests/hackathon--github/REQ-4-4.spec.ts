@@ -56,6 +56,74 @@ test("REQ-4-4: reference navigation: file editor displays repository and selecte
   await h.link(page,'Code').click(); await expect(h.button(page,'Branch '+branch)).toBeVisible();
 });
 
+test("REQ-4-4: stage2 feedback: new private commits are discoverable and colliding messages remain distinct until sign-out", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const account=await h.register(page); await h.signIn(page,account.username); await h.link(page,'New repository').click();
+  const repository=h.unique('stage2-private'); await h.field(page,'Repository name').fill(repository);
+  await page.getByRole('radio',{name:'Private',exact:true}).check(); await h.button(page,'Create repository').click();
+  await expect(h.button(page,'Add file')).toBeVisible(); const repoAddress=page.url();
+
+  const message=h.unique('Private commit');
+  for(const path of ['first.md','second.md']) { const content='Saved '+path;
+
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  await h.field(page,'File name').fill(path); await h.field(page,'File contents').fill(content);
+  await h.field(page,'Commit message').fill(message); await h.button(page,'Commit changes').click();
+  await expect(page.locator('pre')).toHaveText(content);
+
+    await page.goto(repoAddress); await expect(h.button(page,'Add file')).toBeVisible();
+  }
+  await h.home(page); const links=page.getByRole('link').filter({hasText:message}); await expect(links).toHaveCount(2);
+  const names=await links.allTextContents(); expect(new Set(names).size).toBe(2);
+  const addresses=[];
+  for(const label of names) {
+    await h.link(page,label).click(); addresses.push(page.url()); await expect(page.getByRole('heading',{name:/^Changed files/})).toBeVisible(); await h.home(page);
+  }
+  expect(new Set(addresses).size).toBe(2);
+  await h.signOut(page); await expect(page.getByRole('link').filter({hasText:message})).toHaveCount(0); await page.reload();
+  await expect(page.getByRole('link').filter({hasText:message})).toHaveCount(0);
+  await page.goto(addresses[0]); await expect(h.text(page,'Access denied')).toBeVisible();
+});
+
+test("REQ-4-4: stage2 feedback: literal case-insensitive repeated matches preserve source bytes and markup as text", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  const account=await h.register(page); await h.signIn(page,account.username); await h.link(page,'New repository').click();
+  const repository=h.unique('stage2-private'); await h.field(page,'Repository name').fill(repository);
+  await page.getByRole('radio',{name:'Private',exact:true}).check(); await h.button(page,'Create repository').click();
+  await expect(h.button(page,'Add file')).toBeVisible(); const repoAddress=page.url();
+
+  const path='literal.md', message=h.unique('Literal source'), query='[a+b]? & <tag>';
+  const content='Case [a+b]? & <tag>\nRepeated [A+B]? & <tag>\n  Unchanged spacing.\n';
+
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  await h.field(page,'File name').fill(path); await h.field(page,'File contents').fill(content);
+  await h.field(page,'Commit message').fill(message); await h.button(page,'Commit changes').click();
+  await expect(page.locator('pre')).toHaveText(content);
+
+  await page.goto(repoAddress); const search=page.getByRole('searchbox',{name:'Search',exact:true});
+  await search.fill(query); await search.press('Enter'); await h.link(page,'Code').click(); await h.link(page,path).click();
+  await h.persisted(page,async()=>{
+    expect(await page.locator('pre').textContent()).toBe(content);
+    await expect(h.text(page,query)).toBeVisible(); await expect(h.text(page,'[A+B]? & <tag>')).toBeVisible();
+    await expect(page.locator('pre tag')).toHaveCount(0);
+  });
+});
+
+test("REQ-4-4: stage2 feedback: simultaneous invalid inputs preserve files and history without requiring a unique global error", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.signIn(page,'file-contributor'); const address=await h.repo(page,'file-management-demo');
+  const files=await page.getByRole('list').last().getByRole('link').allTextContents();
+  await h.link(page,'Commits').click(); const before=await h.historyLinks(page); await page.goto(address);
+  await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click();
+  await h.field(page,'File name').fill('../invalid.md'); await h.field(page,'File contents').fill('must not be saved');
+  await h.field(page,'Commit message').fill(''); await h.button(page,'Commit changes').click();
+  await expect(h.fileValidationReason(page).first()).toBeVisible();
+  await page.goto(address); await expect(h.button(page,'Add file')).toBeVisible();
+  expect(await page.getByRole('list').last().getByRole('link').allTextContents()).toEqual(files);
+  await h.link(page,'Commits').click(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
+  await page.reload(); await expect.poll(()=>h.historyLinks(page)).toEqual(before);
+});
+
 test("REQ-4-4: file creation persists exact contents", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await h.signIn(page,'file-contributor'); await h.repo(page,h.fixtureRepo('file-create')); await h.button(page,'Add file').click(); await page.getByRole('menuitem',{name:'Create new file',exact:true}).click(); const name=`${h.unique('pw-file')}.md`,message=`Add ${name}`;
