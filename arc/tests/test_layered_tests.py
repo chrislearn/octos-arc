@@ -515,34 +515,6 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(self.flow.run_specs.call_args.args[0], ['REQ-1.spec.ts'])
         self.flow.rehearsal.assert_called_once_with(repair_on_failure=False, restore_on_failure=False)
 
-    def test_run_rehearses_partial_delivery_before_cleaning_up_its_test_runtime(self):
-        self.freeze()
-        self.layer.gate('REQ-1')
-        flow = self.flow
-        events = Mock()
-        runtime = SimpleNamespace(events=events, traceability=Mock(), git=Mock())
-        flow.rehearsal = Mock(return_value=True)
-        for name in ('classify_tree', 'maybe_probe', 'setup_playwright', 'start_llm_proxy', 'prepare_build',
-                     'prime_generation_dependencies', 'write_preview_ready', 'cleanup_playwright', 'stop_llm_proxy'):
-            setattr(flow, name, Mock())
-        flow.resolve_seed_conflicts = Mock(return_value=self.tree)
-        flow.implement_sequential = Mock(side_effect=GateBlocked('REQ-2: basic rejected'))
-        self.layer.prepare = Mock()
-        sequence = []
-        flow.write_quality_summary = Mock(side_effect=lambda **kw: sequence.append(('measured', kw['startable'])))
-        flow.postflight = Mock(side_effect=lambda: sequence.append(('cleanup', None)))
-        with patch('main.AgentRuntime.from_env', return_value=runtime), patch('main.load_requirement_tree', return_value=self.tree), \
-                patch('main.previous_requirement_records', return_value={}), patch('main.locate_acceptance_tests', return_value=flow.tests_dir), \
-                patch('layered_tests.LayeredTests', return_value=self.layer), patch('main.build_octos_env', return_value={}), \
-                patch('main.write_profile_defaults'), patch('main._port_watchdog'), patch('main._reap_stray_processes'), \
-                patch('main._postflight_structure_check'), patch('main._free_web_port'), patch.dict('os.environ', {'OCTOS_ARC_DRYRUN': '1'}):
-            self.assertEqual(flow.run(), 0)
-        self.assertEqual(sequence, [('measured', True), ('cleanup', None)])
-        flow.write_preview_ready.assert_called_once()
-        events.mark_run_failed.assert_not_called()
-        events.mark_run_completed.assert_called_once()
-        self.assertIsNone(flow.test_verdict['REQ-2'])
-
     def test_cached_partial_initial_design_is_completed_and_reviewed_before_publication(self):
         flow = self.flow
         original = {'data_model': {}, 'routes': [], 'pages': [{'path': '/', 'purpose': 'Home', 'requirements': ['REQ-1']}],

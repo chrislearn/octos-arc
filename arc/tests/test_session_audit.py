@@ -315,7 +315,6 @@ sys.exit(main.main())
     def test_cleanup_failures_cannot_skip_driver_proxy_browser_or_owned_reaping(self):
         with tempfile.TemporaryDirectory() as folder:
             flow=object.__new__(main.Flow);flow.output_dir=Path(folder)
-            flow.layered=Mock();flow.layered.close.side_effect=OSError('pipeline failed')
             flow.driver=Mock();flow.driver.close.side_effect=SystemExit(1)
             flow.cleanup_playwright=Mock(side_effect=OSError('browser cleanup failed'))
             flow.stop_llm_proxy=Mock();flow.discard_runtime_store=Mock()
@@ -323,7 +322,7 @@ sys.exit(main.main())
                 flow.postflight()
                 reap.assert_called_once_with(flow.output_dir,main.log)
             flow.driver.close.assert_called_once();flow.cleanup_playwright.assert_called_once()
-            flow.stop_llm_proxy.assert_called_once();flow.discard_runtime_store.assert_not_called()
+            flow.stop_llm_proxy.assert_called_once();flow.discard_runtime_store.assert_called_once()
 
     @unittest.skipUnless(os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT'),'real Playwright required')
     def test_real_wall_timeout_retains_completed_case_and_full_scope_unknown(self):

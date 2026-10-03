@@ -82,84 +82,6 @@ class DerivedPreflightTests(unittest.TestCase):
             self.assertEqual(flow.final_phase_reserve(), 120)
             self.assertEqual(flow.derived_review_reserve(), 180)
 
-    def test_final_rehearsal_reserves_rerun_only_for_reviewed_derived_specs(self):
-        from types import SimpleNamespace
-        from unittest.mock import Mock
-        from acceptance import RunSummary, TestOutcome
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            tests = root / 'derived-tests'
-            tests.mkdir()
-            for node_id in 'AB':
-                (tests / f'{node_id}.spec.ts').write_text(f"test('{node_id}', () => {{}});\n")
-            flow = Flow(argparse.Namespace(web_port=3000), root, root)
-            flow.derived_as_specs = True
-            flow.tests_dir = tests
-            flow.runner = SimpleNamespace(timeout_ms=30000)
-            flow.final_measurement_reserve = lambda: 120
-            flow.repair_minimum = lambda: 60
-            flow.derived_review_needed = lambda node_id: node_id != 'A'
-            flow.derived_has_runnable_cases = lambda node_id: node_id == 'A'
-            self.assertEqual(flow.derived_review_reserve(), 270)  # only A can run
-            self.assertEqual(flow.final_rehearsal_reserve(), 270)  # only A can rerun
-            flow.remaining = Mock(return_value=270)
-            flow.metric = Mock()
-            flow.record_full_suite = Mock()
-            flow.app_source_digest = Mock(return_value='same-source')
-            flow.run_specs = Mock(return_value=RunSummary(
-                results=[TestOutcome('A', True, 'passed', 1, file='A.spec.ts')], passed=1, total=1))
-            flow.final_acceptance_passes()
-            flow.run_specs.assert_called_once_with(['A.spec.ts'], workers=1, grader_like=True)
-            flow.derived_review_needed = lambda node_id: True
-            flow.derived_has_runnable_cases = lambda node_id: False
-            self.assertEqual(flow.final_rehearsal_reserve(), 120)
-            flow.derived_as_specs = False
-            self.assertEqual(flow.final_rehearsal_reserve(), 120)
-
-    def test_final_derived_acceptance_does_not_reaudit_corrected_spec(self):
-        from types import SimpleNamespace
-        from unittest.mock import Mock
-        from acceptance import RunSummary, TestOutcome
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            tests = root / 'derived-tests'
-            tests.mkdir()
-            spec = tests / 'A.spec.ts'
-            spec.write_text("test('case', () => { oldOracle(); });\n")
-            flow = Flow(argparse.Namespace(web_port=3000), root, root)
-            flow.derived_as_specs = True
-            flow.tests_dir = tests
-            flow.runner = SimpleNamespace(timeout_ms=30000)
-            flow.spec_map = {'A': ['A.spec.ts']}
-            flow.requirement_nodes = {'A': {'description': 'Save state'}}
-            flow.remaining = Mock(return_value=1000)
-            flow.final_measurement_reserve = lambda: 120
-            flow.repair_minimum = lambda: 60
-            flow.final_retry_admission = lambda: 300
-            flow.wound_down = Mock(return_value=False)
-            flow.metric = Mock()
-            flow.app_source_digest = Mock(return_value='same-source')
-            flow.record_full_suite = Mock()
-            ready = {'A': True}
-            flow.derived_review_needed = lambda node_id: not ready[node_id]
-            failed = RunSummary(results=[TestOutcome('case', False, 'failed', 1, file='A.spec.ts')],
-                                passed=0, total=1)
-            passed = RunSummary(results=[TestOutcome('case', True, 'passed', 1, file='A.spec.ts')],
-                                passed=1, total=1)
-            flow.run_specs = Mock(side_effect=[failed, passed])
-            def accept(*args, **kwargs):
-                if flow.acceptance_loop.call_count == 1:
-                    spec.write_text("test('case', () => { correctedOracle(); });\n")
-                    ready['A'] = False
-                    return None
-                return True
-            flow.acceptance_loop = Mock(side_effect=accept)
-            flow.final_acceptance_passes()
-            self.assertEqual(flow.acceptance_loop.call_count, 1)
-            self.assertFalse(ready['A'])
-            self.assertEqual(flow.run_specs.call_count, 2)
-            self.assertEqual(flow.run_specs.call_args.args[0], ['A.spec.ts'])
-
     def test_failed_implementation_waits_behind_delivered_leaf_review(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as temp:
@@ -607,16 +529,6 @@ class InvalidCsvFixtureTests(unittest.TestCase):
 
 
 class ModuleAndStreamTests(unittest.TestCase):
-    def test_unstartable_partial_snapshot_is_not_called_safe(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            flow = Flow(argparse.Namespace(web_port=3000), root, root)
-            flow.tests_dir = None
-            flow.has_app = lambda: True
-            flow.last_codegen_written = ['backend/routes/auth.js']
-            flow._generation_gate_result = {'errors': [], 'checked': ['syntax backend/routes/auth.js'],
-                                            'deferred': ['backend module: missing ../lib/session']}
-            self.assertFalse(flow.retain_safe_no_spec_partial('REQ-1'))
 
     def test_glm53_route_default_effort_respects_explicit_override(self):
         from llm_proxy import inject_reasoning, route_request

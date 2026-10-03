@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 import zipfile
 
 from main import Flow
-from octos_tests import generate_test_suite, project_destination
+from octos_tests import MissingTestSuiteError, generate_test_suite, project_destination
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,7 +53,7 @@ print(json.dumps({'trusted': True, 'name': 'arbitrary-command-task'}))
         self.assertIn('For task "explicit-task"', request[request.index('--prompt') + 1])
         self.assertTrue((directory/'REQ-1.spec.ts').is_file())
 
-    def test_unavailable_or_unreadable_command_results_leave_fallback_available(self):
+    def test_unavailable_or_unreadable_command_returns_no_suite(self):
         for response in ('not json', 'null', '[]', '{"trusted":false}'):
             with self.subTest(response=response), patch('octos_tests.subprocess.run',
                     return_value=Mock(returncode=0, stdout=response)):
@@ -62,7 +62,7 @@ print(json.dumps({'trusted': True, 'name': 'arbitrary-command-task'}))
             with self.subTest(error=type(error).__name__), patch('octos_tests.subprocess.run', side_effect=error):
                 self.assertIsNone(generate_test_suite('octos', {}, self.root))
 
-    def test_failed_command_preserves_existing_acceptance_tests(self):
+    def test_official_specs_skip_octos_generation(self):
         existing = self.root/'provided-tests'
         existing.mkdir()
         (existing/'REQ-1.spec.ts').write_text('provided test')
@@ -70,16 +70,61 @@ print(json.dumps({'trusted': True, 'name': 'arbitrary-command-task'}))
         flow = Flow(argparse.Namespace(web_port=3000), self.root, self.root/'requirements')
         flow.original_requirement_tree = tree
         flow.metric = Mock()
-        flow.prepare_derived_tests = Mock(side_effect=AssertionError('Preserve supplied tests'))
         with patch('main.find_octos', return_value='octos'), \
                 patch('main.locate_acceptance_tests', return_value=existing), \
-                patch('octos_tests.generate_test_suite', return_value=None) as generate, \
-                patch('layered_tests.LayeredTests'):
+                patch('octos_tests.generate_test_suite', side_effect=AssertionError('Should not generate')) as generate:
             flow.prepare_test_spec_source(tree, tree['children'])
-        generate.assert_called_once()
+        generate.assert_not_called()
         self.assertEqual(flow.tests_dir, existing)
         self.assertEqual(flow.spec_map['REQ-1'], ['REQ-1.spec.ts'])
-        self.assertFalse(flow.test_specs_trusted)
+        self.assertTrue(flow.test_specs_trusted)
+        self.assertIsNone(flow.layered)
+
+    def test_missing_specs_and_failed_octos_generation_stops_before_codegen(self):
+        tree = {'id': 'ROOT', 'name': 'unknown task', 'children': [{'id': 'REQ-1'}]}
+        flow = Flow(argparse.Namespace(web_port=3000), self.root, self.root/'requirements')
+        flow.original_requirement_tree = tree
+        with patch('main.locate_acceptance_tests', return_value=None), \
+                patch('main.find_octos', return_value='octos'), \
+                patch('octos_tests.generate_test_suite', return_value=None) as generate:
+            with self.assertRaisesRegex(RuntimeError, 'No official acceptance specs'):
+                flow.prepare_test_spec_source(tree, tree['children'])
+        generate.assert_called_once()
+
+    def test_octos_suite_must_cover_every_requirement_node(self):
+        tree = {'id': 'ROOT', 'name': 'task', 'children': [{'id': 'REQ-1'}, {'id': 'REQ-2'}]}
+        suite = self.root / 'generated'
+        suite.mkdir()
+        (suite / 'REQ-1.spec.ts').write_text("test('one', () => {});")
+        flow = Flow(argparse.Namespace(web_port=3000), self.root, self.root / 'requirements')
+        flow.original_requirement_tree = tree
+        flow.metric = Mock()
+        flow.adopt_frozen_business = Mock()
+        with patch('main.locate_acceptance_tests', return_value=None), \
+                patch('main.find_octos', return_value='octos'), \
+                patch('octos_tests.generate_test_suite', return_value=(suite, {'trusted': True})):
+            with self.assertRaisesRegex(RuntimeError, 'REQ-2'):
+                flow.prepare_test_spec_source(tree, tree['children'])
+        flow.adopt_frozen_business.assert_not_called()
+
+    def test_missing_suite_exits_without_starting_codegen(self):
+        node = {'id': 'REQ-1', 'type': 'ATOMIC', 'description': 'A feature'}
+        tree = {'id': 'ROOT', 'children': [node]}
+        flow = Flow(argparse.Namespace(web_port=3000), self.root, self.root / 'requirements')
+        runtime = Mock()
+        runtime.events = Mock()
+        runtime.traceability = Mock()
+        flow.resolve_seed_conflicts = Mock(return_value=tree)
+        flow.classify_tree = Mock()
+        flow.has_app = Mock(return_value=False)
+        flow.prepare_test_spec_source = Mock(side_effect=MissingTestSuiteError('unsupported task'))
+        flow.prepare_build = Mock()
+        with patch('main.AgentRuntime.from_env', return_value=runtime), \
+                patch('main.load_requirement_tree', return_value=tree), \
+                patch('main.topo_order', return_value=[node]):
+            self.assertEqual(flow.run(), 1)
+        flow.prepare_build.assert_not_called()
+        self.assertIn('unsupported task', (self.root / '.arc/terminal-state.json').read_text())
 
     def test_output_selection_skips_broken_symlinks(self):
         (self.root/'derived-tests').symlink_to(self.root/'missing')

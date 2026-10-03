@@ -96,6 +96,38 @@ class RunnerSpecTests(unittest.TestCase):
 
 
 class RustTerminalTests(unittest.TestCase):
+    def test_missing_official_and_octos_specs_fails_before_kernel(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from rust_engine import main
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            req = root / 'task'
+            req.mkdir()
+            output = root / 'output'
+            args = argparse.Namespace(requirement_path=str(req), output_dir=str(output), web_port=3000)
+            runtime = Runtime()
+            runtime.git = Calls()
+            agent = SimpleNamespace(from_env=lambda **_: runtime)
+            with patch.dict('sys.modules', {'arcbench_agent_runtime': SimpleNamespace(AgentRuntime=agent)}), \
+                    patch('rust_engine.snapshot_previous_requirements', return_value=output / 'previous.json'), \
+                    patch('main.load_requirement_tree', return_value={'id': 'ROOT', 'children': [{'id': 'REQ-1', 'type': 'ATOMIC'}]}), \
+                    patch('main.locate_acceptance_tests', return_value=None), \
+                    patch('main.find_octos', return_value='octos'), \
+                    patch('octos_tests.generate_test_suite', return_value=None), \
+                    patch('rust_engine.write_runner_spec') as write_spec, \
+                    patch('rust_engine.run_kernel') as kernel, \
+                    patch('main._reap_stray_processes'), \
+                    patch('main._postflight_structure_check'), \
+                    patch('main._free_web_port'):
+                self.assertEqual(main(args), 1)
+            write_spec.assert_not_called()
+            kernel.assert_not_called()
+            self.assertIn('MissingTestSuiteError', (output / '.arc/terminal-state.json').read_text())
+
     def test_requirements_setup_failure_records_terminal_state(self):
         import argparse
         import tempfile
@@ -134,6 +166,9 @@ class RustTerminalTests(unittest.TestCase):
                 req = root / 'task'
                 req.mkdir()
                 output = root / 'output'
+                specs = root / 'provided-tests'
+                specs.mkdir()
+                (specs / 'REQ-1.spec.ts').write_text("test('provided', () => {});")
                 args = argparse.Namespace(requirement_path=str(req), output_dir=str(output), web_port=3000)
                 runtime = Runtime()
                 runtime.git = Calls()
@@ -152,7 +187,7 @@ class RustTerminalTests(unittest.TestCase):
                         patch('rust_engine.write_runner_spec'), \
                         patch('rust_engine.run_kernel', side_effect=kernel), \
                         patch('main.load_requirement_tree', return_value={}), \
-                        patch('main.locate_acceptance_tests', return_value=None), \
+                        patch('main.locate_acceptance_tests', return_value=specs), \
                         patch('main.find_octos', return_value='octos'), \
                         patch('main._reap_stray_processes') as reap, \
                         patch('main._postflight_structure_check'), \

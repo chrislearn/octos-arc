@@ -180,63 +180,6 @@ class GenerationBudgetTests(unittest.TestCase):
             self.assertTrue(flow._design_blocked)
 
 
-class NoSpecPartialRetentionTests(unittest.TestCase):
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
-        for part in ('frontend', 'backend'):
-            folder = self.root / part
-            folder.mkdir()
-            (folder / 'package.json').write_text('{"scripts": {}}')
-        self.flow = m.Flow(argparse.Namespace(web_port=3000), self.root, self.root)
-        self.flow.tests_dir = None
-        self.flow.last_codegen_written = ['frontend/src/IssuePage.jsx']
-        self.flow.pending_corrections = []
-        self.flow.metric = Mock()
-
-    def test_clean_partial_is_retained_for_later_contract_review(self):
-        self.flow._generation_gate_result = {
-            'errors': [], 'checked': ['frontend build'], 'deferred': [],
-        }
-        self.assertTrue(self.flow.retain_safe_no_spec_partial('REQ-5-2-2'))
-        self.assertIn('do not restart the module', self.flow.pending_corrections[-1])
-        self.flow.metric.assert_called_once()
-
-    def test_generated_candidate_suite_does_not_discard_safe_partial_code(self):
-        self.flow.tests_dir = self.root / 'derived-tests'
-        self.flow.derived_as_specs = True
-        self.flow._generation_gate_result = {
-            'errors': [], 'checked': ['frontend build'], 'deferred': [],
-        }
-        self.assertTrue(self.flow.retain_safe_no_spec_partial('REQ-5-2-2'))
-
-    def test_unbuilt_frontend_partial_is_not_retained(self):
-        self.flow._generation_gate_result = {
-            'errors': [], 'checked': [],
-            'deferred': ['frontend build: dependencies not verified'],
-        }
-        self.assertFalse(self.flow.retain_safe_no_spec_partial('REQ-5-2-2'))
-
-    def test_generation_build_preflight_enables_later_real_build_checks(self):
-        self.flow.has_app = Mock(return_value=True)
-        self.flow.wound_down = Mock(return_value=False)
-        self.flow.remaining = Mock(return_value=1000)
-        server = SimpleNamespace(build=Mock(return_value=None))
-        self.flow.app_server = Mock(return_value=server)
-        self.flow.prime_generation_dependencies()
-        server.build.assert_called_once_with()
-        self.flow.metric.assert_called_with(
-            'generation_build_preflight', outcome='ready', elapsed_seconds=unittest.mock.ANY)
-
-    def test_confirmed_error_or_official_specs_never_use_partial_retention(self):
-        self.flow._generation_gate_result = {'errors': ['syntax error'], 'checked': [], 'deferred': []}
-        self.assertFalse(self.flow.retain_safe_no_spec_partial('REQ-5-2-2'))
-        self.flow._generation_gate_result = {'errors': [], 'checked': [], 'deferred': []}
-        self.flow.tests_dir = self.root / 'tests'
-        self.assertFalse(self.flow.retain_safe_no_spec_partial('REQ-5-2-2'))
-
-
 @unittest.skipUnless(shutil.which('node'), 'Node required')
 class QueryContractTests(unittest.TestCase):
     def test_absent_false_and_combined_flags_never_reset_visibility(self):

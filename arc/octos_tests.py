@@ -7,6 +7,10 @@ from pathlib import Path
 import subprocess
 
 
+class MissingTestSuiteError(RuntimeError):
+    """No supplied specs and Octos did not provide a usable suite."""
+
+
 def project_destination(output_dir: Path) -> Path:
     """Choose a new output directory without inspecting or replacing user files."""
     for index in range(100):
@@ -33,18 +37,19 @@ def generate_test_suite(binary: str, tree: dict, output_dir: Path, explicit: str
                                  '--output-dir', str(destination), '--requirements-sha256', fingerprint,
                                  '--exclude-integration'], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        log(f'[tests] octos test generation unavailable ({type(exc).__name__}); using existing test planning')
+        log(f'[tests] octos test generation unavailable ({type(exc).__name__})')
         return None
     if result.returncode:
-        log(f'[tests] octos test generation exited {result.returncode}; using existing test planning')
+        detail = result.stderr.strip().splitlines()[-1][:300] if isinstance(result.stderr, str) and result.stderr.strip() else ''
+        log(f'[tests] octos test generation exited {result.returncode}' + (f': {detail}' if detail else ''))
         return None
     try:
         receipt = json.loads(result.stdout)
     except ValueError:
-        log('[tests] octos returned no usable test response; using existing test planning')
+        log('[tests] octos returned no usable test response')
         return None
     if not isinstance(receipt, dict) or receipt.get('trusted') is not True:
-        log('[tests] octos did not return trusted=true; using existing test planning')
+        log('[tests] octos did not return trusted=true')
         return None
     log(f'[tests] octos supplied tests and business documents at {destination}')
     return destination, receipt

@@ -157,21 +157,18 @@ class EmbeddedSuiteTests(unittest.TestCase):
         changed={**self.tree,'description':'different'}
         with self.assertRaises(ValueError): verify_directory(self.directory,changed,'hackathon--sheet')
 
-    def test_octos_result_takes_precedence_over_existing_acceptance_specs(self):
+    def test_existing_acceptance_specs_take_precedence_over_octos(self):
         flow=Flow(argparse.Namespace(web_port=3000),self.root,self.root/'requirements')
         tree=yaml.safe_load((ROOT/'tasks/hackathon--github/requirements.yaml').read_text())
         flow.original_requirement_tree={**tree,'name':'arc-bench-web--GITHUB','description':'another GitHub task'}
-        directory=ROOT/'derived-tests/hackathon--github'
-        manifest=verify_directory(directory,flow.original_requirement_tree,'hackathon--github')
         flow.metric=Mock()
         with patch('main.locate_acceptance_tests',return_value=self.directory), \
                 patch('main.find_octos',return_value='octos'), \
-                patch('octos_tests.generate_test_suite',return_value=(directory,manifest)) as generate, \
-                patch('layered_tests.LayeredTests',side_effect=AssertionError('No spec generation')):
+                patch('octos_tests.generate_test_suite',side_effect=AssertionError('No spec generation')) as generate:
             flow.prepare_test_spec_source(flow.original_requirement_tree,[])
-        generate.assert_called_once()
+        generate.assert_not_called()
         self.assertTrue(flow.test_specs_trusted)
-        self.assertEqual(flow.frozen_suite['name'],'hackathon--github')
+        self.assertIsNone(flow.frozen_suite)
         self.assertIsNone(flow.layered)
 
     def test_changed_helper_missing_spec_and_extra_file_are_rejected(self):
@@ -232,21 +229,14 @@ class EmbeddedSuiteTests(unittest.TestCase):
                 Mock(returncode=0,stdout=json.dumps({'trusted':trusted}))):
                 self.assertIsNone(generate_test_suite('octos',self.tree,self.root,'hackathon--sheet'))
 
-    def test_failed_octos_generation_enters_the_existing_mechanical_pipeline(self):
+    def test_failed_octos_generation_stops_before_codegen(self):
         flow=Flow(argparse.Namespace(web_port=3000,trusted_tests=True),self.root,self.root/'requirements')
         flow.original_requirement_tree={'id':'ROOT','name':'unknown task','type':'FOLDER','children':[]}
-        layer=Mock()
-        flow.prepare_derived_tests=Mock(return_value=True)
-        flow.adopt_derived_specs=Mock()
         with patch('main.locate_acceptance_tests',return_value=None), patch('main.find_octos',return_value='octos'), \
-                patch('octos_tests.generate_test_suite',return_value=None) as generate, \
-                patch('layered_tests.LayeredTests',return_value=layer):
-            flow.prepare_test_spec_source(flow.original_requirement_tree,[])
+                patch('octos_tests.generate_test_suite',return_value=None) as generate:
+            with self.assertRaisesRegex(RuntimeError,'No official acceptance specs'):
+                flow.prepare_test_spec_source(flow.original_requirement_tree,[])
         generate.assert_called_once()
-        flow.prepare_derived_tests.assert_called_once_with([])
-        flow.adopt_derived_specs.assert_called_once_with([])
-        self.assertFalse(flow.test_specs_trusted)
-        self.assertIs(flow.layered,layer)
 
     def test_trusted_run_generates_and_tests_each_node_without_spec_queues(self):
         flow,runtime=self._run_trusted_source_flow()

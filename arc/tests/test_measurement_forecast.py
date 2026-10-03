@@ -72,30 +72,6 @@ class MeasurementForecast(unittest.TestCase):
         self.assertEqual(covered, ['A', 'B', 'C'])
         self.assertEqual(missing, [])
 
-    def test_generated_final_selection_counts_double_quoted_cases_and_uses_forecast(self):
-        f = self.flow
-        f.derived_as_specs = True
-        f.derived_has_runnable_cases = Mock(return_value=True)
-        f.derived_review_needed = Mock(return_value=False)
-        f.derived_case_selection = Mock(return_value=(20, {}))
-        f.remaining = Mock(return_value=500)
-        f.final_measurement_reserve = Mock(return_value=100)
-        f.repair_minimum = Mock(return_value=60)
-        f.wound_down = Mock(return_value=True)
-        f.record_full_suite = Mock()
-        # 20 cases need a 360s cold forecast, beyond the 340s allowance;
-        # counting only single-quoted titles would incorrectly admit this file.
-        (f.tests_dir / 'A.spec.ts').write_text('\n'.join(
-            f'test("case {i}",()=>{{}});' for i in range(20)) + '\ntest.setTimeout(60_000);')
-        f.run_specs = Mock(return_value=RunSummary(error='not measured'))
-        f.final_acceptance_passes()
-        f.run_specs.assert_not_called()
-        f._final_suite_attempted = False
-        f.remaining.return_value = 600
-        f.final_acceptance_passes()
-        f.run_specs.assert_called_once_with(['A.spec.ts'], workers=1, grader_like=True)
-        f.record_full_suite.assert_not_called()  # Admission is never certification.
-
     def test_unsupported_injection_is_harness_evidence_and_never_an_app_exception(self):
         summary = RunSummary(total=1, results=[TestOutcome('rollback', False, 'failed', 10,
             file='A.spec.ts', message='HARNESS_UNSUPPORTED: no injected failure was observed')])

@@ -627,42 +627,6 @@ class WholeAppTests(unittest.TestCase):
         self.assertFalse(any(call.args[0] == "test_failed" for call in flow.mark.call_args_list))
         self.assertTrue(all(flow.test_verdict[node["id"]] is None for node in self.nodes))
 
-    def test_auto_whole_app_is_no_spec_only_and_uses_derived_contract(self):
-        from requirement_contracts import compile_contracts
-        flow = self.flow
-        flow.tests_dir = None
-        flow.runner = None
-        flow.requirement_contracts = compile_contracts(self.nodes)
-        flow.whole_app_waves = Mock(return_value=True)
-        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
-            self.assertTrue(flow.whole_app_codegen(self.tree, self.nodes))
-        flow.whole_app_waves.assert_called_once_with(self.tree, self.nodes)
-
-        flow.tests_dir = self.root / "tests"
-        flow.runner = object()
-        flow.whole_app_waves.reset_mock()
-        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
-            self.assertFalse(flow.whole_app_codegen(self.tree, self.nodes))
-        flow.whole_app_waves.assert_not_called()
-
-    def test_forced_whole_app_uses_derived_contract_with_partial_generated_suite(self):
-        from requirement_contracts import compile_contracts
-        flow = self.flow
-        flow.derived_as_specs = True
-        flow.requirement_contracts = compile_contracts(self.nodes)
-        flow.spec_map["C"] = []
-        flow.codegen_implement_prompt = Mock(return_value="complete prompt")
-        def generated(*args, **kwargs):
-            flow.last_codegen_written = ["frontend/src/index.html"]
-            return True, "files"
-        flow.codegen_turn = Mock(side_effect=generated)
-        self.assertTrue(flow.whole_app_codegen(self.tree, self.nodes))
-        self.assertIn("derived from requirements.yaml", flow.codegen_implement_prompt.call_args.args[1])
-        flow.derived_as_specs = False
-        flow.codegen_turn.reset_mock()
-        self.assertFalse(flow.whole_app_codegen(self.tree, self.nodes))
-        flow.codegen_turn.assert_not_called()
-
     def test_partial_waves_only_generate_unreached_nodes_if_suite_unavailable(self):
         flow = self.flow
         flow.whole_app_codegen = Mock(return_value=True)
@@ -898,66 +862,6 @@ class WholeAppTests(unittest.TestCase):
         path.write_text('module.exports = [{ title: "Project ideas", content: "Draft" }];')
         self.assertEqual(flow.whole_app_wave_gaps(["REQ-SEED"]), [])
 
-    def test_real_route_gate_controls_the_no_spec_repair_branch(self):
-        from requirement_contracts import compile_contracts
-        flow = self.flow
-        flow.tests_dir = None
-        node = {"id": "A", "name": "Teams", "type": "ATOMIC", "description": "Show teams", "scenarios": []}
-        flow.requirement_contracts = compile_contracts([node])
-        flow.app_design_doc = {"pages": [{"path": "/orgs/:org/teams", "requirements": ["A"]}]}
-        path = self.root / 'frontend/src/OrganizationNavigation.jsx'
-        path.parent.mkdir(parents=True)
-        flow.codegen_implement_prompt = Mock(return_value='focused current source')
-        flow.codegen_turn = Mock(return_value=(False, 'incomplete'))
-        flow.whole_app_wave_targets = Mock(return_value=set())
-        flow.metric = Mock()
-        # Use the actual gate and repair dispatcher, not a mocked gaps list.
-        path.write_text('<Routes><Route element={<Org />} path="/orgs/:org"><Route element={<Teams />} path="teams" /></Route></Routes>')
-        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
-        flow.codegen_turn.assert_not_called()
-        path.write_text('<Routes>{dynamicRoutes}</Routes>')
-        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
-        flow.codegen_turn.assert_not_called()
-        self.assertTrue(any(c.kwargs.get('status') == 'unknown' for c in flow.metric.call_args_list))
-        path.write_text('<Routes><Route path="/orgs/:org" element={<Org />} /></Routes>')
-        gaps = flow.no_spec_feature_review(node, 10**12)
-        self.assertTrue(any('design page route missing' in gap for gap in gaps))
-        flow.codegen_turn.assert_called_once()
-        self.assertIn('requirement contract repair', flow.codegen_turn.call_args.args[2])
-
-    def test_clean_no_spec_feature_review_costs_no_second_model_turn(self):
-        from requirement_contracts import compile_contracts
-        flow = self.flow
-        flow.tests_dir = None
-        node = {"id": "REQ-1", "name": "Home", "type": "ATOMIC",
-                "description": "Show the home page", "scenarios": [{"name": "Open", "steps": [
-                    {"keyword": "GIVEN", "content": "The user opens the application."},
-                    {"keyword": "THEN", "content": "The home page is visible."}]}]}
-        flow.requirement_contracts = compile_contracts([node])
-        flow.whole_app_wave_gaps = Mock(return_value=[])
-        flow.codegen_turn = Mock()
-        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
-        flow.codegen_turn.assert_not_called()
-
-    def test_seed_gap_triggers_one_focused_no_spec_repair(self):
-        from requirement_contracts import compile_contracts
-        flow = self.flow
-        flow.tests_dir = None
-        node = {"id": "REQ-1", "name": "Seed", "type": "ATOMIC",
-                "description": 'The system contains a note titled “Project ideas”.',
-                "scenarios": []}
-        flow.requirement_contracts = compile_contracts([node])
-        flow.whole_app_wave_gaps = Mock(side_effect=[["SEED_DATA REQ-1 missing Project ideas"], []])
-        flow.whole_app_wave_targets = Mock(return_value=set())
-        flow.codegen_implement_prompt = Mock(return_value="repair prompt")
-        flow.codegen_turn = Mock(return_value=(True, "files"))
-        flow.codegen_context_chars = Mock(return_value=90000)
-        flow.remaining = Mock(return_value=4000)
-        flow.wound_down = Mock(return_value=False)
-        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
-        flow.codegen_turn.assert_called_once()
-        self.assertIn("requirement contract repair", flow.codegen_turn.call_args.args[2])
-
     def test_incomplete_group_is_split_instead_of_marked_complete(self):
         flow = self.flow
         flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
@@ -1025,33 +929,6 @@ class WholeAppTests(unittest.TestCase):
         flow.restore_app.assert_called_once_with("clean-sha")
         self.assertEqual(flow.whole_app_deferred_ids, {"A"})
         self.assertEqual(flow.whole_app_generated_ids, {"B", "C"})
-
-    def test_should_retain_clean_capped_leaf_when_official_specs_are_absent(self):
-        flow = self.flow
-        flow.tests_dir = None
-        flow.batch_spec_bodies = Mock(return_value="derived contract")
-        flow.app_design_doc = {"data_model": {}, "routes": [], "pages": [{"path": "/"}]}
-        flow.codegen_implement_prompt = Mock(return_value="wave prompt")
-        flow.whole_app_wave_targets = Mock(return_value=set())
-        flow.whole_app_wave_gaps = Mock(return_value=[])
-        flow.head = Mock(return_value="clean-sha")
-        flow.restore_app = Mock()
-        flow.retain_safe_no_spec_partial = Mock(return_value=True)
-
-        def capped(*args, **kwargs):
-            flow.last_codegen_written = ["frontend/src/feature.js"]
-            flow.last_codegen_no_change = False
-            flow.last_codegen_refused = set()
-            flow.last_codegen_outcome = "tool_incomplete"
-            return False, "local_turn_budget_exhausted"
-
-        flow.whole_app_generation_turn = Mock(side_effect=capped)
-        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP_WAVE_NODES": "1"}):
-            self.assertTrue(flow.whole_app_waves(self.tree, self.nodes))
-        flow.restore_app.assert_not_called()
-        self.assertEqual(flow.whole_app_partial_ids, {"A", "B", "C"})
-        self.assertEqual(flow.whole_app_generation_turn.call_count, 3)
-        self.assertTrue(flow.commit.called)
 
     def test_should_requote_refused_files_once_within_the_same_wave(self):
         flow = self.flow
@@ -1366,33 +1243,6 @@ class WholeAppTests(unittest.TestCase):
             self.assertEqual(call.kwargs["must_include"], {"frontend/src/App.jsx", "backend/lib/auth.js"})
         self.assertEqual(flow.whole_app_deferred_ids, {"A", "B", "C"})
 
-    def test_should_retry_no_spec_review_with_minimal_closure(self):
-        from requirement_contracts import compile_contracts
-        flow = self.flow
-        flow.tests_dir = None
-        node = {"id": "REQ-1", "name": "Seed", "type": "ATOMIC",
-                "description": 'The system contains a note titled “Project ideas”.', "scenarios": []}
-        flow.requirement_contracts = compile_contracts([node])
-        flow.whole_app_wave_gaps = Mock(side_effect=[
-            ["source check: backend/routes/notes.js: missing import"], []])
-        flow.whole_app_wave_targets = Mock(return_value={"frontend/src/App.jsx", "frontend/src/Big.jsx",
-                                                         "backend/routes/notes.js"})
-        flow.codegen_implement_prompt = Mock(side_effect=[None, "repair prompt"])
-        flow.codegen_turn = Mock(return_value=(True, "files"))
-        flow.codegen_context_chars = Mock(return_value=90000)
-        flow.remaining = Mock(return_value=4000)
-        flow.wound_down = Mock(return_value=False)
-        self.assertEqual(flow.no_spec_feature_review(node, 10**12), [])
-        self.assertEqual(flow.codegen_implement_prompt.call_args_list[1].kwargs["must_include"],
-                         {"frontend/src/App.jsx", "backend/routes/notes.js"})
-        flow.codegen_turn.assert_called_once()
-
-    def test_should_not_treat_a_timed_out_final_check_as_failure(self):
-        self.assertIsNone(m.Flow.final_check_verdict(False, "octos turn timed out"))
-        self.assertIsNone(m.Flow.final_check_verdict(False, "local_turn_budget_exhausted: partial edits"))
-        self.assertFalse(m.Flow.final_check_verdict(False, "startup failed: port in use"))
-        self.assertTrue(m.Flow.final_check_verdict(True, "all checks pass"))
-
     def test_should_discard_the_scaffold_runtime_store_before_grading(self):
         data = self.root / "backend/data"
         data.mkdir(parents=True)
@@ -1491,27 +1341,6 @@ class WholeAppTests(unittest.TestCase):
         plan = m.json.loads((flow.derived_tests_dir / "review" / "plan.json").read_text())
         self.assertTrue(plan["targets"])
         self.assertTrue(all(row["status"] == "unavailable" for row in plan["targets"]))
-
-    def test_should_report_derived_check_results_in_the_no_spec_verdict(self):
-        passed, detail = m.Flow.no_spec_node_verdict("B", True, True, {}, {"B": False})
-        self.assertFalse(passed)
-        self.assertIn("derived scenario checks", detail)
-        passed, detail = m.Flow.no_spec_node_verdict("A", True, True, {}, {"A": True})
-        self.assertTrue(passed)
-        self.assertIn("derived scenario checks pass", detail)
-
-    def test_should_fail_only_the_node_that_owns_a_final_seed_gap(self):
-        flow = self.flow
-        seeds = {"B": ["SEED_DATA B: required initial literal \"Acme\" is absent"]}
-        passed, _ = flow.no_spec_node_verdict("A", True, True, seeds)
-        self.assertIsNone(passed)  # static gaps absent is not measured behavior
-        passed, detail = flow.no_spec_node_verdict("B", True, True, seeds)
-        self.assertFalse(passed)
-        self.assertIn("Acme", detail)
-        passed, _ = flow.no_spec_node_verdict("A", False, True, seeds)
-        self.assertFalse(passed)
-        passed, _ = flow.no_spec_node_verdict("A", True, False, {})
-        self.assertFalse(passed)
 
     def test_wave_wiring_warnings_are_current_change_scoped(self):
         flow = self.flow
@@ -1623,48 +1452,6 @@ class DerivedSpecsAsAcceptanceTests(WholeAppTests):
         self.flow.tests_dir = None
         self.flow.spec_map = {}
         return self.nodes
-
-    def test_derived_specs_become_the_acceptance_suite(self):
-        flow = self.flow
-        nodes = self._derived()
-        self.assertTrue(flow.prepare_derived_tests(nodes))
-        flow.adopt_derived_specs(["A", "B", "C"])
-        self.assertEqual(flow.tests_dir, self.root / "derived-tests")
-        self.assertTrue(flow.derived_as_specs)
-        self.assertEqual(flow.spec_map["B"], ["B.spec.ts"])
-        prompt = flow.tests_prompt_for("B")
-        self.assertIn("derived from requirements.yaml", prompt)
-        self.assertIn("B.spec.ts", prompt)
-        self.assertIn("derived from requirements.yaml", flow.spec_bodies("B"))
-        self.assertIn("h.clickNamed(page, 'Open B')", flow.spec_bodies("B"))
-        metrics = [json.loads(row) for row in (self.root / ".arc" / "flow-metrics.jsonl").read_text().splitlines()]
-        self.assertEqual({row["node_id"] for row in metrics if row.get("kind") == "derived_spec_node"
-                          and row.get("phase") == "mechanical"}, {"A", "B", "C"})
-        # Generated specs still carry their origin, so auto selects waves and
-        # every failed derived test receives the generated-spec audit.
-        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
-            flow.runner = object()
-            from requirement_contracts import compile_contracts
-            flow.requirement_contracts = compile_contracts(nodes)
-            flow.whole_app_waves = Mock(return_value=True)
-            self.assertTrue(flow.whole_app_codegen(self.tree, nodes))
-            flow.whole_app_waves.assert_called_once_with(self.tree, nodes)
-
-    def test_missing_derived_specs_still_supply_contracts_to_default_waves(self):
-        from requirement_contracts import compile_contracts
-        flow = self.flow
-        nodes = self._derived()
-        flow.tests_dir = self.root / "tests"
-        flow.derived_as_specs = True
-        flow.requirement_contracts = compile_contracts(nodes)
-        flow.spec_map = {node["id"]: [] for node in nodes}
-        contract = flow.batch_spec_bodies(["A", "B", "C"])
-        self.assertNotEqual(contract, "(none)")
-        self.assertIn("Open B", contract)
-        flow.whole_app_waves = Mock(return_value=True)
-        with patch.dict(os.environ, {"OCTOS_ARC_WHOLE_APP": "auto"}):
-            self.assertTrue(flow.whole_app_codegen(self.tree, nodes))
-        flow.whole_app_waves.assert_called_once_with(self.tree, nodes)
 
     def test_partial_derived_batch_quotes_contract_for_uncovered_node(self):
         from requirement_contracts import compile_contracts

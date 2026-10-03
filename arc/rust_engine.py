@@ -246,6 +246,7 @@ def coordinated_main(args) -> int:
     user_interrupted = True
     completion_message = "completed"
     failure_reason = "rust engine did not complete"
+    missing_suite = False
     def terminate(_signum, _frame):
         nonlocal user_interrupted
         user_interrupted = _signum == signal.SIGINT
@@ -264,13 +265,27 @@ def coordinated_main(args) -> int:
         tree = legacy.load_requirement_tree(req_dir)
         runtime.traceability.store_requirement_tree(tree)
         tests_dir = legacy.locate_acceptance_tests(tree, BUNDLE_DIR)
-        octos_bin = legacy.find_octos()
-        from octos_tests import generate_test_suite
-        suite_name = getattr(args, 'test_suite', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
-        generated = generate_test_suite(octos_bin, tree, output_dir, suite_name, log,
-                                        requirements_path=req_dir / 'requirements.yaml')
-        if generated:
+        from octos_tests import MissingTestSuiteError
+        try:
+            octos_bin = legacy.find_octos()
+        except (OSError, ValueError) as exc:
+            if tests_dir is None:
+                raise MissingTestSuiteError(f'Octos test generation unavailable: {exc}') from exc
+            raise
+        if tests_dir is None:
+            from octos_tests import generate_test_suite
+            suite_name = getattr(args, 'test_suite', None) or os.environ.get('OCTOS_ARC_TEST_SUITE')
+            generated = generate_test_suite(octos_bin, tree, output_dir, suite_name, log,
+                                            requirements_path=req_dir / 'requirements.yaml')
+            if generated is None:
+                raise MissingTestSuiteError('No official acceptance specs and Octos could not provide a trusted test suite')
             tests_dir, _receipt = generated
+            specs = sorted(str(path.relative_to(tests_dir)) for path in tests_dir.rglob('*.spec.ts'))
+            node_ids = [str(node['id']) for node in legacy.topo_order(tree)]
+            mapping, _aliases = legacy.map_specs_to_nodes(specs, node_ids)
+            missing = [node_id for node_id in node_ids if not mapping.get(node_id)]
+            if not specs or missing:
+                raise MissingTestSuiteError(f'Octos test suite is empty or misses requirement nodes: {missing}')
         runtime.git.ensure_repo()
         spec_path = output_dir / ".arc" / "runner-spec.json"
         write_runner_spec(spec_path, req_dir=req_dir, output_dir=output_dir, web_port=args.web_port, tests_dir=tests_dir,
@@ -295,6 +310,8 @@ def coordinated_main(args) -> int:
     except (Exception, SystemExit) as exc:
         log(f"[engine] aborted: {exc!r}")
         failure_reason = f"rust engine exception: {type(exc).__name__}"
+        from octos_tests import MissingTestSuiteError
+        missing_suite = isinstance(exc, MissingTestSuiteError)
     for callback in [lambda: legacy._reap_stray_processes("postflight", output_dir),
                      lambda: legacy._postflight_structure_check(output_dir),
                      lambda: legacy._free_web_port(args.web_port, output_dir)]:
@@ -331,6 +348,9 @@ def coordinated_main(args) -> int:
         return 130
     if completed:
         return 0
+    if missing_suite:
+        log('[tests] no usable test suite; code generation was not started')
+        return 1
     return legacy.finish_partial_delivery(output_dir, failure_reason, events=runtime.events, web_port=args.web_port)
 
 

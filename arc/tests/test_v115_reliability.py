@@ -181,30 +181,6 @@ class TrustTests(unittest.TestCase):
             flow.whole_app_wave_design_items=Mock(return_value={'routes':[],'pages':[]})
             self.assertTrue(any('grid role' in gap for gap in flow.whole_app_wave_gaps(['R-2'])))
 
-    def test_final_generated_repair_uses_correct_node_and_retests_new_source(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory); (root/'A.spec.ts').write_text("test('A: approved', async () => {});\n")
-            (root/'backend').mkdir(); source=root/'backend/server.js'; source.write_text('broken')
-            flow=Flow(argparse.Namespace(web_port=3000),root,root)
-            flow.tests_dir=root; flow.derived_as_specs=True; flow.runner=SimpleNamespace(timeout_ms=1000)
-            flow.remaining=Mock(return_value=2000); flow.wound_down=Mock(return_value=False)
-            flow.final_measurement_reserve=Mock(return_value=100); flow.final_retry_admission=Mock(return_value=200)
-            flow.trusted_derived_case=Mock(return_value=True); flow.record_full_suite=Mock()
-            flow.derived_review_needed=Mock(side_effect=lambda node_id: node_id == 'B')
-            flow.derived_has_runnable_cases=Mock(side_effect=lambda node_id: node_id == 'A')
-            flow.test_verdict={'A':False,'B':True}
-            bad=RunSummary(total=1,passed=0,results=[TestOutcome('A: approved',False,'failed',1,file='A.spec.ts')])
-            good=RunSummary(total=1,passed=1,results=[TestOutcome('A: approved',True,'passed',1,file='A.spec.ts')])
-            flow.run_specs=Mock(side_effect=[bad,good])
-            def repair(node,specs,deadline,**kwargs):
-                self.assertEqual(node,'A'); self.assertTrue(flow._in_final_repair)
-                source.write_text('fixed'); return True
-            flow.acceptance_loop=Mock(side_effect=repair)
-            flow.final_acceptance_passes()
-            self.assertEqual(flow.run_specs.call_count,2); self.assertIsNone(flow.test_verdict['B'])
-            self.assertFalse(flow._in_final_repair)
-            self.assertIs(flow.record_full_suite.call_args.args[0],good)
-
     def test_terminal_snapshot_preserves_unverified_and_unknown_usage(self):
         with tempfile.TemporaryDirectory() as directory:
             flow=Flow(argparse.Namespace(web_port=3000),Path(directory),Path(directory))

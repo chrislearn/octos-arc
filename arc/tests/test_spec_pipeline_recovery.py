@@ -443,18 +443,6 @@ class PipelineRecovery(unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.flow.prepare_derived_spec_batch.call_args_list],
                          [nodes[:2], nodes[2:]])
 
-    def test_whole_app_queue_keeps_all_nodes_with_incomplete_design(self):
-        nodes = [{'id': key} for key in ('A', 'B', 'C')]
-        self.flow._design_blocked = {'A', 'B', 'C'}
-        self.flow.tests_dir = None; self.flow.evolution = False
-        self.flow.codegen_mode = Mock(return_value=True)
-        self.flow.requirement_contracts = {'nodes': nodes}
-        self.flow.batch_spec_bodies = Mock(return_value='original business requirements')
-        self.flow.whole_app_waves = Mock(return_value=True)
-        with patch.dict(os.environ, {'OCTOS_ARC_WHOLE_APP': 'auto'}):
-            self.assertTrue(self.flow.whole_app_codegen({'id': 'ROOT', 'children': nodes}, nodes))
-        self.assertEqual(self.flow.whole_app_waves.call_args.args[1], nodes)
-
     def test_no_spec_or_unapproved_dependency_does_not_cancel_node_development(self):
         self.flow.self_audit_node = Mock()
         self.flow.pending_dependencies = Mock(return_value=['missing-test-dependency'])
