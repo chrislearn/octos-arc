@@ -1268,7 +1268,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             flow.final_acceptance_passes()
         flow.final_acceptance.assert_called_once()
 
-    def test_default_outer_pass_limit_is_independent_of_run_turn_guard(self):
+    def test_default_allows_one_bounded_retry_independent_of_run_turn_guard(self):
         from unittest.mock import Mock, patch
         flow = self._flow([1])
         flow.driver = None
@@ -1279,7 +1279,7 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.final_acceptance = Mock()
         with patch.dict('os.environ', {}, clear=True):
             flow.final_acceptance_passes()
-        self.assertEqual(flow.final_acceptance.call_count, 1)
+        self.assertEqual(flow.final_acceptance.call_count, 2)
 
     def test_should_stop_repeating_once_the_full_suite_is_green(self):
         from unittest.mock import patch
@@ -1316,13 +1316,10 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_should_not_restore_when_last_round_is_best(self):
-        import os
-        os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "1"
-        try:
+        from unittest.mock import patch
+        with patch.dict('os.environ', {}, clear=True):
             flow = self._flow([0, 1])
             flow.final_acceptance()
-        finally:
-            del os.environ["OCTOS_FINAL_REPAIR_ROUNDS"]
         self.assertEqual(flow.restored, [])
         self.assertTrue(flow.test_verdict["REQ-1"])
 

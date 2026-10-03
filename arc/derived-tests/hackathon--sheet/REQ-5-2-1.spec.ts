@@ -276,3 +276,25 @@ test("REQ-5-2-1: audit regression: failed first rule save reports an error witho
   await h.choose(dialog,'Rule type','Number range');await h.field(dialog,'Minimum').fill('0');await h.field(dialog,'Maximum').fill('20');await h.button(dialog,'Save').click();await expect(dialog).toBeHidden();await h.edit(page,'A1','22');
   await expect(h.text(page,'Please enter a number between 0 and 20').first()).toBeVisible();await h.persisted(page,()=>h.values(page,{A1:'21'}));
 });
+
+test("REQ-5-2-1: benchmark regression: editing an interior cell reopens the full rule and changes every constrained cell", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.paste(page, 'A1', '10\n20');
+  await h.numericRule(page, 'A1', 'A2', '0', '100'); await page.reload();
+  await h.cell(page, 'A2').click(); await h.data(page, 'Data validation');
+  const dialog = page.getByRole('dialog', {name:'Data validation', exact:true});
+  await expect(h.button(dialog, 'Delete rule')).toBeVisible();
+  await expect(h.field(dialog, 'Maximum')).toHaveValue('100');
+  await h.field(dialog, 'Maximum').fill('30'); await h.button(dialog, 'Save').click();
+  await expect(dialog).toBeHidden();
+  await h.edit(page, 'A1', '31');
+  await expect(h.text(page, 'Please enter a number between 0 and 30').first()).toBeVisible();
+  await h.values(page, {A1:'10', A2:'20'});
+  await h.edit(page, 'A2', '31');
+  await expect(h.text(page, 'Please enter a number between 0 and 30').first()).toBeVisible();
+  await h.persisted(page, () => h.values(page, {A1:'10', A2:'20'}));
+  await h.cell(page, 'A1').click(); await h.data(page, 'Data validation');
+  await h.button(dialog, 'Delete rule').click(); await expect(dialog).toBeHidden();
+  await h.edit(page, 'A1', '31'); await h.edit(page, 'A2', '31');
+  await h.persisted(page, () => h.values(page, {A1:'31', A2:'31'}));
+});

@@ -15,7 +15,7 @@
       "root_name": "Core Requirements for an Online Spreadsheet Data Workspace",
       "requirements_sha256": "0cd43ed5e40610fee702ca65f4cc8acf876a146f494ec8edd69b296964ef5b99",
       "spec_count": 41,
-      "case_count": 248,
+      "case_count": 250,
       "review_status": "reviewed",
       "frozen": true,
       "trusted": true,

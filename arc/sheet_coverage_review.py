@@ -46,6 +46,8 @@ def coverage_review(tree, plan):
         ('REQ-4-1-1', 'insert-right and insert-below preserve references before the actual insertion and untouched axes', ['actual insertion']),
         ('REQ-4-1-2', 'mixed absolute axes move independently and copied columns cross the Z to AA boundary', ['mixed absolute axes', 'crosses Z to AA']),
         ('REQ-5-3-1', 'COUNT retains blank row groups and includes their records in the overall total', ['COUNT retains blank row groups']),
+        ('REQ-4-1-1', 'all five aggregate functions exclude boolean-looking text and blanks from their numeric inputs', ['benchmark regression: aggregates ignore boolean-looking text']),
+        ('REQ-5-2-1', 'opening a range rule from an interior cell changes and removes the constraint for the entire original range', ['benchmark regression: editing an interior cell']),
 
     ]
     reviewed = []

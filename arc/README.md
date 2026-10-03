@@ -177,7 +177,7 @@ v4.1 为全新 codegen 任务额外预置可选 `frontend/build.mjs`、`frontend
 | `OCTOS_ARC_WHOLE_APP_WAVE_NODES` / `OCTOS_ARC_CODEGEN_OUTPUT_TOKENS` | 6 / 输出上限的 60% | 波次同时受输入及估计输出预算限制；超预算先拆分，不先消耗一次截断请求 |
 | `OCTOS_ARC_MAX_TOTAL_TOKENS_ABS` | 0（关闭） | 逐请求检查的累计 token 阈值；provider usage 缺失时按请求输入和最大输出额度保守预留，达到后不再发上游请求；平台私有计量口径仍不可由客户端精确重建 |
 | `OCTOS_REPAIR_ROUNDS` / `OCTOS_MIN_REPAIR_SECONDS` | 小题 5、大于 2 节点 3 / 工具模式 300 s | 每节点验收修复轮上限；单请求代码修复默认以 60 s 为最低准入时间，再按近期实测耗时调高。显式设置的最低时间始终保留 |
-| `OCTOS_FINAL_REPAIR_ROUNDS` / `OCTOS_FINAL_SUITE_PASSES` | 3 / 3 | 每次全套验收最多 3 轮修复，默认最多 3 个周期。单次无有效改动允许在预算内切换一次定向策略，源码哈希未变时复用失败测量；连续无效尝试、连续无提升、全绿或时间/token/轮次守卫均可提前停止 |
+| `OCTOS_FINAL_REPAIR_ROUNDS` / `OCTOS_FINAL_SUITE_PASSES` | 1 / 2 | 全套验收默认提供一次定向修复及复测；无有效改动时，在测量、修复、复测仍有预算的前提下允许第二个周期改变策略。全绿、连续无提升或时间/token/轮次守卫会提前停止；显式配置可覆盖默认值 |
 | `OCTOS_ARC_PARTIAL_CONFIRM_RATIO` / `OCTOS_ARC_PARTIAL_CONFIRM_MAX_FAILURES` | 0.9 / 3 | 首次全套验收接近全绿且时间足够时，在改代码前对未改动应用确认一次；用于识别失败项轮换，不影响普通低分 suite |
 | `OCTOS_ARC_NO_WRITE_SECONDS` | 180 s | 结构化编辑至少消耗一半请求且仍未尝试写入时，达到该时长（或用完 75% 请求）后关闭继续读取/搜索，只保留写入工具或精确阻塞报告 |
 | `OCTOS_ARC_DEGENERATE_MAX_TOKENS` | 8192 | 检出大量空改动或重复 EDIT 后，本次运行后续无工具代码请求的输出上限；首次请求和设计不受影响，0 关闭；波次规划同步缩小预算 |

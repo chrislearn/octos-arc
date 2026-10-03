@@ -457,12 +457,14 @@ from embedded_sheet_b5b932_cases import register as register_sheet_b5b932
 register_sheet_b5b932(s)
 from embedded_sheet_reference_cases import register as register_sheet_references
 register_sheet_references(s)
+from embedded_sheet_benchmark_cases import register as register_sheet_benchmark
+register_sheet_benchmark(s)
 
 # The appended revisions still declare every UI prerequisite, without moving old cases.
 from embedded_case_phases import sheet_features
 for _rows in CASES['hackathon--sheet'].values():
     for _row in _rows:
-        if _row['title'].startswith(('audit regression:', 'b5b932 regression:')):
+        if _row['title'].startswith(('audit regression:', 'b5b932 regression:', 'benchmark regression:')):
             _row['requires'] = [_row['node_id']] + sorted((set(_row['requires']) | sheet_features(_row['body'])) - {_row['node_id']})
 
 from github_test_setup import annotate_github_setup

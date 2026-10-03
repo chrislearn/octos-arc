@@ -2156,6 +2156,7 @@ UI behavior follows the requirement and the current application:
 - Keep IDs unique and label associations correct. Repeated text and links can be valid. If an actual locator is ambiguous, inspect its scope and the intended interaction instead of deleting unrelated content. Scope assertions for repeated record values to their owning row; check containment when the contract asks for a substring in source content. Multiple invalid fields may each report their own reason. Do not delete valid records or validation messages to force page-wide text uniqueness.
 - Report operation success only after its real effect succeeds (for example, writing the displayed value to the clipboard). Keep one accessible feedback region for that operation and a stable action name for retry. Show recoverable failures instead of logging them silently. Bind asynchronous feedback to its record/value and open view; a late completion must not confirm a different selection. Let users perceive success before clearing it, and verify the actual effect as well as its message.
 - A control repeated once per item needs an accessible name that identifies its item, unless the contract prescribes repeated exact action names. When repeated exact names are explicitly required, preserve them and scope interactions to the intended item or position. Match the control role as well as its label: a textbox, radio and line-action button can legitimately share words without being interchangeable targets.
+- When a requirement names options in a combo box but does not require a native select, expose its opened choices as visible, pointer-clickable ARIA options and keep keyboard selection usable. Give each exact-name combo box a separate label linked to its trigger; wrapping the entire option tree inside a label can turn the label text into all option names. A native select is appropriate when the contract specifically requires native selection.
 - Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input.
 - Derive state ownership and persistence from requirements: distinguish per-view, per-session and shared data. Do not reset persisted user data on startup. For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it. Provide a loading state when initialization is asynchronous.
 - Navigation readiness: keep authorized shared navigation mounted while page data loads. Separate initial loading from background refresh of the same owner; refresh must not unmount usable controls or reset drafts. A changed URL is not proof the destination rendered. Async routes and loading states are valid: expose meaningful pending UI and verify the next required control becomes usable. Verify the complete discovery chain from a cold home page and a fresh sign-in, through named records and nested navigation, to the final action. Keep public discovery independent of session loading; a ready route shell alone does not prove its required data links are ready. Keep primary entry controls usable when lists grow.
@@ -2232,6 +2233,7 @@ Packages: update package.json and the build script only for required dependencie
 Data: seed only a new store or migration; preserve edits/deletions across restarts. Use atomic aggregate updates for related state and server-side validation. Persist deadlines, distinguish calendar dates from timestamps. Label rich-text textbox regions; use native select when native selection is required.
 HTTP: 400 malformed, 401 unauthenticated (challenge), 403 forbidden, 404 missing, 409 conflict, consistent 400/422 validation. Honor explicit codes; no 2xx or partial writes on rejection.
 Rules: handle general inputs and preserve working behavior. Honor required roles/names and unique IDs; links use an anchor with href or Router Link. Per-item actions target their item; hidden menus must not intercept input. Use distinct names for menu triggers versus destinations. Put each named control where the requirement places it (page/settings/menu/dialog), exact text; a control said to show a value (username) shows it. Resolve ambiguity within the intended record or dialog; repeated names across distinct records or navigation regions can be valid. Do not remove legitimate controls to make a global locator unique. Closing an editor saves pending fields/options only if required; explicit Cancel discards the draft. Navigation renders the selected view; visual options visibly change the item. Derive behavior from requirements, not test outputs.
+Combo boxes: when the requirement names options and does not prescribe a native select, render opened options as visible, pointer-clickable role=option elements and support keyboard choice. Link each exact-name label to its trigger with htmlFor/id or an equivalent labelled-by reference; do not wrap its entire option tree in the label. Keep any explicitly native selection contract native.
 Structure: use feature modules for large editors. Keep stable IDs across UI/API labels. Recoverable operation errors must not unmount working controls. Register backend routes once; keep helpers outside auto-discovered root modules.
 Navigation/session: preserve authorized navigation and usable controls during same-owner background refresh; distinguish that from first load. Invalidate old reads and clear identity data on logout/account change/confirmed expiry; stale success, catch and finally must not publish. Check destination controls, not only the URL. Loading states and transitions remain valid when their pending and completion behavior is verified.
 Async: clicks do not await handlers. Mount usable editor/dialog controls before the first await; isolate background only for modal overlays. Await save and list refresh (or update optimistically); retain edits on failure.
@@ -12751,7 +12753,11 @@ class Flow:
         unverified = [n for n, v in self.test_verdict.items() if v is not True] or [n for n in self.spec_map if n and self.spec_map[n] and (n not in self.test_verdict)]
         if len(all_specs) < 2 and (not unverified):
             return
-        rounds = int(os.environ.get('OCTOS_FINAL_REPAIR_ROUNDS', '0'))
+        # A full-suite measurement can reveal shared failures that every
+        # per-node run missed. Give those failures one bounded repair and a
+        # remeasurement by default; the existing time and cost guards still
+        # decide whether a repair can actually start.
+        rounds = max(0, int(os.environ.get('OCTOS_FINAL_REPAIR_ROUNDS', '1')))
         self.metric('effective_final_policy', repair_rounds=rounds,
                     source='environment' if 'OCTOS_FINAL_REPAIR_ROUNDS' in os.environ else 'python_default',
                     full_suite=True)
@@ -13076,7 +13082,7 @@ class Flow:
                     and all(any(path == spec or path.endswith("/" + spec) for path in observed) for spec in specs))
 
     def final_acceptance_passes(self) -> None:
-        """Admit at most one affordable full suite after generation is attempted."""
+        """Admit bounded full-suite measurements and repairs after generation."""
         if getattr(self, "layered", None) is not None:
             return self.layered.final_verify()
         if getattr(self, "_final_suite_attempted", False):
@@ -13168,7 +13174,9 @@ class Flow:
         configured_passes = os.environ.get("OCTOS_FINAL_SUITE_PASSES")
         # A large implementation allowance is not permission for hundreds of
         # full-suite repair passes. Each pass already contains several repairs.
-        passes = max(1, int(configured_passes)) if configured_passes is not None else 1
+        # A no-op first repair may need a different, targeted approach. The
+        # second pass is admitted only when a complete retry still fits.
+        passes = max(1, int(configured_passes)) if configured_passes is not None else 2
         stalled_passes = 0
         unchanged_passes = 0
         retry_measurement = None

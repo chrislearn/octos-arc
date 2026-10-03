@@ -165,3 +165,20 @@ test("REQ-4-1-1: audit regression: insert below preserves references above the a
   await h.formula(page,'B4','=A1+A2','30');await h.structure(page,'row','1','Insert 1 row below');
   await h.persisted(page,async()=>{await h.values(page,{A1:'10',A2:'',A3:'20'});await h.formula(page,'B5','=A1+A3','30');});
 });
+
+test("REQ-4-1-1: benchmark regression: aggregates ignore boolean-looking text as well as blanks and ordinary text", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+  await h.blank(page); await h.paste(page, 'A1', '2\nTRUE\nFALSE\nplain');
+  const formulas = [
+    ['B1', '=COUNT(A1:A5)', '1'],
+    ['B2', '=SUM(A1:A5)', '2'],
+    ['B3', '=AVERAGE(A1:A5)', '2'],
+    ['B4', '=MIN(A1:A5)', '2'],
+    ['B5', '=MAX(A1:A5)', '2'],
+  ] as const;
+  for (const [at, expression] of formulas) await h.edit(page, at, expression);
+  await h.persisted(page, async () => {
+    await h.values(page, {A1:'2', A2:'TRUE', A3:'FALSE', A4:'plain', A5:''});
+    for (const [at, expression, result] of formulas) await h.formula(page, at, expression, result);
+  });
+});

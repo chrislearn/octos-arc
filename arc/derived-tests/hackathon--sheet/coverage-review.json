@@ -72,7 +72,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-1": {
-      "exported_case_count": 23,
+      "exported_case_count": 24,
       "complete_clause_coverage_claimed": false
     },
     "REQ-4-1-2": {
@@ -96,7 +96,7 @@
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-2-1": {
-      "exported_case_count": 31,
+      "exported_case_count": 32,
       "complete_clause_coverage_claimed": false
     },
     "REQ-5-3-1": {
@@ -691,6 +691,32 @@
         {
           "file": "REQ-5-3-1.spec.ts",
           "title": "REQ-5-3-1: audit regression: COUNT retains blank row groups and all source records in totals"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-4-1-1",
+      "behavior": "all five aggregate functions exclude boolean-looking text and blanks from their numeric inputs",
+      "basis": "Users enter formulas beginning with an equals sign through the grid or formula bar in REQ-3-1-1. Formulas must support at least numeric constants, parentheses, addition, subtraction, multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT, MIN, and MAX over contiguous ranges; cross-worksheet references are not required. The grid displays results calculated from the current source data, and when a formula cell is selected the formula bar displays the original expression entered by the user; both persist after refresh. Function names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero.\nPage reference:\n![image](reference/basic-formulas.png)\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-4-1-1.spec.ts",
+          "title": "REQ-4-1-1: benchmark regression: aggregates ignore boolean-looking text as well as blanks and ordinary text"
+        }
+      ],
+      "status": "executable_source_reviewed",
+      "product_certification": false
+    },
+    {
+      "requirement_id": "REQ-5-2-1",
+      "behavior": "opening a range rule from an interior cell changes and removes the constraint for the entire original range",
+      "basis": "Users select a target range and click \"Data validation\" in the \"Data\" menu. A dialog named \"Data validation\" provides a combo box labeled \"Rule type\"; \"Dropdown\" uses a text box labeled \"Allowed values\", where comma-separated items are trimmed of leading and trailing spaces; \"Number range\" uses text boxes labeled \"Minimum\" and \"Maximum\"; the \"Save\" button applies an inclusive rule. After a valid save succeeds, the dialog closes. A dropdown cell provides a button with the accessible name \"Open dropdown for <cell coordinate>\"; each option uses the ARIA option role and the trimmed allowed value as its accessible name. If an invalid value is entered through the grid, formula bar, paste, or range move, the entire operation is rejected and the original value remains; an invalid dropdown value displays \"Please select one of the following values: <comma-separated allowed values>\", while an invalid number displays \"Please enter a number between <minimum> and <maximum>\". In the persisted multi-cell 0-to-100 boundary scenario, rejecting 101 in B3 displays \"Please enter a number from 0 to 100\". If any target in a bulk operation is invalid, all targets retain their original values. Rules remain active after refresh. When an existing rule is reopened, the dialog is prefilled with the rule type and parameters and displays a \"Delete rule\" button; saving a modification makes the new range effective immediately, deleting removes the constraint, and either successful operation closes the dialog without changing existing cell values.\n",
+      "exported_witnesses": [
+        {
+          "file": "REQ-5-2-1.spec.ts",
+          "title": "REQ-5-2-1: benchmark regression: editing an interior cell reopens the full rule and changes every constrained cell"
         }
       ],
       "status": "executable_source_reviewed",

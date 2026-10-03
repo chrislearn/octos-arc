@@ -1443,7 +1443,10 @@ class AcceptanceRunner:
             # snapshot and the action trace now carry that whichever timeout
             # fires.
             f"expect: {{ timeout: {self.timeout_ms} }}, "
-            f"use: {{ headless: true, trace: 'on', screenshot: 'only-on-failure', "
+            # Each isolated spec creates another evidence directory. Retain
+            # action traces for failed cases without copying thousands of
+            # successful-case trace.zip files into the delivered project.
+            f"use: {{ headless: true, trace: 'retain-on-failure', screenshot: 'only-on-failure', "
             f"baseURL: process.env.E2E_BASE_URL }} }});\n")
         return self.work_dir / "playwright.config.ts"
 

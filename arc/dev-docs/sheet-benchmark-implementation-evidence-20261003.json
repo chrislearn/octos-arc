@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-03",
+  "source_runs": {
+    "high": "8aa637d019a5",
+    "low": "8ff1885a8162"
+  },
+  "method": "Copied each run's original frontend/ and backend/ source to a separate temporary directory, built and started it with a fresh ARC_DATA_DIR, then ran the same Playwright 1.62.1 Chromium probes against each app.",
+  "compatibility_probe": {
+    "spec": "arc/sheet-compatibility/visible-options.spec.ts",
+    "high": {"passed": 4, "total": 4},
+    "low": {"passed": 0, "total": 4},
+    "low_first_failures": {
+      "sort": "Sales native option is not visible to click",
+      "filter": "Before native option is not visible to click",
+      "validation": "Dropdown native option is not visible to click",
+      "pivot": "Pivot table editor region is visible, but the evaluator-style getByLabel(/^(rows)$/i) cannot find the Rows control"
+    },
+    "interpretation": "This probes visible-option interaction compatibility. It is separate from the frozen requirement verdict and does not reproduce every unavailable official assertion."
+  },
+  "new_requirement_witnesses": {
+    "files": ["arc/derived-tests/hackathon--sheet/REQ-4-1-1.spec.ts", "arc/derived-tests/hackathon--sheet/REQ-5-2-1.spec.ts"],
+    "high": {"passed": 2, "total": 2},
+    "low": {"passed": 0, "total": 2},
+    "low_first_failures": {
+      "aggregates": "COUNT(A1:A5) expected 1 numeric cell but displayed 3 after TRUE/FALSE text inputs",
+      "validation": "Delete rule is not present after selecting interior cell A2 of the A1:A2 rule"
+    }
+  },
+  "evidence_retention": {
+    "playwright_trace_policy": "retain-on-failure",
+    "high_success_traces": 0,
+    "low_failure_traces": 4,
+    "low_failure_trace_directory_size": "approximately 2.0 MiB"
+  },
+  "suite_export": {"source_cases": 250, "exported_requirement_cases": 197, "integration_cases_retained_at_source": 53},
+  "official_score_after_changes": null
+}

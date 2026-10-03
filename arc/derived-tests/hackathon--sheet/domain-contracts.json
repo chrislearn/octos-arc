@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sha256": "92eefb8f00c4447bed60f07c773f2a568d8659b538d24bd0c438c426dcb4d28d",
+  "sha256": "78cea68b68da691700c04bbb36bbf1cafeb12e791ae28c4e0ffa43e756f58b6a",
   "requirements": {
     "ROOT": "A streamlined online spreadsheet application with an interface modeled after Google Sheets, covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and filtering, data validation, and basic pivot analysis. Sharing and collaboration, version-history restoration, advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external office suites are outside the core scope.\n\n[]",
     "REQ-1": "Supports viewing, opening, creating, renaming, importing, and exporting workbooks within the application. The home page is the entry point for workbooks; successful open, create, and import operations all enter the same editor page, and subsequent operations may modify only the currently opened workbook. After a workbook is opened, created, or imported, the editor state shown in the browser must be a stable workbook state: visiting or refreshing that exact workbook state must open the same workbook rather than another workbook or a temporary blank page, and successful workbook modifications must remain available through that visible workbook state. After returning to the home page or reopening, the workbook name, last-updated time, worksheet order, and last active worksheet remain consistent. Worksheet tabs on the same editor page use the ARIA tab role, with the active tab indicated by aria-selected=\"true\"; the active worksheet grid uses the ARIA grid role, has the accessible name \"Worksheet grid\", and exposes aria-multiselectable=\"true\". Grid cells use the ARIA gridcell role with their cell coordinates as accessible names (for example, A1); the current cell and every cell within the currently selected rectangular region expose aria-selected=\"true\", while cells outside the region expose aria-selected=\"false\".\n\n[]",
@@ -88,7 +88,7 @@
         "selection": "most recently confirmed complete rectangular selection and current cell",
         "validation_rules": "range-scoped ValidationRule states",
         "filter_views": "range-scoped FilterView states",
-        "pivot_state": "optional PivotTable configuration/results associated with this worksheet"
+        "pivot_state": "on a pivot result worksheet, the persistent configuration, source worksheet link, last successful result and refresh validity; source worksheets remain independently editable"
       },
       "identity": "A named tab represents one worksheet in one workbook. Worksheet order and active state identify the most recent successful state without leaking another worksheet's values, formulas, rules, filters or pivot state.",
       "storage": "Names, order, last active sheet, complete selections, values/formulas, rules, filters and pivot configuration/results are persistent per worksheet.",
@@ -196,7 +196,7 @@
         "maximum": "for Number range: inclusive numeric upper bound"
       },
       "identity": "A dropdown or inclusive numeric constraint belongs to a selected worksheet range. Its range follows originally constrained cells; deleted target rules are removed.",
-      "storage": "Persist effective type and parameters; reopening the existing rule exposes its saved parameters and Delete rule control.",
+      "storage": "Persist effective type, original covered range and parameters; selecting an interior cell reopens that containing rule with its saved parameters and Delete rule control. Modification and deletion affect the full original range.",
       "entity": "ValidationRule",
       "producers": [
         "Save/modify/delete Data validation rule",
@@ -269,7 +269,7 @@
         "refresh_validity": "whether current source range/selected fields can produce a valid replacement"
       },
       "identity": "A pivot associates a current source worksheet/range and selected source fields with a separate result worksheet; source fields track structural movement, while a deleted selected field becomes unavailable.",
-      "storage": "Persist successful field layout, summarization method and complete last successful result. Source edits/structure changes do not replace this result until explicit successful refresh.",
+      "storage": "The result worksheet owns the persistent field layout, source link, summarization method, refresh validity and complete last successful result. Source edits/structure changes do not replace this result until explicit successful refresh; deleting a selected source field retains the result and marks refresh invalid.",
       "entity": "PivotTable",
       "producers": [
         "Create pivot table",
@@ -808,10 +808,10 @@
         "REQ-5-2-1"
       ],
       "preconditions": [
-        "Select target range; Data validation Rule type/parameters; existing rule opens prefilled with Delete rule."
+        "Select target range; Data validation Rule type/parameters; selecting any covered interior cell reopens the existing rule prefilled with Delete rule."
       ],
       "effects": [
-        "Save trimmed Dropdown options or inclusive Number range; close on successful save/modify/delete without changing current values; enforce new saved constraint through every input/transfer path."
+        "Save trimmed Dropdown options or inclusive Number range; modification/deletion changes the entire original covered range; close on success without changing current values; enforce the new saved constraint through every input/transfer path."
       ],
       "rejected_effects": [
         "Invalid grid/formula/paste/move value shows required dropdown/numeric error; any invalid bulk target retains every original source/target value."
@@ -828,10 +828,10 @@
         "REQ-5-3-1"
       ],
       "preconditions": [
-        "Select header source; Data Create pivot table dialog shows Source range: <range>, New worksheet and Create; Pivot table editor chooses Rows/optional Columns/Values/Summarize by then Apply."
+        "Select header source; Data Create pivot table dialog shows Source range: <range>, New worksheet and Create; the new result worksheet exposes Pivot table editor with Rows/optional Columns/Values/Summarize by then Apply."
       ],
       "effects": [
-        "Create first unused PivotN result sheet; aggregate all qualifying source rows including hidden rows using required numeric/nonempty semantics; order groups by first appearance with Grand Totals; persist successful configuration/results; explicit refresh fully replaces old results with current adjusted source."
+        "Create first unused PivotN result sheet and link it persistently to the source; aggregate all qualifying source rows including hidden rows using required numeric/nonempty semantics; order groups by first appearance with Grand Totals; persist successful configuration/results; explicit refresh fully replaces old results with current adjusted source."
       ],
       "rejected_effects": [
         "Deleted selected header shows Pivot field is no longer available. Select a new field.; nonnumeric-only SUM/AVERAGE shows Value field requires numeric values; other invalid range/field gives visible error; preserve source and complete last successful result."

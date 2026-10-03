@@ -469,7 +469,7 @@ class RepairOutcomeTests(unittest.TestCase):
             flow.final_acceptance_passes()
         self.assertEqual(flow.final_acceptance.call_count, 2)
 
-    def test_default_final_pass_cap_does_not_scale_with_tree(self):
+    def test_default_final_pass_cap_is_two_even_for_large_tree(self):
         self.prepare_final_suite()
         flow = self.flow
         flow.remaining = lambda: 50000
@@ -481,7 +481,7 @@ class RepairOutcomeTests(unittest.TestCase):
         flow.final_acceptance = Mock()
         with patch.dict("os.environ", {}, clear=True):
             flow.final_acceptance_passes()
-        self.assertEqual(flow.final_acceptance.call_count, 1)
+        self.assertEqual(flow.final_acceptance.call_count, 2)
 
     def test_final_pass_progress_resets_stall_counter(self):
         self.prepare_final_suite()

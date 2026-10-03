@@ -72,7 +72,7 @@ rounds_large_tree = 3   # v11.7 progresses to 5 on measured improvement; trees w
 large_tree_nodes = 2
 codegen_repairs = 2     # OCTOS_ARC_CODEGEN_REPAIRS — codegen repairs before falling back to tool mode
 rewrite_on_zero = true  # OCTOS_ARC_REWRITE_ON_ZERO — one full rewrite on zero passes, only before any behavior is verified
-final_rounds = 0        # Python default; opt in with OCTOS_FINAL_REPAIR_ROUNDS (TOML is advisory)
+final_rounds = 1        # Python default; guarded by available repair and remeasurement time (TOML is advisory)
 stall_limit = 2         # stop a node after this many repairs without improvement
 regression_limit = 2    # roll back to the best commit after this many consecutive regressions
 
